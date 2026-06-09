@@ -60,12 +60,16 @@ file, add it to `.gitignore` BEFORE committing. GitHub push-protection is the ba
 ### The `//save` trigger (owner-flagged context capture)
 
 When the owner types **`//save`** (or the `/save` slash command) in chat, treat it as an explicit
-instruction to capture the recent essential conversation into project memory:
-1. **Distill** the meaningful part of the recent exchange into a concise, dated entry (newest at the
-   bottom). If the owner added a note (`//save: <note>`), weave it in.
+instruction to capture the **latest topic discussed** into project memory:
+1. **Distill the latest topic** — identify the most recent topic/thread in the conversation and
+   pull out the essentials that are **useful to the project/app in general**: decisions, methods,
+   findings, reusable patterns, gotchas. Skip one-off trivia, chit-chat, and abandoned dead-ends.
+   Write it as a concise, dated entry (newest at the bottom). If the owner added a note
+   (`//save: <note>`), weave it in.
 2. **Append** it to `WORKLOG.md` (session narrative) — or to `CASES.md` if it's a solved client
    scenario / finding.
-3. **Commit + push** (`git add -A && git commit -m "context: <summary>" && git push`).
+3. **Commit AND push, automatically** (`git add -A && git commit -m "context: <summary>" && git push`)
+   — never pause to ask permission; pushing to GitHub is part of the trigger.
 4. **Confirm** in one line: what was captured + that it's pushed.
 
 This is the owner's "this mattered, keep it" button. It works from **any account** because this
