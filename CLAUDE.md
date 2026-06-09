@@ -57,6 +57,21 @@ push-after keeps everything in sync with no conflicts.
 `.upwork_token.json`, `upwork_jobs.db`, `share-with-claude.md`. If you add a new secret-bearing
 file, add it to `.gitignore` BEFORE committing. GitHub push-protection is the backstop, not the plan.
 
+### The `//save` trigger (owner-flagged context capture)
+
+When the owner types **`//save`** (or the `/save` slash command) in chat, treat it as an explicit
+instruction to capture the recent essential conversation into project memory:
+1. **Distill** the meaningful part of the recent exchange into a concise, dated entry (newest at the
+   bottom). If the owner added a note (`//save: <note>`), weave it in.
+2. **Append** it to `WORKLOG.md` (session narrative) — or to `CASES.md` if it's a solved client
+   scenario / finding.
+3. **Commit + push** (`git add -A && git commit -m "context: <summary>" && git push`).
+4. **Confirm** in one line: what was captured + that it's pushed.
+
+This is the owner's "this mattered, keep it" button. It works from **any account** because this
+instruction lives in `CLAUDE.md` (every instance reads it) and the files live in the repo. Never
+paste raw secrets — distill, don't copy.
+
 ## Working conventions
 - Tactical fixes: just make them, don't ask.
 - Strategic / multi-file / multi-day work: check in before starting.
