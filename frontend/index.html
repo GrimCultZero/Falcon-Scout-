@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- The `style` attribute on <html> is the earliest possible style declaration
+     the browser sees — set BEFORE the head's <meta charset>. This guarantees
+     the page paints dark from the very first frame, eliminating the white flash. -->
+<html lang="en" style="background-color:#0a2c40">
+  <head>
+    <!-- Critical inline style: must come right after charset so a solid dark
+         color is the very first paint. Using background-color (solid) is faster
+         to compute than a gradient; the radial gradient layers on top once parsed. -->
+    <meta charset="UTF-8" />
+    <style>
+      html { background-color: #0a2c40; height: 100%; }
+      body {
+        background-color: transparent;
+        background-image: radial-gradient(ellipse at center, #114c66 0%, #0d3548 45%, #061525 100%);
+        margin: 0; min-height: 100%;
+      }
+      #root { background: transparent; }
+    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a2c40" />
+    <title>Falcon Scout</title>
+    <link rel="icon" type="image/png" sizes="16x16"   href="/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32"   href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="64x64"   href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="128x128" href="/favicon-128.png" />
+    <link rel="apple-touch-icon" href="/favicon-128.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

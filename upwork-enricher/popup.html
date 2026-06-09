@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 290px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      background: #f4f6f8;
+      color: #1a2332;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px 10px 14px;
+      background: linear-gradient(90deg, #0d3548 0%, #114c66 50%, #0d3548 100%);
+      border-bottom: 1px solid rgba(0,200,212,0.20);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+    }
+    .logo-icon {
+      display: block;
+      flex-shrink: 0;
+      filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35));
+    }
+    .itforce-mark {
+      display: block;
+      flex-shrink: 0;
+      /* IT Force source is dark; recolour to pure white for the dark header */
+      filter: brightness(0) invert(1);
+    }
+    .wordmark { display: flex; flex-direction: column; gap: 3px; }
+    .wordmark-top {
+      font-size: 20px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 0.01em;
+      line-height: 1;
+    }
+    .wordmark-top span { color: #00c8d4; }
+    .byline {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .byline-text { font-size: 8px; color: rgba(255,255,255,0.50); font-weight: 500; letter-spacing: 0.08em; }
+    .itforce-name { font-size: 8px; color: rgba(255,255,255,0.65); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+
+    .body { padding: 14px 16px; }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #4a5568;
+      margin-bottom: 14px;
+    }
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #00e070;
+      box-shadow: 0 0 6px #00e070;
+      animation: pulse 2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    .dot.error { background: #e05050; box-shadow: 0 0 5px #e05050; animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+    .info {
+      font-size: 11px;
+      color: #9aa5b4;
+      line-height: 1.6;
+      border-top: 1px solid #dde1e7;
+      padding-top: 12px;
+    }
+    .last-job {
+      background: #fff;
+      border: 1px solid #dde1e7;
+      border-radius: 5px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      font-size: 11px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .last-job-label { color: #9aa5b4; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; font-size: 10px; }
+    .last-job-id { color: #00c8d4; font-family: monospace; font-weight: 600; }
+    .last-job-time { color: #9aa5b4; margin-top: 2px; }
+    .enriched-data { margin-top: 8px; }
+    .field { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #eaecef; font-size: 11px; }
+    .field-label { color: #9aa5b4; }
+    .field-value { color: #1a2332; font-weight: 500; }
+    .field-value.good { color: #00c8d4; }
+    .field-value.bad  { color: #e05050; }
+
+    .capture-section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #dde1e7;
+    }
+    .capture-label { font-size: 10px; color: #9aa5b4; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+    .capture-btn {
+      width: 100%;
+      padding: 9px 12px;
+      background: linear-gradient(135deg, #00c8d4 0%, #0090a8 100%);
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 12px;
+      font-family: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      letter-spacing: 0.04em;
+      box-shadow: 0 3px 12px rgba(0,200,212,0.28), 0 1px 4px rgba(0,0,0,0.10);
+      transition: box-shadow 0.15s, transform 0.1s;
+    }
+    .capture-btn:hover:not(:disabled) {
+      box-shadow: 0 4px 18px rgba(0,200,212,0.40), 0 1px 5px rgba(0,0,0,0.12);
+      transform: translateY(-1px);
+    }
+    .capture-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .capture-status {
+      margin-top: 8px;
+      font-size: 11px;
+      line-height: 1.5;
+      min-height: 16px;
+      color: #9aa5b4;
+    }
+    .capture-status.ok  { color: #00d070; }
+    .capture-status.err { color: #e05050; }
+
+    /* Clickable success text — opens the dashboard's Outcomes tab */
+    .status-link {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(0,200,212,0.5);
+      text-underline-offset: 2px;
+      cursor: pointer;
+      transition: color 0.12s, text-decoration-color 0.12s;
+    }
+    .status-link:hover {
+      color: #00c8d4;
+      text-decoration-color: #00c8d4;
+    }
+    .last-captured {
+      margin-top: 10px;
+      background: #fff;
+      border: 1px solid #dde1e7;
+      border-radius: 5px;
+      padding: 8px 10px;
+      font-size: 11px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .last-captured-label { color: #9aa5b4; text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; margin-bottom: 3px; }
+    .last-captured-title { color: #1a2332; font-weight: 500; }
+    .last-captured-time  { color: #9aa5b4; margin-top: 2px; }
+
+    .debug-panel {
+      margin-top: 10px;
+      background: #1a2332;
+      color: #d4dce5;
+      border-radius: 5px;
+      padding: 8px 10px;
+      font-size: 10px;
+    }
+    .debug-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .debug-label {
+      color: #00c8d4;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .debug-copy-btn {
+      background: rgba(0,200,212,0.15);
+      color: #00c8d4;
+      border: 1px solid rgba(0,200,212,0.35);
+      border-radius: 3px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .debug-copy-btn:hover { background: rgba(0,200,212,0.25); }
+    .debug-copy-btn.copied { background: #00d070; color: #fff; border-color: #00d070; }
+    .debug-content {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 10px;
+      line-height: 1.55;
+      color: #b8c1cc;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 240px;
+      overflow-y: auto;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <!-- Falcon Scout logo: real PNG mark -->
+    <img class="logo-icon" src="falcon-scout-mark.png" alt="Falcon Scout" width="60" height="60" style="object-fit:contain"/>
+
+    <div class="wordmark">
+      <div class="wordmark-top">Falcon<span> Scout</span></div>
+      <div class="byline">
+        <span class="byline-text">by</span>
+        <img class="itforce-mark" src="it_force_logo.png" alt="IT Force" height="11" style="width:auto;opacity:0.85"/>
+      </div>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="status">
+      <div class="dot" id="dot"></div>
+      <span id="status-text">Monitoring Upwork job pages</span>
+    </div>
+
+    <div id="last-job" class="last-job" style="display:none">
+      <div class="last-job-label">Last enriched</div>
+      <div class="last-job-id" id="last-job-id">—</div>
+      <div class="last-job-time" id="last-job-time">—</div>
+      <div class="enriched-data" id="enriched-data"></div>
+    </div>
+
+    <div class="info" id="job-info">
+      Open a job on Upwork — the extension extracts data and sends it to your local Falcon Scout dashboard automatically.
+    </div>
+
+    <!-- Shown on job pages when the user has already submitted a proposal
+         (Upwork renders a "View Proposal" link). One-click jumps to that
+         standalone /nx/proposals/{id} page, where the regular capture
+         button takes over. -->
+    <div class="capture-section" id="proposal-jump-section" style="display:none">
+      <div class="capture-label">📄 Submitted proposal detected</div>
+      <button class="capture-btn" id="proposal-jump-btn">
+        <span>📄</span>
+        <span>Go to proposal &amp; capture</span>
+      </button>
+      <div class="capture-status" id="proposal-jump-status"></div>
+    </div>
+
+    <div class="capture-section" id="capture-section" style="display:none">
+      <div class="capture-label">📩 Conversation capture</div>
+      <button class="capture-btn" id="capture-btn">
+        <span id="capture-icon">📩</span>
+        <span id="capture-label-text">Capture Conversation</span>
+      </button>
+      <div class="capture-status" id="capture-status"></div>
+      <div class="last-captured" id="last-captured" style="display:none">
+        <div class="last-captured-label">Last captured</div>
+        <div class="last-captured-title" id="last-captured-title">—</div>
+        <div class="last-captured-time" id="last-captured-time">—</div>
+      </div>
+      <div class="debug-panel" id="debug-panel" style="display:none">
+        <div class="debug-header">
+          <span class="debug-label">🐛 Last capture debug</span>
+          <button class="debug-copy-btn" id="debug-copy-btn">📋 Copy</button>
+        </div>
+        <pre class="debug-content" id="debug-content"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

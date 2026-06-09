@@ -1,0 +1,80 @@
+﻿"""
+Parse job notifications from @OffersHunterBot messages.
+
+The bot sends Markdown-formatted messages. Common fields:
+
+  📌 *Title*
+  💰 Budget: $15–25/hr  or  Fixed: $500
+  🌍 Country: United States
+  💵 Client spent: $10k+
+  📅 Posted: 2 hours ago
+  📝 Description text...
+  🔗 https://www.upwork.com/jobs/~01abc...
+
+Field labels vary slightly between message versions, so we use
+multiple regex patterns per field.
+"""
+
+import re
+from urllib.parse import urlparse
+
+
+# --- helpers -----------------------------------------------------------------
+
+def _first(patterns: list[str], text: str, flags=re.IGNORECASE) -> str | None:
+    for pat in patterns:
+        m = re.search(pat, text, flags)
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def _extract_upwork_id(url: str) -> str | None:
+    if not url:
+        return None
+    m = re.search(r"~([0-9a-f]{16,})", url)
+    return m.group(1) if m else None
+
+
+# --- public ------------------------------------------------------------------
+
+def parse_message(text: str) -> dict:
+    """Return a dict of parsed fields from a bot message."""
+
+    # ----- URL ---------------------------------------------------------------
+    url = _first([
+        r"(https?://www\.upwork\.com/jobs/[^\s\)\"]+)",
+        r"(https?://www\.upwork\.com/[^\s\)\"]+)",
+        r"\[([^\]]+)\]\(([^)]+)\)",  # extract url from [text](url)
+    ], text)
+
+    upwork_job_id = _extract_upwork_id(url or "")
+
+    # ----- Title -------------------------------------------------------------
+    # Bot often bolds the title on its own line or after a pin emoji, sometimes as hyperlink
+    title = _first([
+        r"(?:📌\s*\*?)(.*?)(?:\*?\n|$)",
+        r"\*\*(.+?)\*\*",
+        r"\*([^\n*]{10,})\*",
+        r"Title[:\s]+(.+)",
+        r"\[([^\]]+)\]\([^)]+\)",  # hyperlink format [text](url)
+    ], text)
+
+    # ----- Hourly rate -------------------------------------------------------
+    rate_raw = _first([
+        r"(?:Budget|Rate|Hourly|💰 Hourly/Budget)[:\s]*\$?([\d,.]+)\s*[–\-]\s*\$?([\d,.]+)\s*/?\s*hr",
+        r"\$([\d,.]+)\s*[–\-]\s*\$([\d,.]+)\s*/hr",
+        r"(?:Budget|Rate)[:\s]*\$?([\d,.]+)\s*/\s*hr",
+    ], text)
+
+    hourly_rate_min = None
+    hourly_rate_max = None
+
+    range_match = re.search(
+        r"\$([\d,.]+)\s*[–\-]\s*\$([\d,.]+)\s*/?\s*hr", text, re.IGNORECASE
+    )
+    if range_match:
+        hourly_rate_min = float(range_match.group(1).replace(",", ""))
+        hourly_rate_max = float(range_match.group(2).replace(",", ""))
+    else:
+        single_match = re.search(

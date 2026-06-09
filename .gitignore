@@ -1,0 +1,38 @@
+# ── Secrets & credentials — NEVER commit ──────────────────────────────────
+.env
+.env.local
+*.env.txt
+*env*.txt
+frontend/.env.txt
+frontend/frontend_env.txt
+*.session
+*.session-journal
+.upwork_token.json
+
+# ── Local data / state ─────────────────────────────────────────────────────
+upwork_jobs.db
+upwork_jobs.db-journal
+upwork_jobs.db-wal
+upwork_jobs.db-shm
+.last_bot_message_id
+share-with-claude.md          # transient per-session snapshot, not project state
+
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# ── Node / frontend ────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.log
+
+# ── OS / editor cruft ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

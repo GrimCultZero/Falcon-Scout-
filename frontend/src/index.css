@@ -1,0 +1,596 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Falcon Scout / IT Force color system ─────────────────────────────────── */
+:root {
+  --bg:      #ffffff;
+  --bg2:     #f4f6f8;
+  --bg3:     #eaecef;
+  --border:  #dde1e7;
+  --border2: #c8cdd6;
+  --text:    #1a2332;
+  --text2:   #4a5568;
+  --text3:   #9aa5b4;
+  --accent:      #00c8d4;
+  --accent2:     #0096aa;
+  --accent-dim:  rgba(0, 200, 212, 0.12);
+  --amber:      #00c8d4;
+  --amber2:     #0096aa;
+  --amber-dim:  rgba(0, 200, 212, 0.10);
+  --green:      #00c8d4;
+  --green-dim:  rgba(0, 200, 212, 0.10);
+  --blue:       #1a7ab0;
+  --blue-dim:   rgba(26, 122, 176, 0.12);
+  --red:        #e05050;
+  --font-mono:    'Inter', monospace;
+  --font-display: 'Inter', sans-serif;
+}
+
+/* Dark mode */
+.dark-mode {
+  --bg:      #050d1a;
+  --bg2:     #071628;
+  --bg3:     #0d2040;
+  --border:  rgba(0, 185, 210, 0.10);
+  --border2: rgba(0, 185, 210, 0.18);
+  --text:    #e0ecf7;
+  --text2:   #7090a8;
+  --text3:   #3d5570;
+}
+
+html { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+body {
+  height: 100%; margin: 0; padding: 0; overflow: hidden;
+  /* body background intentionally left transparent so the dark splash gradient
+     from index.html shows through during the brief React-mount gap, then the
+     App's wrapping div takes over once mounted. Prevents the white-flash. */
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+}
+#root { zoom: 1.2; }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+/* ── Keyframes ───────────────────────────────────────────────────────────── */
+@keyframes spin    { to { transform: rotate(360deg) } }
+@keyframes pulse   { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }
+@keyframes fadeIn  { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: translateY(0) } }
+/* Pulsing text glow for the feed-status label. Glow color is supplied per
+   element via the --glow custom property so it tracks the live/quiet/idle state. */
+@keyframes feedTextGlow {
+  0%, 100% { text-shadow: 0 0 3px var(--glow, transparent); }
+  50%      { text-shadow: 0 0 13px var(--glow, transparent); }
+}
+
+/* ── Outcomes filter chip — "new activity" glow ─────────────────────────── */
+/* Persistent green glow on filter chips that have unread activity since the
+   last user acknowledgement. Cleared when the user clicks the chip. */
+.falcon-filter-glow {
+  animation: falconFilterGlow 1.8s ease-in-out infinite;
+  will-change: box-shadow;
+}
+@keyframes falconFilterGlow {
+  0%, 100% { box-shadow: 0 0 0   0px   rgba(0,208,112,0.0),  0 0 4px rgba(0,208,112,0.45); }
+  50%      { box-shadow: 0 0 0   3px   rgba(0,208,112,0.25), 0 0 14px rgba(0,208,112,0.95); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .falcon-filter-glow { animation: none; box-shadow: 0 0 8px rgba(0,208,112,0.7); }
+}
+
+/* ── KB hover ────────────────────────────────────────────────────────────── */
+.kb-entry-row:hover .kb-delete-btn { opacity: 1 !important; }
+.kb-entry-row:hover .kb-core-btn { opacity: 1 !important; }
+.kb-delete-btn:hover { color: #ef4444 !important; }
+.kb-core-btn:hover { color: #f59e0b !important; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   3-D NEOBRUTALISM BUTTON SYSTEM
+   All interactive elements: thick black shadow, hover glow, click press.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Primary CTA — teal gradient ─────────────────────────────────────────── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 20px;
+  background: linear-gradient(135deg, #00c8d4 0%, #007a90 100%);
+  border: 2.5px solid #0a0a0a;
+  border-radius: 6px;
+  box-shadow: 3px 3px 0px #0a0a0a;
+  color: #fff;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: box-shadow 0.10s ease, transform 0.10s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 3px 3px 0px #0a0a0a, 0 0 18px rgba(0, 200, 212, 0.45) !important;
+}
+.btn-primary:active:not(:disabled) {
+  transform: translate(3px, 3px) !important;
+  box-shadow: 0 0 8px rgba(0, 200, 212, 0.22) !important;
+}
+.btn-primary:disabled {
+  opacity: 0.40;
+  cursor: not-allowed;
+  box-shadow: 2px 2px 0px rgba(0,0,0,0.40) !important;
+  transform: none !important;
+}
+
+/* ── Secondary — outline / ghost ─────────────────────────────────────────── */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 16px;
+  background: rgba(0,200,212,0.07);
+  border: 2px solid #0a0a0a;
+  border-radius: 5px;
+  box-shadow: 2px 2px 0px #0a0a0a;
+  color: #00c8d4;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: box-shadow 0.10s ease, transform 0.10s ease, background 0.12s;
+  user-select: none;
+}
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(0,200,212,0.13);
+  box-shadow: 2px 2px 0px #0a0a0a, 0 0 12px rgba(0,200,212,0.32) !important;
+}
+.btn-secondary:active:not(:disabled) {
+  transform: translate(2px, 2px) !important;
+  box-shadow: 0 0 5px rgba(0,200,212,0.15) !important;
+}
+.btn-secondary:disabled { opacity: 0.40; cursor: not-allowed; }
+
+/* ── Apply CTA — bright green, matches primary depth ───────────────────── */
+.btn-apply {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 20px;
+  background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%);
+  border: 2.5px solid #0a0a0a;
+  border-radius: 6px;
+  box-shadow: 3px 3px 0px #0a0a0a;
+  color: #0a0a0a;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: none;
+  cursor: pointer;
+  transition: box-shadow 0.10s ease, transform 0.10s ease, background 0.15s;
+  user-select: none;
+  white-space: nowrap;
+}
+.btn-apply:hover:not(:disabled) {
+  background: linear-gradient(135deg, #86efac 0%, #22c55e 100%);
+  box-shadow: 3px 3px 0px #0a0a0a, 0 0 20px rgba(74, 222, 128, 0.55) !important;
+}
+.btn-apply:active:not(:disabled) {
+  transform: translate(3px, 3px) !important;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.30) !important;
+}
+.btn-apply:disabled {
+  opacity: 0.40;
+  cursor: not-allowed;
+  box-shadow: 2px 2px 0px rgba(0,0,0,0.40) !important;
+  transform: none !important;
+}
+
+/* Target/crosshair icon inside Apply button. Idle = black, hover = red glow.
+   Uses currentColor so we can drive the colour from one place. */
+.btn-apply .target-icon {
+  width: 22px;
+  height: 22px;
+  color: #0a0a0a;
+  transition: color 0.18s ease, filter 0.18s ease, transform 0.18s ease;
+  flex-shrink: 0;
+}
+.btn-apply:hover:not(:disabled) .target-icon {
+  color: #ff0033;
+  filter:
+    drop-shadow(0 0 4px rgba(255, 0, 51, 0.95))
+    drop-shadow(0 0 10px rgba(255, 0, 51, 0.55));
+  transform: rotate(45deg);
+}
+.btn-apply:active:not(:disabled) .target-icon {
+  transform: rotate(45deg) scale(0.9);
+}
+
+/* ── Pixel-art explosion (Apply on Upwork click) ────────────────────────── */
+/* Retro 8-bit style: square pixels (NO border-radius, NO blurry shadows),
+   limited 4-colour palette (white/yellow/orange/red), and steps() timing so
+   the animation jumps frame-by-frame instead of tweening smoothly. The
+   explosion is one centre pixel + ~28 satellite pixels positioned via
+   box-shadow — a single GPU-composited element, no DOM bloat.              */
+
+/* Each "pixel" is 6×6 css px. The constellation is built from box-shadow
+   offsets in multiples of 6 to keep a clean grid. */
+.falcon-explosion {
+  position: fixed;
+  z-index: 9999;
+  width: 6px;
+  height: 6px;
+  background: #ffffff;
+  border-radius: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  will-change: transform, opacity;
+  transform: translate3d(-50%, -50%, 0) scale(0.5);
+  /* Pixel cluster — inner cross (white), inner ring (yellow), middle ring
+     (orange), outer points (red). All offsets are 6 / 12 / 18 css px so the
+     blocks tile cleanly on the implicit grid.                              */
+  box-shadow:
+    /* inner cross — white */
+    -6px 0 0 0 #ffffff,
+     6px 0 0 0 #ffffff,
+     0 -6px 0 0 #ffffff,
+     0  6px 0 0 #ffffff,
+    /* inner ring — yellow */
+    -6px -6px 0 0 #fde047,
+     6px -6px 0 0 #fde047,
+    -6px  6px 0 0 #fde047,
+     6px  6px 0 0 #fde047,
+    -12px 0 0 0 #fde047,
+     12px 0 0 0 #fde047,
+     0 -12px 0 0 #fde047,
+     0  12px 0 0 #fde047,
+    /* middle ring — orange */
+    -12px -6px 0 0 #f97316,
+     12px -6px 0 0 #f97316,
+    -12px  6px 0 0 #f97316,
+     12px  6px 0 0 #f97316,
+    -6px -12px 0 0 #f97316,
+     6px -12px 0 0 #f97316,
+    -6px  12px 0 0 #f97316,
+     6px  12px 0 0 #f97316,
+    /* outer points — red */
+    -18px 0 0 0 #dc2626,
+     18px 0 0 0 #dc2626,
+     0 -18px 0 0 #dc2626,
+     0  18px 0 0 #dc2626,
+    -12px -12px 0 0 #dc2626,
+     12px -12px 0 0 #dc2626,
+    -12px  12px 0 0 #dc2626,
+     12px  12px 0 0 #dc2626;
+  /* steps(5, jump-end) → 5 discrete frames, like a sprite-sheet animation */
+  animation: falconExplodePixel 500ms steps(5, jump-end) forwards;
+}
+@keyframes falconExplodePixel {
+  0%   { transform: translate3d(-50%, -50%, 0) scale(0.5); opacity: 1; }
+  60%  { transform: translate3d(-50%, -50%, 0) scale(1.6); opacity: 1; }
+  100% { transform: translate3d(-50%, -50%, 0) scale(2.4); opacity: 0; }
+}
+
+/* Sparks: tiny square pixels (4×4) that jump outward in discrete steps.
+   No gradient, no glow — flat colour for the retro look. */
+.falcon-spark {
+  position: fixed;
+  z-index: 9999;
+  width: 4px;
+  height: 4px;
+  background: #fde047;
+  border-radius: 0;
+  image-rendering: pixelated;
+  pointer-events: none;
+  will-change: transform, opacity;
+  /* trail effect: one ghost-pixel behind, fading to white-hot tip */
+  box-shadow:
+    0 4px 0 0 #f97316,
+    0 8px 0 0 #dc2626;
+  animation: falconSparkPixel 420ms steps(6, jump-end) forwards;
+}
+@keyframes falconSparkPixel {
+  0%   { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-4px);  opacity: 1; }
+  100% { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-44px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .falcon-explosion, .falcon-spark { display: none !important; }
+}
+
+/* ── Button-shatter pixels ──────────────────────────────────────────────────
+   When a button "explodes", we cover its area with a grid of small square
+   pixels, each flying outward in its own direction. Stepped animation for
+   the chunky 8-bit feel. Each pixel uses CSS custom properties --dx and --dy
+   for its flight vector — set inline at spawn time.                         */
+.falcon-button-pixel {
+  position: fixed;
+  /* Low z-index so the pixels render BEHIND the button — they're only
+     visible once they've flown past the button's edges (and during the
+     fade after the button itself is gone, if any). */
+  z-index: 1;
+  width: 4px;
+  height: 4px;
+  border-radius: 0;
+  image-rendering: pixelated;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: falconButtonShatter 520ms steps(6, jump-end) forwards;
+}
+@keyframes falconButtonShatter {
+  0%   { transform: translate3d(0, 0, 0) scale(1); opacity: 1; }
+  100% { transform: translate3d(var(--dx, 40px), var(--dy, -40px), 0) scale(0.4); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .falcon-button-pixel { display: none !important; }
+}
+
+/* Erupting state: the button stays visible but is layered ABOVE the pixel
+   shrapnel so they emerge from underneath it. Without this, the .falcon-button-pixel
+   elements (position: fixed) would stack above the static-positioned button.   */
+.falcon-button-erupting {
+  position: relative;
+  z-index: 5;
+}
+
+/* ── Logo splash particles ──────────────────────────────────────────────────
+   Pixel particles that radiate outward from behind a logo. The logo itself
+   stays in place (raised z-index via .falcon-logo-splashing). Each particle
+   has a flight vector (--dx, --dy) set inline at spawn time.                 */
+.falcon-logo-splash-px {
+  position: fixed;
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  border-radius: 0;
+  image-rendering: pixelated;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: falconLogoSplash 460ms steps(5, jump-end) forwards;
+}
+@keyframes falconLogoSplash {
+  0%   { transform: translate3d(0, 0, 0) scale(1.2); opacity: 1; }
+  100% { transform: translate3d(var(--dx, 30px), var(--dy, -30px), 0) scale(0.3); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .falcon-logo-splash-px { display: none !important; }
+}
+
+/* When a logo splash is in progress, raise the IMG above the particles so
+   they emerge from underneath it (visible only past the logo's edges). */
+.falcon-logo-splashing {
+  position: relative;
+  z-index: 5;
+}
+
+/* ── Logo flash on click ────────────────────────────────────────────────────
+   Quick zoom-and-snap-back pulse for button logos. The img's existing
+   filter chain (drop-shadow glow + color tint) scales with the transform,
+   so the colored glow visibly bursts outward in sync with the scale.
+   Stepped easing on the way up + smooth on the way back gives a satisfying
+   "snap, then settle" feel.                                                */
+@keyframes falconLogoFlash {
+  0%   { transform: scale(1); }
+  18%  { transform: scale(1.42); }
+  35%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.falcon-logo-flash {
+  animation: falconLogoFlash 420ms cubic-bezier(0.22, 1.4, 0.45, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .falcon-logo-flash { animation: none !important; }
+}
+
+/* ── Logo pulse ─────────────────────────────────────────────────────────── */
+/* The Falcon Scout emblem in the header pulses steadily — one smooth swell
+   per cycle, no rest gap. Slow (~3.4s) with a soft teal glow that breathes
+   in and out alongside the scale. GPU-composited (transform + drop-shadow
+   filter only). Class name kept as `.falcon-logo-heartbeat` for backward
+   compat with the JSX that references it.                                */
+.falcon-logo-heartbeat {
+  transform-origin: center center;
+  animation: falconHeartbeat 2.4s ease-in-out infinite;
+  will-change: transform, filter;
+}
+@keyframes falconHeartbeat {
+  0%   { transform: scale(1);    filter: drop-shadow(0 0 8px rgba(0,200,212,0.45)); }
+  50%  { transform: scale(1.13); filter: drop-shadow(0 0 34px rgba(0,200,212,1)); }
+  100% { transform: scale(1);    filter: drop-shadow(0 0 8px rgba(0,200,212,0.45)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .falcon-logo-heartbeat { animation: none; filter: drop-shadow(0 0 8px rgba(0,200,212,0.45)); }
+}
+
+/* ── Falcon Scout wordmark — flying metal shine ─────────────────────────── */
+/* A bright reflection stripe sweeps left-to-right across "Falcon" then
+   "Scout" on a rolling loop, like light glancing off a polished nameplate.
+   The base text ALWAYS renders in its solid color; the shine is a
+   ::before pseudo-element layered on top, with a transparent gradient
+   that contains only a narrow bright stripe. When the stripe slides
+   off-screen, the pseudo-element is fully transparent → no visible
+   effect, base text stays perfectly readable.
+   `data-text` on the span duplicates the word content into the pseudo.  */
+.falcon-metal-text {
+  position: relative;
+  display: inline-block;
+}
+.falcon-metal-white { color: #ffffff; }
+.falcon-metal-teal  { color: #00c8d4; }
+.falcon-metal-text::before {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  background-position: -120% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  /* `linear` so the shine moves at constant speed across the text.
+     ease-in-out decelerates near the end which reads as the shine
+     "stalling" just as it exits the rightmost letter. */
+  animation: falconMetalShine 7s linear infinite;
+  pointer-events: none;
+  will-change: background-position;
+  white-space: pre;
+}
+/* Per-word shine tints. The bright stripe is now WIDE (30% → 70% of the
+   gradient = ~88% of element width) and fully opaque at the peak, so when
+   it crosses the text it lights up nearly the entire letter run rather
+   than just a thin glint. The base text stays solid underneath. */
+.falcon-metal-white::before {
+  background-image: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 30%,
+    rgba(200,245,255,1) 50%,
+    transparent 70%,
+    transparent 100%
+  );
+}
+.falcon-metal-teal::before {
+  background-image: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 30%,
+    rgba(255,255,255,1) 50%,
+    transparent 70%,
+    transparent 100%
+  );
+  /* Stagger so the shine travels visually from Falcon → Scout */
+  animation-delay: 0.4s;
+}
+@keyframes falconMetalShine {
+  /* Motion runs 0% → 35% (constant speed thanks to linear easing), then
+     the gradient is held off-screen for the remaining 65% as the rest
+     pause. The off-screen start/end positions are wide enough that the
+     loop boundary (snap from 220% back to -120%) is fully invisible. */
+  0%   { background-position: -120% 0; }
+  35%  { background-position:  220% 0; }
+  100% { background-position:  220% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .falcon-metal-text::before { animation: none; opacity: 0; }
+}
+
+/* ── Header nav tabs (dark background) ───────────────────────────────────── */
+.btn-tab {
+  padding: 10px 28px;
+  border-radius: 5px;
+  border: 2px solid rgba(255,255,255,0.22);
+  box-shadow: 3px 3px 0px rgba(0,0,0,0.55);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: transparent;
+  color: rgba(255,255,255,0.62);
+  font-family: 'Inter', sans-serif;
+  transition: box-shadow 0.10s, transform 0.10s, background 0.12s, color 0.12s, border-color 0.12s;
+  user-select: none;
+  white-space: nowrap;
+}
+.btn-tab.active {
+  background: rgba(0,200,212,0.18);
+  color: #00c8d4;
+  border-color: rgba(0,200,212,0.55);
+  box-shadow: 3px 3px 0px rgba(0,0,0,0.55), 0 0 12px rgba(0,200,212,0.24);
+}
+.btn-tab:hover {
+  color: #00c8d4;
+  border-color: rgba(0,200,212,0.50);
+  box-shadow: 3px 3px 0px rgba(0,0,0,0.55), 0 0 14px rgba(0,200,212,0.32) !important;
+}
+.btn-tab:active {
+  transform: translate(3px, 3px) !important;
+  box-shadow: 0 0 5px rgba(0,200,212,0.18) !important;
+}
+
+/* ── Sidebar filter pills (light background) ─────────────────────────────── */
+.btn-filter {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border2);
+  box-shadow: 2px 2px 0px rgba(0,0,0,0.18);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: var(--bg);
+  color: var(--text2);
+  font-family: 'Inter', sans-serif;
+  transition: box-shadow 0.10s, transform 0.10s, background 0.10s, color 0.10s, border-color 0.10s;
+  user-select: none;
+}
+.btn-filter.active {
+  background: rgba(0,200,212,0.12);
+  color: #00c8d4;
+  border-color: rgba(0,200,212,0.50);
+  box-shadow: 2px 2px 0px rgba(0,190,200,0.38);
+}
+.btn-filter:hover {
+  border-color: rgba(0,200,212,0.42);
+  color: #00c8d4;
+  box-shadow: 2px 2px 0px rgba(0,0,0,0.18), 0 0 8px rgba(0,200,212,0.22) !important;
+}
+.btn-filter:active {
+  transform: translate(2px, 2px) !important;
+  box-shadow: 0 0 3px rgba(0,200,212,0.12) !important;
+}
+
+/* ── Misc small action buttons (re-analyse, clear, copy, etc.) ────────────── */
+.btn-ghost {
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 2px 2px 0px rgba(0,0,0,0.12);
+  color: var(--text3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  padding: 5px 10px;
+  transition: box-shadow 0.10s, transform 0.10s, color 0.10s, border-color 0.10s;
+  user-select: none;
+}
+.btn-ghost:hover {
+  color: #00c8d4;
+  border-color: rgba(0,200,212,0.40);
+  box-shadow: 2px 2px 0px rgba(0,0,0,0.12), 0 0 8px rgba(0,200,212,0.18) !important;
+}
+.btn-ghost:active {
+  transform: translate(2px, 2px) !important;
+  box-shadow: 0 0 3px rgba(0,200,212,0.10) !important;
+}
+
+/* ── Outcomes filter chip — new-activity pulsing dot ─────────────────────── */
+@keyframes outcomesDotPulse {
+  0%, 100% { opacity: 1;   transform: scale(1);    box-shadow: 0 0 4px #00d070, 0 0 8px #00d070; }
+  50%       { opacity: 0.6; transform: scale(1.35); box-shadow: 0 0 8px #00d070, 0 0 16px #00d070; }
+}
+.outcomes-activity-dot {
+  animation: outcomesDotPulse 1.4s ease-in-out infinite;
+}
+
