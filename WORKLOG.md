@@ -38,8 +38,11 @@ A white-label agency (Blueprint For Scale) screened Artem with: *"a client fell 
 - Captured as a reusable **Core KB note #468** ("Local SEO / Map-Pack Recovery — diagnostic method"): pull scan history → read the shape → correlate with Ahrefs → rule out fast triggers → fix NAP/schema/service-area → rebuild prominence → prove on the weekly grid.
 - Lesson: for screening "how would you…" questions, pulling the *actual* data live and reading it beats any generic process answer.
 
-### Persistence / never-lose-the-thread (this entry)
-Project had **no version control** — single-machine, no backup (the exact risk that lost a prior session elsewhere). Setting up: `.gitignore` (excludes `.env`, `*.session`, `.upwork_token.json`, `upwork_jobs.db`), `git init`, this `WORKLOG.md`, first commit. Next: push to a **private GitHub repo** so code + all memory docs are portable/recoverable across accounts and every future iteration can clone, read, and enrich.
+### Persistence / never-lose-the-thread — DONE
+Project had **no version control** — single-machine, no backup (the exact risk that lost a prior session elsewhere). Now fixed:
+- `git init` + `.gitignore` (excludes `.env`, `*.env.txt`, `*.session`, `.upwork_token.json`, `upwork_jobs.db`, `share-with-claude.md`), pushed to **private GitHub repo `https://github.com/GrimCultZero/Falcon-Scout-`**. GitHub push-protection caught two stray key files (`frontend/.env.txt`, `frontend/frontend_env.txt`) — purged from history before they reached GitHub; no secret was ever exposed, no rotation needed.
+- Memory docs: `DESIGN.md` (decisions), `PROJECT_HANDOFF.md` (how-it-works), `WORKLOG.md` (this — session narrative/chat essentials), `CASES.md` (solved client examples; seeded with the map-pack case).
+- **Standing protocol added to `CLAUDE.md`** ("Memory & persistence protocol"): every session/account does `git pull` → read the 4 memory docs → enrich WORKLOG/CASES/DESIGN → commit+push automatically. The code is the stable core; the memory docs are what every iteration enriches. This is how a different Claude account picks up and adds to the project without losing the thread.
 
 ### Capabilities note for future sessions
 - **Claude in Chrome** is connected → can drive Artem's real browser (inherits his logins) to pull data from auth'd dashboards (Local Dominator worked; Ahrefs domain is blocked by the tool's policy). `WebFetch` = public pages only. The Falcon Scout Upwork extension ≠ general browsing (Upwork-scrape only).

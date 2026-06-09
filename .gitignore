@@ -15,7 +15,8 @@ upwork_jobs.db-journal
 upwork_jobs.db-wal
 upwork_jobs.db-shm
 .last_bot_message_id
-share-with-claude.md          # transient per-session snapshot, not project state
+# transient per-session snapshot, not project state
+share-with-claude.md
 
 # ── Python ───────────────────────────────────────────────────────────────
 __pycache__/
