@@ -293,20 +293,28 @@
     clearMarker();
     showBanner({ phase: 'scraping' });
 
+    // Tell the background worker we're done so it CLOSES this (background) tab
+    // and notifies the dashboard (lights the Outcomes activity dots). Every exit.
+    const _done = (result) => {
+      try { chrome.runtime.sendMessage({ type: 'MESSAGES_LIST_SCRAPE_DONE', result: result || {} }, () => void chrome.runtime.lastError); } catch (_) {}
+    };
+
     const ok = await waitForListContent();
-    if (!ok) { showBanner({ phase: 'done', error: 'inbox list did not render' }); return; }
+    if (!ok) { showBanner({ phase: 'done', error: 'inbox list did not render' }); _done({ scanned: 0, error: 'inbox list did not render' }); return; }
     const rows = scrapeConversationList();
     console.log('[Cockpit Messages-List] Scraped', rows.length, 'conversation rows');
     showBanner({ phase: 'posting', scraped: rows.length, rows });
-    if (!rows.length) { showBanner({ phase: 'done', scraped: 0, rows, error: 'no conversations scraped' }); return; }
+    if (!rows.length) { showBanner({ phase: 'done', scraped: 0, rows, error: 'no conversations scraped' }); _done({ scanned: 0, error: 'no conversations scraped' }); return; }
 
     try {
       const result = await postDirect(rows);
       console.log('[Cockpit Messages-List] direct POST result:', result);
       showBanner({ phase: 'done', scraped: rows.length, result, rows });
+      _done(result);
     } catch (e) {
       console.error('[Cockpit Messages-List] direct POST failed:', e);
       showBanner({ phase: 'done', scraped: rows.length, rows, error: 'save failed: ' + (e && e.message || e) });
+      _done({ scanned: rows.length, error: 'save failed: ' + (e && e.message || e) });
     }
   })();
 })();

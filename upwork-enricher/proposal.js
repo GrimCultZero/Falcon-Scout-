@@ -1393,8 +1393,15 @@
     console.log('[Cockpit Proposal] scraped', scraped, 'rows,', viewed, 'viewed');
     showSyncBanner({ phase: 'posting', scraped, viewed, debug });
 
+    // Tell the background worker we're done so it CLOSES this tab and notifies
+    // the dashboard (lights the Outcomes activity dots). Fire on every exit path.
+    const _done = (result) => {
+      try { chrome.runtime.sendMessage({ type: 'PROPOSALS_LIST_SCRAPE_DONE', result: result || {} }, () => void chrome.runtime.lastError); } catch (_) {}
+    };
+
     if (!scraped) {
       showSyncBanner({ phase: 'done', scraped: 0, viewed: 0, debug, error: 'no rows scraped — is the “Submitted proposals” list visible?' });
+      _done({ scanned: 0, error: 'no rows scraped' });
       return;
     }
 
@@ -1402,9 +1409,11 @@
       const result = await postSyncDirect(rows);
       console.log('[Cockpit Proposal] direct POST result:', result);
       showSyncBanner({ phase: 'done', scraped, viewed, result, debug });
+      _done(result);
     } catch (err) {
       console.error('[Cockpit Proposal] direct POST failed:', err);
       showSyncBanner({ phase: 'done', scraped, viewed, debug, error: 'save failed: ' + (err && err.message || err) });
+      _done({ scanned: scraped, error: 'save failed: ' + (err && err.message || err) });
     }
   })();
 

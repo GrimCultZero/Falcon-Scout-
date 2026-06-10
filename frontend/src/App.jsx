@@ -36,6 +36,19 @@ export default function App() {
   const [kbRefresh, setKbRefresh] = useState(0)
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('falconDark') === '1')
 
+  // New-activity dot on the Outcomes nav tab — lit when a sync brings new
+  // replies/views. Persisted so it survives reloads; cleared when Outcomes opens.
+  const [outcomeActivity, setOutcomeActivity] = useState(() => localStorage.getItem('falconOutcomeActivity') === '1')
+  useEffect(() => { localStorage.setItem('falconOutcomeActivity', outcomeActivity ? '1' : '0') }, [outcomeActivity])
+  useEffect(() => {
+    const onSynced = (e) => {
+      const d = e.detail || {}
+      if ((d.newly_replied || 0) > 0 || (d.newly_viewed || 0) > 0) setOutcomeActivity(true)
+    }
+    window.addEventListener('cockpit:status:synced', onSynced)
+    return () => window.removeEventListener('cockpit:status:synced', onSynced)
+  }, [])
+
   // Listen for hash changes (Chrome extension may re-point an already-open dashboard tab to #outcomes)
   useEffect(() => {
     const onHash = () => {
@@ -606,9 +619,20 @@ export default function App() {
             <button
               key={key}
               className={view === key ? 'btn-tab active' : 'btn-tab'}
-              onClick={() => { setView(key); if (key === 'kb') setKbRefresh(v => v + 1) }}
+              onClick={() => {
+                setView(key)
+                if (key === 'kb') setKbRefresh(v => v + 1)
+                if (key === 'outcomes') setOutcomeActivity(false)  // clear the dot on open
+              }}
+              style={{ position:'relative' }}
             >
               {label}
+              {key === 'outcomes' && outcomeActivity && view !== 'outcomes' && (
+                <span className="outcomes-activity-dot" style={{
+                  position:'absolute', top:-2, right:-2, width:8, height:8,
+                  borderRadius:'50%', background:'#00d070',
+                }} />
+              )}
             </button>
           ))}
         </div>

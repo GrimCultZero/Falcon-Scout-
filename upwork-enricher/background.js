@@ -296,10 +296,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); }
         console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
         chrome.tabs.create(
-          { url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1', active: true },
+          { url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1', active: false },
           (mtab) => {
             if (mtab && mtab.id) { _persistSyncTab(mtab.id); openedTabIds.push(mtab.id); }
-            console.log('[Cockpit BG] sync messages tab opened (active):', mtab && mtab.id);
+            console.log('[Cockpit BG] sync messages tab opened (bg):', mtab && mtab.id);
             sendResponse({ ok: true, tabIds: openedTabIds });
           }
         );
@@ -344,19 +344,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = sender.tab && sender.tab.id;
     console.log('[Cockpit BG] MESSAGES_LIST_SCRAPE_DONE for tab', tabId, 'result:', message.result);
 
-    // Fire dashboard notify FIRST in the no-rows / error case so the button
-    // updates even if close fails. For the >0 rows case, MESSAGES_STATUS_SYNC
-    // handler above already notified.
+    // v2: the content script POSTs directly to the backend, so the background
+    // never saw the result — ALWAYS notify the dashboard here with the counts
+    // from the message (this is what lights up the Outcomes activity dots).
     const r = message.result || {};
-    const ranBackendSync = (r.scanned != null && r.scanned > 0);
-    if (!ranBackendSync) {
-      notifyCockpit('PROPOSAL_STATUS_SYNCED', {
-        scanned: r.scanned || 0,
-        updated: r.updated || 0,
-        newly_replied: r.newly_replied || 0,
-        error: r.error || null,
-      });
-    }
+    notifyCockpit('PROPOSAL_STATUS_SYNCED', {
+      scanned: r.scanned || 0,
+      updated: r.updated || 0,
+      newly_replied: r.newly_replied || 0,
+      error: r.error || null,
+    });
 
     if (tabId != null) {
       if (_syncTabs.has(tabId)) _syncTabs.delete(tabId);
@@ -405,27 +402,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = sender.tab && sender.tab.id;
     console.log('[Cockpit BG] PROPOSALS_LIST_SCRAPE_DONE for tab', tabId, 'result:', message.result);
 
-    // Fire the dashboard notify FIRST so the button updates even if the close
-    // call below fails for any reason.
+    // v2: the content script POSTs directly to the backend (result carries the
+    // counts), so ALWAYS notify the dashboard here — this is what lights up the
+    // Outcomes activity dots.
     const r = message.result || {};
-    // r.scanned is set in the "0 rows" early-return path (top-level).
-    // In the ">0 rows" path, syncProposalsList resolves with
-    // { ok, result: { scanned, updated, newly_viewed }, debug } — the counts
-    // live under r.result, not at the top level. The PROPOSAL_STATUS_SYNC
-    // handler already fired notifyCockpit for that case; here we only need
-    // to notify when the backend sync never ran (0 rows scraped).
-    const backendScanned = (r.scanned != null ? r.scanned : null) ??
-                           (r.result && r.result.scanned != null ? r.result.scanned : null);
-    const ranBackendSync = (backendScanned != null && backendScanned > 0);
-    if (!ranBackendSync) {
-      notifyCockpit('PROPOSAL_STATUS_SYNCED', {
-        scanned: backendScanned || 0,
-        updated: r.updated || (r.result && r.result.updated) || 0,
-        newly_viewed: r.newly_viewed || (r.result && r.result.newly_viewed) || 0,
-        error: r.error || (backendScanned === 0 ? 'Scraped 0 rows from Upwork — DOM may have changed. See proposal.js diagnostic log on the Upwork tab.' : null),
-        debug: r.debug || null,
-      });
-    }
+    const inner = r.result || r;  // direct-POST response may be nested under .result
+    notifyCockpit('PROPOSAL_STATUS_SYNCED', {
+      scanned: inner.scanned || 0,
+      updated: inner.updated || 0,
+      newly_viewed: inner.newly_viewed || 0,
+      error: r.error || null,
+      debug: r.debug || null,
+    });
 
     // Close the tab whichever Set tracked it (sync-opened OR bg-enrich-opened).
     // Use the callback form so chrome.runtime.lastError surfaces — promise form

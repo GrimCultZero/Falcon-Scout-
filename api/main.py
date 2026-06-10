@@ -2557,26 +2557,48 @@ def messages_status_sync(data: dict):
             if not isinstance(row, dict):
                 continue
             job_title = (row.get("job_title") or "").strip()
-            if not job_title or len(job_title) < 5:
-                continue
+            client_name = (row.get("client_name") or "").strip()
 
-            # Fuzzy job-title match — exact (case-insensitive) first, then
-            # substring fallback against the first 60 chars (covers Upwork
-            # truncation in the inbox subtitle).
-            matched_job = (
-                session.query(Job).filter(Job.title.ilike(job_title)).first()
-                or session.query(Job).filter(Job.title.ilike(f"%{job_title[:60]}%")).first()
-            )
-            if not matched_job:
-                not_matched.append({"job_title": job_title, "client_name": row.get("client_name")})
-                continue
+            proposal = None
 
-            proposal = (
-                session.query(Proposal)
-                .filter_by(job_id=matched_job.id)
-                .first()
-            )
-            if not proposal:
+            # 1) Match by job title when the inbox row exposes one (exact, then
+            #    substring against the first 60 chars to survive truncation).
+            if job_title and len(job_title) >= 5:
+                matched_job = (
+                    session.query(Job).filter(Job.title.ilike(job_title)).first()
+                    or session.query(Job).filter(Job.title.ilike(f"%{job_title[:60]}%")).first()
+                )
+                if matched_job:
+                    proposal = (
+                        session.query(Proposal).filter_by(job_id=matched_job.id).first()
+                    )
+
+            # 2) Fallback — match by CLIENT NAME. Upwork's inbox sidebar reliably
+            #    shows the client/agency name but usually NOT the job title, so
+            #    title matching alone misses most replies. Artem's cover letters
+            #    typically greet the client ("Hi Susie …"), so we match the inbox
+            #    name (or its first token) against the proposal's sent_text —
+            #    but ONLY when it uniquely identifies a single promotable proposal,
+            #    to avoid mis-promoting the wrong one.
+            if proposal is None and client_name and len(client_name) >= 3:
+                name_tokens = [client_name.lower()]
+                first_tok = client_name.split()[0].lower() if client_name.split() else ""
+                if len(first_tok) >= 3 and first_tok not in name_tokens:
+                    name_tokens.append(first_tok)
+                candidates = (
+                    session.query(Proposal)
+                    .filter(Proposal.status.in_(list(_PROMOTABLE_TO_REPLIED)))
+                    .all()
+                )
+                hits = [
+                    p for p in candidates
+                    if any(tok in (p.sent_text or "").lower() for tok in name_tokens)
+                ]
+                if len(hits) == 1:
+                    proposal = hits[0]
+
+            if proposal is None:
+                not_matched.append({"job_title": job_title, "client_name": client_name})
                 continue
 
             if proposal.status in _PROMOTABLE_TO_REPLIED:
