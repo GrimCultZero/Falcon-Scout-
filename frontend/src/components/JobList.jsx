@@ -89,10 +89,16 @@ export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, sh
             style={{
               padding: '12px 14px',
               borderBottom: '1px solid var(--border)',
-              borderLeft: `2px solid ${isSelected ? '#00c8d4' : 'transparent'}`,
-              background: isSelected ? 'rgba(0,200,212,0.08)' : 'transparent',
+              // US-only = hard disqualifier for Artem (Ukraine). Flag the whole
+              // card red + grayed-out so it's an obvious skip at a glance.
+              borderLeft: `2px solid ${isUsOnly ? '#ef4444' : isSelected ? '#00c8d4' : 'transparent'}`,
+              background: isUsOnly
+                ? 'rgba(239,68,68,0.09)'
+                : isSelected ? 'rgba(0,200,212,0.08)' : 'transparent',
+              opacity: isUsOnly ? 0.55 : 1,
+              filter: isUsOnly ? 'grayscale(0.65)' : 'none',
               cursor: 'pointer',
-              transition: 'background 0.1s',
+              transition: 'background 0.1s, opacity 0.1s',
               position: 'relative',
             }}
           >

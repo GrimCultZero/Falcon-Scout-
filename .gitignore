@@ -17,6 +17,7 @@ upwork_jobs.db-shm
 .last_bot_message_id
 # transient per-session snapshot, not project state
 share-with-claude.md
+messages_sync_debug.json
 
 # ── Python ───────────────────────────────────────────────────────────────
 __pycache__/

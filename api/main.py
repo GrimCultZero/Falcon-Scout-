@@ -2523,6 +2523,42 @@ def proposal_status_sync(data: dict):
     }
 
 
+# ── Helpers for inbox reply-matching (Upwork inbox shows client NAME, not the
+# job title — so we join on the cover-letter greeting name) ──────────────────
+_MSG_NONTITLE_RE = re.compile(r'^(?:\d|mon\b|tue|wed|thu|fri|sat|sun|today|yesterday)', re.I)
+_MSG_STOPWORDS = {
+    "llc", "ltd", "inc", "gmbh", "the", "and", "for", "you", "with", "d.o.o",
+    "services", "digital", "concierge", "creative", "labs", "ventures",
+    "providers", "online", "training", "agency", "marketing", "group",
+    "studio", "media", "solutions", "corp", "team", "sun",
+}
+
+
+def _greeting_name(text: str) -> "str | None":
+    """Pull the greeting first-name from a cover letter: 'Hi Susie - …' → 'susie'."""
+    m = re.match(r"\s*(?:hi|hello|hey|dear)\s+([A-Za-z][A-Za-z'\-]{1,30})", (text or ""), re.I)
+    return m.group(1).lower() if m else None
+
+
+def _msg_identity_tokens(client_name: str, job_title: str) -> set:
+    """Name tokens from the inbox row (both fields — the scraper mislabels them),
+    dropping avatar initials (BF/CA), dates/timestamps, and generic company words."""
+    out = set()
+    for t in re.split(r"[,\s]+", f"{client_name or ''} {job_title or ''}"):
+        t = t.strip().strip(".")
+        if len(t) < 3:
+            continue
+        if re.fullmatch(r"[A-Z]{2,4}", t):      # avatar monogram like "BF"
+            continue
+        if re.search(r"\d", t):                  # dates / timestamps
+            continue
+        low = t.lower()
+        if low in _MSG_STOPWORDS:
+            continue
+        out.add(low)
+    return out
+
+
 @app.post("/messages-status-sync")
 def messages_status_sync(data: dict):
     """
@@ -2552,7 +2588,22 @@ def messages_status_sync(data: dict):
     # invited proposal never advances when the client actually responds.
     _PROMOTABLE_TO_REPLIED = {"draft", "sent", "viewed", "invited"}
 
+    # Pre-compute each promotable proposal's greeting name from its cover letter
+    # ("Hi Susie …" → "susie"). Upwork's inbox shows the client/company NAME (not
+    # the job title), so the reliable join is: proposal greeting name ↔ a name
+    # token in the inbox row. Done once, outside the row loop.
     with Session(engine) as session:
+        promotable = (
+            session.query(Proposal)
+            .filter(Proposal.status.in_(list(_PROMOTABLE_TO_REPLIED)))
+            .all()
+        )
+        greet_index = {}  # greeting_name -> [proposals]
+        for p in promotable:
+            gname = _greeting_name(p.sent_text)
+            if gname:
+                greet_index.setdefault(gname, []).append(p)
+
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -2561,39 +2612,30 @@ def messages_status_sync(data: dict):
 
             proposal = None
 
-            # 1) Match by job title when the inbox row exposes one (exact, then
-            #    substring against the first 60 chars to survive truncation).
-            if job_title and len(job_title) >= 5:
+            # 1) Job-title match — kept for the rare case the inbox exposes a real
+            #    title (mostly it doesn't; it shows the client/company name).
+            if job_title and len(job_title) >= 5 and not _MSG_NONTITLE_RE.match(job_title):
                 matched_job = (
                     session.query(Job).filter(Job.title.ilike(job_title)).first()
                     or session.query(Job).filter(Job.title.ilike(f"%{job_title[:60]}%")).first()
                 )
                 if matched_job:
-                    proposal = (
-                        session.query(Proposal).filter_by(job_id=matched_job.id).first()
-                    )
+                    proposal = session.query(Proposal).filter_by(job_id=matched_job.id).first()
 
-            # 2) Fallback — match by CLIENT NAME. Upwork's inbox sidebar reliably
-            #    shows the client/agency name but usually NOT the job title, so
-            #    title matching alone misses most replies. Artem's cover letters
-            #    typically greet the client ("Hi Susie …"), so we match the inbox
-            #    name (or its first token) against the proposal's sent_text —
-            #    but ONLY when it uniquely identifies a single promotable proposal,
-            #    to avoid mis-promoting the wrong one.
-            if proposal is None and client_name and len(client_name) >= 3:
-                name_tokens = [client_name.lower()]
-                first_tok = client_name.split()[0].lower() if client_name.split() else ""
-                if len(first_tok) >= 3 and first_tok not in name_tokens:
-                    name_tokens.append(first_tok)
-                candidates = (
-                    session.query(Proposal)
-                    .filter(Proposal.status.in_(list(_PROMOTABLE_TO_REPLIED)))
-                    .all()
-                )
-                hits = [
-                    p for p in candidates
-                    if any(tok in (p.sent_text or "").lower() for tok in name_tokens)
-                ]
+            # 2) Client-name match — the reliable path. Both `client_name` and
+            #    `job_title` fields can hold the conversation's name (the scraper
+            #    mislabels them), so pull name tokens from BOTH, drop avatar
+            #    initials/dates, and match a proposal's greeting name against them.
+            #    Promote only on a UNIQUE hit to avoid mis-promoting.
+            if proposal is None:
+                tokens = _msg_identity_tokens(client_name, job_title)
+                hits = []
+                seen_ids = set()
+                for tok in tokens:
+                    for p in greet_index.get(tok, []):
+                        if p.id not in seen_ids:
+                            seen_ids.add(p.id)
+                            hits.append(p)
                 if len(hits) == 1:
                     proposal = hits[0]
 
@@ -2617,6 +2659,32 @@ def messages_status_sync(data: dict):
                 proposal.client_reply_text = last_message[:1000]
 
         session.commit()
+
+    # Debug capture — dump the raw scraped rows + match outcome to a file so we
+    # can see EXACTLY what the inbox gave us (client_name / job_title per row)
+    # and why matching failed, without reading the fast-closing on-page banner.
+    try:
+        dbg = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "scanned": scanned,
+            "newly_replied": newly_replied,
+            "not_matched_count": len(not_matched),
+            "rows": [
+                {
+                    "client_name": r.get("client_name"),
+                    "job_title": r.get("job_title"),
+                    "has_unread": r.get("has_unread"),
+                    "last_from_client": r.get("last_from_client"),
+                    "last_message": (r.get("last_message") or "")[:120],
+                }
+                for r in rows if isinstance(r, dict)
+            ],
+            "not_matched": not_matched,
+        }
+        (ROOT / "messages_sync_debug.json").write_text(
+            _json_mod.dumps(dbg, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as _e:
+        print(f"[messages-sync] debug dump failed: {_e}")
 
     return {
         "scanned": scanned,
