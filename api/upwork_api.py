@@ -219,9 +219,19 @@ query Search($expr: String, $n: Int!, $after: String!) {
         totalApplicants
         preferredFreelancerLocation preferredFreelancerLocationMandatory
         applied
+        skills { prettyName }
         client {
-          totalSpent { rawValue } totalHires totalReviews verificationStatus
+          totalSpent { rawValue } totalHires totalPostedJobs totalReviews
+          totalFeedback verificationStatus
           location { country }
+        }
+        job {
+          activityStat {
+            jobActivity {
+              lastClientActivity invitesSent totalInvitedToInterview
+              totalHired totalUnansweredInvites
+            }
+          }
         }
       }
     }
@@ -250,6 +260,27 @@ def _map_node(n: dict) -> dict:
     pref_loc = n.get("preferredFreelancerLocation")
     pref_mand = bool(n.get("preferredFreelancerLocationMandatory"))
 
+    # Client quality — rating + hire rate are computable straight from the
+    # search node (totalFeedback / totalHires / totalPostedJobs).
+    reviews = client.get("totalReviews")
+    feedback = client.get("totalFeedback")
+    rating = (round(float(feedback), 2)
+              if feedback is not None and (feedback > 0 or (reviews or 0) > 0)
+              else None)
+    posted = client.get("totalPostedJobs")
+    hires = client.get("totalHires")
+    hire_rate = (round(100.0 * hires / posted)
+                 if posted and hires is not None else None)
+
+    # Per-job activity (invites / interviewing / already-hired) — same block
+    # the extension scrapes from the job page, but straight from the API.
+    ja = (((n.get("job") or {}).get("activityStat") or {}).get("jobActivity") or {})
+
+    skills = ", ".join(
+        s.get("prettyName") for s in (n.get("skills") or [])
+        if isinstance(s, dict) and s.get("prettyName")
+    ) or None
+
     row = {
         "upwork_job_id": upwork_job_id,
         "title": n.get("title"),
@@ -276,8 +307,17 @@ def _map_node(n: dict) -> dict:
         # Also populate client_spend (what JobList renders in the row) so API
         # jobs show client spend like bot jobs do.
         "client_spend": (f"${spent:,.0f}" if spent is not None else None),
-        "client_hires": client.get("totalHires"),
-        "client_review_count": client.get("totalReviews"),
+        "client_hires": hires,
+        "client_review_count": reviews,
+        "client_rating_score": rating,
+        "client_jobs_posted": posted,
+        "hire_rate": hire_rate,
+        "keywords": skills,
+        "interviewing": ja.get("totalInvitedToInterview"),
+        "invites_sent": ja.get("invitesSent"),
+        "unanswered_invites": ja.get("totalUnansweredInvites"),
+        # Per-job hires — the analyser's "ALREADY HIRED" hard-disqualifier signal.
+        "client_already_hired": ja.get("totalHired"),
         "payment_verified": (client.get("verificationStatus") == "VERIFIED")
                             if client.get("verificationStatus") is not None else None,
         "source": "api",

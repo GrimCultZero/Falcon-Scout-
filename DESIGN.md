@@ -1098,6 +1098,15 @@ in `api/upwork_api.py`; routes `/upwork/connect`, `/callback`, `/upwork/status`,
 ### What the key CANNOT do (permission-denied at call time)
 - `vendorProposals` (own proposals + statuses) → **denied**. So **outcome-sync via API is NOT possible** —
   the viewed-status scraper stays.
+- `ApplicationsBidStats` (avg/min/max bid on a job) → **denied** (field-level scope block inside an
+  otherwise-allowed query). And no field anywhere exposes the client's **avg hourly rate PAID** —
+  that signal remains extension-only (the 💵 badge can't show on API jobs).
+- RICH SEARCH (added 2026-06-10): the allowed search node carries far more than first mapped —
+  `client.totalFeedback` (rating), `client.totalPostedJobs` (→ hire_rate = hires/posted),
+  `job.activityStat.jobActivity` (invitesSent, totalInvitedToInterview, totalHired per job =
+  the ALREADY-HIRED disqualifier, totalUnansweredInvites), `skills{prettyName}` (→ keywords).
+  All now mapped in `_map_node`; API jobs arrive with near-extension-level enrichment in ONE call.
+  Still extension-only: avg rate paid, connects_required, screening questions, client city/member-since.
 - `roomList` / `room` (messages) → denied. Reply detection stays on the scraper.
 - `bidsForJob` (top-4 competitor bids) → denied.
 - `clientsWorkHistory` → denied.
