@@ -2523,6 +2523,37 @@ def proposal_status_sync(data: dict):
     }
 
 
+@app.get("/outcomes-activity")
+def outcomes_activity(since: Optional[str] = Query(None, description="ISO timestamp — count status changes after this")):
+    """
+    Counts of proposal status changes since `since`, by status. Drives the
+    new-activity dots RELIABLY: the frontend polls this, so a sync that ran
+    while the dashboard was closed still lights the dot on next load —
+    unlike the live cockpit:status:synced event, which requires the tab to
+    be open at the exact moment the sync finishes.
+    """
+    try:
+        since_dt = datetime.fromisoformat((since or "").replace("Z", "+00:00"))
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        since_dt = datetime.now(timezone.utc) - timedelta(days=7)
+
+    _SIGNAL_STATUSES = {"viewed", "replied", "interviewing", "hired", "invited"}
+    counts = {}
+    with Session(engine) as session:
+        rows = session.query(Proposal).filter(Proposal.status_updated_at.isnot(None)).all()
+        for p in rows:
+            if p.status not in _SIGNAL_STATUSES:
+                continue
+            ts = p.status_updated_at
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts > since_dt:
+                counts[p.status] = counts.get(p.status, 0) + 1
+    return {"since": since_dt.isoformat(), "counts": counts, "total": sum(counts.values())}
+
+
 # ── Helpers for inbox reply-matching (Upwork inbox shows client NAME, not the
 # job title — so we join on the cover-letter greeting name) ──────────────────
 _MSG_NONTITLE_RE = re.compile(r'^(?:\d|mon\b|tue|wed|thu|fri|sat|sun|today|yesterday)', re.I)

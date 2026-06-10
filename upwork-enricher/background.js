@@ -50,12 +50,13 @@ async function _consumeSyncTab(tabId) {
 // default /capture-proposal-update path (which needs a pre-existing entry).
 const _jumpCaptureTabs = new Set();
 
-// ── Periodic auto-sync — fires every 12 hours via chrome.alarms ──────────
+// ── Periodic auto-sync — fires every hour via chrome.alarms ──────────────
 // chrome.alarms survives service-worker sleep/wake cycles (vs. setInterval
-// which gets killed when the SW idles). Opens a background tab to Upwork's
-// proposals page; proposal.js auto-scrapes when it sees the tab is tracked.
+// which gets killed when the SW idles). Opens background tabs to Upwork's
+// proposals page + messages inbox; the content scripts scrape and the
+// failsafe alarm closes the tabs. Free: pure local scraping, no API tokens.
 const _SYNC_ALARM_NAME = 'falcon-status-sync';
-const _SYNC_PERIOD_MINUTES = 720;  // 12 hours
+const _SYNC_PERIOD_MINUTES = 60;  // hourly
 
 function _startSync(source) {
   console.log('[Cockpit BG] auto-sync triggered:', source);

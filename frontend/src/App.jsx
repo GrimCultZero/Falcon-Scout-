@@ -36,10 +36,17 @@ export default function App() {
   const [kbRefresh, setKbRefresh] = useState(0)
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('falconDark') === '1')
 
-  // New-activity dot on the Outcomes nav tab — lit when a sync brings new
-  // replies/views. Persisted so it survives reloads; cleared when Outcomes opens.
+  // New-activity dot on the Outcomes nav tab. Two independent triggers so a
+  // change can never be missed:
+  //   1. LIVE — the cockpit:status:synced event (instant, but only fires if
+  //      this tab is open the moment a sync completes).
+  //   2. POLL — every 60s ask the backend for status changes since the last
+  //      time the user had Outcomes open ("seen" timestamp). Catches syncs
+  //      that ran while the dashboard was closed, hourly auto-syncs, manual
+  //      DB edits — anything. The DB is the source of truth, not the event.
   const [outcomeActivity, setOutcomeActivity] = useState(() => localStorage.getItem('falconOutcomeActivity') === '1')
   useEffect(() => { localStorage.setItem('falconOutcomeActivity', outcomeActivity ? '1' : '0') }, [outcomeActivity])
+  const _markOutcomesSeen = () => { try { localStorage.setItem('falconOutcomesSeenAt', new Date().toISOString()) } catch {} }
   useEffect(() => {
     const onSynced = (e) => {
       const d = e.detail || {}
@@ -47,6 +54,41 @@ export default function App() {
     }
     window.addEventListener('cockpit:status:synced', onSynced)
     return () => window.removeEventListener('cockpit:status:synced', onSynced)
+  }, [])
+  // Entering Outcomes = "seen": stamp the timestamp on enter AND on leave
+  // (so changes that landed while you were reading don't re-light the dot).
+  useEffect(() => {
+    if (view !== 'outcomes') return
+    setOutcomeActivity(false)
+    _markOutcomesSeen()
+    return () => { _markOutcomesSeen(); setOutcomeActivity(false) }
+  }, [view])
+  // The poll. Also re-broadcasts as a synthetic synced event (flagged
+  // _from_poll) so the filter-chip dots inside Outcomes light up too.
+  useEffect(() => {
+    let stop = false
+    const check = async () => {
+      try {
+        const since = localStorage.getItem('falconOutcomesSeenAt')
+          || new Date(Date.now() - 7 * 24 * 3600e3).toISOString()
+        const res = await fetch('/outcomes-activity?since=' + encodeURIComponent(since))
+        if (!res.ok || stop) return
+        const d = await res.json()
+        if ((d.total || 0) > 0) {
+          setOutcomeActivity(true)
+          window.dispatchEvent(new CustomEvent('cockpit:status:synced', { detail: {
+            _from_poll: true,
+            newly_viewed: (d.counts && d.counts.viewed) || 0,
+            newly_replied: ((d.counts && d.counts.replied) || 0)
+              + ((d.counts && d.counts.interviewing) || 0)
+              + ((d.counts && d.counts.hired) || 0),
+          }}))
+        }
+      } catch {}
+    }
+    check()
+    const id = setInterval(check, 60000)
+    return () => { stop = true; clearInterval(id) }
   }, [])
 
   // Listen for hash changes (Chrome extension may re-point an already-open dashboard tab to #outcomes)

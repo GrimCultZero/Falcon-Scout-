@@ -83,10 +83,11 @@ export default function Outcomes({ active = false }) {
     if (day < 7) return `${day} day${day === 1 ? '' : 's'} ago`
     return dt.toLocaleDateString()
   }
-  // Persist on every successful sync — fires for BOTH manual and 12h auto.
+  // Persist on every successful sync — fires for BOTH manual and hourly auto.
   useEffect(() => {
     const onAnySync = (e) => {
       const d = e.detail || {}
+      if (d._from_poll) return  // activity poll re-broadcast, not a real sync
       if (d.error) return
       const now = new Date()
       setLastSyncedAt(now)
@@ -179,7 +180,9 @@ export default function Outcomes({ active = false }) {
     setTimeout(() => setSyncStatus({ ok: true, banner: true }), 800)
     // Refresh the list a few times so newly-promoted statuses surface here
     // without a manual reload, then clear the banner.
-    const refreshes = [4000, 9000, 15000]
+    // The messages leg can walk up to 10 rooms (~2 min) — keep refreshing long
+    // enough for late promotions to land here without a manual reload.
+    const refreshes = [4000, 9000, 15000, 30000, 60000, 90000, 130000]
     refreshes.forEach(ms => setTimeout(() => { try { fetchProposals() } catch (_) {} }, ms))
     setTimeout(() => setSyncStatus(null), 22000)
   }
