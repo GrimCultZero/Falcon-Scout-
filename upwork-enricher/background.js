@@ -63,14 +63,17 @@ function _startSync(source) {
   // messages inbox (for reply detection) as background tabs. Each content
   // script asks us via ASK_AUTO_SYNC whether to fire — we say yes for
   // tracked tabs only.
+  // Same v2 URL-marker pattern as the manual sync button, so both paths behave
+  // identically (marker survives MV3 worker death; ASK_AUTO_SYNC is the fallback).
   const SYNC_URLS = [
-    'https://www.upwork.com/nx/proposals/',
-    'https://www.upwork.com/ab/messages/rooms/',
+    'https://www.upwork.com/nx/proposals/?falconsync=1',
+    'https://www.upwork.com/ab/messages/rooms/?falconsync=1',
   ];
   for (const url of SYNC_URLS) {
     chrome.tabs.create({ url, active: false }, (tab) => {
       if (tab && tab.id) {
         _persistSyncTab(tab.id);   // durable across MV3 worker restarts
+        _scheduleTabCleanup(tab.id, 4);  // failsafe — never leave a zombie tab
         console.log('[Cockpit BG] auto-sync tab opened:', tab.id, url);
       }
     });
@@ -93,7 +96,33 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
+// Failsafe: any sync tab still open N minutes after creation gets force-closed.
+// chrome.alarms survives MV3 service-worker death (a setTimeout wouldn't), so a
+// stuck walk / dead content script can never leave a zombie Upwork tab behind.
+const _TAB_CLEANUP_PREFIX = 'falcon-close-tab-';
+function _scheduleTabCleanup(tabId, minutes = 3) {
+  try {
+    chrome.alarms.create(_TAB_CLEANUP_PREFIX + tabId, { delayInMinutes: minutes });
+  } catch (e) {
+    console.warn('[Cockpit BG] could not schedule tab cleanup:', e && e.message);
+  }
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name.startsWith(_TAB_CLEANUP_PREFIX)) {
+    const tabId = parseInt(alarm.name.slice(_TAB_CLEANUP_PREFIX.length), 10);
+    if (!Number.isNaN(tabId)) {
+      chrome.tabs.remove(tabId, () => {
+        if (chrome.runtime.lastError) {
+          // Already closed (the normal case) — nothing to do.
+        } else {
+          console.warn('[Cockpit BG] failsafe closed stuck sync tab', tabId);
+        }
+      });
+      _syncTabs.delete(tabId);
+    }
+    return;
+  }
   if (alarm.name !== _SYNC_ALARM_NAME) return;
   _startSync('chrome.alarms 12h tick');
 });
@@ -293,12 +322,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.tabs.create(
       { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
       (tab) => {
-        if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); }
+        if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 3); }
         console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
         chrome.tabs.create(
           { url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1', active: false },
           (mtab) => {
-            if (mtab && mtab.id) { _persistSyncTab(mtab.id); openedTabIds.push(mtab.id); }
+            // Messages leg may walk up to 10 rooms (~12s budget each) — give it
+            // a longer leash before the failsafe kills it.
+            if (mtab && mtab.id) { _persistSyncTab(mtab.id); openedTabIds.push(mtab.id); _scheduleTabCleanup(mtab.id, 4); }
             console.log('[Cockpit BG] sync messages tab opened (bg):', mtab && mtab.id);
             sendResponse({ ok: true, tabIds: openedTabIds });
           }

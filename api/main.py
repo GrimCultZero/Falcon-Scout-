@@ -2683,11 +2683,15 @@ def messages_status_sync(data: dict):
             "scanned": scanned,
             "newly_replied": newly_replied,
             "not_matched_count": len(not_matched),
+            # Self-diagnosis: running extension version + what the room walk did.
+            # If this is missing entirely, the extension predates v3.7.
+            "walk_info": data.get("walk_info"),
             "rows": [
                 {
                     "client_name": r.get("client_name"),
                     "job_title": r.get("job_title"),
                     "upwork_job_id": r.get("upwork_job_id"),
+                    "walk": r.get("walk"),
                     "has_unread": r.get("has_unread"),
                     "last_from_client": r.get("last_from_client"),
                     "last_message": (r.get("last_message") or "")[:120],

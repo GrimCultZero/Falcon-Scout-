@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Falcon Scout Enricher",
-  "version": "3.6",
+  "version": "3.7",
   "description": "Extracts job data from Upwork job pages and sends to local Falcon Scout dashboard",
   "permissions": [
     "activeTab",

@@ -266,15 +266,21 @@
     if (closeBtn) closeBtn.onclick = () => el.remove();
   }
 
-  async function postDirect(rows) {
+  async function postDirect(rows, walkInfo) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
+    // walk_info makes the backend debug dump self-diagnosing: it records the
+    // RUNNING extension version (catches stale-extension confusion for good)
+    // and what the room walk actually did.
+    let version = null;
+    try { version = chrome.runtime.getManifest().version; } catch (_) {}
+    const walk_info = { extension_version: version, ...(walkInfo || {}) };
     let resp;
     try {
       resp = await fetch(`${FALCON_API_BASE}/messages-status-sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ rows, walk_info }),
         signal: ctrl.signal,
       });
     } catch (e) {
@@ -307,16 +313,28 @@
   const saveQueue  = (q) => { try { sessionStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (_) {} };
   const clearQueue = () => { try { sessionStorage.removeItem(QUEUE_KEY); } catch (_) {} };
 
-  // In a room view, the job posting link is the anchor pointing at /jobs/~hex.
-  // Wait for it to render; null after timeout (offer/consultation rooms have none).
-  async function waitForRoomJobLink(maxMs = 9000) {
+  // In a room view, hunt for the job posting id two ways:
+  //   1. The job-link anchor (same proven selector messages.js uses).
+  //   2. RAW innerHTML regex for /jobs/~hex — background tabs may build the DOM
+  //      without painting/hydrating the sidebar chip, so the anchor query can
+  //      miss while the id still sits in the markup. The id alone is enough to
+  //      match (title is a bonus).
+  // Returns { upwork_job_id, job_title } or null after timeout.
+  async function waitForRoomJobLink(maxMs = 12000) {
     const start = Date.now();
     while (Date.now() - start < maxMs) {
       const anchors = document.querySelectorAll('a[href*="/jobs/~"], a[href*="/job/~"]');
       for (const a of anchors) {
-        const t = (a.innerText || '').trim();
-        if (t && t.length > 4) return a;
+        const href = a.getAttribute('href') || '';
+        const m = href.match(/~([0-9a-zA-Z]{16,})/);
+        if (m) {
+          const t = (a.innerText || '').trim().split('\n')[0].slice(0, 200);
+          return { upwork_job_id: m[1], job_title: t.length > 4 ? t : null };
+        }
       }
+      // Raw-HTML fallback — any /jobs/~hex in the markup, hydrated or not.
+      const raw = (document.body.innerHTML || '').match(/\/(?:nx\/|ab\/)?jobs\/~([0-9a-zA-Z]{16,})/);
+      if (raw) return { upwork_job_id: raw[1], job_title: null };
       await new Promise(r => setTimeout(r, 500));
     }
     return null;
@@ -324,10 +342,14 @@
 
   async function finishWalk(q) {
     // Merge walked job links into the original list rows, then POST the batch.
+    // Each row carries `walk` telemetry so the backend debug dump shows exactly
+    // what the walk did (visited-link / visited-no-link / skipped).
     const byRoom = q.results || {};
     const rows = (q.rows || []).map(r => {
+      if (!(r.room_id in byRoom)) return { ...r, walk: 'skipped' };
       const hit = byRoom[r.room_id];
-      return hit ? { ...r, upwork_job_id: hit.upwork_job_id, job_title: hit.job_title || r.job_title } : r;
+      if (!hit) return { ...r, walk: 'visited-no-link' };
+      return { ...r, upwork_job_id: hit.upwork_job_id, job_title: hit.job_title || r.job_title, walk: 'visited-link' };
     });
     clearQueue();
     const walked = Object.keys(byRoom).length;
@@ -335,7 +357,7 @@
     console.log(`[Cockpit Messages-List] room walk done: ${walked} visited, ${linked} job links found`);
     showBanner({ phase: 'posting', scraped: rows.length, rows, note: `Visited ${walked} conversations, ${linked} job links found.` });
     try {
-      const result = await postDirect(rows);
+      const result = await postDirect(rows, { rooms_visited: walked, links_found: linked, attempts: q.attempts || 0 });
       console.log('[Cockpit Messages-List] direct POST result:', result);
       showBanner({ phase: 'done', scraped: rows.length, result, rows });
       _done(result);
@@ -355,17 +377,7 @@
 
     const cur = q.queue[q.index];
     showBanner({ phase: 'walking', note: `Reading conversation ${q.index + 1} of ${q.queue.length}…` });
-    const a = await waitForRoomJobLink();
-    if (a) {
-      const href = a.getAttribute('href') || '';
-      const m = href.match(/~([0-9a-zA-Z]{16,})/);
-      q.results[cur.room_id] = {
-        upwork_job_id: m ? m[1] : null,
-        job_title: (a.innerText || '').trim().split('\n')[0].slice(0, 200),
-      };
-    } else {
-      q.results[cur.room_id] = null;  // no job link (offer/consultation room)
-    }
+    q.results[cur.room_id] = await waitForRoomJobLink();  // {upwork_job_id, job_title} | null
     q.index++;
     if (q.index < q.queue.length) {
       saveQueue(q);
