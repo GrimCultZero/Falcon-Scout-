@@ -2609,12 +2609,26 @@ def messages_status_sync(data: dict):
                 continue
             job_title = (row.get("job_title") or "").strip()
             client_name = (row.get("client_name") or "").strip()
+            upwork_job_id = (row.get("upwork_job_id") or "").lstrip("~").strip()
 
             proposal = None
 
+            # 0) Strongest: upwork_job_id from the room walk (the extension now
+            #    visits candidate rooms and reads the job link from each room's
+            #    page — exact key, no fuzzy matching needed).
+            if upwork_job_id:
+                matched_job = session.query(Job).filter(
+                    or_(
+                        Job.upwork_job_id == upwork_job_id,
+                        Job.upwork_job_id == "~" + upwork_job_id,
+                    )
+                ).first()
+                if matched_job:
+                    proposal = session.query(Proposal).filter_by(job_id=matched_job.id).first()
+
             # 1) Job-title match — kept for the rare case the inbox exposes a real
             #    title (mostly it doesn't; it shows the client/company name).
-            if job_title and len(job_title) >= 5 and not _MSG_NONTITLE_RE.match(job_title):
+            if proposal is None and job_title and len(job_title) >= 5 and not _MSG_NONTITLE_RE.match(job_title):
                 matched_job = (
                     session.query(Job).filter(Job.title.ilike(job_title)).first()
                     or session.query(Job).filter(Job.title.ilike(f"%{job_title[:60]}%")).first()
@@ -2673,6 +2687,7 @@ def messages_status_sync(data: dict):
                 {
                     "client_name": r.get("client_name"),
                     "job_title": r.get("job_title"),
+                    "upwork_job_id": r.get("upwork_job_id"),
                     "has_unread": r.get("has_unread"),
                     "last_from_client": r.get("last_from_client"),
                     "last_message": (r.get("last_message") or "")[:120],

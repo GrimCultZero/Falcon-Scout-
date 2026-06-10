@@ -218,7 +218,7 @@
     } catch (_) {}
   }
 
-  function showBanner({ phase, scraped, result, error, rows }) {
+  function showBanner({ phase, scraped, result, error, rows, note }) {
     let el = document.getElementById('falcon-msgsync-banner');
     if (!el) {
       el = document.createElement('div');
@@ -236,9 +236,11 @@
     const headColor = error ? '#ff8a8a' : ok ? '#1fd672' : '#ffd479';
     const title = error ? 'Falcon Reply Sync — error'
       : phase === 'scraping' ? 'Falcon Reply Sync — scraping inbox…'
+      : phase === 'walking' ? 'Falcon Reply Sync — reading conversations…'
       : phase === 'posting' ? 'Falcon Reply Sync — saving…'
       : 'Falcon Reply Sync — done';
     const lines = [];
+    if (note) lines.push(note);
     if (typeof scraped === 'number') lines.push(`Conversations scanned: <b>${scraped}</b>`);
     if (result) {
       lines.push(`Promoted to “replied”: <b>${result.newly_replied ?? result.updated ?? 0}</b>`);
@@ -286,26 +288,131 @@
     return resp.json();
   }
 
+  // Tell the background worker we're done so it CLOSES this (background) tab
+  // and notifies the dashboard (lights the Outcomes activity dots). Every exit.
+  const _done = (result) => {
+    try { chrome.runtime.sendMessage({ type: 'MESSAGES_LIST_SCRAPE_DONE', result: result || {} }, () => void chrome.runtime.lastError); } catch (_) {}
+  };
+
+  // ── Room walk ──────────────────────────────────────────────────────────────
+  // The inbox LIST shows only client names — no job link — so name-matching
+  // against anonymous job postings is impossible. But each ROOM's page shows
+  // the job posting link (title + ~hex job id). So after scraping the list we
+  // WALK the candidate rooms (client acted last, or unread) in this same tab,
+  // read the job link from each, and POST one batch matched by upwork_job_id.
+  // Each navigation reloads this content script, so walk state lives in
+  // sessionStorage and the walk resumes on every load until the queue drains.
+  const QUEUE_KEY = 'falcon_room_walk';
+  const loadQueue  = () => { try { return JSON.parse(sessionStorage.getItem(QUEUE_KEY) || 'null'); } catch (_) { return null; } };
+  const saveQueue  = (q) => { try { sessionStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (_) {} };
+  const clearQueue = () => { try { sessionStorage.removeItem(QUEUE_KEY); } catch (_) {} };
+
+  // In a room view, the job posting link is the anchor pointing at /jobs/~hex.
+  // Wait for it to render; null after timeout (offer/consultation rooms have none).
+  async function waitForRoomJobLink(maxMs = 9000) {
+    const start = Date.now();
+    while (Date.now() - start < maxMs) {
+      const anchors = document.querySelectorAll('a[href*="/jobs/~"], a[href*="/job/~"]');
+      for (const a of anchors) {
+        const t = (a.innerText || '').trim();
+        if (t && t.length > 4) return a;
+      }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return null;
+  }
+
+  async function finishWalk(q) {
+    // Merge walked job links into the original list rows, then POST the batch.
+    const byRoom = q.results || {};
+    const rows = (q.rows || []).map(r => {
+      const hit = byRoom[r.room_id];
+      return hit ? { ...r, upwork_job_id: hit.upwork_job_id, job_title: hit.job_title || r.job_title } : r;
+    });
+    clearQueue();
+    const walked = Object.keys(byRoom).length;
+    const linked = Object.values(byRoom).filter(Boolean).length;
+    console.log(`[Cockpit Messages-List] room walk done: ${walked} visited, ${linked} job links found`);
+    showBanner({ phase: 'posting', scraped: rows.length, rows, note: `Visited ${walked} conversations, ${linked} job links found.` });
+    try {
+      const result = await postDirect(rows);
+      console.log('[Cockpit Messages-List] direct POST result:', result);
+      showBanner({ phase: 'done', scraped: rows.length, result, rows });
+      _done(result);
+    } catch (e) {
+      console.error('[Cockpit Messages-List] direct POST failed:', e);
+      showBanner({ phase: 'done', scraped: rows.length, rows, error: 'save failed: ' + (e && e.message || e) });
+      _done({ scanned: rows.length, error: 'save failed: ' + (e && e.message || e) });
+    }
+  }
+
+  async function stepWalk(q) {
+    // Crash/redirect guard: every load mid-walk counts as an attempt; if we've
+    // reloaded far more times than rooms, stop walking and post what we have.
+    q.attempts = (q.attempts || 0) + 1;
+    saveQueue(q);
+    if (q.attempts > q.queue.length * 2 + 5) { await finishWalk(q); return; }
+
+    const cur = q.queue[q.index];
+    showBanner({ phase: 'walking', note: `Reading conversation ${q.index + 1} of ${q.queue.length}…` });
+    const a = await waitForRoomJobLink();
+    if (a) {
+      const href = a.getAttribute('href') || '';
+      const m = href.match(/~([0-9a-zA-Z]{16,})/);
+      q.results[cur.room_id] = {
+        upwork_job_id: m ? m[1] : null,
+        job_title: (a.innerText || '').trim().split('\n')[0].slice(0, 200),
+      };
+    } else {
+      q.results[cur.room_id] = null;  // no job link (offer/consultation room)
+    }
+    q.index++;
+    if (q.index < q.queue.length) {
+      saveQueue(q);
+      window.location.href = q.queue[q.index].room_url;   // next room (reloads script; queue resumes)
+      return;
+    }
+    await finishWalk(q);
+  }
+
   (async () => {
+    // Mid-walk? We navigated here as part of the room walk — resume it.
+    const pending = loadQueue();
+    if (pending && pending.state === 'walking') {
+      console.log('[Cockpit Messages-List] resuming room walk at', pending.index + 1, '/', pending.queue.length);
+      await stepWalk(pending);
+      return;
+    }
+
     const requested = await falconSyncRequested();
     console.log('[Cockpit Messages-List] falconsync requested:', requested, 'path:', window.location.pathname + window.location.search);
     if (!requested) return;
     clearMarker();
     showBanner({ phase: 'scraping' });
 
-    // Tell the background worker we're done so it CLOSES this (background) tab
-    // and notifies the dashboard (lights the Outcomes activity dots). Every exit.
-    const _done = (result) => {
-      try { chrome.runtime.sendMessage({ type: 'MESSAGES_LIST_SCRAPE_DONE', result: result || {} }, () => void chrome.runtime.lastError); } catch (_) {}
-    };
-
     const ok = await waitForListContent();
     if (!ok) { showBanner({ phase: 'done', error: 'inbox list did not render' }); _done({ scanned: 0, error: 'inbox list did not render' }); return; }
     const rows = scrapeConversationList();
     console.log('[Cockpit Messages-List] Scraped', rows.length, 'conversation rows');
-    showBanner({ phase: 'posting', scraped: rows.length, rows });
     if (!rows.length) { showBanner({ phase: 'done', scraped: 0, rows, error: 'no conversations scraped' }); _done({ scanned: 0, error: 'no conversations scraped' }); return; }
 
+    // Candidate rooms for the walk: the client acted last OR the row is unread.
+    // Cap to keep the sync fast — each visit is a page load.
+    const candidates = rows.filter(r => r.last_from_client || r.has_unread).slice(0, 10);
+    if (candidates.length) {
+      console.log('[Cockpit Messages-List] starting room walk over', candidates.length, 'candidate rooms');
+      const q = {
+        state: 'walking', index: 0, attempts: 0,
+        queue: candidates.map(c => ({ room_id: c.room_id, room_url: c.room_url })),
+        rows, results: {},
+      };
+      saveQueue(q);
+      window.location.href = q.queue[0].room_url;
+      return;
+    }
+
+    // No candidates — nothing new from clients; post the plain list as before.
+    showBanner({ phase: 'posting', scraped: rows.length, rows });
     try {
       const result = await postDirect(rows);
       console.log('[Cockpit Messages-List] direct POST result:', result);
