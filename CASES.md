@@ -40,3 +40,34 @@ fast, repeatable diagnostic. Captured as Core KB note **#468** ("Local SEO / Map
 Recovery — diagnostic method").
 
 **Outcome.** Response sent with the two grid screenshots (Mar vs Jun). [Pending client reply.]
+
+---
+
+## Case — Circumvention enforcement flag from an innocent proposal line (Jun 11, 2026)
+
+**Context.** Upwork Trust & Safety flagged Artem's account: "offered or requested to take
+payments outside of Upwork" (Circumvention). Account kept FULL platform access — it was a
+policy flag + ToS-acknowledgment banner, not a suspension. Recoverable via acknowledge +
+optional "Request enforcement decision review" appeal (two 1200-char fields + optional files).
+
+**What we found.** The trigger was almost certainly one line in a Meta Ads proposal:
+*"managing through Upwork hits friction … we'll find workaround."* Artem meant **Meta Business
+Manager ad-account ACCESS friction** (Meta's 2FA/access blocks on agency access) — a routine
+PPC topic. But Upwork's automated scanner reads *"through Upwork hits friction → workaround"*
+as off-platform intent. Context didn't save it; the pattern alone fired.
+
+**The reusable lesson (two parts).**
+1. **Never let a letter put "Upwork" near "friction/workaround/limitations," name any payment
+   rail (PayPal/Wise/wire/crypto/"pay directly"), or any off-platform contact channel
+   (WhatsApp/Telegram/email/phone).** Platform-access difficulties (e.g. Meta BM 2FA) must be
+   described positively WITHOUT naming Upwork: *"i'll set up secure partner access through Meta
+   Business Manager."* When in doubt, omit. This is now enforced in the generator (commit
+   9b5dce3): prompt rule + deterministic CIRCUMVENTION_RISK regex pre-check + enforcer rewrite.
+2. **Appeal playbook:** open the violation's "Details" first; do an honesty gut-check (if it was
+   real, acknowledge & move on — false-info appeal = permanent ban); acknowledge the ToS banner
+   to restore standing; then submit a calm, factual appeal that (a) states all payments have
+   always been on Upwork, (b) explains the flagged words meant ad-account ACCESS not payments,
+   (c) notes the incentive to stay (Connects purchases, payment protection), (d) offers the full
+   thread + a screenshot of the proposal in context. Never confrontational.
+
+**Outcome.** Drafts provided; root cause fixed in code. [Appeal pending Artem's submission.]
