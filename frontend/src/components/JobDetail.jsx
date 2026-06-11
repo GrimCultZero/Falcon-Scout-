@@ -3423,6 +3423,7 @@ The imperfections should feel like someone typed fast and didn't proofread, NOT 
 - NEVER offer to walk through, demo, or show anything — no "happy to walk through", "walk you through", "hop on a call", "schedule a demo", "book a call", or any similar phrase that implies initiating a synchronous session. If the client wants a call they will ask.
 - THE ONLY VALID ENDING IS "Artem" (capital A) on its own line — nothing else. No CTA, no closing filler, no invitation, no question, no next-step prompt. Every one of these is banned as a closing line: "happy to answer questions", "feel free to reach out", "let me know if you have questions", "looking forward to hearing from you", "happy to discuss further", "happy to chat", "reach out anytime", "let's talk", "keen to hear more", "would love to connect", "open to a quick call", "communication will be efficient", or ANY variation. The letter ends with the last content sentence and then "Artem" on its own line. Period.
 - NEVER write "i work async" anywhere in the letter — not as a closing line, not as a mid-letter description of communication style. This phrase is banned entirely. If you need to explain communication cadence, describe it concretely ("weekly summary report covering spend, leads, CPL, and next actions") without the phrase "async".
+- CIRCUMVENTION SAFETY (Trust & Safety — absolute, zero exceptions): Upwork's automated scanners flag accounts over wording that even RESEMBLES moving work, payments, or communication off-platform. A real enforcement flag already hit Artem's account over the innocent line "managing through Upwork hits friction … we'll find workaround". Therefore NEVER write, in any context: "outside Upwork", "off Upwork", "around Upwork", "without Upwork", any sentence putting "Upwork" near "friction"/"workaround"/"limitations"; any payment method (PayPal, Wise, wire, crypto, "pay directly"); any contact channel (WhatsApp, Telegram, Skype, email addresses, phone numbers). If a platform-access difficulty is genuinely relevant (e.g. Meta Business Manager 2FA), describe the solution positively without mentioning Upwork at all: "i'll set up secure partner access through Meta Business Manager". When in doubt, omit the topic entirely.
 - RATE DISCLOSURE RULE: if the client's posting explicitly asks for a monthly rate, management fee, or pricing structure, you MUST include a concrete number or range in the letter. Do not ignore the ask. Artem's typical ongoing management rate is $30–35/hr or a flat monthly retainer discussed after audit (state whichever fits scope). Skipping the rate when the client asked for it signals you didn't read the posting.
 - NEVER run multiple case studies into a single paragraph. Each case study MUST be its own paragraph with a blank line above it. If you have two case studies back to back with no blank line between them, that is a formatting error — fix it before emitting.
 
@@ -3698,6 +3699,28 @@ FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preambl
               /profile\s+highlights?[^.]*(?:schema|AI\s+visibility|entity|breakdown|audit\s+sample)/i,
             ]
             const hasForbiddenPhrase = FORBIDDEN_PHRASES.some(re => re.test(text))
+
+            // ── Circumvention-risk check (Trust & Safety critical) ───────────
+            // Upwork's automated scanners flag anything that pattern-matches
+            // taking work/payments/comms off-platform. A real enforcement flag
+            // hit Artem's account (2026-06-11) over an innocent line: "managing
+            // through Upwork hits friction … we'll find workaround" (it meant
+            // Meta ad-account ACCESS, but the scanner can't know that). These
+            // patterns must never appear in a letter, in ANY context.
+            const CIRCUMVENTION_RISK = [
+              // "outside/off/around/bypass … Upwork" in any phrasing
+              /\b(?:outside|off|around|bypass(?:ing)?|avoid(?:ing)?|without)\s+(?:of\s+)?upwork\b/i,
+              // Upwork + friction/workaround/limitation in the same breath
+              /\bupwork\b[^.\n]{0,70}\b(?:friction|work[\s-]?around|limitations?|restrict\w*|gets?\s+in\s+the\s+way)/i,
+              /\b(?:friction|work[\s-]?around|limitations?)\b[^.\n]{0,70}\bupwork\b/i,
+              // Off-platform payment rails
+              /\b(?:paypal|payoneer|wise|revolut|bank\s+transfer|wire\s+transfer|crypto|usdt|direct\s+payment|pay\s+(?:me\s+)?directly)\b/i,
+              // Off-platform contact channels (pre-contract contact sharing is also flagged)
+              /\b(?:whatsapp|telegram|signal|discord|viber|wechat)\b/i,
+              /\b(?:email|reach)\s+me\s+(?:at|on|directly)\b/i,
+              /\b[\w.+-]+@(?:gmail|outlook|yahoo|proton)\w*\.\w+/i,
+            ]
+            const hasCircumventionRisk = CIRCUMVENTION_RISK.some(re => re.test(text))
 
             // ── Fabricated-diagnosis check (credibility-critical) ─────────────
             // The generator only has the job posting — it has NOT visited the
@@ -4040,7 +4063,7 @@ FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preambl
             }
             const missingHighlightsPhrase = hasNonPdfResultSignal && (!hasHighlightsPhrase || csCrammed)
 
-            const draftCompliant = timingCompliant && !hasForbiddenPhrase && !missingPdfLabel
+            const draftCompliant = timingCompliant && !hasForbiddenPhrase && !hasCircumventionRisk && !missingPdfLabel
               && !missingAuditSampleMention && !missingCaseStudy && !missingHighlightsPhrase
               && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming
               && !coverHasTimeline && !hasFabricatedDiagnosis
@@ -4066,6 +4089,7 @@ FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preambl
               hasFabricatedDiagnosis && 'hasFabricatedDiagnosis',
               hasUnsolicitedLogistics && 'hasUnsolicitedLogistics',
               hasFillerCloser && 'hasFillerCloser',
+              hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
               missingSeoPlanOffer && 'missingSeoPlanOffer',
@@ -4176,6 +4200,12 @@ FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preambl
               specificViolations.push(
                 'FILLER CLOSER (Rule 436): The draft ends with empty pleasantry — "looking forward to working with you", "happy to discuss", "let me know your thoughts", "excited to chat", "feel free to reach out", "available to jump on a call", or similar. ' +
                 'DELETE the entire filler sentence. Do NOT replace it. The cover letter must end on the last substantive line — the case study, the audit/plan offer, or simply the signature line ("artem"). If the signature line is missing after deletion, add "artem" on its own line.'
+              )
+            }
+            if (hasCircumventionRisk) {
+              specificViolations.push(
+                'CIRCUMVENTION RISK (Trust & Safety — HIGHEST PRIORITY): The draft contains wording Upwork\'s automated scanners flag as taking work, payments, or communication off-platform — e.g. "outside/off/around Upwork", "Upwork … friction/workaround/limitations", payment rails (PayPal, Wise, wire, crypto, "pay me directly"), or off-platform contact channels (WhatsApp, Telegram, email addresses). ' +
+                'A real enforcement flag already hit this account over an innocent sentence of this shape. REWRITE or DELETE every such phrase. If discussing platform-access friction (e.g. Meta Business Manager 2FA), describe the technical solution WITHOUT mentioning Upwork or the words "friction"/"workaround" near it — e.g. "i\'ll set up secure partner access through Meta Business Manager". Never mention payment methods or contact channels at all.'
               )
             }
             if (regulatedJobMissingVape) {
