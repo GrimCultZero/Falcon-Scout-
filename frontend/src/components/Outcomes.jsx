@@ -384,11 +384,34 @@ export default function Outcomes({ active = false }) {
       } else if (filter !== 'all') {
         filteredKbRows = kbRows.filter(r => r.status === filter)
       }
-      // Merge: proposals first (have proper sent_at), then KB rows not already in proposals list
-      // Deduplicate by job title in case a proposal was saved both ways
-      const titles = new Set(data.map(p => (p.job_title_live || '').toLowerCase()))
-      const uniqueKbRows = filteredKbRows.filter(r => !titles.has((r.job_title_live || '').toLowerCase()))
-      setProposals([...data, ...uniqueKbRows])
+      // Merge: proposals first (have proper sent_at), then KB rows not already in proposals list.
+      // Deduplicate by stripped title (KB rows append " — Client Name" suffix).
+      // When a match exists, enrich the /proposals row with KB client data so
+      // the card shows the full client info, messages, and display title.
+      const stripSuffix = t => (t || '').toLowerCase().replace(/\s*—.*$/, '').trim()
+      const kbByTitle = {}
+      filteredKbRows.forEach(r => {
+        const key = stripSuffix(r.job_title_live)
+        if (key && !kbByTitle[key]) kbByTitle[key] = r
+      })
+      const matchedKbKeys = new Set()
+      const enrichedData = data.map(p => {
+        const kb = kbByTitle[stripSuffix(p.job_title_live)]
+        if (!kb) return p
+        matchedKbKeys.add(stripSuffix(p.job_title_live))
+        return {
+          ...p,
+          // Use the KB's richer display title (includes client name suffix)
+          job_title_live: kb.job_title_live || p.job_title_live,
+          _client: kb._client,
+          _messages: kb._messages,
+          // Prefer the proposal's captured reply; fall back to KB messages
+          client_reply_text: p.client_reply_text || kb.client_reply_text,
+          _job_posting: p._job_posting || kb._job_posting,
+        }
+      })
+      const uniqueKbRows = filteredKbRows.filter(r => !matchedKbKeys.has(stripSuffix(r.job_title_live)))
+      setProposals([...enrichedData, ...uniqueKbRows])
     } catch (e) {
       setError(e.message)
     } finally {

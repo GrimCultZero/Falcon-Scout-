@@ -472,6 +472,7 @@ function PeriodPanel({ cur, prev }) {
         <Metric label="Viewed" value={cur.viewed || 0} deltaCur={cur.viewed} deltaPrev={prev && prev.viewed} accent="#8b5cf6" />
         <Metric label="Invited" value={cur.invited || 0} deltaCur={cur.invited} deltaPrev={prev && prev.invited} accent="#a855f7" />
         <Metric label="Replies" value={cur.positive} deltaCur={cur.positive} deltaPrev={prev && prev.positive} accent="#00c8d4" />
+        <Metric label="Hired" value={cur.hired || 0} deltaCur={cur.hired} deltaPrev={prev && prev.hired} accent="#00d070" />
         <Metric label="Reply rate" value={rr == null ? '—' : rr + '%'} accent={rrColor} deltaCur={rr} deltaPrev={prev && prev.reply_rate_pct} suffix="pt" />
         <Metric label="Connects" value={(cur.bid_total || 0).toLocaleString()} deltaCur={cur.bid_total} deltaPrev={prev && prev.bid_total} hib={false} />
       </div>

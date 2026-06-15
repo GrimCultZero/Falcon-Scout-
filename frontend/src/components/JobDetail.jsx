@@ -54,6 +54,11 @@ function jobScopes(text) {
   if (has(/\b(agency|white[-\s]?label|reseller|we\s+are\s+a\s+(?:marketing|digital|web|advertising|seo|ppc|creative)\s+agency|on\s+behalf\s+of\s+(?:our|their)\s+clients?|for\s+our\s+clients?)\b/i)) {
     scopes.add('agency')
   }
+  // WEBDEV = ecommerce/CMS platform work: Shopify, WordPress/WooCommerce, OpenCart.
+  // NOT custom software engineering (those are stopped by feed stop_words or scored low).
+  if (has(/\b(shopify|woocommerce|opencart|magento|bigcommerce|prestashop|wordpress\s+(?:developer|development|website|site|theme|plugin|design)|ecommerce\s+(?:website|store|site|development|platform|design)|online\s+store\s+(?:development|build|setup|creation)|website\s+(?:development|redesign|developer|builder|creation)|web\s+(?:developer|development|design)|build\s+(?:a|an|our|my|the)\s+(?:website|online\s+store|ecommerce\s+site|shop|store)|cms\s+(?:website|development)|theme\s+(?:development|customization)|plugin\s+development|landing\s+page\s+(?:developer|development))\b/i)) {
+    scopes.add('webdev')
+  }
   return scopes
 }
 
@@ -2114,12 +2119,16 @@ function _restoreColumnWidths(wrapper) {
     return
   }
 
-  for (const c of cols) {
+  for (let i = 0; i < cols.length; i++) {
+    const c = cols[i]
     const w = widths[c.dataset.colId]
-    if (typeof w === 'number' && w > 0) {
+    // Last column always flex: 1 so it fills any remaining viewport space,
+    // preventing the empty gap on the right when saved widths sum < available.
+    if (i === cols.length - 1) {
+      c.style.flex = '1'
+      c.style.width = ''
+    } else if (typeof w === 'number' && w > 0) {
       c.style.flex = 'none'
-      // Floor lowered from 60px → 40px so the scaling can squeeze in
-      // tighter at narrow viewports without overshoot.
       c.style.width = Math.max(40, Math.floor(w * scale)) + 'px'
     }
   }
@@ -2161,9 +2170,19 @@ function Divider() {
     window.addEventListener('mouseup', onUp)
   }
 
+  // Double-click: reset all columns to equal widths and clear saved layout
+  const onDoubleClick = (e) => {
+    const wrapper = e.currentTarget.parentElement
+    const cols = Array.from(wrapper.children).filter(c => c.dataset && c.dataset.colId)
+    cols.forEach(c => { c.style.flex = '1'; c.style.width = '' })
+    try { localStorage.removeItem(COLUMN_WIDTHS_KEY) } catch {}
+  }
+
   return (
     <div
       onMouseDown={onMouseDown}
+      onDoubleClick={onDoubleClick}
+      title="Drag to resize · Double-click to reset equal widths"
       style={{
         width: 4, flexShrink: 0, cursor: 'col-resize',
         background: dragging ? '#00c8d4' : 'var(--border)',
@@ -2452,7 +2471,7 @@ CORE EXPERTISE (strong fit — score these 7-10 if scope matches):
 - Technical & Local SEO: Log file analysis, indexation fixes, Core Web Vitals, site architecture, Google Business Profile, City-Silo / Map Pack ranking across 70+ cities.
 - Ecommerce SEO: Shopify, OpenCart, WooCommerce. YMYL/EEAT compliance frameworks.
 - Analytics & Tracking: GA4, Google Tag Manager, conversion tracking audits, attribution.
-- Web development: WordPress, Shopify, Laravel (PHP, JS, React) — relevant when scope includes landing page or tracking implementation.
+- Web Development (ecommerce platforms): Shopify store setup, theme customization, app integration, SEO-optimized builds. WordPress/WooCommerce site development, plugin/theme work, performance optimization. OpenCart store builds with CRM integration (KeepinCRM bidirectional sync), bilingual SEO, analytics setup. Full-scope delivery: architecture → development → GA4/GTM → technical SEO. Proven case: GKit brand fashion store (OpenCart + KeepinCRM + dual-language SEO, launched Q1 2026). Score 7-10 when scope is ecommerce platform work on Shopify / WordPress / WooCommerce / OpenCart.
 
 PROVEN RESULTS (use these to judge vertical fit — if the job is in one of these verticals, it's a stronger match):
 - Medical/YMYL SEO: +1,861% organic traffic, +14,342% conversions (Derma Solution case study — attached in profile).
@@ -2465,10 +2484,12 @@ WEAK FIT / SCORE LOWER for:
 - Verticals with no case study overlap and an explicit experience gate (e.g. "must have finance/legal/SaaS SEO background only") — score 2-4.
 - Jobs where the primary deliverable is content writing, link building outreach, or social media management with no PPC/SEO audit component.
 - Clients whose avg rate paid is well below $30/hr — may resist his pricing.
+- Custom software engineering (React SPA, Node.js API, mobile app, SaaS platform, blockchain) — IT Force scope is CMS/ecommerce platforms, not custom application development. Score 2-4, not 0.
 
 COMPETITIVE POSITIONING:
 - In pools of 20-50 applicants for generic SEO/PPC work, Artem's Top Rated + Premier Partner + $100K+ profile stands out — don't over-penalise for applicant count unless the scope is clearly misaligned.
 - For audit-first or one-off deliverable jobs, his $700 fixed SEO audit and $160-200 PPC audit price points are competitive and proven.
+- For web development jobs (Shopify/WordPress/OpenCart), the differentiator is full-scope delivery: most web devs hand off to a separate SEO person. IT Force delivers build + SEO architecture + analytics in one engagement — cite this as the edge.
 
 HARD DISQUALIFIERS — if any apply, score MUST be 0 and verdict MUST be SKIP, no exceptions:
 1. "Freelancer geo restriction" field contains "United States only", "US only", or any similar restriction (Artem cannot legally apply)
@@ -3358,7 +3379,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
           _kind: coreOnly ? 'proposal_rescan' : 'proposal',
           model: 'claude-sonnet-4-5',
           max_tokens: 2000,
-          system: `You write Upwork cover letters for Artem Yatsuk, a Google Ads/PPC/SEO specialist (12 years).
+          system: `You write Upwork cover letters for Artem Yatsuk, a Google Ads/PPC/SEO and ecommerce web development specialist (12 years).
 ${kbRulesText ? `
 ═══════════════════════════════════════════════════════════════════
 PRIMARY DIRECTIVE — KB RULES (these override every other instruction below

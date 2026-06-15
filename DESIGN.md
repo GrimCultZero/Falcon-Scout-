@@ -1,7 +1,7 @@
 # Falcon Scout — Design Document
 *(previously "Upwork Cockpit")*
 
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-15
 **Owner:** Artem Yatsuk
 **Purpose of this file:** Capture every non-obvious decision, the architectural shape, the build sequence, and the negative-space choices ("we deliberately do NOT do X because Y") so future sessions can pick up without relitigating settled questions. Read this first whenever you open a new Cowork session on this project.
 
@@ -9,7 +9,7 @@
 
 ## 1. Product overview
 
-Falcon Scout (by IT Force) is a local Windows tool that automates the front of the freelance pipeline for Artem (Google Ads / PPC / SEO specialist, 12 years experience). It:
+Falcon Scout (by IT Force) is a local Windows tool that automates the front of the freelance pipeline for Artem (Google Ads / PPC / SEO specialist AND ecommerce web development — Shopify, WordPress/WooCommerce, OpenCart — 12 years in digital). It:
 
 1. Listens to Telegram bot @OffersHunterBot for new Upwork job postings and persists them.
 2. Enriches each job with deep client/job metadata scraped from upwork.com via a Chrome extension.
@@ -1146,3 +1146,47 @@ poll cadence vs real-time push.
 The denials are scope-gated, not account-gated. Artem can **"Edit Key Details"** to request the
 proposals + messages scopes; if granted, `vendorProposals` would unlock **API-native outcome sync**
 (retiring the worst scraper). Historically those scopes are harder to get — build on what works now.
+
+---
+
+## 18. Web development scope expansion (2026-06-15)
+
+Artem / IT Force is expanding Upwork scope to include **ecommerce web development** (Shopify, WordPress / WooCommerce, OpenCart) alongside the existing PPC / SEO vertical.
+
+### Positioning decisions
+
+- **Agency-as-freelancer pattern** applies here exactly as for PPC/SEO: Artem acts as the freelancer; what IT Force does internally (who codes what) is not disclosed to the client. No change to the existing approach.
+- **No scope exclusions for now.** No stack, budget, or industry restrictions until real data shows a pattern worth filtering.
+- **Full-scope differentiator** is the core pitch: most web devs build the site, then the client separately hires SEO later. IT Force delivers development + SEO-ready architecture + GA4/GTM analytics in one engagement.
+- **Credential framing:** 12 years is stated as "12 years in digital / ecommerce" — NOT "12 years of web development" (false). Google Premier Partner badge is NOT cited on pure web dev jobs (PPC-only credential).
+- **Primary case study:** GKit (gkit.com.ua) — OpenCart + KeepinCRM bidirectional sync, dual-language (UA/RU) hreflang, SEO architecture, GA4/GTM ecommerce tracking. Launched Q1 2026; 2,600 impressions in month one. See KB for full details.
+
+### Files changed
+
+- **`feed_config.json`**: Added 9 web dev keywords (`shopify developer`, `shopify store`, `shopify`, `wordpress developer`, `wordpress website`, `woocommerce`, `opencart`, `ecommerce website development`, `ecommerce store development`). Removed `react` and `frontend developer`/`backend developer`/`full stack` from stop_words (these terms appear in legitimate web dev jobs; custom software engineering jobs are scored low by the analyser instead).
+- **`frontend/src/components/JobDetail.jsx`**:
+  - `jobScopes()`: new `webdev` scope — detects Shopify/WordPress/WooCommerce/OpenCart/ecommerce-dev keywords.
+  - Analyser profile: expanded CORE EXPERTISE web dev section (was a one-line footnote); added web dev to WEAK FIT (custom software engineering = 2-4 not SKIP) and COMPETITIVE POSITIONING (full-scope differentiator).
+  - Generator system prompt identifier updated to include "ecommerce web development".
+- **`scripts/import_webdev.py`**: One-shot script that imports the GKit case study + 5 web dev KB rules. Run once with the backend up: `python scripts/import_webdev.py`.
+
+### Feed keywords rationale
+
+**API feed** (`feed_config.json`): 9 new keywords. The search API is OR-ish so precision comes from the `require_keyword_in_text` post-filter (already active). `per_keyword_limit: 20` caps results per keyword.
+
+**Telegram bot (@OffersHunterBot)**: Artem must add keyword alerts manually in the bot interface. Recommended keywords to add:
+- `shopify` (catches shopify store / developer / development / theme)
+- `wordpress developer` or `wordpress development` (broad `wordpress` alone catches too many non-dev jobs)
+- `woocommerce`
+- `opencart`
+- `ecommerce website` or `ecommerce development`
+
+### Scope boundary (negative space)
+- Custom software engineering (React SPA, Node.js, mobile apps, SaaS, blockchain) = **OUT OF SCOPE**. Not added to keywords. Analyser scores 2-4 (fit-based skip), not 0.
+- Future 2 case studies: Artem will provide when ready. Import via `scripts/import_webdev.py` (add new entries to the `ENTRIES` list) or directly through the KB tab.
+
+### Pending
+- [ ] Artem adds web dev keywords to @OffersHunterBot
+- [ ] Run `python scripts/import_webdev.py` once (backend must be running)
+- [ ] 2 additional case studies (Artem to provide; import via KB tab or extend the script)
+- [ ] Review first wave of captured web dev jobs; add `webdev`-scoped KB rules as patterns emerge (use the `⚠ Top rule violations` panel)
