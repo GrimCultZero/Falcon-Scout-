@@ -1190,3 +1190,61 @@ Artem / IT Force is expanding Upwork scope to include **ecommerce web developmen
 - [ ] Run `python scripts/import_webdev.py` once (backend must be running)
 - [ ] 2 additional case studies (Artem to provide; import via KB tab or extend the script)
 - [ ] Review first wave of captured web dev jobs; add `webdev`-scoped KB rules as patterns emerge (use the `⚠ Top rule violations` panel)
+
+---
+
+## 19. Background auto-enrichment (2026-06-15)
+
+**Goal:** a job should enrich itself shortly after it lands in the feed, without Artem manually
+opening each one. Applies to BOTH feeds (bot + API jobs that haven't been extension-enriched).
+
+**Why it was cheap to build:** the per-job mechanics already existed. `content.js` scrapes any
+Upwork job page on load and sends `ENRICH_JOB`; `background.js` already had `OPEN_BACKGROUND_TAB`
++ a `_bgTabs` set, and the `ENRICH_JOB` handler closes a tab that's in `_bgTabs` after a successful
+scrape. The only missing pieces were a *queue* (what to enrich) and a *driver* (poll + open tabs).
+
+### Backend (`api/main.py`, `api/upwork_api.py`, `db.py`)
+- New jobs columns: `enrich_attempts INTEGER DEFAULT 0`, `last_enrich_attempt_at DATETIME`
+  (runtime ALTER migration in `_ensure_job_columns`, mirrored in the `db.py` model).
+- `GET /jobs/pending-enrich` — returns up to `auto_enrich_batch` jobs, newest first, where:
+  enriched_at IS NULL · url present · not hidden · captured within `auto_enrich_max_age_hours` ·
+  `enrich_attempts < _ENRICH_MAX_ATTEMPTS` (3) · past the `_ENRICH_COOLDOWN_MIN` (20 min) cooldown ·
+  no proposal attached. Declared BEFORE `/jobs/{job_id}` so the literal path wins the route match.
+  Returns `[]` when `feed_config.auto_enrich` is off.
+- `POST /jobs/{id}/enrich-attempt` — increments `enrich_attempts`, stamps `last_enrich_attempt_at`.
+- Config (`DEFAULT_FEED_CONFIG`): `auto_enrich` (true), `auto_enrich_batch` (2),
+  `auto_enrich_max_age_hours` (72). **Note:** `save_feed_config` only persists keys present in
+  `DEFAULT_FEED_CONFIG`, so any new feed setting MUST be added there or it silently won't save.
+
+### Extension (`background.js`, manifest → 3.9)
+- New `falcon-auto-enrich` chrome.alarm, period 3 min, first fire ~30s after load (registered in
+  the shared `_registerAlarms` on both onInstalled + onStartup).
+- `_runAutoEnrich()`: fetch the queue → for each job, **POST enrich-attempt BEFORE opening the
+  tab** → `chrome.tabs.create({active:false})` → add to `_bgTabs` → `_scheduleTabCleanup(2min)`.
+  Tabs staggered 6s apart. `_autoEnrichInFlight` guard prevents overlapping cycles. Backend
+  unreachable = silent no-op (expected when the app is off).
+- The failsafe tab-cleanup alarm now also clears `_bgTabs` (was only clearing `_syncTabs`).
+
+### Frontend (`FeedSettings.jsx`)
+- Auto-enrichment block: enable toggle + jobs-per-cycle + max-age. Labelled as affecting **both**
+  feeds (the rest of that modal is API-feed-only).
+
+### Key design decision — attempt tracking, not just `enriched_at`
+`/enrich` stamps `enriched_at` unconditionally, so once any tab POSTs, the job leaves the queue.
+That alone can't stop a job whose tab NEVER POSTs (login wall, dead/expired URL, background-tab
+render throttle so the scraper finds nothing) from being reopened every single cycle forever.
+`enrich_attempts` + the cooldown bound that: 3 tries, 20 min apart, then it's dropped from the
+queue. Marking the attempt up front (before the tab opens) is what makes a dying tab still count.
+
+**Known caveat (acceptable):** a partial background scrape (got client section but the activity
+sidebar didn't hydrate behind an inactive tab — see the throttle note in `content.js` ~line 585)
+still stamps `enriched_at` and leaves the queue. Those few jobs won't auto-retry; Artem manually
+re-enriches the ones that matter before applying. If this proves common, the refinement is to
+re-queue jobs that are enriched_at-set but missing key activity fields AND under the attempt cap.
+
+### Negative space
+- Tabs open **inactive** (`active:false`) by default — never steal Artem's focus. The proposals
+  *list* sync needs `active:true` (virtualized rows), but job *detail* pages mostly hydrate fine
+  inactive; partial results are handled by the caveat above, not by stealing focus.
+- Bounded by design: small batch + 3-min cadence + recency window + attempt cap → no tab storm,
+  and the queue self-empties once the feed is caught up (returns `[]`, nothing opens).

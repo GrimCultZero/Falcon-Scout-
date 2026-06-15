@@ -58,6 +58,18 @@ const _jumpCaptureTabs = new Set();
 const _SYNC_ALARM_NAME = 'falcon-status-sync';
 const _SYNC_PERIOD_MINUTES = 60;  // hourly
 
+// ── Background auto-enrichment ────────────────────────────────────────────
+// Polls the backend for jobs that haven't been enriched yet and silently opens
+// each in a hidden Upwork tab. content.js scrapes on load and POSTs to /enrich;
+// the existing ENRICH_JOB handler closes the tab (it's in _bgTabs). The backend
+// gates the queue on feed_config.auto_enrich and bounds batch size, so this is
+// self-limiting — once the feed is caught up, the queue returns [] and nothing
+// opens. chrome.alarms (not setInterval) so it survives MV3 worker sleep.
+const _AUTO_ENRICH_ALARM = 'falcon-auto-enrich';
+const _AUTO_ENRICH_PERIOD_MINUTES = 3;
+const _AUTO_ENRICH_STAGGER_MS = 6000;  // gap between opening each tab in a batch
+let _autoEnrichInFlight = false;        // prevent overlapping cycles
+
 function _startSync(source) {
   console.log('[Cockpit BG] auto-sync triggered:', source);
   // Open BOTH the proposals list (for view-status detection) AND the
@@ -83,19 +95,20 @@ function _startSync(source) {
 
 // (Re)create the alarm on extension start. chrome.alarms.create overwrites
 // any existing alarm with the same name, so this is idempotent.
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(_SYNC_ALARM_NAME, {
-    delayInMinutes: _SYNC_PERIOD_MINUTES,   // first fire 12h after install
-    periodInMinutes: _SYNC_PERIOD_MINUTES,
-  });
-  console.log('[Cockpit BG] auto-sync alarm registered (every', _SYNC_PERIOD_MINUTES, 'minutes)');
-});
-chrome.runtime.onStartup.addListener(() => {
+function _registerAlarms() {
   chrome.alarms.create(_SYNC_ALARM_NAME, {
     delayInMinutes: _SYNC_PERIOD_MINUTES,
     periodInMinutes: _SYNC_PERIOD_MINUTES,
   });
-});
+  chrome.alarms.create(_AUTO_ENRICH_ALARM, {
+    delayInMinutes: 0.5,                          // first sweep ~30s after load
+    periodInMinutes: _AUTO_ENRICH_PERIOD_MINUTES,
+  });
+  console.log('[Cockpit BG] alarms registered — sync every', _SYNC_PERIOD_MINUTES,
+    'min, auto-enrich every', _AUTO_ENRICH_PERIOD_MINUTES, 'min');
+}
+chrome.runtime.onInstalled.addListener(_registerAlarms);
+chrome.runtime.onStartup.addListener(_registerAlarms);
 
 // Failsafe: any sync tab still open N minutes after creation gets force-closed.
 // chrome.alarms survives MV3 service-worker death (a setTimeout wouldn't), so a
@@ -121,12 +134,69 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         }
       });
       _syncTabs.delete(tabId);
+      _bgTabs.delete(tabId);
     }
+    return;
+  }
+  if (alarm.name === _AUTO_ENRICH_ALARM) {
+    _runAutoEnrich();
     return;
   }
   if (alarm.name !== _SYNC_ALARM_NAME) return;
   _startSync('chrome.alarms 12h tick');
 });
+
+// Fetch the pending-enrich queue and open each job in a hidden tab. The backend
+// already gates (auto_enrich flag), bounds (batch size, recency, attempts), and
+// applies a cooldown — so we just open what it returns, staggered. Marking the
+// attempt BEFORE opening means a tab that dies (login wall, dead URL) still
+// counts against the retry budget and won't be reopened every cycle.
+async function _runAutoEnrich() {
+  if (_autoEnrichInFlight) {
+    console.log('[Cockpit BG] auto-enrich: previous cycle still in flight, skipping');
+    return;
+  }
+  _autoEnrichInFlight = true;
+  try {
+    let jobs;
+    try {
+      const resp = await fetch(`${API_BASE}/jobs/pending-enrich`);
+      if (!resp.ok) { console.warn('[Cockpit BG] auto-enrich: backend', resp.status); return; }
+      jobs = await resp.json();
+    } catch (e) {
+      // Backend not running — silent, this is expected when the app is off.
+      return;
+    }
+    if (!Array.isArray(jobs) || jobs.length === 0) return;
+    console.log('[Cockpit BG] auto-enrich: opening', jobs.length, 'hidden tab(s)');
+
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      if (!job || !job.url) continue;
+      // Count the attempt up front (survives tab death).
+      try {
+        await fetch(`${API_BASE}/jobs/${job.id}/enrich-attempt`, { method: 'POST' });
+      } catch (e) { /* non-fatal — open the tab anyway */ }
+
+      chrome.tabs.create({ url: job.url, active: false }, (tab) => {
+        if (chrome.runtime.lastError || !tab || !tab.id) {
+          console.warn('[Cockpit BG] auto-enrich: tab open failed:',
+            chrome.runtime.lastError && chrome.runtime.lastError.message);
+          return;
+        }
+        _bgTabs.add(tab.id);             // ENRICH_JOB handler closes it on success
+        _scheduleTabCleanup(tab.id, 2);  // failsafe close after 2 min if it hangs
+        console.log('[Cockpit BG] auto-enrich tab', tab.id, '→', job.title || job.url);
+      });
+
+      if (i < jobs.length - 1) {
+        await new Promise(r => setTimeout(r, _AUTO_ENRICH_STAGGER_MS));
+      }
+    }
+  } finally {
+    _autoEnrichInFlight = false;
+  }
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 

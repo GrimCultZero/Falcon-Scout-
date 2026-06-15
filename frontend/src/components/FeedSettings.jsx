@@ -138,6 +138,34 @@ export default function FeedSettings({ open, onClose, onSaved }) {
               Payment-verified clients only
             </label>
 
+            <div style={{ border: '1px solid var(--border2)', borderRadius: 8, padding: '12px 14px', marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>
+                Background auto-enrichment
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 10, lineHeight: 1.5 }}>
+                Affects <b>both</b> feeds. The Chrome extension silently opens each unenriched job in a hidden
+                Upwork tab and scrapes the full client/activity detail (avg rate, screening questions, reviews,
+                connects, member-since). Free — local scraping, no API tokens. Requires the extension loaded and
+                you signed into Upwork.
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text2)', marginBottom: 10, cursor: 'pointer' }}>
+                <input type="checkbox" checked={cfg.auto_enrich !== false} onChange={e => set('auto_enrich', e.target.checked)} />
+                Enable auto-enrichment
+              </label>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', opacity: cfg.auto_enrich !== false ? 1 : 0.45 }}>
+                <label style={{ fontSize: 11, color: 'var(--text2)' }} title="Hidden tabs opened per 3-minute cycle. Kept low to avoid a tab storm; the queue drains gradually.">
+                  Jobs per cycle<br/>
+                  <input type="number" min={1} max={5} value={cfg.auto_enrich_batch ?? 2} onChange={e => set('auto_enrich_batch', Number(e.target.value))}
+                    style={{ width: 80, marginTop: 3, background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 4, padding: '5px 8px', fontSize: 12, color: 'var(--text)' }} />
+                </label>
+                <label style={{ fontSize: 11, color: 'var(--text2)' }} title="Only auto-enrich jobs captured within this many hours. Older jobs are usually expired or already triaged.">
+                  Max age (hours)<br/>
+                  <input type="number" min={1} value={cfg.auto_enrich_max_age_hours ?? 72} onChange={e => set('auto_enrich_max_age_hours', Number(e.target.value))}
+                    style={{ width: 80, marginTop: 3, background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 4, padding: '5px 8px', fontSize: 12, color: 'var(--text)' }} />
+                </label>
+              </div>
+            </div>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <button onClick={save} disabled={saving} className="btn-primary" style={{ padding: '7px 18px', fontSize: 13 }}>
                 {saving ? 'Saving…' : 'Save settings'}

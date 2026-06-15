@@ -58,3 +58,52 @@ Locked down "never lose the thread" end-to-end:
 - **Verbatim chat caveat**: Claude Code keeps raw transcripts locally (`~/.claude/projects/...`, ~107MB) but we do NOT push them — they contain secrets pasted in chat (e.g. the Upwork API secret). Cross-account memory is the *distilled* docs, which are secret-free by construction.
 - **`//save` trigger shipped**: owner types `//save` (or `/save` slash command) → Claude distills the recent essentials into WORKLOG.md (or CASES.md), commits, pushes. Spec in `CLAUDE.md`; slash command in `.claude/commands/save.md` (committed so it works on every clone). This very entry was created by the first `//save`. Owner-flagged capture complements the automatic end-of-session distillation.
 - **`//save` final semantics (locked in)**: scope = the **latest topic discussed**, distilled to the essentials **useful to the app/project in general** (decisions, methods, findings, patterns — not trivia/chit-chat/dead-ends). It **commits AND pushes automatically**, no pause for permission. `//save: <note>` lets the owner steer what to emphasize. Behavior is capture-then-confirm (one-line confirmation of what landed). Identical on every account because the rule is in `CLAUDE.md` and the command in `.claude/commands/`.
+
+---
+
+## 2026-06-15 — Web dev scope expansion + background auto-enrichment
+
+### Web dev scope (Shopify / WordPress / OpenCart) — shipped
+Expanded Artem's Upwork scope beyond PPC/SEO to ecommerce web development. Positioning locked
+in: same agency-as-freelancer pattern (client sees a freelancer, delegation is invisible); no
+scope exclusions yet; 12 years framed as "12 years in digital/ecommerce", NOT "12 years of web
+dev" (false); Premier Partner badge NOT cited on pure web dev jobs. Full-scope differentiator is
+the pitch: most devs hand off to a separate SEO person later — IT Force wires SEO architecture +
+GA4/GTM into the build itself. Primary case study: **GKit** (gkit.com.ua, OpenCart + KeepinCRM
+bidirectional sync, dual-language UA/RU hreflang, launched Q1 2026, 2,600 impressions month one).
+- Files: `feed_config.json` (+9 web dev keywords; removed react/backend/frontend/fullstack from
+  stop_words — they were blocking legit Shopify/WP jobs), `JobDetail.jsx` (new `webdev` scope in
+  `jobScopes()`; expanded analyser CORE EXPERTISE + weak-fit for custom software eng = 2-4 not
+  skip; generator identifier), `scripts/import_webdev.py` (imports GKit case + 5 webdev rules to KB).
+- Full detail in `DESIGN.md` §18. Two more case studies pending from Artem (import via the script
+  or KB tab). **Bot keywords still need manual add** in @OffersHunterBot: shopify, wordpress
+  developer, woocommerce, opencart, ecommerce website.
+
+### Background auto-enrichment — shipped
+"As soon as a job pops up in the feed, enrich it in the background." The mechanics already existed
+(content.js scrapes any job page → `OPEN_BACKGROUND_TAB` + `_bgTabs` + ENRICH_JOB auto-closes the
+tab). Added the missing queue + driver:
+- **Backend** (`api/main.py`): `GET /jobs/pending-enrich` returns up to `auto_enrich_batch` jobs
+  that are unenriched (enriched_at NULL), have a URL, not hidden, captured within
+  `auto_enrich_max_age_hours`, under the retry cap, past cooldown, and not already applied to.
+  Gated on `feed_config.auto_enrich`. `POST /jobs/{id}/enrich-attempt` bumps `enrich_attempts` +
+  stamps `last_enrich_attempt_at`. New jobs columns `enrich_attempts` / `last_enrich_attempt_at`
+  (runtime ALTER migration + db.py model).
+- **Extension** (`background.js`, manifest → 3.9): new `falcon-auto-enrich` chrome.alarm every 3
+  min. `_runAutoEnrich()` fetches the queue, marks each attempt BEFORE opening (so a dead/expired
+  URL counts against its 3-attempt budget and isn't reopened forever), opens hidden tabs staggered
+  6s apart, failsafe-closes after 2 min. In-flight guard prevents overlapping cycles.
+- **Frontend** (`FeedSettings.jsx`): auto-enrichment block (toggle + jobs-per-cycle + max-age),
+  flagged as affecting BOTH feeds (unlike the rest of that modal, which is API-only).
+- Config keys in `DEFAULT_FEED_CONFIG`: `auto_enrich` (true), `auto_enrich_batch` (2),
+  `auto_enrich_max_age_hours` (72). Backend constants: `_ENRICH_MAX_ATTEMPTS=3`,
+  `_ENRICH_COOLDOWN_MIN=20`.
+- **Why attempt-tracking, not just enriched_at:** `/enrich` always stamps enriched_at, so once a
+  tab POSTs the job leaves the queue regardless of data quality. But a tab that NEVER POSTs (login
+  wall, dead URL, behind-tab render throttle so nothing scrapes) would otherwise be reopened every
+  cycle forever. Attempts + cooldown bound that. Known caveat: a partial scrape (throttled bg tab
+  that got client data but not the activity sidebar) still stamps enriched_at and leaves the
+  queue — Artem can manually re-enrich the few that matter before applying.
+- Verified live: queue returns real unenriched jobs, batch size honored, attempt increments,
+  cooldown removes attempted jobs and advances the queue. **Needs extension reload** (manifest 3.9)
+  + the user signed into Upwork for tabs to actually scrape.

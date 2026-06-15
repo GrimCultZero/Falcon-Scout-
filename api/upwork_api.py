@@ -399,6 +399,19 @@ DEFAULT_FEED_CONFIG = {
     # current like the bot, even with the dashboard closed. 3 min ≈ "live"
     # (new jobs surface within ~3 min of posting) without risking rate limits.
     "auto_fetch_minutes": 3,
+    # ── Background auto-enrichment ────────────────────────────────────────
+    # When on, the Chrome extension polls GET /jobs/pending-enrich and silently
+    # opens each unenriched job in a hidden Upwork tab to scrape the full
+    # client/activity detail the extension adds (avg rate, screening Qs, reviews,
+    # connects, member-since). Free — pure local scraping, no API tokens.
+    "auto_enrich": True,
+    # How many jobs the extension enriches per polling cycle. Kept low so we
+    # never open a storm of Upwork tabs; the queue drains gradually and stays
+    # current once caught up.
+    "auto_enrich_batch": 2,
+    # Only auto-enrich jobs captured within this many hours. Older jobs are
+    # usually expired or already triaged — not worth the tab loads.
+    "auto_enrich_max_age_hours": 72,
 }
 
 

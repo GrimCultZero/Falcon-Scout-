@@ -50,6 +50,10 @@ def _ensure_job_columns():
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN source TEXT DEFAULT 'bot'")
             conn.exec_driver_sql("UPDATE jobs SET source='bot' WHERE source IS NULL")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_jobs_source ON jobs(source)")
+        if "enrich_attempts" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN enrich_attempts INTEGER NOT NULL DEFAULT 0")
+        if "last_enrich_attempt_at" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN last_enrich_attempt_at DATETIME")
 
         kb_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(kb_entries)").fetchall()}
         if "is_core" not in kb_cols:
@@ -636,6 +640,84 @@ def list_jobs(
             d["proposal_status"] = proposal_status_map.get(j.id)
             result.append(d)
         return result
+
+
+# ── Background auto-enrichment queue ──────────────────────────────────────────
+# The Chrome extension polls this to find jobs it should silently open in a
+# hidden Upwork tab and scrape. Declared BEFORE /jobs/{job_id} so the literal
+# path wins over the {job_id:int} converter.
+#
+# A job is "pending enrich" when ALL of:
+#   - not yet enriched by the extension (enriched_at IS NULL)
+#   - has a URL to open
+#   - not hidden
+#   - captured recently (within auto_enrich_max_age_hours)
+#   - hasn't exhausted retry attempts (so dead/expired URLs aren't reopened forever)
+#   - not currently in a cooldown after a recent attempt
+#   - no proposal attached yet (already-applied jobs aren't worth the tab load)
+# Gated on feed_config.auto_enrich — returns [] when the user has it off.
+_ENRICH_MAX_ATTEMPTS = 3
+_ENRICH_COOLDOWN_MIN = 20
+
+@app.get("/jobs/pending-enrich")
+def jobs_pending_enrich():
+    import upwork_api
+    cfg = upwork_api.load_feed_config()
+    if not cfg.get("auto_enrich", True):
+        return []
+    batch = int(cfg.get("auto_enrich_batch") or 2)
+    max_age_h = int(cfg.get("auto_enrich_max_age_hours") or 72)
+
+    now = datetime.now(timezone.utc)
+    age_cutoff = now - timedelta(hours=max_age_h)
+    cooldown_cutoff = now - timedelta(minutes=_ENRICH_COOLDOWN_MIN)
+
+    with Session(engine) as session:
+        applied_job_ids = select(Proposal.job_id)
+        stmt = (
+            select(Job)
+            .where(
+                Job.enriched_at.is_(None),
+                Job.url.isnot(None),
+                Job.url != "",
+                Job.hidden_at.is_(None),
+                Job.captured_at >= age_cutoff,
+                Job.enrich_attempts < _ENRICH_MAX_ATTEMPTS,
+                or_(
+                    Job.last_enrich_attempt_at.is_(None),
+                    Job.last_enrich_attempt_at < cooldown_cutoff,
+                ),
+                Job.id.notin_(applied_job_ids),
+            )
+            .order_by(Job.captured_at.desc())
+            .limit(batch)
+        )
+        jobs = session.scalars(stmt).all()
+        return [
+            {
+                "id": j.id,
+                "url": j.url,
+                "upwork_job_id": j.upwork_job_id,
+                "title": j.title,
+                "attempts": j.enrich_attempts or 0,
+            }
+            for j in jobs
+        ]
+
+
+@app.post("/jobs/{job_id}/enrich-attempt")
+def mark_enrich_attempt(job_id: int):
+    """Record that the extension is about to (or just did) open a hidden tab for
+    this job. Incremented BEFORE the tab opens so a tab that dies without ever
+    POSTing to /enrich still counts against the retry budget."""
+    with Session(engine) as session:
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job.enrich_attempts = (job.enrich_attempts or 0) + 1
+        job.last_enrich_attempt_at = datetime.now(timezone.utc)
+        session.commit()
+        return {"ok": True, "job_id": job.id, "attempts": job.enrich_attempts}
 
 
 @app.get("/jobs/{job_id}")

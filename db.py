@@ -94,6 +94,15 @@ class Job(Base):
     # filter view in the dashboard).
     hidden_at = Column(DateTime, nullable=True, index=True)
 
+    # ── Auto-enrichment bookkeeping ───────────────────────────────────────
+    # The extension's background auto-enricher opens unenriched jobs in a hidden
+    # Upwork tab and scrapes them. We count attempts (so a dead/expired/geo-blocked
+    # URL that never POSTs back to /enrich isn't reopened forever) and stamp the
+    # last attempt time (cooldown between retries). A successful scrape sets
+    # enriched_at, which removes the job from the pending-enrich queue regardless.
+    enrich_attempts        = Column(Integer, nullable=False, default=0)
+    last_enrich_attempt_at = Column(DateTime, nullable=True)
+
     # ── Analysis cache ────────────────────────────────────────────────────
     # Server-side cache of the most recent analyser run for this job.
     # Updated by POST /jobs/{id}/analysis (fire-and-forget from the frontend
