@@ -107,3 +107,22 @@ tab). Added the missing queue + driver:
 - Verified live: queue returns real unenriched jobs, batch size honored, attempt increments,
   cooldown removes attempted jobs and advances the queue. **Needs extension reload** (manifest 3.9)
   + the user signed into Upwork for tabs to actually scrape.
+
+---
+
+## 2026-06-16 — Generator: kill the "technical SEO audit in 2 working days" violation
+
+Recurring (3× in a row): generator promised a "technical SEO audit in 2 working days". Not a model
+slip — the hardcoded prompt (JobDetail.jsx SEO deliverable section A) literally told it to say that,
+contradicting KB Rule 416 (technical SEO audit = ~2 weeks, timeline OMITTED from the letter). The
+"2 working days" turnaround is the SEO PROMOTION PLAN only (Rule 402); the "1 working day" is the
+PPC audit only. Same "hardcoded prompt diverges from KB" class as §16.
+Fix (deterministic-first):
+- Prompt corrected: offer the diagnostic deliverable with NO day-count; spelled out the turnaround
+  map (PPC audit=1 day, SEO plan=2 days, SEO audit=no timeline).
+- New `_stripSeoAuditTurnaround()` — strips a day-count that directly follows an SEO-flavoured
+  "audit". Self-gating so it never touches the SEO plan's "2 working days" or the PPC audit's "1
+  working day". Applied at the early-clean point (covers both early-return + enforcer paths) and the
+  two final setProposal chains (idempotent). Records `seoAuditTurnaround` telemetry.
+- Verified the regex on 6 cases: all 3 violation variants stripped clean, SEO plan + both PPC-audit
+  phrasings untouched. Frontend builds. Full detail in DESIGN.md §20.

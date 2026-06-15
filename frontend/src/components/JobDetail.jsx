@@ -1316,6 +1316,23 @@ function _stripFabricatedOpener(text) {
   return paras.join('\n\n').trim()
 }
 
+// Deterministic removal of a day-count turnaround promised on a TECHNICAL SEO
+// AUDIT (KB Rule 416). A technical SEO audit is a ~2-week job and its timeline
+// is OMITTED from the cover letter — the "2 working days" turnaround belongs
+// ONLY to the SEO PROMOTION PLAN (Rule 402), never to the audit. The generator
+// repeatedly emits "diagnostic crawl + redirect/indexation audit in 2 working
+// days" — 100% pattern-detectable, so strip it in code instead of trusting the
+// LLM enforcer (DESIGN.md §16). The regex is self-gating: it only matches a
+// day-count that DIRECTLY follows an SEO-flavoured "audit", so it can never
+// touch the SEO plan's "plan within 2 working days" or a PPC audit's
+// legitimate "google ads audit in 1 working day" (no SEO noun before "audit").
+const _SEO_AUDIT_TURNAROUND_RE =
+  /((?:technical\s+seo|seo|diagnostic|indexation|crawl|redirect|canonical|schema|core\s+web\s+vitals|migration)\b[^.]{0,60}\baudit)\s+(?:in|within|delivered\s+in|turned?\s+around\s+in)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b/gi
+function _stripSeoAuditTurnaround(text) {
+  if (!text) return text
+  return text.replace(_SEO_AUDIT_TURNAROUND_RE, '$1')
+}
+
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
 function _recordViolations(surface, jobId, checks) {
@@ -3497,7 +3514,7 @@ SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually w
 
 (A) TECHNICAL-AUDIT / DIAGNOSIS / MIGRATION-RECOVERY SEO jobs — the client wants you to FIND and FIX issues on an EXISTING site (signals: "audit", "technical audit", "site review", "crawl", "GSC / Search Console", "indexation", "redirect chains", "canonicals", "Core Web Vitals", "migration", "recover traffic", "diagnose", "why did rankings drop"). For these you MUST:
   - attach the TECHNICAL SEO AUDIT SAMPLE (inventory item 5): "i'm attaching a sample technical SEO audit so you can see the format and depth."
-  - offer the concrete diagnostic deliverable (e.g. "i can deliver a diagnostic crawl + redirect/indexation audit in 2 working days").
+  - offer the concrete diagnostic deliverable but state NO turnaround time for it (e.g. "i can run a full diagnostic crawl covering redirects, indexation, canonicals, schema and Core Web Vitals, then hand you a prioritized findings doc"). CRITICAL: a technical SEO audit is NOT a 1–2 day job — NEVER attach a day-count to it ("audit in 2 working days", "audit within 2 days", "deliver the audit in 1 working day" are all FORBIDDEN). The "1 working day" turnaround is the GOOGLE ADS audit only; the "2 working days" turnaround is the SEO PROMOTION PLAN only (option B). The technical SEO audit's timeline is OMITTED from the cover letter entirely (internal estimate ~2 weeks; that figure never goes in the letter).
   This is the SEO equivalent of the Google Ads audit-sample rule. Do NOT push the 3-month promotion plan as the headline here — an audit/diagnosis client wants the audit, not a growth plan.
 
 (B) GROWTH / RANKINGS / ONGOING-SEO jobs — the client wants to grow organic traffic/rankings (not primarily diagnose a broken site). For these you MUST offer the custom 3-month SEO Promotion Plan in 2 working days (deliverables, costs, link building budget, basic site check, competitor overview) and attach the SEO promotion plan sample:
@@ -3592,6 +3609,18 @@ FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preambl
       // Shared cleanup — markdown strip + em/en-dash → hyphen. Same helper the
       // chat answers use, so cover letter and chat output never drift.
       text = _cleanPasteText(text)
+
+      // KB Rule 416: strip any day-count turnaround promised on a technical SEO
+      // audit ("audit in 2 working days"). That turnaround is the SEO PLAN only;
+      // a technical SEO audit's timeline is omitted from the letter. Done here
+      // (before the compliance checks) so it's gone on BOTH the early-return and
+      // the enforcer paths. Idempotent. (DESIGN.md §16 + §20.)
+      const _preAuditStrip = text
+      text = _stripSeoAuditTurnaround(text)
+      if (text !== _preAuditStrip) {
+        console.log('[Falcon] Rule pre-check: stripped a day-count turnaround off an SEO technical audit (KB Rule 416) — "2 working days" is the SEO PLAN only, never the audit.')
+        _recordViolations('generator', job?.id, ['seoAuditTurnaround'])
+      }
 
       // ── Normalize "(attached in profile highlights)" phrasing ──────────────
       // Canonical form: lowercase, in parens, no period. Any variant the
@@ -4122,7 +4151,7 @@ FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preambl
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripFabricatedOpener(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip))).trim())
+              setProposal(_humanizeCasing(_stripFabricatedOpener(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip))).trim())
               return
             }
 

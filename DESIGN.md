@@ -1248,3 +1248,36 @@ re-queue jobs that are enriched_at-set but missing key activity fields AND under
   inactive; partial results are handled by the caveat above, not by stealing focus.
 - Bounded by design: small batch + 3-min cadence + recency window + attempt cap → no tab storm,
   and the queue self-empties once the feed is caught up (returns `[]`, nothing opens).
+
+---
+
+## 20. Generator fix — technical SEO audit must carry NO turnaround (2026-06-16)
+
+**Symptom (recurring, 3× in a row):** the generator promised a "technical SEO audit in 2 working
+days" — a rule violation.
+
+**Root cause:** the hardcoded generator prompt (`JobDetail.jsx`, SEO deliverable section A) literally
+instructed it: *"offer the concrete diagnostic deliverable (e.g. 'i can deliver a diagnostic crawl
++ redirect/indexation audit in 2 working days')."* That contradicts **KB Rule 416** — a technical
+SEO audit is a **~2-week** job and its timeline is **omitted from the cover letter** — and it
+mis-borrowed the **"2 working days"** turnaround that belongs ONLY to the **SEO promotion plan**
+(KB Rule 402). The generator was faithfully following a wrong instruction. This is the same
+"hardcoded prompt diverges from the KB" failure class flagged in §16.
+
+**Turnaround map (authoritative):**
+- Google Ads / PPC **audit** → "1 working day" (Rule 402) — required.
+- SEO **promotion plan** → "2 working days" (Rule 402) — required.
+- Technical SEO **audit** → **no timeline in the letter** (Rule 416; internal estimate ~2 weeks).
+
+**Fix (two layers, deterministic-first per §16):**
+1. **Prompt** corrected so it offers the diagnostic deliverable with NO day-count and spells out
+   the turnaround map (which figure belongs to which deliverable).
+2. **Deterministic strip** `_stripSeoAuditTurnaround()` — removes a day-count that directly follows
+   an SEO-flavoured "audit" (`…seo/diagnostic/indexation/crawl/redirect/canonical/schema/migration…
+   audit in N working days`). Self-gating: it can't touch the SEO plan's "plan within 2 working
+   days" (no "audit" before the timing) or a PPC audit's "1 working day" (no SEO noun before
+   "audit"). Applied at the early-clean point (before compliance checks, so it's gone on BOTH the
+   early-return and enforcer paths) and again in both final `setProposal` chains (idempotent). Fires
+   `_recordViolations('generator', …, ['seoAuditTurnaround'])` for telemetry.
+
+The deterministic strip is the guarantee; the prompt edit just reduces how often Claude emits it.
