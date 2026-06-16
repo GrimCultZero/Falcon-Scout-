@@ -2518,6 +2518,7 @@ SCORE CALIBRATION — what the 0-10 number means (mandatory):
 The score must distinguish "categorically cannot/should-never apply" from "could apply but poor fit." Use these bands:
 - 0-1 → RESERVED for the four HARD DISQUALIFIERS above ONLY. A score of 0 means "Artem literally cannot apply or it is categorically pointless" (geo-locked out, rate below floor, unverified+unproven client, already hired). Do NOT use 0-1 for fit/vertical/experience mismatches.
 - 2-4 → SKIP for FIT reasons. The job is applicable in principle (no hard disqualifier) but a poor match: wrong vertical with an explicit experience gate, a screening question demanding proof Artem can't credibly give, heavy specialization Artem lacks, or a very crowded pool where specialists clearly out-compete him. Verdict SKIP, score 2-4 — NOT 0.
+  EXPLICIT PROOF REQUIREMENT (most-missed 2-4 trigger): if the posting explicitly asks for a portfolio, examples, or screenshots of work Artem has NOT done (e.g. "share examples of content you ranked on external platforms", "attach a portfolio of web designs", "show us case studies from the finance vertical"), this is a near-disqualifying signal. The client will evaluate proposals against this requirement; Artem cannot credibly answer it. Score MUST be 2-4 (SKIP), NOT 5-6. Do NOT call this MAYBE and do NOT suggest that Artem can "work around" the requirement in the letter.
 - 5-6 → MAYBE. Adjacent fit, real but surmountable concerns, worth a tailored proposal.
 - 7-10 → APPLY. Strong fit.
 IMPORTANT: Only the four hard disqualifiers force a 0. A vertical/experience mismatch — even a strong, explicit one backed by a screening question — is a FIT-based SKIP and must score 2-4, never 0, and must NOT be described as a "hard disqualifier" in the summary (call it a "strong fit mismatch" or "vertical gap" instead).
@@ -2556,6 +2557,7 @@ The "Client avg hourly rate paid to freelancers" field is what this client HAS A
 - If avg_rate ≥ $30/hr: no penalty.
 - If avg_rate is absent (not enriched yet): ignore this rule entirely — do not penalise for missing data.
 - Do NOT counter the avg-rate deduction with optimism like "can negotiate to upper range" — historical paying behaviour does not move with negotiation.
+FLAT-RATE / FIXED-PRICE EXCEPTION: When the job is fixed-price (flat budget, not hourly), avg_rate is a WEAK signal. Historical hourly rates don't predict whether this specific fixed budget will yield an adequate effective rate — use the FIXED/FLAT-PRICE RATE INTERPRETATION RULE for that. Do NOT cite avg_rate as a positive signal on flat-rate jobs ("client avg $34/hr exceeds the floor — positive" is wrong reasoning on a $500 flat project). A high avg_rate on a fixed-price job is at most a very mild positive (client is used to paying real rates); it never offsets a rate-floor concern identified by the effective hourly calculation. Equally, a below-floor avg_rate on a flat-rate job should be noted but weighted less heavily than on an hourly job.
 
 INTERVIEWING-COUNT SIGNAL (mandatory — most-missed shortlist-saturation flag):
 The "interviewing" count is the number of candidates the client is ALREADY in active interview conversations with. It is the single strongest leading indicator that the funnel is closing. Entering the funnel late, after the client has shortlisted multiple candidates, rarely converts even with strong fit.
@@ -2584,6 +2586,8 @@ The Falcon Scout assumes coaching engagements almost always imply live sessions,
 - Add a flag: "Coaching/tutoring request ('<exact quoted phrase>') — likely Rule 2 violation (live sessions / tutorials)"
 - Cap the score at 5 and prefer verdict MAYBE over APPLY (or SKIP if the entire role is coaching with no deliverable component).
 - Do NOT frame this as "reposition as audit-only" unless the posting explicitly also asks for a one-off deliverable — that framing has bitten us before (the user reads the cover letter promising a deliverable, the client expects coaching, mismatch).
+
+ANTI-REPOSITION (mandatory, applies to ALL job types): Do NOT suggest repositioning the scope when the client's scope is explicitly and unambiguously defined. If the posting says "rank content on external high-authority platforms" or "build a React SPA" or "manage our social media", those ARE the deliverables — suggesting "reposition as a technical audit" or "offer a strategy consult instead" is wishful thinking that leads Artem to write a proposal for a job he cannot do. Only suggest repositioning if the posting has a genuine secondary deliverable Artem CAN provide that sits alongside the primary one. "Reposition" is not a workaround for an experience gap.
 
 RULE 2 SCOPE — DO NOT OVER-TRIGGER (mandatory; counterpart to the coaching detector above):
 Rule 2 skips jobs that require live sessions / tutorials / Zoom / Loom / synchronous video communication / screen-recording deliverables. It fires ONLY when the posting LITERALLY asks for one of those. Before flagging a Rule 2 violation you MUST be able to quote the EXACT phrase from the posting that asks for synchronous video or a screen recording (e.g. "weekly Zoom calls", "record a Loom walkthrough", "screen-share session", "live training", "video tutorial"). If you cannot quote such a phrase, Rule 2 does NOT apply — do not invoke it, do not flag it, do not lower the score for it.
@@ -3380,6 +3384,8 @@ function ProposalColumn({ job, bridgeReady = false }) {
         job.proposals ? `Applicants so far: ${job.proposals}` : '',
         (job.client_already_hired ?? 0) > 0 ? `WARNING: client has already hired ${job.client_already_hired} freelancer(s) for this job.` : '',
         job.preferred_qualifications ? `PREFERRED QUALIFICATIONS the client set (Upwork shows a banner when these aren't met — write the cover letter so it pre-empts the visible gap with timezone overlap, async cadence, or other reassurance, but do NOT lead with apology):\n${job.preferred_qualifications}` : '',
+        analysis ? `Analyser verdict: ${analysis.verdict} (${analysis.score}/10)\nAnalyser summary: ${analysis.summary}` : '',
+        analysis?.flags?.length ? `Analyser flags:\n${analysis.flags.map(f => `- ${f}`).join('\n')}` : '',
       ].filter(Boolean).join('\n')
 
       // Regulated/YMYL flag for the deterministic post-processing strip of
@@ -3405,9 +3411,22 @@ ${kbRulesText.replace(/^\n+/, '')}
 ═══════════════════════════════════════════════════════════════════
 ` : ''}
 YOUR ROLE — read this first:
-Your ONLY job is to produce a cover letter for this job. You are NOT the Analyser. You do not decide whether Artem should apply. The Analyser has already approved this job; that decision is done. Always output a real, sendable cover letter.
+Your ONLY job is to produce output for this job. You are NOT the Analyser.
 
-NEVER do any of the following:
+CHECK THE ANALYSER VERDICT (passed in the job context above as "Analyser verdict: ..."):
+
+IF THE VERDICT IS SKIP:
+Artem has clicked Generate despite the SKIP verdict — he wants to see what a letter would look like, or wants to understand the fit gap better. DO NOT write a full proposal. Instead write a SHORT PASS NOTE (plain text, no markdown) in this exact structure:
+
+Line 1: "Skip — [one-sentence reason citing the specific flag, e.g. 'posting explicitly asks for external-platform ranking case studies Artem doesn't have']."
+Line 2 (optional): "If applying anyway: [one short sentence on the only angle worth trying, e.g. 'lead with parasite SEO theory depth and be honest you're proposing a discovery audit, not past execution']."
+
+The pass note must be under 60 words total. Do NOT write a multi-paragraph letter. Do NOT add case studies. Do NOT pretend fit exists when it doesn't.
+
+IF THE VERDICT IS MAYBE OR APPLY:
+Write a real, sendable cover letter as described below. The Analyser has approved this job; that decision is done.
+
+NEVER do any of the following on a MAYBE or APPLY job:
 - Refuse to write a cover letter
 - Output "SKIP", "Pass on this", "Don't apply", "This is a bad fit", or any recommendation not to apply
 - Cite a rule as a reason to skip the job
@@ -3427,6 +3446,7 @@ Voice rules:
 - Open by addressing their specific problem/situation, never generic openers
 - Lead with a specific insight — but ONLY from what the POSTING actually says or from general domain expertise framed as a pattern. NEVER a fabricated diagnosis of their site/account (see NO FABRICATED DIAGNOSIS rule below).
 - Short punchy lines, no walls of text
+- DO NOT LECTURE THE CLIENT ABOUT THEIR OWN STRATEGY CHOICE: If the client has explicitly chosen an approach (parasite SEO, influencer marketing, a specific platform, a specific methodology), do not open by warning them about its risks or questioning whether it's wise. They know. They decided. Address the HOW, not whether their strategy is correct. Opening with "this approach comes with trade-offs — let me map the mechanics before diving in" is condescending and signals you're not the specialist they need. If you have a genuine tactical concern about execution, raise it briefly mid-letter after establishing fit — never as the opener.
 
 HUMAN WRITING STYLE (mandatory — this makes the letter look hand-written, not AI):
 The goal is natural human inconsistency. Apply ALL of the following in every letter:
@@ -3456,6 +3476,7 @@ The imperfections should feel like someone typed fast and didn't proofread, NOT 
 - Never quote a price upfront
 - Never use corporate signoffs like "Best regards", "Sincerely", "Looking forward"
 - Length: match the job's demands. HARD RULE: if the posting contains explicit signals that the client wants a SHORT answer — phrases like "just tell me X", "that's enough for me", "keep it brief", "don't send me an essay" — cap the letter at 200 words maximum. Do not elaborate on every point. The client tested you by asking for brevity; failing it disqualifies you immediately. If the posting asks specific questions (hour estimates, tool lists, rate, availability, experience breakdown) — answer all of them fully, even if that means 300–500 words. If the posting is short and open-ended, keep it tight (100–150 words). Never truncate answers to specific questions just to stay short.
+  BUDGET-BASED LENGTH CAP (mandatory): For fixed-price jobs where the budget is under $1,000, cap the letter at 200 words. A low fixed-price client is evaluating proposals quickly — a long letter signals that you don't understand the scope, or that you're trying to compensate for weak fit with volume. Under $1,000 flat: make your point in 150-200 words, one case study max, clean close. Over $1,000 flat or any hourly job: normal length rules apply. If the budget is not specified or unclear, apply normal length rules.
 - Sound like a human, not AI
 - PLAIN TEXT ONLY — absolutely no markdown: no **bold**, no *italic*, no ## headings, no asterisks of any kind. Use plain dashes or line breaks for lists.
 - NEVER offer to walk through, demo, or show anything — no "happy to walk through", "walk you through", "hop on a call", "schedule a demo", "book a call", or any similar phrase that implies initiating a synchronous session. If the client wants a call they will ask.
@@ -3487,6 +3508,7 @@ Pick case studies that are as vertically close to the client's industry as possi
 2. Same conversion mechanic (form fill / phone call → use any local-service case study; online purchase → use e-commerce case study)
 3. Adjacent vertical as last resort — but explicitly frame the parallel: "similar tracking challenge in [vertical], same mechanic"
 NEVER use a consumer appliance repair or painting contractor case study for a B2B or automotive brief without explicitly bridging the analogy. If no close match exists, say so and lean on the Premier Partner credential and process description instead of a weak case study.
+EXPERIENCE-GAP EXCEPTION (critical — prevents self-disqualification): If the analyser flags an experience gap OR the posting explicitly asks for proof/examples/portfolio of work Artem hasn't done, do NOT cite a case study from a completely different service type as a substitute. An off-target case study (e.g. owned-domain SEO results on a parasite SEO / third-party platform job; Google Ads case studies on a social media management job) actively signals that you didn't read the brief and don't have the specific experience. In these situations: skip the case study section entirely and lean on process depth, credentials (Top Rated, Premier Partner, 12 years), and the audit/discovery offer. Zero case studies is better than the wrong case study.
 
 NO FABRICATED DIAGNOSIS (non-negotiable — credibility-critical):
 You have NOT visited the client's website, looked at their Google Ads account, inspected their analytics, or reviewed their campaigns. You only have the job posting text. Therefore you must NEVER:
