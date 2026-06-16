@@ -126,3 +126,38 @@ Fix (deterministic-first):
   two final setProposal chains (idempotent). Records `seoAuditTurnaround` telemetry.
 - Verified the regex on 6 cases: all 3 violation variants stripped clean, SEO plan + both PPC-audit
   phrasings untouched. Frontend builds. Full detail in DESIGN.md §20.
+
+---
+
+## 2026-06-16 — Analyser & Generator discipline improvements (7 fixes)
+
+Triggered by a live critique session on job 2290 (parasite SEO, $500 flat, Hong Kong). The
+analyser gave it 6/10 MAYBE despite an experience gap and explicit proof requirement the
+generator then wrote a 900-word proposal that self-disqualified at the end ("The gap: I haven't
+executed the specific outreach-to-editorial-teams workflow you're describing"). Root-cause analysis
+identified 7 distinct failure modes. All fixed in JobDetail.jsx (commit eb3d6a8).
+
+ANALYSER fixes:
+1. EXPLICIT PROOF REQUIREMENT: "share examples of content you ranked on X" (with no matching
+   case study) now forces score 2-4 (SKIP). Was being scored 5-6 (MAYBE), which is wrong when
+   the client will literally evaluate proposals against that requirement.
+2. FLAT-RATE avg_rate exception: historical hourly avg_rate is a weak signal on fixed-price
+   jobs. "Client avg $34/hr > $30/hr floor — positive" is wrong reasoning on a $500 flat project.
+   Rate-floor risk on flat jobs comes from the effective hourly calc (FIXED-PRICE RATE RULE), not avg.
+3. ANTI-REPOSITION (general): added a broad guard against suggesting scope pivots when the
+   job's scope is unambiguous ("reposition as audit-only" on a parasite SEO job is false hope).
+   Coaching-type jobs already had this; now it applies to all job types.
+
+GENERATOR fixes:
+4. SKIP gate: analysis verdict + summary + flags now passed into jobContext. When verdict is
+   SKIP, generator produces a short pass note (< 60 words) instead of a full proposal. Previously
+   it wrote a full letter regardless, with the hidden "The Analyser has already approved this job"
+   instruction actively blocking skip logic.
+5. DO NOT LECTURE: new voice rule forbids opening by questioning the client's chosen strategy.
+   If client chose parasite SEO, they know what it is — don't open with a brand-safety lecture.
+6. BUDGET-BASED LENGTH CAP: fixed-price jobs under $1,000 → hard 200-word cap. The parasite SEO
+   job was $500 and got a 900-word letter. Cap is budget-tier, not client-ask-for-brevity.
+7. EXPERIENCE-GAP EXCEPTION in case study selection: when analyser flags an experience gap OR
+   the posting requires proof Artem doesn't have, skip the case study section entirely. Off-target
+   case studies (owned-domain SEO results cited on a third-party platform ranking job) actively
+   signal you didn't read the brief. Zero > wrong.
