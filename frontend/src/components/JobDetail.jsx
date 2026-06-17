@@ -3172,6 +3172,18 @@ function ProposalColumn({ job, bridgeReady = false }) {
     setLoading(true)
     setFeedback(null)
     try {
+      // Load the stored analysis verdict so the generator can gate on SKIP /
+      // include score + flags in the job context. ProposalColumn is a sibling
+      // of AIAnalysisColumn and can't read its state directly — fetch from API.
+      let storedAnalysis = null
+      try {
+        const aRes = await fetch(`/jobs/${job.id}/analysis`)
+        if (aRes.ok) {
+          const aData = await aRes.json()
+          storedAnalysis = aData?.analysis || null
+        }
+      } catch {}
+
       // Fetch KB rules, liked-feedback examples, sent proposals, and portfolio in parallel
       let kbRulesText = ''
       let examplesText = ''
@@ -3384,8 +3396,8 @@ function ProposalColumn({ job, bridgeReady = false }) {
         job.proposals ? `Applicants so far: ${job.proposals}` : '',
         (job.client_already_hired ?? 0) > 0 ? `WARNING: client has already hired ${job.client_already_hired} freelancer(s) for this job.` : '',
         job.preferred_qualifications ? `PREFERRED QUALIFICATIONS the client set (Upwork shows a banner when these aren't met — write the cover letter so it pre-empts the visible gap with timezone overlap, async cadence, or other reassurance, but do NOT lead with apology):\n${job.preferred_qualifications}` : '',
-        analysis ? `Analyser verdict: ${analysis.verdict} (${analysis.score}/10)\nAnalyser summary: ${analysis.summary}` : '',
-        analysis?.flags?.length ? `Analyser flags:\n${analysis.flags.map(f => `- ${f}`).join('\n')}` : '',
+        storedAnalysis ? `Analyser verdict: ${storedAnalysis.verdict} (${storedAnalysis.score}/10)\nAnalyser summary: ${storedAnalysis.summary}` : '',
+        storedAnalysis?.flags?.length ? `Analyser flags:\n${storedAnalysis.flags.map(f => `- ${f}`).join('\n')}` : '',
       ].filter(Boolean).join('\n')
 
       // Regulated/YMYL flag for the deterministic post-processing strip of

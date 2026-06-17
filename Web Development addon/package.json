@@ -1,0 +1,9 @@
+{
+  "devDependencies": {
+    "pdfkit": "^0.19.1",
+    "puppeteer": "^25.1.0"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
+}
