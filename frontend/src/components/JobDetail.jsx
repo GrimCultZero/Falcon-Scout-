@@ -1346,6 +1346,21 @@ function _stripLoomReference(text) {
   return text.replace(_LOOM_RE, 'short video updates')
 }
 
+// Deterministic fix for unnamed attachment references ("attaching a sample so
+// you can see the format" without a type specifier). The prompt rule is ignored
+// repeatedly, so we fix it in code. Context clue: if "technical SEO audit"
+// appears nearby in the same sentence, it's the audit sample; otherwise it's
+// the SEO promotion plan (the only other attachment offered without a named type).
+function _fixUnnamedAttachment(text) {
+  if (!text) return text
+  // "attaching a sample so you can see the format" → insert type name
+  // Handles "a sample so you can see" and "a sample so you can see the format"
+  return text.replace(
+    /\battaching\s+a\s+sample\s+so\s+you\s+can\s+see(\s+the\s+format)?\b/gi,
+    (match, fmtSuffix) => `attaching a sample SEO promotion plan so you can see the format`
+  )
+}
+
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
 function _recordViolations(surface, jobId, checks) {
@@ -3620,6 +3635,8 @@ CRITICAL: NEVER cite a PPC-only case study (FridgeFix, House Painting, Nectar Fl
 
 RESTRICTED/YMYL JOBS OVERRIDE (vertical beats channel for the supporting slots): when the job is in a restricted/regulated/YMYL vertical (peptides, skincare, medical aesthetics, supplements, CBD/vape, health/wellness), DO NOT use the generic consumer cases (FridgeFix, House Painting, Nectar Flowers, Golden State Trailers) EVEN ON A PPC JOB — they are off-vertical and signal weak relevance judgment. Use Skin Reboot (the restricted/YMYL paid hero) as the lead, and at most one more genuinely restricted/YMYL case. Fewer on-point cases beat more with a generic filler. If only Skin Reboot truly fits, cite only Skin Reboot and stop.
 
+VAPE SHOP ORDERING RULE (mandatory — overrides any KB rule that contradicts this): Vape Shop is the LEAD case study ONLY when the job is in a substance-restricted vertical where paid advertising is blocked or severely limited — specifically: CBD, hemp, cannabis, THC, e-cigarettes/vaping products, kratom, peptides, SARMs, or similar regulated-substance e-commerce. The reason Vape Shop leads in those cases is the shared "paid is blocked, organic must carry the load" constraint — that is the direct vertical parallel. For healthcare / medical / YMYL jobs where paid advertising is fully available (ABA therapy, medical aesthetics clinics, healthcare SaaS, telehealth), Vape Shop is NOT the lead. On those jobs: Derma Solution leads (strongest YMYL medical proof), Skin Reboot second, Vape Shop third at most or omitted. Any KB rule saying "Vape Shop leads on restricted/YMYL" applies only to substance-restricted, not to general healthcare YMYL.
+
 CASE STUDY VOLUME CAP (mandatory): When you already have 2 or more strong vertical matches, do NOT add a 3rd or 4th case study that is off-vertical or only loosely adjacent just to pad the letter. Adding a weak case after strong ones dilutes the signal and increases length for no gain. The rule: once you have 2 case studies with strong vertical alignment, stop — only add a 3rd if it adds a genuinely new dimension (e.g. a local SEO case when the first two are national, or a restricted-vertical case when the first two aren't). Multilingual Site (construction/tenders consulting, Italian-German border) should ONLY appear when there is no better local SEO, multilingual, or international-targeting case to show — it is a weak match for healthcare, YMYL, or ecommerce jobs.
 
 ATTACHED PDF / SCOPE DOCUMENT ACKNOWLEDGMENT:
@@ -3743,6 +3760,15 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
       if (text !== _preLoomStrip) {
         console.log('[Falcon] Rule pre-check: replaced Loom reference with neutral phrasing (Rule 2 — no screen-recording deliverable offers).')
         _recordViolations('generator', job?.id, ['loomReference'])
+      }
+
+      // Unnamed attachment fix: "attaching a sample so you can see the format"
+      // without a type name. Prompt rule is chronically ignored so fixed in code.
+      const _preAttachFix = text
+      text = _fixUnnamedAttachment(text)
+      if (text !== _preAttachFix) {
+        console.log('[Falcon] Rule pre-check: fixed unnamed attachment reference → "sample SEO promotion plan".')
+        _recordViolations('generator', job?.id, ['unnamedAttachment'])
       }
 
       // ── Normalize "(attached in profile highlights)" phrasing ──────────────
