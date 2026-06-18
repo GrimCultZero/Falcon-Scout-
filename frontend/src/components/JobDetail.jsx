@@ -1333,6 +1333,19 @@ function _stripSeoAuditTurnaround(text) {
   return text.replace(_SEO_AUDIT_TURNAROUND_RE, '$1')
 }
 
+// Deterministic strip of Loom references in generated cover letters.
+// Rule 2 bans screen-recording deliverables; "Loom" keeps slipping through
+// the prompt because Claude treats it as a casual async comms tool rather
+// than a screen-recording mention. Replace any "Loom" mention in a comms
+// context with nothing (the surrounding sentence stays; the brand name goes)
+// or strip the whole "recorded Loom ..." clause where it's a deliverable offer.
+const _LOOM_RE = /\b(?:recorded?\s+)?Loom\s+(?:messages?|videos?|walkthroughs?|recordings?|updates?|clips?)\b/gi
+function _stripLoomReference(text) {
+  if (!text) return text
+  // Replace "recorded Loom messages" / "Loom videos" etc. with a neutral form
+  return text.replace(_LOOM_RE, 'short video updates')
+}
+
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
 function _recordViolations(surface, jobId, checks) {
@@ -3492,6 +3505,7 @@ The imperfections should feel like someone typed fast and didn't proofread, NOT 
 - Sound like a human, not AI
 - PLAIN TEXT ONLY — absolutely no markdown: no **bold**, no *italic*, no ## headings, no asterisks of any kind. Use plain dashes or line breaks for lists.
 - NEVER offer to walk through, demo, or show anything — no "happy to walk through", "walk you through", "hop on a call", "schedule a demo", "book a call", or any similar phrase that implies initiating a synchronous session. If the client wants a call they will ask.
+- NEVER mention Loom in ANY context in a cover letter — not as a deliverable, not as a comms tool, not as "recorded Loom messages", not as "Loom updates". Loom is a screen-recording tool and its mention implies a Rule 2 deliverable. If you need to describe async communication cadence, describe the OUTPUT ("weekly written summary", "same-day Slack reply", "priority doc before each sprint") — never name a recording tool.
 - THE ONLY VALID ENDING IS "Artem" (capital A) on its own line — nothing else. No CTA, no closing filler, no invitation, no question, no next-step prompt. Every one of these is banned as a closing line: "happy to answer questions", "feel free to reach out", "let me know if you have questions", "looking forward to hearing from you", "happy to discuss further", "happy to chat", "reach out anytime", "let's talk", "keen to hear more", "would love to connect", "open to a quick call", "communication will be efficient", or ANY variation. The letter ends with the last content sentence and then "Artem" on its own line. Period.
 - NEVER write "i work async" anywhere in the letter — not as a closing line, not as a mid-letter description of communication style. This phrase is banned entirely. If you need to explain communication cadence, describe it concretely ("weekly summary report covering spend, leads, CPL, and next actions") without the phrase "async".
 - CIRCUMVENTION SAFETY (Trust & Safety — absolute, zero exceptions): Upwork's automated scanners flag accounts over wording that even RESEMBLES moving work, payments, or communication off-platform. A real enforcement flag already hit Artem's account over the innocent line "managing through Upwork hits friction … we'll find workaround". Therefore NEVER write, in any context: "outside Upwork", "off Upwork", "around Upwork", "without Upwork", any sentence putting "Upwork" near "friction"/"workaround"/"limitations"; any payment method (PayPal, Wise, wire, crypto, "pay directly"); any contact channel (WhatsApp, Telegram, Skype, email addresses, phone numbers). If a platform-access difficulty is genuinely relevant (e.g. Meta Business Manager 2FA), describe the solution positively without mentioning Upwork at all: "i'll set up secure partner access through Meta Business Manager". When in doubt, omit the topic entirely.
@@ -3527,6 +3541,7 @@ You have NOT visited the client's website, looked at their Google Ads account, i
 - Claim you inspected anything: NO "i took a look at yoursite.com", "i checked your account", "i reviewed your campaigns", "looking at your setup", "i see that your..." (when "your X" is something only visible by inspecting it).
 - Assert specific findings about their CURRENT state as fact: NO "your technical foundation isn't set up", "your schema is missing", "your tracking is broken", "Google isn't connecting those queries because [specific cause]", "your site has indexation issues", "your campaigns are misconfigured". You cannot know any of this — asserting it as fact is a lie that collapses the moment the client checks.
 - Invent metrics, current rankings, current conversion rates, or any number describing THEIR current performance.
+- Fabricate facts about ARTEM'S OWN client base or track record beyond what the approved case studies prove. Specifically banned: "most of my healthcare clients are US-based", "I typically work with Series A companies", "my clients in this vertical usually…" — unless the case studies actually document this. The approved case studies are the only verifiable proof. Inventing a client-base profile to pre-empt a concern (e.g. timezone, vertical fit) is a lie that the client could verify by asking follow-up questions. Instead, speak to the case studies you DO have: "Derma Solution is a YMYL medical aesthetics site — same E-E-A-T constraints you're dealing with."
 - DESCRIBE THE CLIENT'S BUSINESS when the posting only gives a company name or URL. If the posting says nothing more than "The company is acme.io" or just links a domain, you do NOT know what they do, who their customers are, or how they operate — do NOT state it. NEVER open with "I took a look at acme.io - [invented description]". Forbidden: claiming their business model, market, customer type, or geography as fact when the posting didn't state it. You may refer to them generically ("your platform", "your account", "your campaigns") and speak to the problem the POSTING describes, but never narrate their business as if you researched it. Inferring loosely from a domain name (e.g. "mytender.io" → tenders) is acceptable ONLY if framed as the problem space, never as "here's what your company does."
 
 What you CAN do instead (this is how you sound sharp WITHOUT lying):
@@ -3539,7 +3554,7 @@ ATTACHMENTS & SAMPLES RULE (non-negotiable): Artem has exactly these attachable 
 1. Derma Solution case study — PDF. When mentioned, say "attached as a PDF" in the same or next sentence.
 2. Skin Reboot case study — PDF. Same rule.
 3. Google Ads / PPC audit sample — real document Artem attaches ONLY to proposals for jobs that involve auditing an EXISTING account (optimise / fix / review running campaigns). Mention it as: "attaching a sample of a recent Google Ads audit so you can see the format and depth." DO NOT offer or attach this on LAUNCH / from-scratch / zero-pixel jobs — there is no account to audit, and offering one signals you didn't read the brief (see WHEN NOT TO OFFER AN AUDIT above). This item is required ONLY when the AUDIT OFFER RULES say an audit applies.
-4. SEO promotion plan sample — real document for SEO proposals. Mention as: "attaching a sample SEO promotion plan so you can see the format."
+4. SEO promotion plan sample — real document for SEO proposals. Mention as: "attaching a sample SEO promotion plan so you can see the format." NEVER write "attaching a sample so you can see the format" without naming the type — always name it: "SEO promotion plan", "Google Ads audit", "technical SEO audit". An unnamed "sample" confuses the client and signals you copy-pasted the line.
 5. Technical SEO audit sample — a real 36-page technical SEO audit PDF Artem delivered (lemoos.com, a bilingual e-commerce site: glossary + a 4-tier priority framework, crawl/indexation/redirects/canonicals/schema/Core Web Vitals findings). Attach this when the SEO job involves a technical AUDIT / DIAGNOSIS / site review / migration recovery / crawl / indexation work (i.e. the client wants you to FIND and FIX issues on an existing site — NOT a from-scratch build). Mention it as: "attaching a sample technical SEO audit so you can see the format and depth." This is the SEO counterpart to the Google Ads audit sample — when the SEO job is audit/diagnosis-driven, attaching it is REQUIRED.
 6. Every other case study — use the block format below. "attached in profile highlights" goes ONCE in the lead-in sentence, not repeated after each entry.
 That is the complete inventory. There are NO schema implementation samples, NO AI visibility breakdowns, NO entity mapping examples, NO separate SEO reports beyond the plan sample and the technical SEO audit sample, NO additional work examples beyond what is listed. Do not invent materials, do not promise to send things that are not on this list, do not say "profile highlights" contains anything that isn't an approved case study from the list. This covers everything — case studies, audit samples, schema examples, AI visibility breakdowns, reports, screenshots, or any other work example. If you say "i'm attaching X" or "happy to send X" or "here are samples of X", X must be in the approved list. If it is not listed, do not mention it. Inventing promised materials destroys credibility when the client asks for them and they don't exist.
@@ -3568,6 +3583,10 @@ Case studies by domain (use ONLY case studies whose domain matches the job):
 CRITICAL: NEVER cite a PPC-only case study (FridgeFix, House Painting, Nectar Flowers) in an SEO proposal. NEVER cite an SEO-only case study (Derma Solution organic traffic, Multilingual Site rankings) in a PPC proposal. Skin Reboot is the only case study with both PPC and SEO angles — pick the metric that matches.
 
 RESTRICTED/YMYL JOBS OVERRIDE (vertical beats channel for the supporting slots): when the job is in a restricted/regulated/YMYL vertical (peptides, skincare, medical aesthetics, supplements, CBD/vape, health/wellness), DO NOT use the generic consumer cases (FridgeFix, House Painting, Nectar Flowers, Golden State Trailers) EVEN ON A PPC JOB — they are off-vertical and signal weak relevance judgment. Use Skin Reboot (the restricted/YMYL paid hero) as the lead, and at most one more genuinely restricted/YMYL case. Fewer on-point cases beat more with a generic filler. If only Skin Reboot truly fits, cite only Skin Reboot and stop.
+
+CASE STUDY VOLUME CAP (mandatory): When you already have 2 or more strong vertical matches, do NOT add a 3rd or 4th case study that is off-vertical or only loosely adjacent just to pad the letter. Adding a weak case after strong ones dilutes the signal and increases length for no gain. The rule: once you have 2 case studies with strong vertical alignment, stop — only add a 3rd if it adds a genuinely new dimension (e.g. a local SEO case when the first two are national, or a restricted-vertical case when the first two aren't). Multilingual Site (construction/tenders consulting, Italian-German border) should ONLY appear when there is no better local SEO, multilingual, or international-targeting case to show — it is a weak match for healthcare, YMYL, or ecommerce jobs.
+
+ATTACHED PDF / SCOPE DOCUMENT ACKNOWLEDGMENT: When the job posting explicitly references an attached PDF, full spec document, or says "review the attached [document] for scope/questions/tech stack", and you have NOT been given the contents of that document, you MUST acknowledge this in the letter. Do NOT pretend to have reviewed a document you haven't seen — and do NOT ignore the reference entirely. Acceptable: briefly note you're working from the summary posting and invite the client to share screening questions directly. Example: "I'm working from the job summary here — happy to answer any screening questions from the attached spec directly." DO NOT fabricate answers to unknown screening questions.
 
 CASE STUDY FORMATTING — THIS IS THE ONLY ACCEPTABLE FORMAT:
 
@@ -3654,6 +3673,16 @@ FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preambl
       if (text !== _preAuditStrip) {
         console.log('[Falcon] Rule pre-check: stripped a day-count turnaround off an SEO technical audit (KB Rule 416) — "2 working days" is the SEO PLAN only, never the audit.')
         _recordViolations('generator', job?.id, ['seoAuditTurnaround'])
+      }
+
+      // Loom reference strip: Rule 2 bans screen-recording deliverable offers.
+      // "Loom messages/videos" keeps appearing in the comms cadence paragraph
+      // despite the prompt ban. Replaced deterministically with neutral phrasing.
+      const _preLoomStrip = text
+      text = _stripLoomReference(text)
+      if (text !== _preLoomStrip) {
+        console.log('[Falcon] Rule pre-check: replaced Loom reference with neutral phrasing (Rule 2 — no screen-recording deliverable offers).')
+        _recordViolations('generator', job?.id, ['loomReference'])
       }
 
       // ── Normalize "(attached in profile highlights)" phrasing ──────────────
