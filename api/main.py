@@ -4364,6 +4364,9 @@ async def claude_proxy(request: dict):
         # Frontend can pass `_kind` to label the call for usage tracking.
         # Strip before forwarding to Anthropic so it doesn't reject the field.
         kind = (request.pop("_kind", None) or "other")
+        # `_betas` lets the frontend request beta features (e.g. PDF document
+        # blocks). Strip before forwarding; translate to the beta header instead.
+        betas = request.pop("_betas", None) or []
         model = request.get("model") or "claude-sonnet-4-5"
 
         # ── Outcome stats injection for Analyser / Generator (Chunk 5) ──
@@ -4447,6 +4450,11 @@ async def claude_proxy(request: dict):
                     request["system"] = _sys
                     print(f"[cache] {kind}: cached list[0] ({len(_first_text)}ch)")
 
+        # Build extra headers — PDF document blocks need the beta flag.
+        extra_headers: dict = {}
+        if betas:
+            extra_headers["anthropic-beta"] = ",".join(betas)
+
         async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
@@ -4454,6 +4462,7 @@ async def claude_proxy(request: dict):
                     "x-api-key": api_key,
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
+                    **extra_headers,
                 },
                 json=request,
             )

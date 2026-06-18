@@ -3041,6 +3041,10 @@ function ProposalColumn({ job, bridgeReady = false }) {
   const [distilling, setDistilling] = useState(false)
   const [kbRules, setKbRules] = useState([])
   const [loadingKbRules, setLoadingKbRules] = useState(false)
+  // Dropped files — PDFs / images / text files the user drags in before generating.
+  // Each entry: { name, mediaType, data (base64), blockType ('document'|'image'|'text') }
+  const [droppedFiles, setDroppedFiles] = useState([])
+  const [isDragOver, setIsDragOver] = useState(false)
 
   const fetchKbRules = async () => {
     setLoadingKbRules(true)
@@ -3168,6 +3172,35 @@ function ProposalColumn({ job, bridgeReady = false }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'feedback', title: `${kind === 'liked' ? '👍' : '👎'} Cover Letter: ${job.title}`, content, tags: tag }),
     })
+  }
+
+  // ── File drop handlers ────────────────────────────────────────────────────
+  const _readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1]
+      resolve({ name: file.name, data: base64, mediaType: file.type || 'application/octet-stream' })
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+
+  const handleFileDrop = async (e) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer?.files || [])
+    const supported = files.filter(f =>
+      f.type === 'application/pdf' ||
+      f.type.startsWith('image/') ||
+      f.type === 'text/plain'
+    )
+    if (!supported.length) return
+    const loaded = await Promise.all(supported.map(async f => {
+      const { name, data, mediaType } = await _readFileAsBase64(f)
+      const blockType = f.type === 'application/pdf' ? 'document' : f.type.startsWith('image/') ? 'image' : 'text'
+      return { name, data, mediaType, blockType, size: f.size }
+    }))
+    setDroppedFiles(prev => [...prev, ...loaded])
   }
 
   const generate = async (adjustmentsArg, options = {}) => {
@@ -3645,8 +3678,29 @@ Before you emit the cover letter, run this checklist *internally* (do NOT includ
 
 Then proceed to FINAL OUTPUT FORMAT.
 ` : ''}
-FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preamble, no meta-commentary, no "Here's the cover letter:", no rule-check explanation, no skip recommendation.`,
-          messages: [{ role: 'user', content: `Write a cover letter for this job:\n\n${jobContext}` }],
+FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preamble, no meta-commentary, no "Here's the cover letter:", no rule-check explanation, no skip recommendation.${droppedFiles.length > 0 ? `
+
+ATTACHED FILES (${droppedFiles.length}): ${droppedFiles.map(f => f.name).join(', ')}
+Read ALL attached files carefully BEFORE writing. They likely contain the client's full brief, spec, screening questions, or portfolio requirements not captured in the posting text. Answer any screening questions you find. Incorporate every requirement from the files into the letter.` : ''}`,
+          messages: [{ role: 'user', content: (() => {
+            const textPart = `Write a cover letter for this job:\n\n${jobContext}`
+            const fileBlocks = droppedFiles
+              .filter(f => f.blockType === 'document' || f.blockType === 'image')
+              .map(f => f.blockType === 'document'
+                ? { type: 'document', source: { type: 'base64', media_type: f.mediaType, data: f.data } }
+                : { type: 'image', source: { type: 'base64', media_type: f.mediaType, data: f.data } })
+            const textFileContent = droppedFiles
+              .filter(f => f.blockType === 'text')
+              .map(f => `--- ${f.name} ---\n${atob(f.data)}`)
+              .join('\n\n')
+            const fullText = textFileContent
+              ? `${textPart}\n\nADDITIONAL TEXT FILES:\n${textFileContent}`
+              : textPart
+            return fileBlocks.length > 0
+              ? [...fileBlocks, { type: 'text', text: fullText }]
+              : fullText
+          })() }],
+          ...(droppedFiles.some(f => f.blockType === 'document') ? { _betas: ['pdfs-2024-09-25'] } : {}),
         }),
       })
       const data = await response.json()
@@ -4700,6 +4754,44 @@ FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preambl
           </div>
         </div>
       )}
+
+      {/* File drop zone — always visible so files can be attached before or after generation */}
+      <div
+        onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={handleFileDrop}
+        style={{
+          border: `1px dashed ${isDragOver ? '#00c8d4' : 'var(--border2)'}`,
+          borderRadius: 6,
+          padding: droppedFiles.length > 0 ? '8px 10px' : '10px 12px',
+          background: isDragOver ? '#00c8d420' : 'transparent',
+          transition: 'all 0.15s',
+          cursor: 'default',
+        }}
+      >
+        {droppedFiles.length === 0 ? (
+          <div style={{ fontSize: 11, color: isDragOver ? '#00c8d4' : 'var(--text3)', textAlign: 'center', pointerEvents: 'none' }}>
+            Drop PDF, image, or text file to add context to the generator
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {droppedFiles.map((f, i) => (
+              <span key={i} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10,
+                padding: '2px 6px 2px 8px', borderRadius: 4,
+                background: '#00c8d414', color: '#00c8d4', border: '1px solid #00c8d440',
+              }}>
+                {f.blockType === 'document' ? '📄' : f.blockType === 'image' ? '🖼' : '📝'} {f.name}
+                <button onClick={() => setDroppedFiles(prev => prev.filter((_, j) => j !== i))}
+                  style={{ background: 'none', border: 'none', color: '#00c8d4', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+              </span>
+            ))}
+            <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>
+              — drop more to add
+            </span>
+          </div>
+        )}
+      </div>
 
       {(!proposal || !hasEnrichment) && !loading && (
         <>
