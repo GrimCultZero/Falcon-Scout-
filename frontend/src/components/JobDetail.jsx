@@ -1316,6 +1316,23 @@ function _stripFabricatedOpener(text) {
   return paras.join('\n\n').trim()
 }
 
+// Strips fabricated vertical-specific web dev experience in the opening sentence.
+// Pattern: "12 years in digital, building and ranking car rental sites on WordPress."
+// This claims a vertical build track record that doesn't exist in the approved case
+// studies (only documented build is GKit, fashion ecommerce on OpenCart). The second
+// sentence is always the real technical insight — a better hook. Strip the lie, keep
+// everything after it. Matches "X years in digital ... building ... sites on [platform]."
+const _FABRICATED_VERTICAL_OPENER_RE =
+  /^\d+\s+years?\s+in\s+digital\b[^.!?\n]*\bbuilding\b[^.!?\n]*\b(?:sites?|websites?)\s+on\s+(?:wordpress|shopify|opencart|magento|woocommerce)\b[^.!?\n]*[.!?]/im
+function _stripFabricatedVerticalOpener(text) {
+  if (!text) return text
+  const m = text.match(_FABRICATED_VERTICAL_OPENER_RE)
+  if (!m) return text
+  console.log('[Falcon] Stripped fabricated vertical-web-dev opener:', m[0].slice(0, 80))
+  _recordViolations('generator', null, ['fabricatedVerticalOpener'])
+  return text.slice(m.index + m[0].length).replace(/^\s+/, '')
+}
+
 // Deterministic removal of a day-count turnaround promised on a TECHNICAL SEO
 // AUDIT (KB Rule 416). A technical SEO audit is a ~2-week job and its timeline
 // is OMITTED from the cover letter — the "2 working days" turnaround belongs
@@ -1721,7 +1738,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // Run the chat-reworked letter through the same deterministic cleaning
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
-        const newProposal  = proposalMatch ? _humanizeCasing(_stripFabricatedOpener(_stripLeadingNarration(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))) : null
+        const newProposal  = proposalMatch ? _humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripLeadingNarration(_cleanPasteText(_stripProtocolTags(proposalMatch[1])))))) : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // Cover-letter rewrite path — only push when content actually changed.
@@ -4325,7 +4342,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripFabricatedOpener(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip))).trim())
+              setProposal(_humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip)))).trim())
               return
             }
 
@@ -4624,7 +4641,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_stripFabricatedOpener(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip))).trim())
+      setProposal(_humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip)))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
