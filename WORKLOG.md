@@ -161,3 +161,42 @@ GENERATOR fixes:
    the posting requires proof Artem doesn't have, skip the case study section entirely. Off-target
    case studies (owned-domain SEO results cited on a third-party platform ranking job) actively
    signal you didn't read the brief. Zero > wrong.
+
+---
+
+## 2026-06-19 — SKIP gate deterministic + webdev CTA + fabricated vertical experience (commit 0b88be3)
+
+Triggered by job #2868 (WordPress Developer for Car Rental Website, $145 flat, AU). SKIP 2/10
+(unverified client + $9.67/hr effective rate). Generator produced a 300-word full proposal despite
+the SKIP verdict. Two additional violations in the letter: fabricated "12 years building car rental
+sites on WordPress" and a "3-month SEO promotion plan in 2 working days" CTA on a website-build job.
+
+Three fixes (all in JobDetail.jsx):
+
+1. SKIP gate moved from prompt to code (DESIGN.md §16 principle).
+   - Before: generator received "IF THE VERDICT IS SKIP: write a SHORT PASS NOTE" in the system
+     prompt. Model reliably ignored it and wrote a full letter every time.
+   - Fix: generate() now checks storedAnalysis?.verdict === 'SKIP' BEFORE fetching KB and calling
+     Claude. If SKIP and no skipOverride, short-circuits to a deterministic pass note:
+     "Skip — [summary]. Not applying on this one." — zero API cost.
+   - The Redo button now passes { skipOverride: true } so Artem can still force-generate a full
+     letter for a SKIP job when he wants to see what it would look like or debug fit.
+
+2. NO FABRICATED DIAGNOSIS extended to cover vertical-specific web dev history.
+   - Existing rule covered "most of my healthcare clients are US-based" (client-base fabrication).
+   - New bullet: NEVER claim to have "built [car rental / restaurant / hotel / gym] sites on
+     WordPress" when no such case study exists. The only documented web dev build is GKit (fashion
+     ecommerce, OpenCart). For any other vertical, the hook must frame the transferable method
+     ("SEO architecture wired into the build from day one") — not invent a vertical track record.
+
+3. SEO JOB DELIVERABLE gets a (C) webdev branch; enforcer updated to match.
+   - Problem: car rental posting says "SEO-friendly design" + "SEO Best Practices" → jobIsSeo
+     fires → enforcer demanded an SEO promotion plan offer on a website-build job.
+   - Prompt: added (C) branch: on website-build jobs (WordPress dev, Shopify, "build a website"),
+     do NOT offer the 3-month SEO plan — that's a campaign deliverable, wrong for a developer scope.
+     CTA becomes "project scope with timeline" or just sign-off.
+   - Enforcer: added WEBDEV_JOB_RE detection; `missingSeoPlanOffer` now only fires when
+     jobIsSeo && !jobIsPpc && !jobIsWebdev. Prevents false-positive enforcer pass on dev jobs.
+
+Key pattern: webdev jobs often mention "SEO-friendly" as a build requirement, not a campaign scope.
+jobScopes() correctly adds both 'seo' and 'webdev' — the distinction matters for deliverable selection.
