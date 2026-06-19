@@ -3247,6 +3247,19 @@ function ProposalColumn({ job, bridgeReady = false }) {
         }
       } catch {}
 
+      // SKIP gate — deterministic (DESIGN.md §16): if the stored verdict is SKIP,
+      // produce a pass note directly without calling Claude. The prompt-only gate
+      // was reliably ignored by the model. The Redo button passes { skipOverride: true }
+      // so Artem can still force-generate a real letter when he wants to.
+      if (storedAnalysis?.verdict === 'SKIP' && !options.skipOverride) {
+        const reason = storedAnalysis.summary
+          ? storedAnalysis.summary.replace(/\.$/, '')
+          : storedAnalysis.flags?.[0] || 'hard disqualifiers apply'
+        setProposal(`Skip — ${reason}.\n\nNot applying on this one.`)
+        setLoading(false)
+        return
+      }
+
       // Fetch KB rules, liked-feedback examples, sent proposals, and portfolio in parallel
       let kbRulesText = ''
       let examplesText = ''
@@ -3593,6 +3606,7 @@ You have NOT visited the client's website, looked at their Google Ads account, i
 - Assert specific findings about their CURRENT state as fact: NO "your technical foundation isn't set up", "your schema is missing", "your tracking is broken", "Google isn't connecting those queries because [specific cause]", "your site has indexation issues", "your campaigns are misconfigured". You cannot know any of this — asserting it as fact is a lie that collapses the moment the client checks.
 - Invent metrics, current rankings, current conversion rates, or any number describing THEIR current performance.
 - Fabricate facts about ARTEM'S OWN client base or track record beyond what the approved case studies prove. Specifically banned: "most of my healthcare clients are US-based", "I typically work with Series A companies", "my clients in this vertical usually…" — unless the case studies actually document this. The approved case studies are the only verifiable proof. Inventing a client-base profile to pre-empt a concern (e.g. timezone, vertical fit) is a lie that the client could verify by asking follow-up questions. Instead, speak to the case studies you DO have: "Derma Solution is a YMYL medical aesthetics site — same E-E-A-T constraints you're dealing with."
+- Fabricate vertical-specific web development history Artem doesn't have: NEVER open with "I've been building [car rental / restaurant / hotel / gym / real estate] sites on WordPress for X years" when there is no case study in the KB for that vertical. The only documented web dev BUILD is GKit (fashion ecommerce, OpenCart). For a job in any other vertical (car rental, hospitality, automotive, healthcare, etc.), do NOT invent a vertical track record. Frame the hook around the transferable technical method instead: "my approach wires SEO architecture and GA4 tracking into the build from day one — so the site ranks from launch instead of six months later." Then cite GKit as proof of the delivery model. Vertical-specific build history that isn't backed by an approved case study is a fabrication, even when it feels plausible to invent.
 - DESCRIBE THE CLIENT'S BUSINESS when the posting only gives a company name or URL. If the posting says nothing more than "The company is acme.io" or just links a domain, you do NOT know what they do, who their customers are, or how they operate — do NOT state it. NEVER open with "I took a look at acme.io - [invented description]". Forbidden: claiming their business model, market, customer type, or geography as fact when the posting didn't state it. You may refer to them generically ("your platform", "your account", "your campaigns") and speak to the problem the POSTING describes, but never narrate their business as if you researched it. Inferring loosely from a domain name (e.g. "mytender.io" → tenders) is acceptable ONLY if framed as the problem space, never as "here's what your company does."
 
 What you CAN do instead (this is how you sound sharp WITHOUT lying):
@@ -3621,6 +3635,12 @@ SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually w
 "i can prepare a custom 3-month SEO promotion plan within 2 working days — covers deliverables, costs, link building budget, a basic site check, and competitor overview. i'm attaching a sample SEO promotion plan so you can see the format."
 
 A job can be BOTH (audit now → growth later): attach the technical SEO audit sample AND offer the plan. Skip only for a clearly one-off micro-task (e.g. "fix this one schema bug").
+
+(C) WEBSITE-BUILD / WEB-DEVELOPMENT jobs where the client wants a site BUILT (not SEO campaigns run) — signals: "WordPress developer", "Shopify developer", "build a website", "develop our site", "create our online store", "website development". Even when the posting includes "SEO-friendly design" or "basic on-page SEO setup", that is a BUILD requirement (architecture and structure are SEO-ready from day one), NOT an ongoing SEO campaign deliverable. For these jobs:
+  - Do NOT offer the 3-month SEO promotion plan — it is an ongoing-campaign document and will confuse a client who hired a developer, not an SEO agency.
+  - Do NOT attach the SEO promotion plan sample.
+  - If you want a closing deliverable offer, frame it as: "happy to put together a project scope with build timeline and tech stack before we start" — or simply close with the sign-off and your name.
+  - The key differentiator for webdev jobs: IT Force wires SEO architecture, schema, GA4 conversion tracking, and Core Web Vitals optimisation INTO the build itself — the client gets a site that ranks from launch, not one that needs a separate SEO contractor six months later. Lead with this as the technical USP, not as a service to sell separately.
 
 CASE STUDY SELECTION — match the case study's domain to the job's domain (mandatory):
 
@@ -4109,6 +4129,11 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
             const SEO_JOB_KEYWORDS = /\b(?:seo\b|search\s+engine\s+optimi[sz]ation|organic\s+(?:traffic|search)|google\s+rank|ranking|backlinks?|schema(?:\s+markup)?|ai\s+overviews?|aeo|geo\s+(?:seo|search)|content\s+strategy|technical\s+seo|onpage\s+seo|off[\s-]page\s+seo)\b/i
             const jobIsPpc = PPC_JOB_KEYWORDS.test(jobContextLower)
             const jobIsSeo = SEO_JOB_KEYWORDS.test(jobContextLower)
+            // Webdev detection: if the job is about building a site (WordPress dev,
+            // Shopify, OpenCart, web dev, build a website), suppress the SEO promotion
+            // plan requirement — that deliverable is wrong for a development scope.
+            const WEBDEV_JOB_RE = /\b(shopify|woocommerce|opencart|magento|wordpress\s+(?:developer|development|website|site|theme|plugin|design)|ecommerce\s+(?:website|store|site|development)|online\s+store\s+(?:development|build|setup|creation)|website\s+(?:development|redesign|developer|builder|creation)|web\s+(?:developer|development|design)|build\s+(?:a|an|our|my|the)\s+(?:website|online\s+store|ecommerce\s+site))\b/i
+            const jobIsWebdev = WEBDEV_JOB_RE.test(jobContextLower)
             const ppcCaseInDraft = PPC_ONLY_NAMES.some(re => re.test(text))
             const seoCaseInDraft = SEO_ONLY_NAMES.some(re => re.test(text))
             // Mismatch only fires when job is clearly ONE domain and a case
@@ -4126,7 +4151,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
             //       (e.g. "5 business days", "3-5 days", "a week")
             let missingSeoPlanOffer = false
             let wrongSeoPlanTiming = false
-            if (jobIsSeo && !jobIsPpc) {
+            if (jobIsSeo && !jobIsPpc && !jobIsWebdev) {
               const hasSeoPlanMention = /\b(?:seo\s+(?:promotion\s+)?plan|seo\s+roadmap|promotion\s+plan)\b/i.test(text)
               missingSeoPlanOffer = !hasSeoPlanMention
               if (hasSeoPlanMention) {
@@ -4980,7 +5005,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
           >
             {saving ? 'Saving…' : (savedProposal ? '↻ Update in Outcomes' : '✚ Save to Outcomes')}
           </button>
-          <button onClick={generate} className="btn-ghost" style={{ paddingTop: 2, paddingBottom: 2, paddingLeft: 10, paddingRight: 10, fontSize: 10.5 }}>
+          <button onClick={() => generate(null, { skipOverride: true })} className="btn-ghost" style={{ paddingTop: 2, paddingBottom: 2, paddingLeft: 10, paddingRight: 10, fontSize: 10.5 }}>
             ↺ Redo
           </button>
           <button
