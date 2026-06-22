@@ -335,7 +335,6 @@ export default function App() {
     } catch {}
   }, [])
 
-  useEffect(() => { fetchJobs('') }, [])
   useEffect(() => { fetchJobs(query, filter) }, [query, filter])
   // Refetch when the feed source toggle changes (ref is already updated above).
   useEffect(() => { fetchJobs(query, filter) }, [feedSource])  // eslint-disable-line react-hooks/exhaustive-deps
