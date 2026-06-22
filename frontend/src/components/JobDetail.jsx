@@ -1823,17 +1823,16 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
             '- NEVER reference internal tooling, databases, or knowledge bases in the answer text. Do NOT write "in the KB", "in my KB", "not in the KB right now", or any variant. The client has no idea what a KB is.',
             '',
             'WHEN A SCREENING QUESTION ASKS FOR PROOF, CAMPAIGNS, OR COMPANY NAMES:',
-            'Use this exact four-part structure — tight, 3-4 short paragraphs total:',
             '',
-            '1. ONE honest sentence if there is no direct-vertical match — e.g. "I don\'t have a [vertical] case study I can share publicly right now — most of my recent work is under NDA" OR "Client names are typically under NDA, so I can\'t list them by name." ONE sentence only. Do NOT dwell on this or explain it further.',
+            'STEP 1 — scan the available case studies for anything that works as B2B or professional-service proof. Examples that qualify: Trailers (commercial vehicle/equipment dealer = B2B), Derma Solution (medical aesthetics clinic = professional service), kitchen remodeling in LA (contractor/trade business). LEAD WITH THESE. Do not preface with "I don\'t have B2B case studies" — just cite the case study and the result.',
             '',
-            '2. PIVOT immediately to what IS available: the Google Ads audit sample attached to the proposal (it demonstrates diagnostic process — conversion tracking, bid strategy review, campaign structure, search term mining) and/or the verticals actually worked in (medical aesthetics ecommerce, vape/restricted products, luxury fashion, kitchen remodeling). Do not apologize for the verticals not matching — just name them and what they demonstrate.',
+            'STEP 2 — after citing 2-3 relevant case studies with results, add 1-2 sentences personalising to THIS client\'s specific challenge using details from their job description. Show you understand their exact funnel problem — for a VA placement company: blocking job-seeker traffic, filtering inquiry quality, capturing only business owners ready to hire. This is the proof of strategic fit.',
             '',
-            '3. PERSONALIZE to this client\'s specific problem using details from the job description. Show you understand their exact challenge — e.g. for a VA placement company: blocking job seekers vs. attracting business owners ready to hire, form-quality filtering, intent keywords. For a SaaS company: MQL vs. SQL conversion events, audience layering by job title, etc. 2-3 concrete sentences that prove you\'ve thought about their funnel specifically.',
+            'STEP 3 — one-line close if the client asked for companies by name and they\'re under NDA: "Client names are under NDA but happy to provide references on request." That\'s it. No paragraphs about it.',
             '',
-            '4. ONE-LINE CLOSE: offer to walk through how you\'d structure their specific campaigns. Keep it an offer, not a plea.',
+            'ONLY use the NDA/no-public-case-study opener if truly NOTHING in the case study library applies even loosely. That is rare. Default is: find the closest match and cite it confidently.',
             '',
-            'DO NOT: list generic case study bullets, write multiple paragraphs defending transferability, reference the cover letter, or say "I don\'t have direct B2B experience" anywhere.',
+            'FORMAT: 3-5 short paragraphs. No bullet lists. No preamble. No narration about what you are doing. Just the case studies, the results, and the client-specific insight.',
           ].join('\n')
         }
         // Consume the armed mode — it applies to this one turn only.
