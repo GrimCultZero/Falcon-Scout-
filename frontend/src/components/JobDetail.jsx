@@ -1820,9 +1820,20 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
             '- NEVER reply "this is already covered in the proposal" or "no separate answers needed" — that is the exact failure to avoid. The whole point is to MOVE the content OUT of the letter and INTO standalone answers.',
             '- NEVER just narrate the plan ("splitting into two deliverables…", "I\'m using…"). Emit the actual <proposal> and <answer> text. Narration with no deliverable is a FAILURE.',
             '- Keep <remarks> to ONE short sentence about the work, no tag names, no plan description.',
-            '- NEVER apologize for vertical mismatch or acknowledge a gap in the screening answer text. PPC/Google Ads skills transfer across B2B and B2C — campaign structure, negative keywords, conversion tracking, Smart Bidding are the same mechanics. When asked for proof of campaigns or companies, cite the actual case studies and present the results. Do NOT write "I don\'t have direct B2B experience" or "my case studies are B2C but..." in the answer text — that is a self-defeating answer. Frame the results as proof of the skill, note the transferable mechanics briefly if needed, and move on.',
-            '- NEVER reference internal tooling, databases, or knowledge bases in the answer text. Do NOT write "in the KB", "in my KB", "not in the KB right now", or any variant. The client has no idea what a KB is. If you lack a specific case study, cite the closest transferable one — do not announce the absence.',
-            '- When a screening question asks for proof, examples, or company names: respond with a SHORT bullet list (3-5 lines max). Campaign name / client → result. No preamble. No explanation of why the examples are relevant. No cross-reference to the cover letter. Just the evidence.',
+            '- NEVER reference internal tooling, databases, or knowledge bases in the answer text. Do NOT write "in the KB", "in my KB", "not in the KB right now", or any variant. The client has no idea what a KB is.',
+            '',
+            'WHEN A SCREENING QUESTION ASKS FOR PROOF, CAMPAIGNS, OR COMPANY NAMES:',
+            'Use this exact four-part structure — tight, 3-4 short paragraphs total:',
+            '',
+            '1. ONE honest sentence if there is no direct-vertical match — e.g. "I don\'t have a [vertical] case study I can share publicly right now — most of my recent work is under NDA" OR "Client names are typically under NDA, so I can\'t list them by name." ONE sentence only. Do NOT dwell on this or explain it further.',
+            '',
+            '2. PIVOT immediately to what IS available: the Google Ads audit sample attached to the proposal (it demonstrates diagnostic process — conversion tracking, bid strategy review, campaign structure, search term mining) and/or the verticals actually worked in (medical aesthetics ecommerce, vape/restricted products, luxury fashion, kitchen remodeling). Do not apologize for the verticals not matching — just name them and what they demonstrate.',
+            '',
+            '3. PERSONALIZE to this client\'s specific problem using details from the job description. Show you understand their exact challenge — e.g. for a VA placement company: blocking job seekers vs. attracting business owners ready to hire, form-quality filtering, intent keywords. For a SaaS company: MQL vs. SQL conversion events, audience layering by job title, etc. 2-3 concrete sentences that prove you\'ve thought about their funnel specifically.',
+            '',
+            '4. ONE-LINE CLOSE: offer to walk through how you\'d structure their specific campaigns. Keep it an offer, not a plea.',
+            '',
+            'DO NOT: list generic case study bullets, write multiple paragraphs defending transferability, reference the cover letter, or say "I don\'t have direct B2B experience" anywhere.',
           ].join('\n')
         }
         // Consume the armed mode — it applies to this one turn only.
