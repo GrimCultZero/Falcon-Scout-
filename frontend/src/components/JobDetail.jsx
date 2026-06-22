@@ -589,11 +589,6 @@ export default function JobDetail({ job }) {
   const [enrichDebug, setEnrichDebug] = useState(null)  // last enrichment result or error
   const [enrichDebugOpen, setEnrichDebugOpen] = useState(false)
   const [bridgeReady, setBridgeReady] = useState(false)
-  // Ahrefs enrichment
-  const [ahrefsDomain, setAhrefsDomain] = useState(job.ahrefs_domain || '')
-  const [ahrefsLoading, setAhrefsLoading] = useState(false)
-  const [ahrefsResult, setAhrefsResult] = useState(job.ahrefs_summary || null)
-  const ahrefsTimerRef = useRef(null)
   const leftColRef = useRef(null)
   const wrapperRef = useRef(null)
 
@@ -661,53 +656,6 @@ export default function JobDetail({ job }) {
       window.removeEventListener('cockpit:enrich:error', onError)
     }
   }, [])
-
-  // Sync Ahrefs result when a different job is selected
-  useEffect(() => {
-    setAhrefsResult(job.ahrefs_summary || null)
-    setAhrefsDomain(d => d || job.ahrefs_domain || '')
-  }, [job.id, job.ahrefs_summary, job.ahrefs_domain])
-
-  // Listen for AHREFS_COMPLETE notification from bridge
-  useEffect(() => {
-    const onComplete = (e) => {
-      const { job_id, summary } = e.detail || {}
-      if (job_id !== job.upwork_job_id && job_id !== String(job.id)) return
-      if (ahrefsTimerRef.current) { clearTimeout(ahrefsTimerRef.current); ahrefsTimerRef.current = null }
-      setAhrefsLoading(false)
-      setAhrefsResult(summary || null)
-    }
-    const onError = (e) => {
-      if (ahrefsTimerRef.current) { clearTimeout(ahrefsTimerRef.current); ahrefsTimerRef.current = null }
-      setAhrefsLoading(false)
-    }
-    window.addEventListener('cockpit:ahrefs:complete', onComplete)
-    window.addEventListener('cockpit:ahrefs:error', onError)
-    return () => {
-      window.removeEventListener('cockpit:ahrefs:complete', onComplete)
-      window.removeEventListener('cockpit:ahrefs:error', onError)
-    }
-  }, [job.id, job.upwork_job_id])
-
-  const handleAhrefsEnrich = () => {
-    const raw = ahrefsDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
-    if (!raw) return
-    if (!bridgeReady) {
-      alert('Extension not connected — reload this tab (F5)')
-      return
-    }
-    setAhrefsLoading(true)
-    setAhrefsResult(null)
-    window.dispatchEvent(new CustomEvent('cockpit:enrich-ahrefs', {
-      detail: { job_id: job.upwork_job_id || String(job.id), domain: raw }
-    }))
-    // 60-second timeout failsafe
-    if (ahrefsTimerRef.current) clearTimeout(ahrefsTimerRef.current)
-    ahrefsTimerRef.current = setTimeout(() => {
-      setAhrefsLoading(false)
-      setAhrefsResult('⚠ Ahrefs scrape timed out — try again or check the extension console')
-    }, 60000)
-  }
 
   // Clear the status message after 3 s
   useEffect(() => {
@@ -3029,6 +2977,59 @@ function ProposalColumn({ job, bridgeReady = false }) {
   // enrichment state doesn't appear on a now-un-enriched job.
   const hasEnrichment = job.enriched_at || job.connects_required || job.proposals || job.hire_rate
   const [proposal, setProposal] = useState('')
+  // ── Ahrefs enrichment ────────────────────────────────────────────────────
+  const [ahrefsDomain, setAhrefsDomain] = useState(job.ahrefs_domain || '')
+  const [ahrefsLoading, setAhrefsLoading] = useState(false)
+  const [ahrefsResult, setAhrefsResult] = useState(job.ahrefs_summary || null)
+  const ahrefsTimerRef = useRef(null)
+
+  // Sync when a different job is selected
+  useEffect(() => {
+    setAhrefsResult(job.ahrefs_summary || null)
+    setAhrefsDomain(d => d || job.ahrefs_domain || '')
+  }, [job.id, job.ahrefs_summary, job.ahrefs_domain])
+
+  // Listen for AHREFS_COMPLETE notification from bridge
+  useEffect(() => {
+    const onComplete = (e) => {
+      const { job_id, summary } = e.detail || {}
+      if (job_id !== job.upwork_job_id && job_id !== String(job.id)) return
+      if (ahrefsTimerRef.current) { clearTimeout(ahrefsTimerRef.current); ahrefsTimerRef.current = null }
+      setAhrefsLoading(false)
+      setAhrefsResult(summary || null)
+    }
+    const onError = () => {
+      if (ahrefsTimerRef.current) { clearTimeout(ahrefsTimerRef.current); ahrefsTimerRef.current = null }
+      setAhrefsLoading(false)
+    }
+    window.addEventListener('cockpit:ahrefs:complete', onComplete)
+    window.addEventListener('cockpit:ahrefs:error', onError)
+    return () => {
+      window.removeEventListener('cockpit:ahrefs:complete', onComplete)
+      window.removeEventListener('cockpit:ahrefs:error', onError)
+    }
+  }, [job.id, job.upwork_job_id])
+
+  const handleAhrefsEnrich = () => {
+    const raw = ahrefsDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+    if (!raw) return
+    if (!bridgeReady) {
+      alert('Extension not connected — reload this tab (F5)')
+      return
+    }
+    setAhrefsLoading(true)
+    setAhrefsResult(null)
+    window.dispatchEvent(new CustomEvent('cockpit:enrich-ahrefs', {
+      detail: { job_id: job.upwork_job_id || String(job.id), domain: raw }
+    }))
+    if (ahrefsTimerRef.current) clearTimeout(ahrefsTimerRef.current)
+    ahrefsTimerRef.current = setTimeout(() => {
+      setAhrefsLoading(false)
+      setAhrefsResult('⚠ Ahrefs scrape timed out — try again or check the extension console')
+    }, 60000)
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showRules, setShowRules] = useState(false)
