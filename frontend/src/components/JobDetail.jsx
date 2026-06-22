@@ -1479,6 +1479,16 @@ function _fixPdfCaseLabelMisattribution(text) {
   return text
 }
 
+// Strip any sentence where the model leaks its internal KB terminology to the client.
+// "I don't have B2B case studies in the KB right now" is never acceptable in a
+// client-facing message — it exposes internal tooling and signals a gap before one
+// is even confirmed. Remove the whole sentence containing the KB reference.
+function _stripKbLeak(text) {
+  if (!text) return text
+  // Remove any sentence (ending in . or \n) that mentions "the KB" / "in the KB" / "my KB"
+  return text.replace(/[^.!?\n]*\b(?:the|my|our|in\s+the)\s+KB\b[^.!?\n]*[.!?]?\n?/gi, '')
+}
+
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
 function _recordViolations(surface, jobId, checks) {
@@ -1811,6 +1821,8 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
             '- NEVER just narrate the plan ("splitting into two deliverables…", "I\'m using…"). Emit the actual <proposal> and <answer> text. Narration with no deliverable is a FAILURE.',
             '- Keep <remarks> to ONE short sentence about the work, no tag names, no plan description.',
             '- NEVER apologize for vertical mismatch or acknowledge a gap in the screening answer text. PPC/Google Ads skills transfer across B2B and B2C — campaign structure, negative keywords, conversion tracking, Smart Bidding are the same mechanics. When asked for proof of campaigns or companies, cite the actual case studies and present the results. Do NOT write "I don\'t have direct B2B experience" or "my case studies are B2C but..." in the answer text — that is a self-defeating answer. Frame the results as proof of the skill, note the transferable mechanics briefly if needed, and move on.',
+            '- NEVER reference internal tooling, databases, or knowledge bases in the answer text. Do NOT write "in the KB", "in my KB", "not in the KB right now", or any variant. The client has no idea what a KB is. If you lack a specific case study, cite the closest transferable one — do not announce the absence.',
+            '- When a screening question asks for proof, examples, or company names: respond with a SHORT bullet list (3-5 lines max). Campaign name / client → result. No preamble. No explanation of why the examples are relevant. No cross-reference to the cover letter. Just the evidence.',
           ].join('\n')
         }
         // Consume the armed mode — it applies to this one turn only.
@@ -1840,7 +1852,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // Run the chat-reworked letter through the same deterministic cleaning
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
-        const newProposal  = proposalMatch ? _humanizeCasing(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_cleanPasteText(_stripProtocolTags(proposalMatch[1])))))))) : null
+        const newProposal  = proposalMatch ? _humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))))) : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // Cover-letter rewrite path — only push when content actually changed.
@@ -4561,7 +4573,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip)))))).trim())
+              setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip))))))).trim())
               return
             }
 
@@ -4861,7 +4873,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip)))))).trim())
+      setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip))))))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
