@@ -189,6 +189,18 @@ async function _runAutoEnrich() {
         console.log('[Cockpit BG] auto-enrich tab', tab.id, '→', job.title || job.url);
       });
 
+      // Also open the apply page to capture boost bid competition, if we have the job id.
+      const rawId = (job.upwork_job_id || '').replace(/^~/, '');
+      if (rawId) {
+        const applyUrl = `https://www.upwork.com/nx/proposals/job/~${rawId}/apply/`;
+        chrome.tabs.create({ url: applyUrl, active: false }, (applyTab) => {
+          if (chrome.runtime.lastError || !applyTab || !applyTab.id) return;
+          _bgTabs.add(applyTab.id);
+          _scheduleTabCleanup(applyTab.id, 2);
+          console.log('[Cockpit BG] auto-enrich apply tab', applyTab.id, '→', applyUrl);
+        });
+      }
+
       if (i < jobs.length - 1) {
         await new Promise(r => setTimeout(r, _AUTO_ENRICH_STAGGER_MS));
       }
@@ -228,12 +240,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // keep channel open for async response
   }
 
+  // ── Save boost bid competition data (from apply.js) ──────────────────────
+  if (message.type === 'BOOST_BIDS' && message.job_id) {
+    const jobId = String(message.job_id).replace(/^~/, '');
+    fetch(`${API_BASE}/jobs/${jobId}/boost-bids`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bids: message.bids || [], scraped_at: message.scraped_at }),
+    })
+      .then(r => r.json())
+      .then(result => {
+        sendResponse({ ok: true, result });
+        console.log('[Cockpit BG] Boost bids saved for ~' + jobId + ':', result);
+      })
+      .catch(err => {
+        sendResponse({ ok: false, error: err.message });
+        console.error('[Cockpit BG] Boost bids save error:', err);
+      })
+      .finally(() => {
+        if (sender.tab && _bgTabs.has(sender.tab.id)) {
+          _bgTabs.delete(sender.tab.id);
+          chrome.tabs.remove(sender.tab.id);
+        }
+      });
+    return true; // keep channel open for async response
+  }
+
   // ── Open a background (inactive) tab to silently enrich a job ────────────
   if (message.type === 'OPEN_BACKGROUND_TAB' && message.url) {
     chrome.tabs.create({ url: message.url, active: false }, (tab) => {
       _bgTabs.add(tab.id);
       sendResponse({ ok: true, tabId: tab.id });
     });
+    // Also open apply page to capture boost bids in parallel
+    const idMatch = message.url.match(/~([0-9a-f]{16,})/i);
+    if (idMatch) {
+      const applyUrl = `https://www.upwork.com/nx/proposals/job/~${idMatch[1]}/apply/`;
+      chrome.tabs.create({ url: applyUrl, active: false }, (applyTab) => {
+        if (chrome.runtime.lastError || !applyTab || !applyTab.id) return;
+        _bgTabs.add(applyTab.id);
+        _scheduleTabCleanup(applyTab.id, 2);
+      });
+    }
     return true;
   }
 

@@ -103,6 +103,13 @@ class Job(Base):
     enrich_attempts        = Column(Integer, nullable=False, default=0)
     last_enrich_attempt_at = Column(DateTime, nullable=True)
 
+    # ── Boost bid competition (scraped from /nx/proposals/job/~/apply/) ──────
+    # JSON array of {rank, connects, age} dicts for top bidders in the
+    # "Boost your proposal" table. Captured by apply.js as a second enrichment
+    # pass. NULL = never captured.
+    boost_bids_json        = Column(Text, nullable=True)
+    boost_bids_captured_at = Column(DateTime, nullable=True)
+
     # ── Analysis cache ────────────────────────────────────────────────────
     # Server-side cache of the most recent analyser run for this job.
     # Updated by POST /jobs/{id}/analysis (fire-and-forget from the frontend

@@ -222,6 +222,15 @@ export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, sh
                   </span>
                 )
               })()}
+              {/* Boost bid badge — top connect bid from the apply page */}
+              {job.boost_bids && job.boost_bids.length > 0 && (
+                <span
+                  title={`Boost top bid: ${job.boost_bids[0].connects} connects (${job.boost_bids[0].age})`}
+                  style={{ fontSize: 11, fontWeight: 700, padding: '3px 6px', borderRadius: 3, background: 'rgba(168,85,247,0.10)', color: '#a855f7', border: '1px solid rgba(168,85,247,0.28)', letterSpacing: '0.02em', flexShrink: 0 }}
+                >
+                  ⚡{job.boost_bids[0].connects}c
+                </span>
+              )}
               {/* Applied badge — shown when a proposal exists in Outcomes */}
               {job.proposal_status && (
                 <span title={`Proposal status: ${job.proposal_status}`} style={{

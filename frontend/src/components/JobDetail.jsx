@@ -985,6 +985,27 @@ export default function JobDetail({ job }) {
                     </div>
                   </div>
                 )}
+                {job.boost_bids && job.boost_bids.length > 0 && (
+                  <div style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                      Boost competition
+                      {job.boost_bids_captured_at && (
+                        <span style={{ textTransform: 'none', fontWeight: 400, marginLeft: 6, opacity: 0.7 }}>
+                          · {new Date(job.boost_bids_captured_at).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {job.boost_bids.map(b => (
+                        <div key={b.rank} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                          <span style={{ color: 'var(--text3)' }}>{b.rank === 1 ? '🥇' : b.rank === 2 ? '🥈' : b.rank === 3 ? '🥉' : `${b.rank}th`}</span>
+                          <span style={{ fontWeight: 700, color: b.rank === 1 ? '#a855f7' : 'var(--text)' }}>{b.connects}c</span>
+                          <span style={{ color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{b.age}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Client block */}

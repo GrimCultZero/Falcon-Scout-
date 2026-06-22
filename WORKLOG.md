@@ -200,3 +200,44 @@ Three fixes (all in JobDetail.jsx):
 
 Key pattern: webdev jobs often mention "SEO-friendly" as a build requirement, not a campaign scope.
 jobScopes() correctly adds both 'seo' and 'webdev' — the distinction matters for deliverable selection.
+
+---
+
+## 2026-06-22 — Boost bid competition capture
+
+### What we built
+New end-to-end feature: captures the "Boost your proposal" bid competition table from Upwork's apply page and surfaces it in the cockpit.
+
+**Why:** The apply page (`/nx/proposals/job/~{id}/apply/`) shows a real-time table of how many Connects other bidders are putting in for boosted visibility (rank 1–4, connects amount, age). Knowing the competition before bidding saves connects.
+
+### Files changed (7)
+1. **`db.py`** — added `boost_bids_json TEXT` + `boost_bids_captured_at DATETIME` to Job model
+2. **`api/main.py`**:
+   - `_ensure_job_columns()`: migration for the 2 new columns
+   - `_serialize_job()`: added `boost_bids` (parsed JSON array) + `boost_bids_captured_at` to response
+   - New endpoint: `POST /jobs/{job_id_raw}/boost-bids` — receives and persists bids data
+3. **`upwork-enricher/apply.js`** (new) — content script for `/nx/proposals/job/*/apply/` pages:
+   - Waits up to 12s for the bid table ("1st place ... Connects") to appear
+   - Extracts via regex: `(\d+)(?:st|nd|rd|th)\s+place\s+([\d,]+)\s+Connects\s+([^\n]+)`
+   - Sends `BOOST_BIDS { job_id, bids, scraped_at }` to background.js
+4. **`upwork-enricher/manifest.json`** (v3.9 → v4.0):
+   - Added content_scripts entry for apply.js on `*/apply/*` URLs
+   - Added `exclude_matches` to proposal.js entry to prevent both scripts running on apply page
+5. **`upwork-enricher/background.js`**:
+   - `BOOST_BIDS` handler: POSTs to `/jobs/{id}/boost-bids`, closes background tab on success
+   - `_runAutoEnrich()`: after opening each job tab, also opens the apply tab (if `upwork_job_id` known)
+   - `OPEN_BACKGROUND_TAB` handler: also opens apply tab in parallel from manual Enrich button
+6. **`frontend/src/components/JobList.jsx`** — purple `⚡{N}c` badge when boost_bids present (top bid connects)
+7. **`frontend/src/components/JobDetail.jsx`** — "Boost competition" section in Activity block (rank icons 🥇🥈🥉, connects, age)
+
+### Key decisions
+- Apply tab is opened in parallel with the job tab (not after) — both are independent, both close on success
+- `_bgTabs` + `_scheduleTabCleanup(2)` used for apply tabs too — same failsafe as job tabs
+- `exclude_matches` in manifest.json prevents proposal.js from double-injecting on apply pages
+- Endpoint uses `or_(upwork_job_id == id, upwork_job_id == '~'+id)` — same dedup pattern as /enrich
+- Frontend parses `boost_bids_json` on the backend side (like `last_analysis_json`) so frontend just uses `job.boost_bids` as a JS array
+
+### Testing notes
+- Requires extension reload (v4.0) after Chrome extension update
+- Apply page only shows bid table when logged in and the job is open for applications
+- If no bids yet (nobody has boosted), `extractBids()` returns [] and nothing is stored — existing `boost_bids` value is preserved (not overwritten to [])

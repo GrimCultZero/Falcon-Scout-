@@ -54,6 +54,10 @@ def _ensure_job_columns():
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN enrich_attempts INTEGER NOT NULL DEFAULT 0")
         if "last_enrich_attempt_at" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN last_enrich_attempt_at DATETIME")
+        if "boost_bids_json" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN boost_bids_json TEXT")
+        if "boost_bids_captured_at" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN boost_bids_captured_at DATETIME")
 
         kb_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(kb_entries)").fetchall()}
         if "is_core" not in kb_cols:
@@ -558,6 +562,12 @@ def _serialize(j: Job) -> dict:
             if j.last_analysis_json else None
         ),
         "last_analysis_at": j.last_analysis_at.isoformat() if j.last_analysis_at else None,
+        # Boost bid competition captured from the /apply/ page
+        "boost_bids": (
+            _json_mod.loads(j.boost_bids_json)
+            if j.boost_bids_json else None
+        ),
+        "boost_bids_captured_at": j.boost_bids_captured_at.isoformat() if j.boost_bids_captured_at else None,
     }
 
 
@@ -1156,6 +1166,43 @@ def enrich_job(data: dict):
             "hire_rate":  job.hire_rate,
             "avg_rate":   job.avg_rate,
             "enriched_at": job.enriched_at.isoformat() if job.enriched_at else None,
+        }
+
+
+@app.post("/jobs/{job_id_raw}/boost-bids")
+def save_boost_bids(job_id_raw: str, data: dict):
+    """Save boost bid competition data scraped from the Upwork apply page."""
+    job_id_clean = str(job_id_raw).lstrip("~").strip()
+    bids = data.get("bids", [])
+    scraped_at_raw = data.get("scraped_at")
+
+    with Session(engine) as session:
+        job = session.query(Job).filter(
+            or_(
+                Job.upwork_job_id == job_id_clean,
+                Job.upwork_job_id == "~" + job_id_clean,
+            )
+        ).first()
+
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: ~{job_id_clean}")
+
+        job.boost_bids_json = _json_mod.dumps(bids, ensure_ascii=False)
+        try:
+            job.boost_bids_captured_at = (
+                datetime.fromisoformat(scraped_at_raw)
+                if scraped_at_raw else datetime.now(timezone.utc)
+            )
+        except (ValueError, TypeError):
+            job.boost_bids_captured_at = datetime.now(timezone.utc)
+        session.commit()
+
+        top_bid = bids[0]["connects"] if bids else None
+        return {
+            "ok": True,
+            "job_id": job.id,
+            "bids_count": len(bids),
+            "top_bid_connects": top_bid,
         }
 
 

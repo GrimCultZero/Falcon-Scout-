@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Falcon Scout Enricher",
-  "version": "3.9",
+  "version": "4.0",
   "description": "Extracts job data from Upwork job pages and sends to local Falcon Scout dashboard",
   "permissions": [
     "activeTab",
@@ -62,7 +62,19 @@
         "https://www.upwork.com/nx/wm/workroom/*/proposal*",
         "https://www.upwork.com/ab/wm/workroom/*/proposal*"
       ],
+      "exclude_matches": [
+        "https://www.upwork.com/nx/proposals/job/*/apply/*",
+        "https://www.upwork.com/ab/proposals/job/*/apply/*"
+      ],
       "js": ["proposal.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.upwork.com/nx/proposals/job/*/apply/*",
+        "https://www.upwork.com/ab/proposals/job/*/apply/*"
+      ],
+      "js": ["apply.js"],
       "run_at": "document_idle"
     },
     {
