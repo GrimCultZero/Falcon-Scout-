@@ -3681,7 +3681,7 @@ SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually w
 (A) TECHNICAL-AUDIT / DIAGNOSIS / MIGRATION-RECOVERY SEO jobs — the client wants you to FIND and FIX issues on an EXISTING site (signals: "audit", "technical audit", "site review", "crawl", "GSC / Search Console", "indexation", "redirect chains", "canonicals", "Core Web Vitals", "migration", "recover traffic", "diagnose", "why did rankings drop"). For these you MUST:
   - attach the TECHNICAL SEO AUDIT SAMPLE (inventory item 5): "i'm attaching a sample technical SEO audit so you can see the format and depth."
   - offer the concrete diagnostic deliverable but state NO turnaround time for it (e.g. "i can run a full diagnostic crawl covering redirects, indexation, canonicals, schema and Core Web Vitals, then hand you a prioritized findings doc"). CRITICAL: a technical SEO audit is NOT a 1–2 day job — NEVER attach a day-count to it ("audit in 2 working days", "audit within 2 days", "deliver the audit in 1 working day" are all FORBIDDEN). The "1 working day" turnaround is the GOOGLE ADS audit only; the "2 working days" turnaround is the SEO PROMOTION PLAN only (option B). The technical SEO audit's timeline is OMITTED from the cover letter entirely (internal estimate ~2 weeks; that figure never goes in the letter).
-  This is the SEO equivalent of the Google Ads audit-sample rule. Do NOT push the 3-month promotion plan as the headline here — an audit/diagnosis client wants the audit, not a growth plan.
+  EXCEPTION — AUDIT + RETAINER JOBS: if the client mentions BOTH an initial audit AND ongoing/retainer/long-term work ("audit project, followed by a retainer", "initial audit then monthly SEO", "audit and ongoing improvements"), the (A) "do not push the plan" rule does NOT apply. For audit+retainer jobs you MUST include BOTH: (1) the audit sample attachment, AND (2) the 3-month SEO promotion plan CTA. The plan covers the retainer phase.
 
 (B) GROWTH / RANKINGS / ONGOING-SEO jobs — the client wants to grow organic traffic/rankings (not primarily diagnose a broken site). For these you MUST offer the custom 3-month SEO Promotion Plan in 2 working days (deliverables, costs, link building budget, basic site check, competitor overview) and attach the SEO promotion plan sample:
 "i can prepare a custom 3-month SEO promotion plan within 2 working days — covers deliverables, costs, link building budget, a basic site check, and competitor overview. i'm attaching a sample SEO promotion plan so you can see the format."
@@ -4207,7 +4207,18 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
             let wrongSeoPlanTiming = false
             if (jobIsSeo && !jobIsPpc && !jobIsWebdev) {
               const hasSeoPlanMention = /\b(?:seo\s+(?:promotion\s+)?plan|seo\s+roadmap|promotion\s+plan)\b/i.test(text)
-              missingSeoPlanOffer = !hasSeoPlanMention
+              // For a pure audit-only job with no retainer/ongoing component, the audit
+              // sample attachment IS the CTA — suppress the plan check. But if the job
+              // mentions a retainer or ongoing work, the plan is still required even when
+              // the job starts with an audit phase.
+              const jobIsAuditOnly = /\baudit\b/i.test(jobContextLower) &&
+                !/\b(retainer|ongoing|monthly|long.?term|retainer|continue\s+improving|recurring)\b/i.test(jobContextLower)
+              const draftHasAuditSampleAttach = /\battach(?:ing|ed)?\b[^.]{0,60}\bsample\b[^.]{0,80}\baudit\b/i.test(text) ||
+                /\baudit\b[^.]{0,60}\bsample\b[^.]{0,60}\battach/i.test(text)
+              // Suppress plan requirement ONLY for audit-only jobs where the draft already
+              // has the audit-sample attachment as its CTA.
+              const planSuppressedByAuditCTA = jobIsAuditOnly && draftHasAuditSampleAttach
+              missingSeoPlanOffer = !hasSeoPlanMention && !planSuppressedByAuditCTA
               if (hasSeoPlanMention) {
                 // Find the position of the plan mention, then look at the
                 // surrounding ±200-char window for a timing phrase. Fire if
@@ -4565,8 +4576,9 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
             if (missingSeoPlanOffer) {
               specificViolations.push(
                 'MISSING SEO PROMOTION PLAN OFFER: This is an SEO job. The draft must offer a custom 3-month SEO Promotion Plan deliverable in 2 working days, covering: deliverables, costs, link building budget, basic site check, competitor overview. ' +
-                'Add a sentence like: "i can prepare a custom 3-month SEO promotion plan within 2 working days - covers deliverables, costs, link building budget, a basic site check, and competitor overview. i\'m attaching a sample so you can see the format." ' +
-                'Keep the lowercase conversational voice. Place it near the end of the proposal, before the case studies block or the sign-off.'
+                'CRITICAL OVERRIDE — even if the job description mentions an initial audit phase, if it also mentions a retainer, ongoing work, or long-term improvement (e.g. "audit project, followed by a retainer", "ongoing SEO", "monthly improvements"), the (A) audit-only exception does NOT apply. You MUST include the plan CTA in addition to any audit sample mention. ' +
+                'Add a sentence like: "i can prepare a custom 3-month SEO promotion plan within 2 working days — covers deliverables, costs, link building budget, a basic site check, and competitor overview. i\'m attaching a sample SEO promotion plan so you can see the format." ' +
+                'Keep the lowercase conversational voice. Place it near the end of the proposal, before the case studies block or the sign-off. Do NOT remove the audit sample mention if it is already present — keep both.'
               )
             }
             if (wrongSeoPlanTiming) {
