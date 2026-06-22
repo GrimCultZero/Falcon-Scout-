@@ -1374,15 +1374,28 @@ function _stripFabricatedVerticalOpener(text) {
 // ONLY to the SEO PROMOTION PLAN (Rule 402), never to the audit. The generator
 // repeatedly emits "diagnostic crawl + redirect/indexation audit in 2 working
 // days" — 100% pattern-detectable, so strip it in code instead of trusting the
-// LLM enforcer (DESIGN.md §16). The regex is self-gating: it only matches a
-// day-count that DIRECTLY follows an SEO-flavoured "audit", so it can never
-// touch the SEO plan's "plan within 2 working days" or a PPC audit's
-// legitimate "google ads audit in 1 working day" (no SEO noun before "audit").
+// LLM enforcer (DESIGN.md §16).
+//
+// Two patterns handled:
+// (A) SEO-prefixed audit: "technical SEO audit in 2 working days" — strip timing,
+//     keep audit phrase. Self-gating via the SEO prefix (can't touch the PPC
+//     "google ads audit in 1 working day").
+// (B) Bare "audit delivered within N days" — generator uses this when it outputs
+//     a "Timeline:" label ("Timeline: audit delivered within 2 working days of GSC
+//     access."). Strip the whole sentence if it starts with "Timeline:", otherwise
+//     strip just the timing suffix.
 const _SEO_AUDIT_TURNAROUND_RE =
-  /((?:technical\s+seo|seo|diagnostic|indexation|crawl|redirect|canonical|schema|core\s+web\s+vitals|migration)\b[^.]{0,60}\baudit)\s+(?:in|within|delivered\s+in|turned?\s+around\s+in)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b/gi
+  /((?:technical\s+seo|seo|diagnostic|indexation|crawl|redirect|canonical|schema|core\s+web\s+vitals|migration)\b[^.]{0,60}\baudit)\s+(?:in|within|delivered\s+(?:in|within)?|turned?\s+around\s+in)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b/gi
+// Catches "Timeline: audit delivered within N days of ..." — strip the whole sentence
+const _AUDIT_TIMELINE_LABEL_RE =
+  /^[ \t]*Timeline\s*:\s*audit\b[^\n.]*(?:in|within)\s+\d+[^\n.]*days?\b[^\n.]*[.\n]?/gim
 function _stripSeoAuditTurnaround(text) {
   if (!text) return text
-  return text.replace(_SEO_AUDIT_TURNAROUND_RE, '$1')
+  // Strip "Timeline: audit ... N days" sentence first (whole sentence removal)
+  text = text.replace(_AUDIT_TIMELINE_LABEL_RE, '')
+  // Strip SEO-prefixed "... audit in/within N days" (keep audit phrase)
+  text = text.replace(_SEO_AUDIT_TURNAROUND_RE, '$1')
+  return text
 }
 
 // Deterministic strip of Loom references in generated cover letters.
@@ -3939,6 +3952,12 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
               // delivery is NOT matched: "working" sits between the number and the
               // unit, so \d+\s*(?:week|month|day) fails on it.
               /\b(?:turn[\s-]?around|deliver(?:y|ed|able)?|complete[ds]?|takes?|typically|usually|within|ready\s+in|done\s+in|time[\s-]?frame|lead\s+time|timeline\s+(?:is|of))\b[^.\n]{0,50}?\b\d+\s*(?:[-–]\s*\d+\s*)?(?:week|month|day)s?\b/i,
+              // Bare "audit delivered/in within N working days" — generator puts this
+              // under a "Timeline:" label to answer client's timeline question.
+              // "2 working days" for an audit is wrong (it's for the SEO plan only).
+              /\baudit\b[^.\n]{0,40}(?:delivered|in|within)\s+\d+\s*(?:[-–]\s*\d+\s*)?(?:working\s+|business\s+)?days?\b/i,
+              // Explicit "Timeline:" label in the letter body
+              /^[ \t]*Timeline\s*:/im,
             ]
             const coverHasTimeline = COVER_TIMELINE_RE.some(re => re.test(text))
 
