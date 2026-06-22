@@ -2547,11 +2547,10 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         body: JSON.stringify({
           _kind: coreOnly ? 'analysis_rescan' : 'analysis',
           model: 'claude-sonnet-4-5',
-          // 600 was too tight — the verdict JSON (summary + up to 4 reasons +
-          // up to 4 flags) overflowed and got truncated mid-object, leaving no
-          // closing brace so the "No JSON found" extraction failed. 1200 gives
-          // comfortable headroom; the JSON is still small so cost is unaffected.
-          max_tokens: 1200,
+          // 600 was too tight — bumped to 1200 for normal jobs. 1200 still
+          // truncates on very long job descriptions (120+ lines of scope).
+          // 2000 gives enough headroom for the largest jobs seen in practice.
+          max_tokens: 2000,
           system: `You are analyzing Upwork jobs for Artem Yatsuk. Use this profile to calibrate every score.
 
 ARTEM'S UPWORK PROFILE (real, verified data — use this to assess fit):
