@@ -1426,6 +1426,32 @@ function _fixUnnamedAttachment(text) {
   )
 }
 
+// Deterministic fix for PDF case studies misattributed to "profile highlights".
+// Derma Solution and Skin Reboot are PDF attachments — Multilingual Site is the
+// only real "profile highlights" case. The generator sometimes wraps both PDFs
+// under a section header like "Experience (attached in profile highlights):" which
+// is wrong on two counts: (1) wrong attachment label, (2) a block header instead
+// of per-case inline labels. Fix: strip the wrong section header, then add
+// "(attached as PDF)" inline after each PDF case name if not already present.
+function _fixPdfCaseLabelMisattribution(text) {
+  if (!text) return text
+  // Remove section-header form: "Experience (attached in profile highlights):\n"
+  // Targets lines where a generic label ("Experience", "Case studies", etc.) is
+  // paired with "(attached in profile highlights)" — NOT the per-case inline form
+  // "Multilingual Site (attached in profile highlights):", which is correct.
+  text = text.replace(
+    /^[ \t]*(?:experience|results?|work|portfolio|case\s+studies?)\s*\(\s*attached\s+in\s+profile\s+highlights?\s*\)\s*:[ \t]*\n?/gim,
+    ''
+  )
+  // Ensure each PDF case name carries "(attached as PDF)" immediately after it.
+  // Negative lookahead: skip if already labelled (any "(attached..." follows).
+  for (const name of ['Derma Solution', 'Skin Reboot']) {
+    const re = new RegExp(`\\b(${name})\\b(?!\\s*\\(attached)`, 'gi')
+    text = text.replace(re, '$1 (attached as PDF)')
+  }
+  return text
+}
+
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
 function _recordViolations(surface, jobId, checks) {
@@ -1786,7 +1812,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // Run the chat-reworked letter through the same deterministic cleaning
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
-        const newProposal  = proposalMatch ? _humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))) : null
+        const newProposal  = proposalMatch ? _humanizeCasing(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_cleanPasteText(_stripProtocolTags(proposalMatch[1])))))))) : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // Cover-letter rewrite path — only push when content actually changed.
@@ -4408,7 +4434,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip))))).trim())
+              setProposal(_humanizeCasing(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip)))))).trim())
               return
             }
 
@@ -4708,7 +4734,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip))))).trim())
+      setProposal(_humanizeCasing(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip)))))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
