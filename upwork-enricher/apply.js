@@ -11,60 +11,96 @@
     return m ? m[1] : null;
   }
 
-  function extractBids() {
-    const body = document.body ? document.body.innerText : '';
+  function extractBids(bodyText) {
     const bids = [];
-    // Matches lines like: "1st place   101 Connects   4 hours ago"
+    // Primary: "1st place   101 Connects   4 hours ago"
     const rowRe = /(\d+)(?:st|nd|rd|th)\s+place\s+([\d,]+)\s+[Cc]onnects\s+([^\n]+)/g;
     let m;
-    while ((m = rowRe.exec(body)) !== null) {
+    while ((m = rowRe.exec(bodyText)) !== null) {
       bids.push({
         rank:     parseInt(m[1], 10),
         connects: parseInt(m[2].replace(/,/g, ''), 10),
         age:      m[3].trim(),
       });
     }
+    if (bids.length) return bids;
+
+    // Fallback: just "101 Connects" near ordinal rank labels (different table layout)
+    const altRe = /(\d+)(?:st|nd|rd|th)[^\d]{0,30}([\d,]+)\s+[Cc]onnects/g;
+    while ((m = altRe.exec(bodyText)) !== null) {
+      bids.push({
+        rank:     parseInt(m[1], 10),
+        connects: parseInt(m[2].replace(/,/g, ''), 10),
+        age:      '',
+      });
+    }
     return bids;
   }
 
-  async function waitForBidTable(maxMs) {
+  // Returns true when the bid competition section is present (even if empty),
+  // or when actual bid rows appear.
+  function detectBoostSection(text) {
+    return /boost\s+your\s+proposal/i.test(text) ||
+           (/\d+\s+[Cc]onnects/.test(text) && /(?:1st|2nd|3rd|4th)\s+place/i.test(text));
+  }
+
+  async function waitForContent(maxMs) {
     const deadline = Date.now() + maxMs;
     while (Date.now() < deadline) {
       const t = document.body ? document.body.innerText : '';
-      if (/\d+\s+[Cc]onnects/.test(t) && /(?:1st|2nd|3rd|4th)\s+place/i.test(t)) return true;
+      // Apply page has loaded enough content to be useful
+      if (t.length > 300 && (
+        /boost\s+your\s+proposal/i.test(t) ||
+        /\d+\s+[Cc]onnects/.test(t) ||
+        /submit\s+a\s+proposal/i.test(t) ||
+        /cover\s+letter/i.test(t)
+      )) return t;
       await new Promise(r => setTimeout(r, 500));
     }
-    return false;
+    return document.body ? document.body.innerText : '';
   }
 
   async function run() {
-    const jobId = jobIdFromUrl(window.location.href);
+    const startUrl = window.location.href;
+    const jobId = jobIdFromUrl(startUrl);
     if (!jobId) return;
 
-    const ready = await waitForBidTable(12000);
-    if (!ready) {
-      console.log('[Falcon Apply] Bid table did not appear within 12s');
-      return;
-    }
+    // Wait for page content
+    const bodyText = await waitForContent(12000);
+    const finalUrl = window.location.href;
 
-    const bids = extractBids();
-    if (!bids.length) {
-      console.log('[Falcon Apply] No bids found on apply page');
-      return;
-    }
+    // Detect redirects (SPA navigated away from apply page)
+    const onApplyPage = /\/apply\b/i.test(finalUrl) || /\/apply\b/i.test(startUrl);
 
-    console.log('[Falcon Apply] Captured', bids.length, 'bids for ~' + jobId, bids);
+    console.log('[Falcon Apply] ~' + jobId, '| url:', finalUrl.slice(0, 80),
+      '| onApplyPage:', onApplyPage, '| bodyLen:', bodyText.length,
+      '| boostSection:', detectBoostSection(bodyText));
 
-    chrome.runtime.sendMessage(
-      { type: 'BOOST_BIDS', job_id: jobId, bids, scraped_at: new Date().toISOString() },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('[Falcon Apply] BOOST_BIDS error:', chrome.runtime.lastError.message);
-          return;
-        }
-        console.log('[Falcon Apply] BOOST_BIDS saved:', response);
+    // Send diagnostic back to background regardless of bid result
+    const bids = extractBids(bodyText);
+    const hasBoostSection = detectBoostSection(bodyText);
+
+    chrome.runtime.sendMessage({
+      type: 'BOOST_BIDS',
+      job_id: jobId,
+      bids,
+      scraped_at: new Date().toISOString(),
+      _diag: {
+        finalUrl: finalUrl.slice(0, 120),
+        onApplyPage,
+        hasBoostSection,
+        bodyLen: bodyText.length,
+        // First 300 chars of body for debugging the table format
+        bodySnippet: bodyText.slice(0, 300).replace(/\s+/g, ' '),
+      },
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('[Falcon Apply] send error:', chrome.runtime.lastError.message);
+        return;
       }
-    );
+      console.log('[Falcon Apply] result:', response,
+        '| bids:', bids.length, '| boost section found:', hasBoostSection);
+    });
   }
 
   run();

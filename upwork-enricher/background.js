@@ -243,10 +243,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Save boost bid competition data (from apply.js) ──────────────────────
   if (message.type === 'BOOST_BIDS' && message.job_id) {
     const jobId = String(message.job_id).replace(/^~/, '');
+    const diag = message._diag || {};
+    console.log('[Cockpit BG] BOOST_BIDS ~' + jobId,
+      '| bids:', (message.bids || []).length,
+      '| boostSection:', diag.hasBoostSection,
+      '| onApplyPage:', diag.onApplyPage,
+      '| bodyLen:', diag.bodyLen,
+      '| finalUrl:', diag.finalUrl || '?',
+      '| snippet:', (diag.bodySnippet || '').slice(0, 80));
+    const bids = message.bids || [];
+    // Only POST to backend if we actually have bids
+    if (!bids.length) {
+      sendResponse({ ok: true, saved: false, reason: 'no_bids' });
+      if (sender.tab && _bgTabs.has(sender.tab.id)) {
+        _bgTabs.delete(sender.tab.id);
+        chrome.tabs.remove(sender.tab.id);
+      }
+      return true;
+    }
     fetch(`${API_BASE}/jobs/${jobId}/boost-bids`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bids: message.bids || [], scraped_at: message.scraped_at }),
+      body: JSON.stringify({ bids, scraped_at: message.scraped_at }),
     })
       .then(r => r.json())
       .then(result => {
