@@ -843,7 +843,7 @@ export default function App() {
                     onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,180,200,0.13)'}
                   >↑ top</button>
                 ) : <span />}
-                <FeedStatus jobs={jobs} />
+                <FeedStatus />
               </div>
             </div>
             <div ref={feedListRef} style={{ flex:1, overflowY:'auto' }}>
@@ -916,26 +916,26 @@ export default function App() {
 
 // ── Feed-activity indicator ──────────────────────────────────────────────────
 // Shows whether the capture bot (@OffersHunterBot via the Telethon listener) is
-// actively pushing new jobs — distinct from the header's "live" dot, which only
-// reflects whether the FRONTEND can reach the backend. We infer activity from
-// the freshest job's captured_at: a recent capture means the pipeline is flowing.
-// Self-ticks every 30s so the relative time stays current without new fetches.
-function FeedStatus({ jobs }) {
-  const [, setTick] = useState(0)
+// actively pushing new jobs. Fetches /jobs/latest-captured independently so the
+// status is NEVER affected by the search query or any active filters.
+function FeedStatus() {
+  const [freshestMs, setFreshestMs] = useState(0)
+
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 30000)
+    const fetch_ = () =>
+      fetch('/jobs/latest-captured')
+        .then(r => r.json())
+        .then(d => {
+          if (!d.captured_at) return
+          const norm = d.captured_at.endsWith('Z') || d.captured_at.includes('+')
+            ? d.captured_at : d.captured_at + 'Z'
+          setFreshestMs(new Date(norm).getTime())
+        })
+        .catch(() => {})
+    fetch_()
+    const id = setInterval(fetch_, 60000)
     return () => clearInterval(id)
   }, [])
-
-  // Freshest captured_at across the loaded jobs (ms since epoch).
-  let freshestMs = 0
-  for (const j of (jobs || [])) {
-    const ts = j.captured_at
-    if (!ts) continue
-    const norm = (ts.endsWith('Z') || ts.includes('+')) ? ts : ts + 'Z'
-    const ms = new Date(norm).getTime()
-    if (ms > freshestMs) freshestMs = ms
-  }
 
   let color, glow, label, pulse
   if (!freshestMs) {

@@ -594,6 +594,22 @@ def _serialize(j: Job) -> dict:
     }
 
 
+@app.get("/jobs/latest-captured")
+def latest_captured():
+    """Return the captured_at of the most recently inserted job, ignoring all filters.
+    Used by the FeedStatus indicator so search queries don't affect the bot-health signal."""
+    with Session(engine) as session:
+        job = (
+            session.query(Job.captured_at)
+            .filter(Job.hidden_at.is_(None))
+            .order_by(Job.captured_at.desc())
+            .first()
+        )
+        if not job or not job.captured_at:
+            return {"captured_at": None}
+        return {"captured_at": job.captured_at.isoformat()}
+
+
 @app.get("/jobs")
 def list_jobs(
     q: Optional[str] = Query(None),
