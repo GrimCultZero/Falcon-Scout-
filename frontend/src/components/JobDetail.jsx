@@ -1316,6 +1316,20 @@ function _stripFabricatedOpener(text) {
   return paras.join('\n\n').trim()
 }
 
+// Strip "Relevant case studies:" block header — not an approved format (PATTERN A/B/C
+// all use a lead-in sentence, never a standalone heading). This label always appears
+// when the generator writes a proof paragraph mentioning the cases AND then repeats
+// them in a labeled block below — the classic duplication pattern. Removing the header
+// leaves the block entries as plain paragraphs; the prompt rule prevents the duplication
+// in future runs, and this is the safety net.
+function _stripDuplicateCaseBlockLabel(text) {
+  if (!text) return text
+  if (!/relevant case studies:/i.test(text)) return text
+  console.log('[Falcon] Stripped "Relevant case studies:" block header — case study duplication pattern detected.')
+  _recordViolations('generator', null, ['caseDuplication'])
+  return text.replace(/\n*Relevant case studies:\s*\n*/gi, '\n\n')
+}
+
 // Strips fabricated vertical-specific web dev experience in the opening sentence.
 // Pattern: "12 years in digital, building and ranking car rental sites on WordPress."
 // This claims a vertical build track record that doesn't exist in the approved case
@@ -1738,7 +1752,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // Run the chat-reworked letter through the same deterministic cleaning
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
-        const newProposal  = proposalMatch ? _humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripLeadingNarration(_cleanPasteText(_stripProtocolTags(proposalMatch[1])))))) : null
+        const newProposal  = proposalMatch ? _humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))) : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // Cover-letter rewrite path — only push when content actually changed.
@@ -3718,6 +3732,7 @@ RULES (apply to all three patterns):
 - Each entry is 1-2 sentences max
 - NEVER attribute Derma Solution or Skin Reboot to "profile highlights" — those are PDFs
 - NEVER repeat "profile highlights" after individual entries — it's in the lead-in only
+- NO DUPLICATION — each case study appears EXACTLY ONCE in the letter. If you have already mentioned a case study with its metric in the hook or proof paragraph, do NOT include it again in the case studies block. The block is only for cases that have not appeared earlier in the letter. If all your cases are already woven into the narrative, skip the block entirely. Reading the same case study twice signals copy-paste assembly, not craft — one mention, one location, full stop.
 
 WRONG (do not produce this):
 quick background: i've scaled brands. Nectar Flowers grew revenue 350% and Skin Reboot hit 17.51 ROAS, full case study attached in profile highlights.
@@ -3735,6 +3750,7 @@ Before you emit the cover letter, run this checklist *internally* (do NOT includ
    b. EVERY case study is its own paragraph with a blank line above it — count the case studies, count the blank-line separators, they must match
    c. Every client name is in Title Case (e.g. "Nectar Flowers", "FridgeFix") not lowercase
    d. "attached in profile highlights" does NOT appear after individual entries — only once in the lead-in
+6. Case study duplication check: scan your draft for each case study name (Derma Solution, Skin Reboot, Nectar Flowers, FridgeFix, House Painting, Multilingual Site, GKit, etc.). If any name appears more than once, that is a duplication violation. Remove the SECOND occurrence — either delete it from the formal block (if the case was already used in the narrative), or collapse the narrative mention to a single word of the client name only. Each case study must appear exactly once.
 
 Then proceed to FINAL OUTPUT FORMAT.
 ` : ''}
@@ -4342,7 +4358,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip)))).trim())
+              setProposal(_humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_cleanPasteText(text)), jobIsRegulatedForStrip))))).trim())
               return
             }
 
@@ -4641,7 +4657,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip)))).trim())
+      setProposal(_humanizeCasing(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_cleanPasteText(text), jobIsRegulatedForStrip))))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
