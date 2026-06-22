@@ -58,6 +58,14 @@ def _ensure_job_columns():
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN boost_bids_json TEXT")
         if "boost_bids_captured_at" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN boost_bids_captured_at DATETIME")
+        if "ahrefs_domain" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN ahrefs_domain TEXT")
+        if "ahrefs_summary" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN ahrefs_summary TEXT")
+        if "ahrefs_data_json" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN ahrefs_data_json TEXT")
+        if "ahrefs_captured_at" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN ahrefs_captured_at DATETIME")
 
         kb_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(kb_entries)").fetchall()}
         if "is_core" not in kb_cols:
@@ -568,6 +576,11 @@ def _serialize(j: Job) -> dict:
             if j.boost_bids_json else None
         ),
         "boost_bids_captured_at": j.boost_bids_captured_at.isoformat() if j.boost_bids_captured_at else None,
+        # Ahrefs Site Explorer snapshot
+        "ahrefs_domain":      j.ahrefs_domain,
+        "ahrefs_summary":     j.ahrefs_summary,
+        "ahrefs_data":        (_json_mod.loads(j.ahrefs_data_json) if j.ahrefs_data_json else None),
+        "ahrefs_captured_at": j.ahrefs_captured_at.isoformat() if j.ahrefs_captured_at else None,
     }
 
 
@@ -1203,6 +1216,47 @@ def save_boost_bids(job_id_raw: str, data: dict):
             "job_id": job.id,
             "bids_count": len(bids),
             "top_bid_connects": top_bid,
+        }
+
+
+@app.post("/jobs/{job_id_raw}/ahrefs")
+def save_ahrefs_data(job_id_raw: str, data: dict):
+    """Save Ahrefs Site Explorer snapshot scraped via the extension."""
+    job_id_clean = str(job_id_raw).lstrip("~").strip()
+    domain      = data.get("domain", "")
+    summary     = data.get("summary", "")
+    raw         = data.get("raw") or {}
+    scraped_at_raw = data.get("scraped_at")
+
+    with Session(engine) as session:
+        job = session.query(Job).filter(
+            or_(
+                Job.upwork_job_id == job_id_clean,
+                Job.upwork_job_id == "~" + job_id_clean,
+                Job.id == (int(job_id_clean) if job_id_clean.isdigit() else -1),
+            )
+        ).first()
+
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id_raw}")
+
+        job.ahrefs_domain    = domain
+        job.ahrefs_summary   = summary
+        job.ahrefs_data_json = _json_mod.dumps(raw, ensure_ascii=False)
+        try:
+            job.ahrefs_captured_at = (
+                datetime.fromisoformat(scraped_at_raw)
+                if scraped_at_raw else datetime.now(timezone.utc)
+            )
+        except (ValueError, TypeError):
+            job.ahrefs_captured_at = datetime.now(timezone.utc)
+        session.commit()
+
+        return {
+            "ok":      True,
+            "job_id":  job.id,
+            "domain":  domain,
+            "summary": summary,
         }
 
 

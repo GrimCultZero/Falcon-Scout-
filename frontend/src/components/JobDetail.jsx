@@ -589,6 +589,11 @@ export default function JobDetail({ job }) {
   const [enrichDebug, setEnrichDebug] = useState(null)  // last enrichment result or error
   const [enrichDebugOpen, setEnrichDebugOpen] = useState(false)
   const [bridgeReady, setBridgeReady] = useState(false)
+  // Ahrefs enrichment
+  const [ahrefsDomain, setAhrefsDomain] = useState(job.ahrefs_domain || '')
+  const [ahrefsLoading, setAhrefsLoading] = useState(false)
+  const [ahrefsResult, setAhrefsResult] = useState(job.ahrefs_summary || null)
+  const ahrefsTimerRef = useRef(null)
   const leftColRef = useRef(null)
   const wrapperRef = useRef(null)
 
@@ -656,6 +661,53 @@ export default function JobDetail({ job }) {
       window.removeEventListener('cockpit:enrich:error', onError)
     }
   }, [])
+
+  // Sync Ahrefs result when a different job is selected
+  useEffect(() => {
+    setAhrefsResult(job.ahrefs_summary || null)
+    setAhrefsDomain(d => d || job.ahrefs_domain || '')
+  }, [job.id, job.ahrefs_summary, job.ahrefs_domain])
+
+  // Listen for AHREFS_COMPLETE notification from bridge
+  useEffect(() => {
+    const onComplete = (e) => {
+      const { job_id, summary } = e.detail || {}
+      if (job_id !== job.upwork_job_id && job_id !== String(job.id)) return
+      if (ahrefsTimerRef.current) { clearTimeout(ahrefsTimerRef.current); ahrefsTimerRef.current = null }
+      setAhrefsLoading(false)
+      setAhrefsResult(summary || null)
+    }
+    const onError = (e) => {
+      if (ahrefsTimerRef.current) { clearTimeout(ahrefsTimerRef.current); ahrefsTimerRef.current = null }
+      setAhrefsLoading(false)
+    }
+    window.addEventListener('cockpit:ahrefs:complete', onComplete)
+    window.addEventListener('cockpit:ahrefs:error', onError)
+    return () => {
+      window.removeEventListener('cockpit:ahrefs:complete', onComplete)
+      window.removeEventListener('cockpit:ahrefs:error', onError)
+    }
+  }, [job.id, job.upwork_job_id])
+
+  const handleAhrefsEnrich = () => {
+    const raw = ahrefsDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+    if (!raw) return
+    if (!bridgeReady) {
+      alert('Extension not connected — reload this tab (F5)')
+      return
+    }
+    setAhrefsLoading(true)
+    setAhrefsResult(null)
+    window.dispatchEvent(new CustomEvent('cockpit:enrich-ahrefs', {
+      detail: { job_id: job.upwork_job_id || String(job.id), domain: raw }
+    }))
+    // 60-second timeout failsafe
+    if (ahrefsTimerRef.current) clearTimeout(ahrefsTimerRef.current)
+    ahrefsTimerRef.current = setTimeout(() => {
+      setAhrefsLoading(false)
+      setAhrefsResult('⚠ Ahrefs scrape timed out — try again or check the extension console')
+    }, 60000)
+  }
 
   // Clear the status message after 3 s
   useEffect(() => {
@@ -3564,6 +3616,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
         job.preferred_qualifications ? `PREFERRED QUALIFICATIONS the client set (Upwork shows a banner when these aren't met — write the cover letter so it pre-empts the visible gap with timezone overlap, async cadence, or other reassurance, but do NOT lead with apology):\n${job.preferred_qualifications}` : '',
         storedAnalysis ? `Analyser verdict: ${storedAnalysis.verdict} (${storedAnalysis.score}/10)\nAnalyser summary: ${storedAnalysis.summary}` : '',
         storedAnalysis?.flags?.length ? `Analyser flags:\n${storedAnalysis.flags.map(f => `- ${f}`).join('\n')}` : '',
+        ahrefsResult ? `PROSPECT SITE SEO PROFILE (Ahrefs — use this to personalise the cover letter):\n${ahrefsResult}\nIf near-zero organic presence: position the engagement as building from scratch, mention you've grown traffic from flat ground before. If solid base: frame as scaling existing momentum.` : '',
       ].filter(Boolean).join('\n')
 
       // Regulated/YMYL flag for the deterministic post-processing strip of
@@ -4956,6 +5009,46 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
             <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>
               — drop more to add
             </span>
+          </div>
+        )}
+      </div>
+
+      {/* Ahrefs SEO health enrichment — optional, available before/after generate */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
+          Prospect site (Ahrefs)
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            type="text"
+            value={ahrefsDomain}
+            onChange={e => setAhrefsDomain(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleAhrefsEnrich() }}
+            placeholder="e.g. soilsynergy.eu"
+            style={{
+              flex: 1, background: 'var(--bg)', border: '1px solid var(--border)',
+              borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--text)',
+              fontFamily: 'var(--font-mono)', outline: 'none',
+            }}
+          />
+          <button
+            onClick={handleAhrefsEnrich}
+            disabled={!ahrefsDomain.trim() || ahrefsLoading}
+            style={{
+              padding: '5px 11px', fontSize: 11, fontWeight: 700, borderRadius: 5,
+              background: ahrefsLoading ? 'rgba(14,165,233,0.12)' : 'rgba(14,165,233,0.15)',
+              color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.35)',
+              cursor: ahrefsDomain.trim() && !ahrefsLoading ? 'pointer' : 'not-allowed',
+              opacity: !ahrefsDomain.trim() || ahrefsLoading ? 0.55 : 1,
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            {ahrefsLoading ? '⏳ Scanning…' : '⚡ Enrich with Ahrefs'}
+          </button>
+        </div>
+        {ahrefsResult && (
+          <div style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.5, fontFamily: 'var(--font-mono)' }}>
+            {ahrefsResult}
           </div>
         )}
       </div>

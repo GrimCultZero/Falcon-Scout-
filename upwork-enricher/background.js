@@ -3,6 +3,8 @@ const API_BASE = 'http://127.0.0.1:8000';
 
 // Track tabs opened as silent background enrichment tabs
 const _bgTabs = new Set();
+// Track pending Ahrefs enrichments: domain → { job_id }
+const _ahrefsPending = new Map();
 // Track tabs opened by the "Sync from Upwork" flow — proposal.js asks us
 // whether it should auto-trigger the list scrape, and we answer yes for
 // these tab ids (then remove them so subsequent loads don't re-fire).
@@ -238,6 +240,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       });
     return true; // keep channel open for async response
+  }
+
+  // ── Open Ahrefs Site Explorer for a domain (from dashboard bridge) ───────
+  if (message.type === 'ENRICH_AHREFS' && message.job_id && message.domain) {
+    const domain = String(message.domain).replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    const url = `https://app.ahrefs.com/site-explorer/overview/v2/subdomains/live?target=${encodeURIComponent(domain)}`;
+    _ahrefsPending.set(domain, { job_id: message.job_id });
+    chrome.tabs.create({ url, active: false }, (tab) => {
+      if (chrome.runtime.lastError || !tab) {
+        sendResponse({ ok: false, error: 'tab create failed' });
+        return;
+      }
+      _bgTabs.add(tab.id);
+      _scheduleTabCleanup(tab.id, 3); // 3-minute failsafe — Ahrefs can be slow
+      console.log('[Cockpit BG] ENRICH_AHREFS opened tab', tab.id, '→', url);
+      sendResponse({ ok: true, tabId: tab.id });
+    });
+    return true;
+  }
+
+  // ── Receive scraped Ahrefs data (from ahrefs.js content script) ──────────
+  if (message.type === 'AHREFS_DATA' && message.domain) {
+    const { domain, summary, raw, scraped_at } = message;
+    const pending = _ahrefsPending.get(domain);
+    console.log('[Cockpit BG] AHREFS_DATA', domain,
+      '| DR:', raw?.dr, '| kws:', raw?.organic_keywords,
+      '| traffic:', raw?.organic_traffic, '| pending job:', pending?.job_id || 'none');
+
+    // Always close the Ahrefs tab
+    if (sender.tab && _bgTabs.has(sender.tab.id)) {
+      _bgTabs.delete(sender.tab.id);
+      chrome.tabs.remove(sender.tab.id).catch(() => {});
+    }
+
+    if (!pending) {
+      sendResponse({ ok: false, reason: 'no_pending' });
+      return true;
+    }
+    _ahrefsPending.delete(domain);
+
+    fetch(`${API_BASE}/jobs/${pending.job_id}/ahrefs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, summary, raw, scraped_at }),
+    })
+      .then(r => r.json())
+      .then(result => {
+        sendResponse({ ok: true, result });
+        notifyCockpit('AHREFS_COMPLETE', {
+          job_id:  pending.job_id,
+          domain,
+          summary,
+          raw,
+        });
+        console.log('[Cockpit BG] Ahrefs data saved for', domain, ':', summary);
+      })
+      .catch(err => {
+        sendResponse({ ok: false, error: err.message });
+        console.error('[Cockpit BG] Ahrefs save error:', err);
+      });
+    return true;
   }
 
   // ── Save boost bid competition data (from apply.js) ──────────────────────

@@ -47,6 +47,21 @@
     });
   });
 
+  // Page → Extension: open Ahrefs Site Explorer for a client domain and scrape
+  // SEO health data (DR, organic traffic, backlinks) for cover letter context.
+  window.addEventListener('cockpit:enrich-ahrefs', (e) => {
+    const { job_id, domain } = e.detail || {};
+    if (!job_id || !domain) return;
+    chrome.runtime.sendMessage({ type: 'ENRICH_AHREFS', job_id, domain }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('[Cockpit Bridge] ENRICH_AHREFS error:', chrome.runtime.lastError.message);
+        window.dispatchEvent(new CustomEvent('cockpit:ahrefs:error', {
+          detail: { error: chrome.runtime.lastError.message }
+        }));
+      }
+    });
+  });
+
   // Page → Extension: trigger the proposals-list status sync.
   //
   // Content scripts in MV3 sometimes get `chrome.storage` as undefined even
@@ -119,6 +134,16 @@
     }
     // Extension → Page: proposal-list status sync just completed → refresh
     // the Outcomes tab so newly-viewed proposals show up immediately.
+    if (message.type === 'AHREFS_COMPLETE') {
+      window.dispatchEvent(new CustomEvent('cockpit:ahrefs:complete', {
+        detail: {
+          job_id:  message.job_id,
+          domain:  message.domain,
+          summary: message.summary,
+          raw:     message.raw,
+        }
+      }));
+    }
     if (message.type === 'PROPOSAL_STATUS_SYNCED') {
       window.dispatchEvent(new CustomEvent('cockpit:status:synced', {
         detail: {

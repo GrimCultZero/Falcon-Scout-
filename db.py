@@ -110,6 +110,15 @@ class Job(Base):
     boost_bids_json        = Column(Text, nullable=True)
     boost_bids_captured_at = Column(DateTime, nullable=True)
 
+    # ── Ahrefs Site Explorer snapshot ────────────────────────────────────
+    # Scraped on demand via "Enrich with Ahrefs" button. Captures DR, organic
+    # keywords, traffic, backlinks, ref. domains for the client's website so the
+    # cover letter generator can personalise based on actual SEO health.
+    ahrefs_domain      = Column(Text, nullable=True)
+    ahrefs_summary     = Column(Text, nullable=True)
+    ahrefs_data_json   = Column(Text, nullable=True)
+    ahrefs_captured_at = Column(DateTime, nullable=True)
+
     # ── Analysis cache ────────────────────────────────────────────────────
     # Server-side cache of the most recent analyser run for this job.
     # Updated by POST /jobs/{id}/analysis (fire-and-forget from the frontend
