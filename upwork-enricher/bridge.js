@@ -47,6 +47,20 @@
     });
   });
 
+  // Page → Extension: scrape a client website for cover-letter personalisation.
+  window.addEventListener('cockpit:inspect-website', (e) => {
+    const { job_id, url } = e.detail || {};
+    if (!job_id || !url) return;
+    chrome.runtime.sendMessage({ type: 'INSPECT_WEBSITE', job_id, url }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('[Cockpit Bridge] INSPECT_WEBSITE error:', chrome.runtime.lastError.message);
+        window.dispatchEvent(new CustomEvent('cockpit:website-inspect:error', {
+          detail: { error: chrome.runtime.lastError.message }
+        }));
+      }
+    });
+  });
+
   // Page → Extension: open Ahrefs Site Explorer for a client domain and scrape
   // SEO health data (DR, organic traffic, backlinks) for cover letter context.
   window.addEventListener('cockpit:enrich-ahrefs', (e) => {
@@ -134,6 +148,15 @@
     }
     // Extension → Page: proposal-list status sync just completed → refresh
     // the Outcomes tab so newly-viewed proposals show up immediately.
+    if (message.type === 'WEBSITE_INSPECT_COMPLETE') {
+      window.dispatchEvent(new CustomEvent('cockpit:website-inspect:complete', {
+        detail: {
+          job_id:  message.job_id,
+          url:     message.url,
+          summary: message.summary,
+        }
+      }));
+    }
     if (message.type === 'AHREFS_COMPLETE') {
       window.dispatchEvent(new CustomEvent('cockpit:ahrefs:complete', {
         detail: {

@@ -58,6 +58,12 @@ def _ensure_job_columns():
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN boost_bids_json TEXT")
         if "boost_bids_captured_at" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN boost_bids_captured_at DATETIME")
+        if "website_url" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN website_url TEXT")
+        if "website_summary" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN website_summary TEXT")
+        if "website_inspected_at" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN website_inspected_at DATETIME")
         if "ahrefs_domain" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN ahrefs_domain TEXT")
         if "ahrefs_summary" not in existing:
@@ -576,6 +582,10 @@ def _serialize(j: Job) -> dict:
             if j.boost_bids_json else None
         ),
         "boost_bids_captured_at": j.boost_bids_captured_at.isoformat() if j.boost_bids_captured_at else None,
+        # Client website inspection
+        "website_url":          j.website_url,
+        "website_summary":      j.website_summary,
+        "website_inspected_at": j.website_inspected_at.isoformat() if j.website_inspected_at else None,
         # Ahrefs Site Explorer snapshot
         "ahrefs_domain":      j.ahrefs_domain,
         "ahrefs_summary":     j.ahrefs_summary,
@@ -1217,6 +1227,38 @@ def save_boost_bids(job_id_raw: str, data: dict):
             "bids_count": len(bids),
             "top_bid_connects": top_bid,
         }
+
+
+@app.post("/jobs/{job_id_raw}/website-inspect")
+def save_website_inspect(job_id_raw: str, data: dict):
+    """Save client website scrape (title, headings, body excerpt) from the extension."""
+    job_id_clean = str(job_id_raw).lstrip("~").strip()
+    url         = data.get("url", "")
+    summary     = data.get("summary", "")
+    scraped_at_raw = data.get("scraped_at")
+
+    with Session(engine) as session:
+        job = session.query(Job).filter(
+            or_(
+                Job.upwork_job_id == job_id_clean,
+                Job.upwork_job_id == "~" + job_id_clean,
+                Job.id == (int(job_id_clean) if job_id_clean.isdigit() else -1),
+            )
+        ).first()
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id_raw}")
+
+        job.website_url     = url
+        job.website_summary = summary
+        try:
+            job.website_inspected_at = (
+                datetime.fromisoformat(scraped_at_raw)
+                if scraped_at_raw else datetime.now(timezone.utc)
+            )
+        except (ValueError, TypeError):
+            job.website_inspected_at = datetime.now(timezone.utc)
+        session.commit()
+        return {"ok": True, "job_id": job.id, "url": url}
 
 
 @app.post("/jobs/{job_id_raw}/ahrefs")

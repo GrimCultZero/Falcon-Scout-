@@ -5,6 +5,8 @@ const API_BASE = 'http://127.0.0.1:8000';
 const _bgTabs = new Set();
 // Track pending Ahrefs enrichments: domain → { job_id }
 const _ahrefsPending = new Map();
+// Track pending website inspections: tabId → { job_id, url }
+const _inspectPending = new Map();
 // Track tabs opened by the "Sync from Upwork" flow — proposal.js asks us
 // whether it should auto-trigger the list scrape, and we answer yes for
 // these tab ids (then remove them so subsequent loads don't re-fire).
@@ -240,6 +242,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       });
     return true; // keep channel open for async response
+  }
+
+  // ── Open a client website for inspection (scrape title/headings/body) ────
+  if (message.type === 'INSPECT_WEBSITE' && message.job_id && message.url) {
+    const url = message.url;
+    const job_id = message.job_id;
+    chrome.tabs.create({ url, active: false }, (tab) => {
+      if (chrome.runtime.lastError || !tab) {
+        sendResponse({ ok: false, error: 'tab create failed' });
+        return;
+      }
+      _inspectPending.set(tab.id, { job_id, url });
+      _bgTabs.add(tab.id);
+      _scheduleTabCleanup(tab.id, 2);
+      console.log('[Cockpit BG] INSPECT_WEBSITE tab', tab.id, '→', url);
+      sendResponse({ ok: true, tabId: tab.id });
+    });
+    return true;
   }
 
   // ── Open Ahrefs Site Explorer for a domain (from dashboard bridge) ───────
@@ -863,3 +883,60 @@ function notifyCockpit(type, detail) {
     }
   });
 }
+
+// ── Website inspection: fire chrome.scripting.executeScript when the tab
+// finishes loading. Uses _inspectPending keyed by tabId.
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status !== 'complete') return;
+  if (!_inspectPending.has(tabId)) return;
+  const { job_id, url } = _inspectPending.get(tabId);
+  _inspectPending.delete(tabId);
+
+  chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      try {
+        const title = document.title || '';
+        const meta  = document.querySelector('meta[name="description"]')?.content
+                   || document.querySelector('meta[property="og:description"]')?.content || '';
+        const h1s = [...document.querySelectorAll('h1')].map(h => h.innerText.trim()).filter(Boolean).slice(0, 4);
+        const h2s = [...document.querySelectorAll('h2')].map(h => h.innerText.trim()).filter(Boolean).slice(0, 6);
+        // Strip nav/footer noise by preferring <main> or <article> content
+        const mainEl = document.querySelector('main') || document.querySelector('article') || document.body;
+        const body = (mainEl?.innerText || '').replace(/\s{3,}/g, '\n').trim().slice(0, 3000);
+        return { title, meta, h1s, h2s, body };
+      } catch (e) {
+        return { title: document.title, meta: '', h1s: [], h2s: [], body: document.body?.innerText?.slice(0, 2000) || '' };
+      }
+    },
+  }, (results) => {
+    if (chrome.runtime.lastError || !results?.[0]?.result) {
+      console.warn('[Cockpit BG] INSPECT_WEBSITE script error:', chrome.runtime.lastError?.message);
+      if (_bgTabs.has(tabId)) { _bgTabs.delete(tabId); chrome.tabs.remove(tabId).catch(() => {}); }
+      return;
+    }
+    const d = results[0].result;
+    // Build a compact summary: title, meta, headings, then body excerpt
+    const summary = [
+      d.title ? `Title: ${d.title}` : '',
+      d.meta  ? `Description: ${d.meta}` : '',
+      d.h1s.length ? `H1: ${d.h1s.join(' | ')}` : '',
+      d.h2s.length ? `H2: ${d.h2s.join(' | ')}` : '',
+      d.body  ? `Content excerpt:\n${d.body}` : '',
+    ].filter(Boolean).join('\n');
+
+    console.log('[Cockpit BG] INSPECT_WEBSITE scraped', url, '| len:', summary.length);
+
+    fetch(`${API_BASE}/jobs/${job_id}/website-inspect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, summary, scraped_at: new Date().toISOString() }),
+    })
+      .then(r => r.json())
+      .then(() => notifyCockpit('WEBSITE_INSPECT_COMPLETE', { job_id, url, summary }))
+      .catch(err => console.error('[Cockpit BG] website-inspect save error:', err))
+      .finally(() => {
+        if (_bgTabs.has(tabId)) { _bgTabs.delete(tabId); chrome.tabs.remove(tabId).catch(() => {}); }
+      });
+  });
+});

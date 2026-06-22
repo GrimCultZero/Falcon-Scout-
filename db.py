@@ -110,6 +110,13 @@ class Job(Base):
     boost_bids_json        = Column(Text, nullable=True)
     boost_bids_captured_at = Column(DateTime, nullable=True)
 
+    # ── Client website inspection (scraped via extension) ────────────────
+    # Title, headings, and body excerpt from the client's website, scraped
+    # on demand via the "Inspect Website" button in the proposal panel.
+    website_url         = Column(Text, nullable=True)
+    website_summary     = Column(Text, nullable=True)
+    website_inspected_at = Column(DateTime, nullable=True)
+
     # ── Ahrefs Site Explorer snapshot ────────────────────────────────────
     # Scraped on demand via "Enrich with Ahrefs" button. Captures DR, organic
     # keywords, traffic, backlinks, ref. domains for the client's website so the

@@ -81,6 +81,18 @@ function rulesForAnalyser(allRules) {
   return allRules.filter(r => parseRuleScopes(r).includes('analyser'))
 }
 
+// Extract the first non-Upwork, non-social URL from a job description.
+// Returns the cleaned URL string or null.
+const _URL_SKIP_RE = /\b(upwork\.com|instagram|facebook|linkedin|twitter|youtube|google\.com|google\.co|mailto:|bit\.ly|loom\.com|drive\.google|docs\.google|zoom\.us|imgur|dropbox|t\.co|ow\.ly)\b/i
+function extractWebsiteUrl(text) {
+  if (!text) return null
+  const re = /https?:\/\/[^\s<>"'()\[\]{},;]+/gi
+  const matches = text.match(re) || []
+  return matches
+    .map(u => u.replace(/[.,;:!?)]+$/, ''))
+    .find(u => !_URL_SKIP_RE.test(u)) || null
+}
+
 function fmtDate(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleString(undefined, {
@@ -771,6 +783,21 @@ export default function JobDetail({ job }) {
                 🕐 {timeAgo(job.captured_at.endsWith('Z') || job.captured_at.includes('+') ? job.captured_at : job.captured_at + 'Z')}
               </span>
             )}
+            {(() => {
+              const detectedUrl = extractWebsiteUrl(job.description_full || job.raw_message || '')
+              if (!detectedUrl) return null
+              const domain = detectedUrl.replace(/^https?:\/\//i, '').split('/')[0]
+              return (
+                <span
+                  title={detectedUrl}
+                  style={{ fontSize: 12, padding: '3px 10px', borderRadius: 4, fontWeight: 700,
+                    background: 'rgba(234,179,8,0.15)', color: '#a16207',
+                    border: '1px solid rgba(234,179,8,0.45)', cursor: 'default' }}
+                >
+                  🌐 {domain}
+                </span>
+              )
+            })()}
           </div>
 
           {/* Meta grid */}
@@ -2978,17 +3005,26 @@ function ProposalColumn({ job, bridgeReady = false }) {
   // enrichment state doesn't appear on a now-un-enriched job.
   const hasEnrichment = job.enriched_at || job.connects_required || job.proposals || job.hire_rate
   const [proposal, setProposal] = useState('')
-  // ── Ahrefs enrichment ────────────────────────────────────────────────────
-  const [ahrefsDomain, setAhrefsDomain] = useState(job.ahrefs_domain || '')
+  // ── Ahrefs + Website inspect ─────────────────────────────────────────────
+  const _detectedUrl = extractWebsiteUrl(job.description_full || job.raw_message || '')
+  const [ahrefsDomain, setAhrefsDomain] = useState(
+    job.ahrefs_domain || job.website_url || (_detectedUrl ? _detectedUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '') : '') || ''
+  )
   const [ahrefsLoading, setAhrefsLoading] = useState(false)
   const [ahrefsResult, setAhrefsResult] = useState(job.ahrefs_summary || null)
   const ahrefsTimerRef = useRef(null)
+  const [websiteLoading, setWebsiteLoading] = useState(false)
+  const [websiteText, setWebsiteText] = useState(job.website_summary || null)
+  const websiteTimerRef = useRef(null)
 
   // Sync when a different job is selected
   useEffect(() => {
     setAhrefsResult(job.ahrefs_summary || null)
-    setAhrefsDomain(d => d || job.ahrefs_domain || '')
-  }, [job.id, job.ahrefs_summary, job.ahrefs_domain])
+    setWebsiteText(job.website_summary || null)
+    const detected = extractWebsiteUrl(job.description_full || job.raw_message || '')
+    const domainFallback = job.ahrefs_domain || job.website_url || (detected ? detected.replace(/^https?:\/\//i, '').replace(/\/+$/, '') : '') || ''
+    setAhrefsDomain(d => d || domainFallback)
+  }, [job.id, job.ahrefs_summary, job.ahrefs_domain, job.website_url, job.website_summary])
 
   // Listen for AHREFS_COMPLETE notification from bridge
   useEffect(() => {
@@ -3014,10 +3050,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
   const handleAhrefsEnrich = () => {
     const raw = ahrefsDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
     if (!raw) return
-    if (!bridgeReady) {
-      alert('Extension not connected — reload this tab (F5)')
-      return
-    }
+    if (!bridgeReady) { alert('Extension not connected — reload this tab (F5)'); return }
     setAhrefsLoading(true)
     setAhrefsResult(null)
     window.dispatchEvent(new CustomEvent('cockpit:enrich-ahrefs', {
@@ -3026,7 +3059,45 @@ function ProposalColumn({ job, bridgeReady = false }) {
     if (ahrefsTimerRef.current) clearTimeout(ahrefsTimerRef.current)
     ahrefsTimerRef.current = setTimeout(() => {
       setAhrefsLoading(false)
-      setAhrefsResult('⚠ Ahrefs scrape timed out — try again or check the extension console')
+      setAhrefsResult('⚠ Ahrefs scrape timed out — try again')
+    }, 60000)
+  }
+
+  // Website inspect listener
+  useEffect(() => {
+    const onComplete = (e) => {
+      const { job_id, summary } = e.detail || {}
+      if (job_id !== job.upwork_job_id && job_id !== String(job.id)) return
+      if (websiteTimerRef.current) { clearTimeout(websiteTimerRef.current); websiteTimerRef.current = null }
+      setWebsiteLoading(false)
+      setWebsiteText(summary || null)
+    }
+    const onError = () => {
+      if (websiteTimerRef.current) { clearTimeout(websiteTimerRef.current); websiteTimerRef.current = null }
+      setWebsiteLoading(false)
+    }
+    window.addEventListener('cockpit:website-inspect:complete', onComplete)
+    window.addEventListener('cockpit:website-inspect:error', onError)
+    return () => {
+      window.removeEventListener('cockpit:website-inspect:complete', onComplete)
+      window.removeEventListener('cockpit:website-inspect:error', onError)
+    }
+  }, [job.id, job.upwork_job_id])
+
+  const handleWebsiteInspect = () => {
+    const raw = ahrefsDomain.trim()
+    if (!raw) return
+    if (!bridgeReady) { alert('Extension not connected — reload this tab (F5)'); return }
+    const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+    setWebsiteLoading(true)
+    setWebsiteText(null)
+    window.dispatchEvent(new CustomEvent('cockpit:inspect-website', {
+      detail: { job_id: job.upwork_job_id || String(job.id), url }
+    }))
+    if (websiteTimerRef.current) clearTimeout(websiteTimerRef.current)
+    websiteTimerRef.current = setTimeout(() => {
+      setWebsiteLoading(false)
+      setWebsiteText('⚠ Website scrape timed out — check the extension console')
     }, 60000)
   }
   // ─────────────────────────────────────────────────────────────────────────
@@ -3619,6 +3690,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
         storedAnalysis ? `Analyser verdict: ${storedAnalysis.verdict} (${storedAnalysis.score}/10)\nAnalyser summary: ${storedAnalysis.summary}` : '',
         storedAnalysis?.flags?.length ? `Analyser flags:\n${storedAnalysis.flags.map(f => `- ${f}`).join('\n')}` : '',
         ahrefsResult ? `PROSPECT SITE SEO PROFILE (Ahrefs — use this to personalise the cover letter):\n${ahrefsResult}\nIf near-zero organic presence: position the engagement as building from scratch, mention you've grown traffic from flat ground before. If solid base: frame as scaling existing momentum.` : '',
+        websiteText ? `CLIENT WEBSITE CONTENT (scraped for personalisation — use specific details about their business, products, and audience in the cover letter):\n${websiteText}` : '',
       ].filter(Boolean).join('\n')
 
       // Regulated/YMYL flag for the deterministic post-processing strip of
@@ -5035,22 +5107,42 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
           />
           <button
             onClick={handleAhrefsEnrich}
-            disabled={!ahrefsDomain.trim() || ahrefsLoading}
+            disabled={!ahrefsDomain.trim() || ahrefsLoading || websiteLoading}
             style={{
-              padding: '5px 11px', fontSize: 11, fontWeight: 700, borderRadius: 5,
+              padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
               background: ahrefsLoading ? 'rgba(14,165,233,0.12)' : 'rgba(14,165,233,0.15)',
               color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.35)',
-              cursor: ahrefsDomain.trim() && !ahrefsLoading ? 'pointer' : 'not-allowed',
-              opacity: !ahrefsDomain.trim() || ahrefsLoading ? 0.55 : 1,
+              cursor: ahrefsDomain.trim() && !ahrefsLoading && !websiteLoading ? 'pointer' : 'not-allowed',
+              opacity: !ahrefsDomain.trim() || ahrefsLoading || websiteLoading ? 0.55 : 1,
               whiteSpace: 'nowrap', flexShrink: 0,
             }}
           >
-            {ahrefsLoading ? '⏳ Scanning…' : '⚡ Enrich with Ahrefs'}
+            {ahrefsLoading ? '⏳…' : '⚡ Ahrefs'}
+          </button>
+          <button
+            onClick={handleWebsiteInspect}
+            disabled={!ahrefsDomain.trim() || websiteLoading || ahrefsLoading}
+            title="Scrape the client's website and use it to personalise the cover letter"
+            style={{
+              padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
+              background: websiteLoading ? 'rgba(234,179,8,0.10)' : 'rgba(234,179,8,0.13)',
+              color: '#a16207', border: '1px solid rgba(234,179,8,0.40)',
+              cursor: ahrefsDomain.trim() && !websiteLoading && !ahrefsLoading ? 'pointer' : 'not-allowed',
+              opacity: !ahrefsDomain.trim() || websiteLoading || ahrefsLoading ? 0.55 : 1,
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            {websiteLoading ? '⏳…' : '🔍 Inspect'}
           </button>
         </div>
         {ahrefsResult && (
-          <div style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.5, fontFamily: 'var(--font-mono)' }}>
+          <div style={{ fontSize: 11, color: '#0ea5e9', lineHeight: 1.5, fontFamily: 'var(--font-mono)' }}>
             {ahrefsResult}
+          </div>
+        )}
+        {websiteText && (
+          <div style={{ fontSize: 11, color: '#a16207', lineHeight: 1.5, maxHeight: 80, overflow: 'hidden', maskImage: 'linear-gradient(to bottom, black 60%, transparent 100%)' }}>
+            {websiteText}
           </div>
         )}
       </div>
