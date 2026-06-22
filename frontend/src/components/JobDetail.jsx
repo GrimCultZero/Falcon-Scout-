@@ -1783,6 +1783,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
             '- NEVER reply "this is already covered in the proposal" or "no separate answers needed" — that is the exact failure to avoid. The whole point is to MOVE the content OUT of the letter and INTO standalone answers.',
             '- NEVER just narrate the plan ("splitting into two deliverables…", "I\'m using…"). Emit the actual <proposal> and <answer> text. Narration with no deliverable is a FAILURE.',
             '- Keep <remarks> to ONE short sentence about the work, no tag names, no plan description.',
+            '- NEVER apologize for vertical mismatch or acknowledge a gap in the screening answer text. PPC/Google Ads skills transfer across B2B and B2C — campaign structure, negative keywords, conversion tracking, Smart Bidding are the same mechanics. When asked for proof of campaigns or companies, cite the actual case studies and present the results. Do NOT write "I don\'t have direct B2B experience" or "my case studies are B2C but..." in the answer text — that is a self-defeating answer. Frame the results as proof of the skill, note the transferable mechanics briefly if needed, and move on.',
           ].join('\n')
         }
         // Consume the armed mode — it applies to this one turn only.
