@@ -754,6 +754,35 @@ def jobs_pending_enrich():
         ]
 
 
+@app.get("/jobs/pending-bids")
+def jobs_pending_bids():
+    """Return enriched jobs whose apply page hasn't been scraped for bid data yet.
+    Only returns jobs captured at least 3 hours ago — brand-new jobs have no bids."""
+    now = datetime.now(timezone.utc)
+    min_age_cutoff  = now - timedelta(hours=3)   # must be old enough for bids to exist
+    max_age_cutoff  = now - timedelta(hours=72)  # don't bother with jobs older than 3 days
+
+    with Session(engine) as session:
+        stmt = (
+            select(Job)
+            .where(
+                Job.enriched_at.isnot(None),            # main enrichment done
+                Job.boost_bids_captured_at.is_(None),   # bids not yet captured
+                Job.hidden_at.is_(None),
+                Job.upwork_job_id.isnot(None),
+                Job.captured_at <= min_age_cutoff,      # old enough for bids to exist
+                Job.captured_at >= max_age_cutoff,      # not too stale
+            )
+            .order_by(Job.captured_at.desc())
+            .limit(3)
+        )
+        jobs = session.scalars(stmt).all()
+        return [
+            {"id": j.id, "upwork_job_id": j.upwork_job_id, "title": j.title}
+            for j in jobs
+        ]
+
+
 @app.post("/jobs/{job_id}/enrich-attempt")
 def mark_enrich_attempt(job_id: int):
     """Record that the extension is about to (or just did) open a hidden tab for

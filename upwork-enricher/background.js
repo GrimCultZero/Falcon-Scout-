@@ -74,6 +74,15 @@ const _AUTO_ENRICH_PERIOD_MINUTES = 3;
 const _AUTO_ENRICH_STAGGER_MS = 6000;  // gap between opening each tab in a batch
 let _autoEnrichInFlight = false;        // prevent overlapping cycles
 
+// ── Delayed bid enrichment ────────────────────────────────────────────────
+// Opens the apply page (/proposals/job/~/apply/) for already-enriched jobs
+// that are at least 3 hours old (so real bids have had time to accumulate).
+// Runs on a separate 30-minute alarm — completely independent of the main
+// enrichment pass so we never hit the apply page the moment a job arrives.
+const _AUTO_BIDS_ALARM = 'falcon-auto-bids';
+const _AUTO_BIDS_PERIOD_MINUTES = 30;
+let _autoBidsInFlight = false;
+
 function _startSync(source) {
   console.log('[Cockpit BG] auto-sync triggered:', source);
   // Open BOTH the proposals list (for view-status detection) AND the
@@ -108,8 +117,13 @@ function _registerAlarms() {
     delayInMinutes: 0.5,                          // first sweep ~30s after load
     periodInMinutes: _AUTO_ENRICH_PERIOD_MINUTES,
   });
+  chrome.alarms.create(_AUTO_BIDS_ALARM, {
+    delayInMinutes: 5,                            // first bid sweep 5 min after load
+    periodInMinutes: _AUTO_BIDS_PERIOD_MINUTES,
+  });
   console.log('[Cockpit BG] alarms registered — sync every', _SYNC_PERIOD_MINUTES,
-    'min, auto-enrich every', _AUTO_ENRICH_PERIOD_MINUTES, 'min');
+    'min, auto-enrich every', _AUTO_ENRICH_PERIOD_MINUTES,
+    'min, auto-bids every', _AUTO_BIDS_PERIOD_MINUTES, 'min');
 }
 chrome.runtime.onInstalled.addListener(_registerAlarms);
 chrome.runtime.onStartup.addListener(_registerAlarms);
@@ -144,6 +158,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
   if (alarm.name === _AUTO_ENRICH_ALARM) {
     _runAutoEnrich();
+    return;
+  }
+  if (alarm.name === _AUTO_BIDS_ALARM) {
+    _runBidsEnrich();
     return;
   }
   if (alarm.name !== _SYNC_ALARM_NAME) return;
@@ -192,18 +210,8 @@ async function _runAutoEnrich() {
         _scheduleTabCleanup(tab.id, 2);  // failsafe close after 2 min if it hangs
         console.log('[Cockpit BG] auto-enrich tab', tab.id, '→', job.title || job.url);
       });
-
-      // Also open the apply page to capture boost bid competition, if we have the job id.
-      const rawId = (job.upwork_job_id || '').replace(/^~/, '');
-      if (rawId) {
-        const applyUrl = `https://www.upwork.com/nx/proposals/job/~${rawId}/apply/`;
-        chrome.tabs.create({ url: applyUrl, active: false }, (applyTab) => {
-          if (chrome.runtime.lastError || !applyTab || !applyTab.id) return;
-          _bgTabs.add(applyTab.id);
-          _scheduleTabCleanup(applyTab.id, 2);
-          console.log('[Cockpit BG] auto-enrich apply tab', applyTab.id, '→', applyUrl);
-        });
-      }
+      // NOTE: apply page (bid competition) is NOT opened here — new jobs have no
+      // bids yet. _runBidsEnrich() handles that separately, 3+ hours after capture.
 
       if (i < jobs.length - 1) {
         await new Promise(r => setTimeout(r, _AUTO_ENRICH_STAGGER_MS));
@@ -211,6 +219,37 @@ async function _runAutoEnrich() {
     }
   } finally {
     _autoEnrichInFlight = false;
+  }
+}
+
+// Open apply pages for already-enriched jobs that are 3+ hours old.
+// Runs every 30 min. apply.js scrapes the bid table and POSTs to /boost-bids.
+async function _runBidsEnrich() {
+  if (_autoBidsInFlight) return;
+  _autoBidsInFlight = true;
+  try {
+    let jobs;
+    try {
+      const resp = await fetch(`${API_BASE}/jobs/pending-bids`);
+      if (!resp.ok) return;
+      jobs = await resp.json();
+    } catch (e) { return; }
+    if (!Array.isArray(jobs) || jobs.length === 0) return;
+    console.log('[Cockpit BG] auto-bids: opening', jobs.length, 'apply tab(s)');
+    for (const job of jobs) {
+      const rawId = (job.upwork_job_id || '').replace(/^~/, '');
+      if (!rawId) continue;
+      const applyUrl = `https://www.upwork.com/nx/proposals/job/~${rawId}/apply/`;
+      chrome.tabs.create({ url: applyUrl, active: false }, (tab) => {
+        if (chrome.runtime.lastError || !tab || !tab.id) return;
+        _bgTabs.add(tab.id);
+        _scheduleTabCleanup(tab.id, 2);
+        console.log('[Cockpit BG] auto-bids apply tab', tab.id, '→', applyUrl);
+      });
+      await new Promise(r => setTimeout(r, _AUTO_ENRICH_STAGGER_MS));
+    }
+  } finally {
+    _autoBidsInFlight = false;
   }
 }
 
