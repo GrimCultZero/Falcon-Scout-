@@ -71,3 +71,26 @@ as off-platform intent. Context didn't save it; the pattern alone fired.
    thread + a screenshot of the proposal in context. Never confrontational.
 
 **Outcome.** Drafts provided; root cause fixed in code. [Appeal pending Artem's submission.]
+
+---
+
+## Case Study — SMASH eCommerce Redesign (OpenCart, Web Dev, Jun 2026)
+
+**Client.** SMASH — Ukrainian streetwear brand (smash.com.ua), founded 2019, 90K+ Instagram followers. Strong offline/social brand, weak online store.
+
+**Problem.** Default OpenCart theme looked like any generic shop — no brand identity. Two growth blockers: (1) no gamification/repeat-purchase mechanics, (2) poor mobile UX on 63% of their traffic.
+
+**Solution (6 weeks).**
+1. **Custom theme** — fully bespoke OpenCart theme matching SMASH's editorial streetwear aesthetic. Every default element replaced.
+2. **Lucky Box module** — custom-built gamification: mystery boxes of curated streetwear at 25–35% off retail. Three tiers (S/M/L: 2,999–4,999₴). No duplicates, no dead stock. Integrated with OpenCart inventory + order management.
+3. **Mobile-first rebuild** — swipe gallery, one-tap size selection, sticky checkout bar, 1.8s avg page load.
+
+**Results (6 months post-launch).**
+- +217% monthly revenue
+- 3.4× conversion rate
+- −52% bounce rate / −38% mobile bounce
+- 2.4× mobile session depth
+
+**Reusable lesson.** Gamification (mystery box / tiered discount mechanics) is a high-ROI add-on for fashion/streetwear eCommerce — especially when brand identity is strong but return-purchase rate is low. Positions web dev work as revenue driver, not just design. Good proof case for proposals involving eCommerce conversion, mobile UX, or OpenCart.
+
+**KB entry:** #487 (`case_study`, `is_core=1`)
