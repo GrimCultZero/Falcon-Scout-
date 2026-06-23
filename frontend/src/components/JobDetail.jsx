@@ -708,7 +708,7 @@ export default function JobDetail({ job }) {
   try { if (job.client_reviews) reviews = JSON.parse(job.client_reviews) } catch {}
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', flex: 1, minWidth: 0, width: '100%' }}>
 
       {/* ── COLUMN WRAPPER (3 cols) ──────────────────────────────────────── */}
       <div ref={wrapperRef} style={{ display: 'flex', flex: 1, overflowY: 'hidden', overflowX: 'auto', minHeight: 0 }}>
