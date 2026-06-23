@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import * as XLSX from 'xlsx'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -3443,6 +3444,30 @@ function ProposalColumn({ job, bridgeReady = false }) {
     reader.readAsDataURL(file)
   })
 
+  const _isExcel = (f) =>
+    f.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    f.type === 'application/vnd.ms-excel' ||
+    /\.(xlsx|xls)$/i.test(f.name)
+
+  const _readExcelAsText = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: 'array' })
+        const parts = wb.SheetNames.map(name => {
+          const ws = wb.Sheets[name]
+          const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false })
+          return `[Sheet: ${name}]\n${csv}`
+        })
+        resolve(parts.join('\n\n'))
+      } catch (err) {
+        reject(err)
+      }
+    }
+    reader.onerror = reject
+    reader.readAsArrayBuffer(file)
+  })
+
   const handleFileDrop = async (e) => {
     e.preventDefault()
     setIsDragOver(false)
@@ -3450,10 +3475,17 @@ function ProposalColumn({ job, bridgeReady = false }) {
     const supported = files.filter(f =>
       f.type === 'application/pdf' ||
       f.type.startsWith('image/') ||
-      f.type === 'text/plain'
+      f.type === 'text/plain' ||
+      _isExcel(f)
     )
     if (!supported.length) return
     const loaded = await Promise.all(supported.map(async f => {
+      if (_isExcel(f)) {
+        const text = await _readExcelAsText(f)
+        // Encode text as base64 so the rest of the pipeline stays uniform
+        const b64 = btoa(unescape(encodeURIComponent(text)))
+        return { name: f.name, data: b64, mediaType: 'text/plain', blockType: 'text', size: f.size, _excelText: text }
+      }
       const { name, data, mediaType } = await _readFileAsBase64(f)
       const blockType = f.type === 'application/pdf' ? 'document' : f.type.startsWith('image/') ? 'image' : 'text'
       return { name, data, mediaType, blockType, size: f.size }
@@ -3979,7 +4011,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
                 : { type: 'image', source: { type: 'base64', media_type: f.mediaType, data: f.data } })
             const textFileContent = droppedFiles
               .filter(f => f.blockType === 'text')
-              .map(f => `--- ${f.name} ---\n${atob(f.data)}`)
+              .map(f => `--- ${f.name} ---\n${f._excelText || atob(f.data)}`)
               .join('\n\n')
             const fullText = textFileContent
               ? `${textPart}\n\nADDITIONAL TEXT FILES:\n${textFileContent}`
@@ -5090,7 +5122,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
       >
         {droppedFiles.length === 0 ? (
           <div style={{ fontSize: 11, color: isDragOver ? '#00c8d4' : 'var(--text3)', textAlign: 'center', pointerEvents: 'none' }}>
-            Drop PDF, image, or text file to add context to the generator
+            Drop PDF, Excel, image, or text file to add context to the generator
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -5100,7 +5132,7 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
                 padding: '2px 6px 2px 8px', borderRadius: 4,
                 background: '#00c8d414', color: '#00c8d4', border: '1px solid #00c8d440',
               }}>
-                {f.blockType === 'document' ? '📄' : f.blockType === 'image' ? '🖼' : '📝'} {f.name}
+                {f.blockType === 'document' ? '📄' : f.blockType === 'image' ? '🖼' : _isExcel(f) || /\.(xlsx|xls)$/i.test(f.name) ? '📊' : '📝'} {f.name}
                 <button onClick={() => setDroppedFiles(prev => prev.filter((_, j) => j !== i))}
                   style={{ background: 'none', border: 'none', color: '#00c8d4', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
               </span>
