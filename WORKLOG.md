@@ -284,3 +284,65 @@ one. Verified end-to-end: POSTing the real scraped row returned
    `Job→first→Proposal` lookup. Matching that walks ALL candidate jobs to the one
    with a proposal is the robust pattern. (Latent data-quality issue: the listener
    can capture the same job under two numeric ids — worth a dedup pass later.)
+
+---
+
+## 2026-06-23 — Job dedup script (dedup_jobs.py)
+
+**Why:** The DocuFence duplicate surfaced a latent data-quality issue: the
+listener occasionally captures the same Upwork job twice under different numeric
+upwork_job_ids (when the real `~HEX` ID can't be extracted), so the UNIQUE
+constraint doesn't catch it. The defensive fix in `/proposal-status-sync` (commit
+8e55fc7) handles the symptom; this script is the cure.
+
+### What we built
+
+`dedup_jobs.py` (repo root) — standalone dedup script with `--dry-run` (default)
+and `--execute` modes. Three categories:
+
+**A — Bot noise:** Telegram system messages (`? The bot is temporarily down!` etc.)
+saved as jobs. 4 groups, 51 rows. Identified by NULL upwork_job_id + known bot
+announcement phrases after stripping leading emoji. All deleted except the earliest
+by id; none have proposals.
+
+**B — Junk / parser-artifact titles:** Fragment phrases (`and description
+optimization`, `tags and meta descriptions`, `NOT`, `Summary`, `Title:`, etc.) that
+the parser extracted instead of a real job title. 17 groups, 36 rows. Deleted only
+when no proposal/KB entry/rule_violation child exists; skipped otherwise.
+
+**C — True listener duplicates:** Same normalized title captured within 4h (default
+`--window`). 18 groups, 19 rows. Canonical selected by: has Proposal > enriched >
+has real upwork_job_id > most data populated > lowest id. All FK children
+(proposals, kb_entries, rule_violations) re-pointed to canonical before delete.
+
+### Dry-run findings (3,356 total jobs)
+
+```
+A (bot noise)         4 groups   51 deleted
+B (junk titles)      17 groups   36 deleted   0 skipped (have children)
+C (listener dupes)   18 groups   19 deleted   0 child records re-pointed
+TOTAL: 106 rows would be deleted
+```
+
+DocuFence case (`re-pointed=none`): Proposal#45 was already on the canonical Job#3216;
+Job#3214 had no children — deletion is clean with no re-pointing needed.
+
+All 19 category-C deletions have `re-pointed=none` — no proposals were on the
+redundant side of any true duplicate.
+
+### Root-cause note (in script docstring)
+
+The parser generates a numeric fallback upwork_job_id when the real `~HEX` ID can't
+be extracted from the URL. A future hardening pass in `listener.py`/`save_job()`
+could add a secondary check: before inserting, query for a row with the same
+normalized title captured within the last 12h, and skip the insert if found. This
+would catch most listener duplicates at source.
+
+### To execute
+
+```
+python dedup_jobs.py --execute
+```
+
+Dry-run is the default; `--execute` required to apply. `--window N` (hours) and
+`--categories A,B,C` flags for tuning.
