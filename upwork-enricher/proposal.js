@@ -866,9 +866,10 @@
     let phraseCount = 0;
     try {
       const html = document.body.innerHTML || '';
-      phraseCount = (html.match(/viewed\s+by\s+client/gi) || []).length;
+      const HTML_VIEWED_RE = /viewed\s+by\s+client|client\s+(?:has\s+)?viewed|\bstatus[:\s"]*viewed\b/gi;
+      phraseCount = (html.match(HTML_VIEWED_RE) || []).length;
       if (phraseCount === 0) {
-        console.log('[Cockpit Proposal] HTML-scan: "viewed by client" NOT found in innerHTML — CSS pseudo-element or not loaded yet.');
+        console.log('[Cockpit Proposal] HTML-scan: no "viewed" status phrase found in innerHTML — CSS pseudo-element or not loaded yet.');
         return { viewedTitles, phraseCount };
       }
 
@@ -877,7 +878,7 @@
       // Skip these known non-title strings
       const SKIP_RE = /^(initiated|submitted|boosted|not boosted|boost outbid|general profile|viewed by client|learn more|yesterday|today|\d+\s+day|\d+\s+week|\d+\s+hour|\d+\s+min|ago|\d{1,2}\/\d{1,2}\/\d{2,4}|may\s+\d|jun\s+\d|jul\s+\d|aug\s+\d|sep\s+\d|oct\s+\d|nov\s+\d|dec\s+\d|jan\s+\d|feb\s+\d|mar\s+\d|apr\s+\d)/i;
 
-      const viewedRegex = /viewed\s+by\s+client/gi;
+      const viewedRegex = /viewed\s+by\s+client|client\s+(?:has\s+)?viewed|\bstatus[:\s"]*viewed\b/gi;
       let vm;
       while ((vm = viewedRegex.exec(html)) !== null) {
         // Look backward from this "Viewed by client" occurrence
@@ -997,12 +998,18 @@
       //   Layer 2: this row's own outerHTML (catches aria-label / title / alt)
       // No walk-up, no geometric, no page-wide proximity — those false-positive
       // every row when the phrase exists once on the page.
-      let viewed = /viewed\s+by\s+client/i.test(rowText);
+      // Regex covers all known Upwork phrasings:
+      //   "Viewed by client" (classic)
+      //   "Client viewed"
+      //   status badge containing just "Viewed"
+      const VIEWED_RE = /viewed\s+by\s+client|client\s+(?:has\s+)?viewed|\bstatus[:\s"]*viewed\b/i;
+      let viewed = VIEWED_RE.test(rowText);
       if (!viewed) {
-        const rowHtml = (rowContainer.outerHTML || '').toLowerCase();
-        if (/viewed\s+by\s+client/i.test(rowHtml) ||
+        const rowHtml = (rowContainer.outerHTML || '');
+        if (VIEWED_RE.test(rowHtml) ||
             /aria-label="[^"]*viewed[^"]*"/i.test(rowHtml) ||
-            /title="[^"]*viewed\s+by\s+client[^"]*"/i.test(rowHtml)) {
+            /title="[^"]*viewed[^"]*"/i.test(rowHtml) ||
+            /data-[a-z-]*status[^"]*"[^"]*viewed[^"]*"/i.test(rowHtml)) {
           viewed = true;
         }
       }

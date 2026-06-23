@@ -571,25 +571,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // backend, and shows an on-page banner. The worker's only job is opening
     // the tab. We still persist the tab id as a belt-and-suspenders fallback.
     const openedTabIds = [];
-    // BOTH legs now use the reliable v2 pattern: ?falconsync=1 URL marker →
+    // BOTH legs use the reliable v2 pattern: ?falconsync=1 URL marker →
     // content script scrapes → direct POST to the backend → on-page banner.
-    // No cross-tab relay (that was the unreliable part the messages leg used).
-    //  • Proposals leg: viewed detection is a raw-HTML scan (no rendering
-    //    needed) → can stay in the BACKGROUND (active:false).
-    //  • Messages leg: scrapes the conversation list from the DOM, which needs
-    //    the tab rendered → open ACTIVE so virtualised rows hydrate.
+    //  • Proposals leg: ACTIVE tab — Upwork's virtualised row list won't
+    //    hydrate (and scrolling is a no-op) in a background tab, so the
+    //    "Viewed by client" indicator never appears in the DOM. Same root
+    //    cause that was fixed for the messages leg.
+    //  • Messages leg: background is fine — opened second so proposals wins
+    //    focus and gets proper rendering for its scroll + lazy-load.
+    // Open messages FIRST (background) so proposals tab gets focus.
     chrome.tabs.create(
-      { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
-      (tab) => {
-        if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 3); }
-        console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
+      { url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1', active: false },
+      (mtab) => {
+        // Messages leg may walk up to 10 rooms (~12s budget each) — give it
+        // a longer leash before the failsafe kills it.
+        if (mtab && mtab.id) { _persistSyncTab(mtab.id); openedTabIds.push(mtab.id); _scheduleTabCleanup(mtab.id, 4); }
+        console.log('[Cockpit BG] sync messages tab opened (bg):', mtab && mtab.id);
         chrome.tabs.create(
-          { url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1', active: false },
-          (mtab) => {
-            // Messages leg may walk up to 10 rooms (~12s budget each) — give it
-            // a longer leash before the failsafe kills it.
-            if (mtab && mtab.id) { _persistSyncTab(mtab.id); openedTabIds.push(mtab.id); _scheduleTabCleanup(mtab.id, 4); }
-            console.log('[Cockpit BG] sync messages tab opened (bg):', mtab && mtab.id);
+          { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: true },
+          (tab) => {
+            if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 3); }
+            console.log('[Cockpit BG] sync proposals tab opened (active):', tab && tab.id);
             sendResponse({ ok: true, tabIds: openedTabIds });
           }
         );
