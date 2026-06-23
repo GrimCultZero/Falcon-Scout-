@@ -3132,6 +3132,10 @@ function ProposalColumn({ job, bridgeReady = false }) {
   const proposalCacheRef = useRef({}) // { [jobId]: { proposal, feedback } } for unsaved drafts
   const prevProposalJobIdRef = useRef(null) // tracks previous job id for save-before-reset
   const chatMessagesRef = useRef([])  // latest cover-letter chat transcript
+  // Whether the cover-letter chat has any messages yet. When empty, the chat
+  // section collapses to just its input bar so the cover-letter section fills
+  // the column instead of leaving a tall blank chat void.
+  const [chatHasMessages, setChatHasMessages] = useState(false)
   // KB context cache — saves the 4 KB fetches (rules / examples / sent / manual)
   // when the user regenerates the same job within a short window. Keyed by
   // `${jobId}_${coreOnly ? 'core' : 'all'}`. TTL is 5 minutes so rule edits or
@@ -4989,11 +4993,11 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
 
   return (
     <div data-col-id="proposal" style={{ flex: 1, overflow: 'hidden', minWidth: '15%', display: 'flex', flexDirection: 'column' }}>
-      {/* Cover letter section. flex: 1 only when a proposal exists (so the
-          textarea can fill height). In the pre-generation state we let the
-          content sit at its natural height to avoid a massive empty gap. */}
-      <div style={{ ...(proposal && hasEnrichment ? { flex: 1, minHeight: 0 } : { flexShrink: 0 }), display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div ref={scrollRef} style={{ ...(proposal && hasEnrichment ? { flex: 1 } : {}), overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowAnchor: 'none' }}>
+      {/* Cover letter section — flex: 1 so it fills the column above the chat.
+          Pre-generation, a growing placeholder fills the leftover height so
+          there's no blank void; post-generation the textarea fills it. */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowAnchor: 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>▸ Cover Letter</div>
         <button
@@ -5185,6 +5189,22 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
             <LogoCanvas />
             {hasEnrichment ? 'Generate Cover Letter' : 'Enrich first'}
           </button>
+          {/* Placeholder fills the leftover column height so there's no blank
+              void — shows where the generated letter will appear. */}
+          <div style={{
+            flex: 1, minHeight: 120,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 10, padding: 20, marginTop: 4,
+            border: '1px dashed var(--border2)', borderRadius: 8,
+            color: 'var(--text3)', textAlign: 'center',
+          }}>
+            <div style={{ opacity: 0.4 }}><LogoCanvas /></div>
+            <div style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 260, whiteSpace: 'pre-line' }}>
+              {hasEnrichment
+                ? 'Your cover letter will appear here.\nDrop a PDF or add an Ahrefs scan above to enrich it.'
+                : 'Once enriched, the generated cover letter will appear in this space.'}
+            </div>
+          </div>
         </>
       )}
 
@@ -5367,8 +5387,10 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
 
       </div>{/* end cover letter section */}
 
-      {/* Drag handle — resizes the chat section below. Persists to localStorage
-          (falconscout.chatHeight) so the layout sticks across reloads. */}
+      {/* Drag handle — resizes the chat section below. Only shown once the
+          chat has messages; with an empty chat there's nothing to resize and
+          the cover-letter section should own the full height. */}
+      {chatHasMessages && (
       <div
         onMouseDown={onResizeStart}
         title="Drag to resize the chat section"
@@ -5388,17 +5410,19 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
           background: 'var(--text3)', opacity: 0.5,
         }} />
       </div>
+      )}
 
-      {/* Chat section — height controlled by the drag handle above. The
-          InlineChat fills this container via fillHeight=true so the messages
-          area grows with the section instead of capping at 380px. */}
-      <div style={{ height: chatHeight, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Chat section. With messages: fixed, user-resizable height. Empty: the
+          container shrinks to just the input bar (InlineChat's message area is
+          empty anyway) so it doesn't leave a tall blank void — the cover-letter
+          section above takes the freed space via its flex:1. */}
+      <div style={{ ...(chatHasMessages ? { height: chatHeight } : {}), flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <InlineChat
           job={job}
           chatId="proposal"
           extraContext=""
           systemSuffix="You are helping Artem refine the cover letter currently shown in the top textarea. Keep his casual voice, stay grounded in KB facts, and never invent case studies. Apply the KB rules, but refer to them by what they say — never cite a rule number (numbers from memory are hallucinated)."
-          onMessagesChange={(msgs) => { chatMessagesRef.current = msgs }}
+          onMessagesChange={(msgs) => { chatMessagesRef.current = msgs; setChatHasMessages((msgs || []).length > 0) }}
           onRework={(msgs) => generate(buildAdjustments(msgs))}
           reworkLabel="↺ Rework letter"
           onProposalRewrite={(text) => setProposal(text)}
