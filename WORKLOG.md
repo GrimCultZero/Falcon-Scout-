@@ -241,3 +241,46 @@ New end-to-end feature: captures the "Boost your proposal" bid competition table
 - Requires extension reload (v4.0) after Chrome extension update
 - Apply page only shows bid table when logged in and the job is open for applications
 - If no bids yet (nobody has boosted), `extractBids()` returns [] and nothing is stored — existing `boost_bids` value is preserved (not overwritten to [])
+
+---
+
+## 2026-06-23 — "Viewed" sync failure root-caused via live DOM (duplicate jobs)
+
+**Symptom.** A proposal the client had clearly viewed never flipped to "viewed" in
+the dashboard, across multiple sync attempts. Earlier blind fixes (active-tab,
+broader viewed-regex) didn't move it.
+
+**Method that finally worked: stop guessing, inspect the live page.** Used
+Claude-in-Chrome to open `/nx/proposals/`, scroll the Submitted section to hydrate
+it, and dump the real structure. Findings:
+- The viewed indicator is `<span class="relative-time"> Viewed by client </span>`
+  next to an eye SVG, inside the row `<td>`. It exists in the HTML on exactly the
+  ONE viewed row (the page-wide "viewed by client" count is 1, not smeared).
+- That span is `display:block; visibility:visible` BUT **`width:0; height:0`** —
+  so `body.innerText` drops it entirely (no layout box). `textContent` / the row's
+  `outerHTML` still contain it. ⇒ innerText-based detection can never see it; the
+  per-row **outerHTML** fallback is the correct signal. Replicating the scraper
+  logic live, the row WAS correctly flagged `viewed:true` via outerHTML. So the
+  scraper was fine.
+
+**The actual bug was in the backend `/proposal-status-sync` title fallback.**
+The DocuFence job exists as TWO Job rows with identical titles but different
+numeric ids (3214 = no proposal, 3216 = Proposal #45 `sent`) — the listener
+captured it twice under different ids, so `upwork_job_id` dedup missed it. The
+old code did `Job.title.ilike(title).first()` → got 3214 → looked up ITS proposal
+→ None → row dumped to `not_matched`. The viewed flag never reached #45.
+
+**Fix (api/main.py).** Title fallback now gathers ALL jobs sharing the title and
+picks the one that actually HAS a proposal, preferring a promotable (sent/draft)
+one. Verified end-to-end: POSTing the real scraped row returned
+`updated:1, newly_viewed:1`; Proposal #45 is now `viewed`.
+
+**Reusable lessons.**
+1. For "the scraper missed X" bugs, open the live page with Chrome MCP and dump
+   the real DOM/computed-style BEFORE touching regexes. Zero-size-but-present
+   elements (innerText-invisible, outerHTML-present) are a recurring Upwork
+   pattern — always prefer outerHTML/textContent for status badges.
+2. Duplicate Job rows (same title, different ids) silently break any
+   `Job→first→Proposal` lookup. Matching that walks ALL candidate jobs to the one
+   with a proposal is the robust pattern. (Latent data-quality issue: the listener
+   can capture the same job under two numeric ids — worth a dedup pass later.)

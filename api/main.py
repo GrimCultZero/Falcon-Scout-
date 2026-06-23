@@ -2755,18 +2755,33 @@ def proposal_status_sync(data: dict):
                         .first()
                     )
 
-            # 2) Fallback: match Job by exact-then-fuzzy title, then Proposal by job_id
+            # 2) Fallback: match by title. CRITICAL: the same job title can map
+            #    to MULTIPLE Job rows (the listener occasionally captures a job
+            #    twice under different numeric ids, so upwork_job_id dedup misses
+            #    it). Taking .first() Job and then ITS proposal silently fails
+            #    when the duplicate without a proposal sorts first — the viewed
+            #    flag never reaches the real Proposal. So gather ALL jobs sharing
+            #    the title (exact, then fuzzy) and pick the one that actually has
+            #    a Proposal, preferring a promotable (sent/draft) one.
             if not matched_proposal and job_title:
-                matched_job = (
-                    session.query(Job).filter(Job.title.ilike(job_title)).first()
-                    or session.query(Job).filter(Job.title.ilike(f"%{job_title[:60]}%")).first()
+                candidate_jobs = (
+                    session.query(Job).filter(Job.title.ilike(job_title)).all()
+                    or session.query(Job).filter(Job.title.ilike(f"%{job_title[:60]}%")).all()
                 )
-                if matched_job:
-                    matched_proposal = (
-                        session.query(Proposal)
-                        .filter_by(job_id=matched_job.id)
-                        .first()
-                    )
+                best = None
+                for cj in candidate_jobs:
+                    p = session.query(Proposal).filter_by(job_id=cj.id).first()
+                    if not p:
+                        continue
+                    # Prefer a proposal we can actually promote; otherwise keep
+                    # the first proposal found as a fallback so we still match.
+                    if p.status in _PROMOTABLE_TO_VIEWED:
+                        matched_job, matched_proposal = cj, p
+                        break
+                    if best is None:
+                        best = (cj, p)
+                if not matched_proposal and best:
+                    matched_job, matched_proposal = best
 
             if not matched_proposal:
                 not_matched.append({"upwork_job_id": upwork_job_id, "job_title": job_title})
