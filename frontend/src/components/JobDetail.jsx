@@ -4989,12 +4989,11 @@ Read ALL attached files carefully BEFORE writing. They likely contain the client
 
   return (
     <div data-col-id="proposal" style={{ flex: 1, overflow: 'hidden', minWidth: '15%', display: 'flex', flexDirection: 'column' }}>
-      {/* Cover letter section — flex: 1 so it takes whatever space the chat
-          isn't using. Contains the scroll area and (below it) the action row,
-          which is now OUTSIDE the scroll so it's always reachable without
-          overlapping textarea content. */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowAnchor: 'none' }}>
+      {/* Cover letter section. flex: 1 only when a proposal exists (so the
+          textarea can fill height). In the pre-generation state we let the
+          content sit at its natural height to avoid a massive empty gap. */}
+      <div style={{ ...(proposal && hasEnrichment ? { flex: 1, minHeight: 0 } : { flexShrink: 0 }), display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div ref={scrollRef} style={{ ...(proposal && hasEnrichment ? { flex: 1 } : {}), overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowAnchor: 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>▸ Cover Letter</div>
         <button
