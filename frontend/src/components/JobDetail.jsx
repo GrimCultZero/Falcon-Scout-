@@ -170,12 +170,52 @@ function extractApplicationChecklist(text) {
   const promptBlock =
     `⛔ MANDATORY APPLICATION CHECKLIST (the client put this in the posting — this OVERRIDES any attached file's topic; the POSTING defines what to answer):\n` +
     `The proposal will be AUTO-REJECTED if it does not address EVERY item below. Answer each one explicitly and concisely (a short labelled line or sentence per item is fine):\n` +
-    classified.map((c, i) => `  ${i + 1}. ${c.text}${c.factual ? '   ← FACTUAL: use Artem\'s real data; if not provided, write a clear placeholder like [[ ARTEM: fill in ]] — DO NOT invent a number, price, URL, or claim.' : ''}`).join('\n') +
+    classified.map((c, i) => `  ${i + 1}. ${c.text}${c.factual ? '   ← FACTUAL: answer from ARTEM\'S BUSINESS FACTS below if it covers this; otherwise a clear placeholder like [[ ARTEM: fill in ]] — never invent an unknown number, price, URL, or claim.' : ''}`).join('\n') +
     (hasFactual
-      ? `\n\nFACTUAL ITEMS RULE (critical): never fabricate team size, retainer/pricing, turnaround times, years, or specific site/client URLs. If Artem's real value isn't in the KB or context, emit a visible placeholder [[ ARTEM: … ]] so he fills it before sending. A fabricated retainer range or fake portfolio link is far worse than a blank he completes.`
+      ? `\n\nFACTUAL ITEMS RULE (critical): for team size, portfolio/site URLs, landing-page turnaround, and monthly retainer, use the values in "ARTEM'S BUSINESS FACTS" below. For anything factual NOT covered there (e.g. a specific client name, an exact metric you don't have), do NOT fabricate — emit a visible [[ ARTEM: … ]] placeholder so he fills it before sending.`
       : ``)
 
   return { items: classified, promptBlock, hasFactual }
+}
+
+// ── Artem's standing business facts ─────────────────────────────────────────
+// REAL data used to answer application checklists and client proof / portfolio /
+// pricing requests, so the generator fills these instead of leaving
+// [[ ARTEM: … ]] placeholders. Source: owner instruction (2026-06-24). This JS
+// copy is operative; a KB "reference" entry mirrors it for documentation.
+const ARTEM_PORTFOLIO = {
+  shopify: ['https://casaeleganza.com', 'https://paramusmegafurniture.com'],
+  wordpress: ['https://tothebeauty.com', 'https://www.envieq.com', 'https://www.redwallmural.com'],
+}
+// Fires the facts block when a posting/question asks for proof, portfolio, team
+// size, turnaround, or pricing.
+const _PROOF_REQUEST_RE = /\b(portfolio|examples?\b|case\s+stud|\bproof\b|sites?\s+you(?:'?ve)?\s*(?:manage|run|built|worked|maintain)|websites?\s+you|links?\s+to|show\s+(?:us|me)|references?|team\s+size|how\s+many\s+(?:people|staff)|retainer|turn[-\s]?around|monthly\s+(?:budget|fee|rate|retainer))\b/i
+
+function buildArtemFactsBlock(contextText) {
+  const t = (contextText || '').toLowerCase()
+  const wantsShopify = /\bshopify\b/.test(t)
+  const wantsWp = /\bword\s?press\b|\bwp\b|\bwoo\s?commerce\b|\belementor\b/.test(t)
+  let portfolioLines
+  if (wantsShopify && !wantsWp) {
+    portfolioLines = `Shopify sites we manage: ${ARTEM_PORTFOLIO.shopify.join(', ')}`
+  } else if (wantsWp && !wantsShopify) {
+    portfolioLines = `WordPress sites we manage: ${ARTEM_PORTFOLIO.wordpress.join(', ')}`
+  } else {
+    portfolioLines =
+      `WordPress sites we manage: ${ARTEM_PORTFOLIO.wordpress.join(', ')}\n` +
+      `    Shopify sites we manage: ${ARTEM_PORTFOLIO.shopify.join(', ')}\n` +
+      `    (Share the set that matches the client's platform — a WordPress job → the WordPress links, a Shopify job → the Shopify links. Don't paste both unless both are relevant.)`
+  }
+  return [
+    `ARTEM'S BUSINESS FACTS — use these REAL values when the client asks for proof / examples / portfolio, team size, turnaround, or pricing. These OVERRIDE the [[ ARTEM: … ]] placeholder rule for the items below (real values exist — use them):`,
+    ``,
+    `• PORTFOLIO — share ONLY when the client asks for examples / proof / portfolio / "sites you manage". Never paste links unprompted.`,
+    `    ${portfolioLines}`,
+    ``,
+    `• TEAM SIZE: 20 people. ⚠️ State this ONLY when the client EXPLICITLY asks about team size, company size, or headcount. NEVER volunteer it otherwise — most letters should not mention team size at all.`,
+    ``,
+    `• LANDING-PAGE TURNAROUND and MONTHLY RETAINER: not fixed — give a specific, credible figure that fits THIS job's scope, positioned as a skilled non-US freelancer (fast delivery, strong value vs US agencies). Sensible anchors: a single landing page in ~2–4 business days; an ongoing retainer roughly $800–$2,500/mo depending on the number of sites and the workload described. Give a real number/range when asked — never a placeholder for these two.`,
+  ].join('\n')
 }
 
 function fmtDate(iso) {
@@ -1919,6 +1959,14 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
             '',
             'FORMAT: 3-5 short paragraphs. No bullet lists. No preamble. No narration about what you are doing. Just the case studies, the results, and the client-specific insight.',
           ].join('\n')
+        }
+        // Inject Artem's real business facts (portfolio URLs, team size, pricing)
+        // whenever this turn is a screening question OR the client is asking for
+        // proof / portfolio / team / pricing — so paste-ready answers use real
+        // data, platform-matched, instead of vague claims or placeholders.
+        if (looksLikeScreeningQ || _PROOF_REQUEST_RE.test(text)) {
+          const platformHint = `${job?.title || ''}\n${job?.description_full || job?.description_snippet || ''}\n${text}`
+          effectiveSuffix += '\n\n' + buildArtemFactsBlock(platformHint)
         }
         // Consume the armed mode — it applies to this one turn only.
         if (addlQMode) setAddlQMode(false)
@@ -3838,6 +3886,9 @@ function ProposalColumn({ job, bridgeReady = false }) {
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
         applicationChecklist ? applicationChecklist.promptBlock : '',
+        (applicationChecklist || _PROOF_REQUEST_RE.test(fullDescription))
+          ? buildArtemFactsBlock(`${job.title || ''}\n${fullDescription}`)
+          : '',
         job.hire_rate ? `Client hire rate: ${job.hire_rate}%` : '',
         job.client_total_spent_detail ? `Client spent: ${job.client_total_spent_detail}` : '',
         job.proposals ? `Applicants so far: ${job.proposals}` : '',

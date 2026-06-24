@@ -396,3 +396,36 @@ entry; the bug was the model over-indexing on the attachment vs the posting.)
 - Open question for later: store Artem's standing facts (team size, retainer
   bands, landing-page turnaround, managed-site list) in the KB so the generator
   can fill these automatically instead of always emitting a placeholder.
+
+---
+
+## 2026-06-24 (cont.) — Artem business facts: real data for checklist/proof answers
+
+Follow-up to the application-checklist detector. Owner supplied standing facts so
+the generator fills checklist/proof items with REAL data instead of
+[[ ARTEM: … ]] placeholders:
+
+- **Portfolio (share only when asked for examples/proof/portfolio):**
+  Shopify → casaeleganza.com, paramusmegafurniture.com.
+  WordPress → tothebeauty.com, envieq.com, redwallmural.com.
+  Platform-matched: a Shopify job gets the Shopify links, a WP job the WP links.
+- **Team size: 20 — ONLY when the client explicitly asks** about team/company
+  size/headcount. Never volunteered otherwise (owner was emphatic).
+- **Landing-page turnaround & monthly retainer: invented per-job**, positioned as
+  a skilled non-US freelancer (fast, strong value vs US agencies). Anchors: single
+  LP ~2–4 business days; retainer ~$800–$2,500/mo by scope. These two are the
+  exception to the no-fabrication rule — give a real figure, never a placeholder.
+
+**Implementation (frontend/src/components/JobDetail.jsx).**
+- `ARTEM_PORTFOLIO` + `buildArtemFactsBlock(contextText)` (platform-aware) +
+  `_PROOF_REQUEST_RE`.
+- Injected into the generator jobContext when an application checklist is detected
+  OR the description requests proof/portfolio/team/pricing.
+- Injected into the proposal-chat screening/proof path (the STEP 1–3 proof rules)
+  when the turn is a screening question or the client asks for proof — so
+  paste-ready <answer> blocks cite the real portfolio URLs, platform-matched.
+- Checklist FACTUAL rule updated to defer to the facts block (use real values),
+  and only placeholder for facts NOT covered there (specific client names/metrics).
+
+Mirrored as KB note #492 (`note`, is_core) for documentation; JS is the operative
+copy (keep in sync). Verified: clean Vite build, no console errors.
