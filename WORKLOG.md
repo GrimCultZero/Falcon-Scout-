@@ -346,3 +346,53 @@ python dedup_jobs.py --execute
 
 Dry-run is the default; `--execute` required to apply. `--window N` (hours) and
 `--categories A,B,C` flags for tuning.
+
+---
+
+## 2026-06-24 — Generator: mandatory application-checklist detection ("To Apply / Send:")
+
+**Problem found while testing Excel-drop.** A WordPress site-management + landing-page
+retainer posting ended with an explicit gate:
+```
+To Apply
+Send:
+- 3–5 WordPress sites you manage
+- Team size
+- Typical landing page turnaround time
+- Monthly retainer range
+```
+The generated letter answered NONE of these — it had been hijacked by a dropped
+buffalocarts.com **Shopify** SEO audit (the richest input in context), pitching a
+one-off audit for the wrong platform/vertical. On Upwork an unanswered "To Apply"
+checklist is an automatic reject, so the letter would have failed regardless of
+prose quality. (The Excel reading itself was verified accurate — see the prior
+entry; the bug was the model over-indexing on the attachment vs the posting.)
+
+**Fix (frontend/src/components/JobDetail.jsx).**
+1. `extractApplicationChecklist(text)` — deterministic detector run before the
+   generator prompt is built. Catches: full-line triggers ("To Apply", "Send:",
+   "Please include:"), end-of-line triggers (prose then "…in your proposal:"),
+   and inline ("to apply, send: a, b and c"). Parses bulleted / numbered / plain
+   short-line lists, skips nested sub-headers ("To Apply" then "Send:"), and bails
+   on prose paragraphs to avoid false positives (verified: "we include weekly
+   reports…" → null).
+2. Each item is classified FACTUAL vs not. Factual = team size, retainer/rate,
+   turnaround, "N sites you manage", years, portfolio/links, timezone, etc.
+3. Injects a ⛔ MANDATORY block into jobContext (high priority, right after the
+   description) telling the model to answer EVERY item, and — critically — to NEVER
+   fabricate factual answers: use Artem's KB data or leave a visible
+   `[[ ARTEM: … ]]` placeholder. A fake retainer range / portfolio URL is worse
+   than a blank he fills.
+4. Added a PRIORITY RULE to the ATTACHED FILES prompt section: the POSTING defines
+   the brief; an attachment is supporting context. If a file's topic/platform/
+   vertical conflicts with the posting, the posting wins. Stops a rich attachment
+   from steamrolling the actual requirements.
+
+**Reusable lessons.**
+- Explicit application gates are deterministically detectable → handle in code,
+  don't trust the model to notice them under a big attachment.
+- Factual screening items (pricing, team size, real URLs) must be guarded against
+  fabrication with visible placeholders, not free-styled.
+- Open question for later: store Artem's standing facts (team size, retainer
+  bands, landing-page turnaround, managed-site list) in the KB so the generator
+  can fill these automatically instead of always emitting a placeholder.

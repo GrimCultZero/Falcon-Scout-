@@ -94,6 +94,90 @@ function extractWebsiteUrl(text) {
     .find(u => !_URL_SKIP_RE.test(u)) || null
 }
 
+// ── Application-checklist extraction ────────────────────────────────────────
+// Detects an explicit "To Apply / Send: / Please include:" gate in a job posting
+// and extracts the individual items the proposal MUST address. Returns null when
+// no checklist is found, otherwise { items: [{text, factual}], promptBlock }.
+//
+// Why deterministic (not left to the model): ignoring an application checklist is
+// an automatic reject on Upwork, and a rich dropped attachment can pull the model
+// off the brief entirely. Extracting the items in code guarantees they reach the
+// prompt as a non-negotiable block the POSTING owns.
+//
+// FACTUAL items (team size, retainer/budget, turnaround time, "N sites you
+// manage", years in business, location) require Artem's real data — the prompt
+// will instruct the model to answer from KB facts or leave a [[ ARTEM: … ]]
+// placeholder, never to fabricate.
+const _CHECKLIST_TRIGGER_RE = /^(?:\s*)(?:to\s+apply|how\s+to\s+apply|to\s+be\s+considered|when\s+(?:you\s+)?appl(?:y|ying)|in\s+your\s+(?:proposal|application|cover\s+letter)\s*,?\s*(?:please\s+)?(?:include|tell|share|send)|please\s+(?:include|send|provide|share|answer)|kindly\s+(?:include|send|provide)|send(?:\s+(?:me|us))?|provide|include|share|application\s+requirements?|requirements?\s+to\s+apply|must\s+include)\b[:\s]*$/im
+// End-of-line variant: a trigger phrase immediately before a line-ending colon.
+// The trailing ":" is a strong "list follows" signal, so we can allow preceding
+// prose on the same line ("Looking for X. Please include in your proposal:")
+// without the false positives a bare "include" mid-sentence would cause.
+const _CHECKLIST_TRIGGER_EOL_RE = /(?:to\s+apply|to\s+be\s+considered|please\s+(?:include|send|provide|answer|share)|in\s+your\s+(?:proposal|application|cover\s+letter)|include\s+the\s+following|answer\s+the\s+following|must\s+include|application\s+requirements?)\b[^.\n]{0,40}:\s*$/i
+// Inline form: "To apply, send: a, b, c" (items on the same line after a colon)
+const _CHECKLIST_INLINE_RE = /\b(?:to\s+apply|to\s+be\s+considered|please\s+(?:include|send|provide)|in\s+your\s+(?:proposal|application))\b[^.\n:]{0,40}:\s*([^\n]{8,400})/i
+// Item is FACTUAL (needs Artem's real data, not invented prose)
+const _FACTUAL_ITEM_RE = /\b(team\s+size|how\s+many\s+(?:people|staff|employees)|retainer|budget|rate|pricing|price\s+range|cost|fee|turnaround|turn[-\s]?around\s+time|how\s+(?:long|fast)|delivery\s+time|years?\s+(?:of\s+)?(?:experience|in\s+business)|how\s+long\s+have\s+you|\d+\s*[-–]\s*\d+\s+(?:sites?|websites?|clients?|projects?)|sites?\s+you\s+manage|websites?\s+you\s+(?:manage|run|maintain)|examples?\s+of|portfolio|links?\s+to|location|time\s?zone|availability|hours?\s+(?:per|\/)\s*week|start\s+date)\b/i
+
+function extractApplicationChecklist(text) {
+  if (!text || text.length < 20) return null
+  const lines = text.split(/\r?\n/)
+  let items = []
+
+  // Strategy 1 — a trigger line ("To Apply", "Send:", "Please include:") followed
+  // by a list (bulleted, dashed, numbered, or plain short lines).
+  for (let i = 0; i < lines.length; i++) {
+    const tl = lines[i].trim()
+    if (!_CHECKLIST_TRIGGER_RE.test(tl) && !_CHECKLIST_TRIGGER_EOL_RE.test(tl)) continue
+    const collected = []
+    for (let j = i + 1; j < lines.length && collected.length < 12; j++) {
+      const raw = lines[j].trim()
+      if (!raw) { if (collected.length) break; else continue }
+      // Stop if we hit another section header (a line ending in ':' with no list marker)
+      // A nested sub-header ("To Apply" then "Send:") — skip it, don't collect.
+      if (_CHECKLIST_TRIGGER_RE.test(raw) || /:$/.test(raw)) continue
+      const isListItem = /^(?:[-*•·▪◦‣–—]|\d+[.)]|[a-z][.)])\s+/i.test(raw)
+      const stripped = raw.replace(/^(?:[-*•·▪◦‣–—]|\d+[.)]|[a-z][.)])\s+/i, '').trim()
+      if (!isListItem) {
+        // Allow a couple of short plain lines (some clients don't use bullets),
+        // but bail on long prose paragraphs — those aren't checklist items.
+        if (collected.length === 0 && raw.length > 0 && raw.length <= 120 && !/[.!?]$/.test(raw)) {
+          collected.push(stripped); continue
+        }
+        break
+      }
+      if (stripped.length >= 2) collected.push(stripped)
+    }
+    if (collected.length) { items = collected; break }
+  }
+
+  // Strategy 2 — inline "to apply, send: a, b and c" on one line.
+  if (!items.length) {
+    const m = text.match(_CHECKLIST_INLINE_RE)
+    if (m && m[1]) {
+      items = m[1]
+        .split(/\s*(?:,|;|\band\b|•|\/)\s*/i)
+        .map(s => s.replace(/^(?:a|your|the)\s+/i, '').trim())
+        .filter(s => s.length >= 3)
+    }
+  }
+
+  if (!items.length || items.length > 12) return null
+
+  const classified = items.map(text => ({ text, factual: _FACTUAL_ITEM_RE.test(text) }))
+  const hasFactual = classified.some(c => c.factual)
+
+  const promptBlock =
+    `⛔ MANDATORY APPLICATION CHECKLIST (the client put this in the posting — this OVERRIDES any attached file's topic; the POSTING defines what to answer):\n` +
+    `The proposal will be AUTO-REJECTED if it does not address EVERY item below. Answer each one explicitly and concisely (a short labelled line or sentence per item is fine):\n` +
+    classified.map((c, i) => `  ${i + 1}. ${c.text}${c.factual ? '   ← FACTUAL: use Artem\'s real data; if not provided, write a clear placeholder like [[ ARTEM: fill in ]] — DO NOT invent a number, price, URL, or claim.' : ''}`).join('\n') +
+    (hasFactual
+      ? `\n\nFACTUAL ITEMS RULE (critical): never fabricate team size, retainer/pricing, turnaround times, years, or specific site/client URLs. If Artem's real value isn't in the KB or context, emit a visible placeholder [[ ARTEM: … ]] so he fills it before sending. A fabricated retainer range or fake portfolio link is far worse than a blank he completes.`
+      : ``)
+
+  return { items: classified, promptBlock, hasFactual }
+}
+
 function fmtDate(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleString(undefined, {
@@ -3735,11 +3819,25 @@ function ProposalColumn({ job, bridgeReady = false }) {
 
       // Prefer the full description from the enricher; bot postings are often truncated.
       const fullDescription = (job.description_full || job.description_snippet || job.raw_message || '').trim()
+
+      // ── Application-checklist detection (deterministic) ──────────────────────
+      // Postings frequently end with an explicit "To Apply / Send: / Please
+      // include:" gate listing items the proposal MUST address. Ignoring it is an
+      // automatic reject on Upwork. A rich dropped attachment (e.g. an audit) can
+      // steamroll these items, so we extract them here and inject them as a
+      // HIGH-PRIORITY mandatory block that the posting — never an attachment —
+      // owns. We also classify each item: FACTUAL items (team size, retainer/
+      // rate, turnaround, "N sites you manage", years in business) require Artem's
+      // real data — the model must NOT fabricate them; it answers from KB facts if
+      // present, otherwise leaves a clearly-marked [[ ARTEM: … ]] placeholder.
+      const applicationChecklist = extractApplicationChecklist(fullDescription)
+
       const jobContext = [
         `Job: ${job.title}`,
         `Rate: ${job.hourly_rate_min ? `$${job.hourly_rate_min}-$${job.hourly_rate_max}/hr` : job.fixed_budget || 'not specified'}`,
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
+        applicationChecklist ? applicationChecklist.promptBlock : '',
         job.hire_rate ? `Client hire rate: ${job.hire_rate}%` : '',
         job.client_total_spent_detail ? `Client spent: ${job.client_total_spent_detail}` : '',
         job.proposals ? `Applicants so far: ${job.proposals}` : '',
@@ -4001,7 +4099,8 @@ Then proceed to FINAL OUTPUT FORMAT.
 FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preamble, no meta-commentary, no "Here's the cover letter:", no rule-check explanation, no skip recommendation.${droppedFiles.length > 0 ? `
 
 ATTACHED FILES (${droppedFiles.length}): ${droppedFiles.map(f => f.name).join(', ')}
-Read ALL attached files carefully BEFORE writing. They likely contain the client's full brief, spec, screening questions, or portfolio requirements not captured in the posting text. Answer any screening questions you find. Incorporate every requirement from the files into the letter.` : ''}`,
+Read ALL attached files carefully BEFORE writing. They likely contain the client's full brief, spec, screening questions, or portfolio requirements not captured in the posting text. Answer any screening questions you find. Incorporate every requirement from the files into the letter.
+PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An attached file is supporting context, NOT the brief. If a file's topic, platform, or vertical conflicts with the posting (e.g. the file is a Shopify SEO audit but the posting asks for WordPress site management), the POSTING wins — answer what the CLIENT asked for. Never let a rich attachment pull the letter off the posting's actual requirements, and never skip the application checklist because the attachment was about something else.` : ''}`,
           messages: [{ role: 'user', content: (() => {
             const textPart = `Write a cover letter for this job:\n\n${jobContext}`
             const fileBlocks = droppedFiles
