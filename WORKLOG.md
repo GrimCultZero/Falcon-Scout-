@@ -429,3 +429,32 @@ the generator fills checklist/proof items with REAL data instead of
 
 Mirrored as KB note #492 (`note`, is_core) for documentation; JS is the operative
 copy (keep in sync). Verified: clean Vite build, no console errors.
+
+---
+
+## 2026-06-24 (cont.) — Client-type guard: stop false white-label framing
+
+**Symptom.** Generator framed a DIRECT end-client job as white-label. The job:
+"WordPress Website Support for Growing Performing Arts School" — a school hiring
+an ongoing WP/Elementor helper ("we already have a developer… looking for an
+additional person… long-term resource"). The letter positioned Artem as a
+white-label / behind-the-scenes subcontractor.
+
+**Root cause.** NOT rule injection. Verified: the agency-scope regex (line ~55)
+does not match this posting (no "agency/white-label/reseller/for our clients"),
+so white-label rules #406/#408 (both correctly `scope:agency`) were NOT injected.
+The white-label framing was the model's own inference from "already have a
+developer / additional person / resource."
+
+**Fix (JobDetail.jsx).** Inject an explicit CLIENT TYPE line into the generator
+jobContext, decided with the SAME `jobScopes(...).has('agency')` logic that gates
+the white-label rules (so the guard can never contradict rule injection):
+- agency scope present → "agency/white-label, background positioning appropriate"
+- otherwise → "DIRECT end client. Do NOT frame as white-label/subcontractor/
+  'behind another agency/developer' EVEN IF they already have a developer or want
+  an 'additional resource' — that means you'd join their team directly. White-label
+  only when the posting explicitly says white-label/reseller/'for our clients'."
+
+**Reusable lesson.** "We already have a developer / need an additional resource"
+is a DIRECT-client team-augmentation signal, the opposite of white-label. Default
+to direct-client framing; require explicit agency/reseller language for white-label.

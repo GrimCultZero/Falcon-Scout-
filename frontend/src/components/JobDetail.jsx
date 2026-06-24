@@ -3880,11 +3880,25 @@ function ProposalColumn({ job, bridgeReady = false }) {
       // present, otherwise leaves a clearly-marked [[ ARTEM: … ]] placeholder.
       const applicationChecklist = extractApplicationChecklist(fullDescription)
 
+      // ── Client-type guard ────────────────────────────────────────────────────
+      // The model has invented a white-label / subcontractor framing on DIRECT
+      // end-client jobs that merely say "we already have a developer" or "want an
+      // additional resource" (e.g. a school hiring ongoing WordPress help). Decide
+      // client type with the SAME scope logic that gates the white-label rules, so
+      // the guard can never contradict whether those rules were injected.
+      const isAgencyClient = jobScopes(
+        [job?.title, job?.keywords, job?.category, fullDescription, job?.preferred_qualifications]
+          .filter(Boolean).join(' ')
+      ).has('agency')
+
       const jobContext = [
         `Job: ${job.title}`,
         `Rate: ${job.hourly_rate_min ? `$${job.hourly_rate_min}-$${job.hourly_rate_max}/hr` : job.fixed_budget || 'not specified'}`,
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
+        isAgencyClient
+          ? `CLIENT TYPE: agency / white-label — they resell to their own end clients, so background/white-label positioning (work behind their brand, clean handoffs) is appropriate.`
+          : `CLIENT TYPE: DIRECT end client. Address them as the business that will actually use the work. Do NOT frame yourself as a white-label provider, subcontractor, or someone "working behind another agency/developer," and do NOT describe this as a white-label engagement — EVEN IF the posting says they already have a developer/team or want an "additional person/resource." That just means you would join their team directly. White-label framing is ONLY correct when the posting explicitly says white-label / reseller / "for our clients."`,
         applicationChecklist ? applicationChecklist.promptBlock : '',
         (applicationChecklist || _PROOF_REQUEST_RE.test(fullDescription))
           ? buildArtemFactsBlock(`${job.title || ''}\n${fullDescription}`)
