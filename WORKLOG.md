@@ -458,3 +458,33 @@ the white-label rules (so the guard can never contradict rule injection):
 **Reusable lesson.** "We already have a developer / need an additional resource"
 is a DIRECT-client team-augmentation signal, the opposite of white-label. Default
 to direct-client framing; require explicit agency/reseller language for white-label.
+
+---
+
+## 2026-06-24 (cont.) — White-label framing, the REAL cause: few-shot example leakage
+
+The client-type guard (prior entry) wasn't enough — the model kept producing
+white-label framing on the direct WordPress/school job. Root cause found by
+inspecting the KB: the generator injects "EXAMPLES OF PROPOSALS ARTEM LIKED" and
+"PAST COVER LETTERS ARTEM SENT" (similar winners) as few-shot templates labelled
+"emulate most heavily." Several of those are genuine white-label/agency pitches —
+e.g. **Proposal #37 (status=replied — a REPLY-WINNER)** "white-label local SEO
+partner", plus sent_proposal KB entries #417/#421/#456/#467 (all agency). A
+white-label REPLY-WINNER shown as the strongest template overpowers a one-line
+guard, so the model copied its framing.
+
+**Fix (JobDetail.jsx, generate()).** Hoisted `isAgencyClient` to the top and added
+`_WHITELABEL_EXAMPLE_RE`. On a DIRECT-client job (agency scope NOT active), white-
+label examples are filtered OUT of BOTH few-shot sources before they reach the
+prompt:
+- liked examples (`examplesRes`): drop entries whose content matches the marker.
+- past sent proposals (`ranked`): filter before ranking, so a white-label
+  REPLY-WINNER can't be picked as a template.
+On agency jobs nothing is filtered (white-label examples are correct there). The
+prompt CLIENT TYPE guard from the prior entry stays as a backstop.
+
+**Reusable lesson.** Few-shot examples beat instructions. When a behaviour must be
+suppressed for a job class, filter the EXAMPLES for that class — don't rely on a
+prose guard to override a concrete winning template. NOTE: browser-side KB context
+cache is keyed by job id; after a code change, reload before regenerating or a
+stale (unfiltered) context is reused for 5 min.

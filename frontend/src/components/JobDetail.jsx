@@ -3665,6 +3665,23 @@ function ProposalColumn({ job, bridgeReady = false }) {
         return
       }
 
+      // ── Client-type detection (hoisted) ──────────────────────────────────────
+      // Decide DIRECT vs agency/white-label up front, with the SAME scope logic
+      // that gates the white-label rules. Needed early so we can KEEP white-label
+      // few-shot examples OUT of the prompt on direct-client jobs — a white-label
+      // "winner" shown as a template to emulate overpowers any one-line guard and
+      // makes the model copy the white-label framing. (The model did exactly this
+      // on a school's direct WordPress job.)
+      const _earlyDesc = (job.description_full || job.description_snippet || job.raw_message || '').trim()
+      const isAgencyClient = jobScopes(
+        [job?.title, job?.keywords, job?.category, _earlyDesc, job?.preferred_qualifications]
+          .filter(Boolean).join(' ')
+      ).has('agency')
+      // Markers that an example/past proposal is a white-label/agency-partner pitch.
+      const _WHITELABEL_EXAMPLE_RE = /white[-\s]?label|behind the scenes|invisible partner|in the background|your end[-\s]?clients?|for your clients?|clean handoffs?|as a (?:white[-\s]?label|background) partner/i
+      // On a DIRECT job, drop white-label examples so they can't be emulated.
+      const _filterWhiteLabel = (text) => (isAgencyClient || !text) ? text : (_WHITELABEL_EXAMPLE_RE.test(text) ? '' : text)
+
       // Fetch KB rules, liked-feedback examples, sent proposals, and portfolio in parallel
       let kbRulesText = ''
       let examplesText = ''
@@ -3729,7 +3746,10 @@ function ProposalColumn({ job, bridgeReady = false }) {
           }
         }
         if (examplesRes.ok) {
-          const examples = await examplesRes.json()
+          // On a direct-client job, drop white-label example letters so the model
+          // can't emulate their framing (the example is far stronger than a guard).
+          const examples = (await examplesRes.json())
+            .filter(e => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(e.content || ''))
           if (examples.length > 0) {
             examplesText = '\n\nEXAMPLES OF PROPOSALS ARTEM LIKED (study the voice, structure, length — compose fresh, do NOT copy phrases):\n' +
               examples.slice(0, 3).map((e, i) => `Example ${i+1}:\n${e.content}`).join('\n\n')
@@ -3782,7 +3802,12 @@ function ProposalColumn({ job, bridgeReady = false }) {
             //           no captured reply text (next best)
             //   tier 2: unmatched KB entries — sent but no similarity data
             //   tier 3: cold/ghosted similar entries — last resort
-            const ranked = [...sentProposals].sort((a, b) => {
+            // On a direct-client job, exclude white-label past proposals — they're
+            // the strongest source of copied white-label framing (a REPLY-WINNER
+            // shown as "emulate most heavily" beats any prompt guard).
+            const ranked = [...sentProposals]
+              .filter(p => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(`${p.title || ''}\n${p.content || ''}`))
+              .sort((a, b) => {
               const as = getSim(a), bs = getSim(b)
               const tier = (s) =>
                 s?.has_reply ? 0 :
@@ -3880,17 +3905,11 @@ function ProposalColumn({ job, bridgeReady = false }) {
       // present, otherwise leaves a clearly-marked [[ ARTEM: … ]] placeholder.
       const applicationChecklist = extractApplicationChecklist(fullDescription)
 
-      // ── Client-type guard ────────────────────────────────────────────────────
-      // The model has invented a white-label / subcontractor framing on DIRECT
-      // end-client jobs that merely say "we already have a developer" or "want an
-      // additional resource" (e.g. a school hiring ongoing WordPress help). Decide
-      // client type with the SAME scope logic that gates the white-label rules, so
-      // the guard can never contradict whether those rules were injected.
-      const isAgencyClient = jobScopes(
-        [job?.title, job?.keywords, job?.category, fullDescription, job?.preferred_qualifications]
-          .filter(Boolean).join(' ')
-      ).has('agency')
-
+      // Client-type guard. `isAgencyClient` is computed once near the top of
+      // generate() (it also gates white-label few-shot filtering). The prompt
+      // line below stops the model inventing a white-label/subcontractor framing
+      // on a direct end-client job that merely says "we already have a developer"
+      // or "want an additional resource" (e.g. a school hiring ongoing WP help).
       const jobContext = [
         `Job: ${job.title}`,
         `Rate: ${job.hourly_rate_min ? `$${job.hourly_rate_min}-$${job.hourly_rate_max}/hr` : job.fixed_budget || 'not specified'}`,
