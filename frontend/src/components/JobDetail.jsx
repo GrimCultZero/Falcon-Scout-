@@ -2701,13 +2701,20 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       const _avgRate = Number(job.avg_rate) || 0
       const _interviewing = Number(job.interviewing) || 0
       const _connects = Number(job.connects_required) || 0
+      // Domain-aware rate floor. Artem's DEVELOPER rate is $40/hr; his PPC/SEO
+      // floor is $30/hr. A web-dev job paying $30-39 IS below his dev rate, so it
+      // must be flagged — a flat $30 floor under-rated those jobs.
+      const _WEBDEV_RATE_RE = /\b(wordpress|woocommerce|elementor|shopify|webflow|wix|squarespace|web\s*develop\w*|website\s+develop\w*|web\s+developer|landing\s+page|front[-\s]?end|full[-\s]?stack|\bhtml\b|\bcss\b|javascript|\breact\b|vue\.?js|\bphp\b|laravel|\bplugin\b|theme\s+(?:development|customi[sz]ation)|page\s*speed|core\s+web\s+vitals|web\s+design|bug\s*fix|site\s+build|custom\s+module|opencart)\b/i
+      const _isWebDevJob = _WEBDEV_RATE_RE.test(`${job.title || ''} ${job.category || ''} ${job.keywords || ''} ${fullDescription}`)
+      const _rateFloor = _isWebDevJob ? 40 : 30
+      const _floorLabel = _isWebDevJob ? `$${_rateFloor}/hr developer` : `$${_rateFloor}/hr`
       const mandatoryFlags = []
-      if (_avgRate > 0 && _avgRate < 20) {
-        mandatoryFlags.push(`Client historical avg rate $${_avgRate}/hr is FAR below Artem's $30/hr floor — strong rate-floor risk, cap verdict at MAYBE, -3 points`)
-      } else if (_avgRate > 0 && _avgRate < 25) {
-        mandatoryFlags.push(`Client avg rate $${_avgRate}/hr is materially below Artem's $30/hr floor — posted ceiling unlikely to be realised, -2 points`)
-      } else if (_avgRate > 0 && _avgRate < 30) {
-        mandatoryFlags.push(`Client avg rate $${_avgRate}/hr is below Artem's $30/hr floor — expect rate pressure, -1 point`)
+      if (_avgRate > 0 && _avgRate < _rateFloor - 10) {
+        mandatoryFlags.push(`Client historical avg rate $${_avgRate}/hr is FAR below Artem's ${_floorLabel} floor — strong rate-floor risk, cap verdict at MAYBE, -3 points`)
+      } else if (_avgRate > 0 && _avgRate < _rateFloor - 5) {
+        mandatoryFlags.push(`Client avg rate $${_avgRate}/hr is materially below Artem's ${_floorLabel} floor — posted ceiling unlikely to be realised, -2 points`)
+      } else if (_avgRate > 0 && _avgRate < _rateFloor) {
+        mandatoryFlags.push(`Client avg rate $${_avgRate}/hr is below Artem's ${_floorLabel} floor — expect rate pressure, -1 point`)
       }
       if (_interviewing >= 10) {
         mandatoryFlags.push(`Client already interviewing ${_interviewing} candidates — shortlist is closing, cap verdict at MAYBE, -3 points`)
@@ -2727,7 +2734,7 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
 
       // Telemetry (Phase C): record which analyser threshold flags fired.
       _recordViolations('analyser', job?.id, [
-        (_avgRate > 0 && _avgRate < 20) ? 'avgRate<20' : (_avgRate > 0 && _avgRate < 25) ? 'avgRate<25' : (_avgRate > 0 && _avgRate < 30) ? 'avgRate<30' : null,
+        (_avgRate > 0 && _avgRate < _rateFloor - 10) ? 'avgRate<<floor' : (_avgRate > 0 && _avgRate < _rateFloor - 5) ? 'avgRate<floor-5' : (_avgRate > 0 && _avgRate < _rateFloor) ? 'avgRate<floor' : null,
         _interviewing >= 10 ? 'interviewing>=10' : _interviewing >= 5 ? 'interviewing>=5' : _interviewing >= 3 ? 'interviewing>=3' : null,
         _connects >= 16 ? 'connects>=16' : _connects >= 12 ? 'connects>=12' : null,
         (_interviewing >= 5 && _connects >= 12) ? 'combinedSaturation' : null,
@@ -2740,10 +2747,16 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       const _hasHourly = job.hourly_rate_min != null || job.hourly_rate_max != null
       const _hasFixed = job.fixed_budget != null && String(job.fixed_budget).trim() !== ''
       let rateLine
+      // For THIS job the applicable floor is stated explicitly so the model uses
+      // the right number — $40/hr on web-dev jobs (Artem's developer rate),
+      // $30/hr otherwise. This OVERRIDES the generic "$30/hr" in the rules below.
+      const _floorDirective = _isWebDevJob
+        ? `Artem's $40/hr DEVELOPER floor (this is a web-development job — use $40/hr, NOT the generic $30/hr, wherever the rules below reference his minimum)`
+        : `Artem's $30/hr floor`
       if (_hasHourly) {
-        rateLine = `Rate: HOURLY $${job.hourly_rate_min ?? '?'}-$${job.hourly_rate_max ?? '?'}/hr (this is an HOURLY rate — apply the RATE-RANGE rule, compare the CEILING to $30/hr).`
+        rateLine = `Rate: HOURLY $${job.hourly_rate_min ?? '?'}-$${job.hourly_rate_max ?? '?'}/hr (this is an HOURLY rate — apply the RATE-RANGE rule, compare the CEILING to ${_floorDirective}).`
       } else if (_hasFixed) {
-        rateLine = `Rate: FIXED-PRICE budget $${job.fixed_budget} USD${job.project_type ? ` (${job.project_type})` : ''} — this is a FIXED budget, NOT hourly. Apply the FIXED/FLAT-PRICE rule: estimate effort in hours from the scope, then compute effective hourly = budget ÷ hours, and compare THAT to $30/hr. The budget is in USD as captured ("Budget: $X"); do NOT speculate about other currencies.`
+        rateLine = `Rate: FIXED-PRICE budget $${job.fixed_budget} USD${job.project_type ? ` (${job.project_type})` : ''} — this is a FIXED budget, NOT hourly. Apply the FIXED/FLAT-PRICE rule: estimate effort in hours from the scope, then compute effective hourly = budget ÷ hours, and compare THAT to ${_floorDirective}. The budget is in USD as captured ("Budget: $X"); do NOT speculate about other currencies.`
       } else {
         rateLine = `Rate: NOT SPECIFIED in the posting. Do NOT fabricate a rate, currency, or rate type. Treat the rate as genuinely unknown, add a flag "Rate not specified — cannot assess rate-floor risk", and do NOT let an invented rate drive the verdict up or down.`
       }
@@ -2780,7 +2793,7 @@ ARTEM'S UPWORK PROFILE (real, verified data — use this to assess fit):
 - Job Success Score: 95% — Top Rated badge. This is a strong trust signal; raises his competitiveness in crowded pools.
 - Total earnings: $100K+. Completed 68 jobs, 2,509 hours logged.
 - Associated agency ITForce: 97% JSS, 3,102 hours — additional credibility signal for agency/team jobs.
-- Rate: $30/hr floor (minimum he accepts). Recent contracts ran at $35-40/hr; one at $50/hr. For strategy/audit-only work he has charged $700-1,645 fixed. He is NOT a $10-20/hr generalist — price him accordingly.
+- Rate: $30/hr floor for PPC/SEO work; $40/hr floor for WEB-DEVELOPMENT work (WordPress/Shopify/OpenCart/custom modules — his developer rate is higher). The job-specific floor for THIS posting is stated in the rate line above — use that number. Recent contracts ran at $35-40/hr; one at $50/hr. For strategy/audit-only work he has charged $700-1,645 fixed. He is NOT a $10-20/hr generalist — price him accordingly.
 - Availability: 30+ hrs/week, response time 4-8 hours. Good signal for clients requiring responsiveness.
 - Languages: English (Fluent), Ukrainian (Native). No barrier for English-first clients.
 - Education: Master's degree (MCA), Kharkiv Polytechnic Institute.
@@ -2829,13 +2842,13 @@ IMPORTANT: Only the four hard disqualifiers force a 0. A vertical/experience mis
 RATE-RANGE INTERPRETATION RULE (mandatory):
 For jobs posted with a rate range "$X-$Y/hr":
 - Treat the CEILING $Y as the negotiable upper bound — Artem can apply at any rate up to $Y.
-- Compare $Y (not $X) to Artem's $30/hr minimum.
-- If $Y ≥ $30, the rate is acceptable; do NOT disqualify and do NOT add a "rate below minimum" flag.
-- If $Y is between $15 and $29, this is a soft negative signal — flag it ("Rate ceiling $Y/hr is below Artem's $30/hr target") and subtract 1 point, but do NOT skip.
+- Compare $Y (not $X) to Artem's applicable floor stated in the rate line ($30/hr for PPC/SEO, $40/hr for web-development jobs).
+- If $Y ≥ the applicable floor, the rate is acceptable; do NOT disqualify and do NOT add a "rate below minimum" flag.
+- If $Y is between $15 and (floor − 1), this is a soft negative signal — flag it ("Rate ceiling $Y/hr is below Artem's $<floor>/hr target") and subtract 1 point, but do NOT skip.
 - Only the $Y < $15 case triggers the hard disqualifier above.
 
 FIXED / FLAT-PRICE RATE INTERPRETATION RULE (mandatory — distinct from hourly):
-A flat fixed-price budget is a DOLLAR AMOUNT, not a rate. NEVER directly compare it to Artem's $30/hr minimum without converting to an effective hourly rate first.
+A flat fixed-price budget is a DOLLAR AMOUNT, not a rate. NEVER directly compare it to Artem's hourly floor (stated in the rate line — $30/hr PPC/SEO, $40/hr web-dev) without converting to an effective hourly rate first.
 - Identify whether the rate is hourly ("$X/hr", "hourly_rate_min/max" populated) or fixed (no "/hr" suffix, plain dollar amount, "fixed_budget" field populated, or wording like "flat", "project", "one-off").
 - For a FIXED budget $B, ESTIMATE the effort in hours from the scope described in the job posting:
     - Quick audit / single-page review: 2-4h
@@ -2844,7 +2857,7 @@ A flat fixed-price budget is a DOLLAR AMOUNT, not a rate. NEVER directly compare
     - Implementation work (GTM setup, conversion tracking install, etc.): 4-12h per site
     - Strategy doc / roadmap: 4-8h
   Use the upper end of the range when scope is uncertain — Artem prefers to under-promise time.
-- Effective rate = $B / estimated hours. Compare THAT to $30/hr.
+- Effective rate = $B / estimated hours. Compare THAT to Artem's applicable floor (the rate line states it: $30/hr PPC/SEO, $40/hr web-dev).
 - Examples:
     - "$100 flat" for an audit + fix on 3 sites (≈10-15h scope) → effective $7-10/hr → HARD SKIP (below $15 floor when computed)
     - "$500 flat" for a single-page conversion audit (≈3-5h) → effective $100-167/hr → great rate

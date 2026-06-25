@@ -530,3 +530,27 @@ compile clean.
 **Note.** This same domain classifier could later replace the loose `\bagency\b`
 scope match (a separate false-positive source flagged earlier — bare "agency"
 anywhere flips white-label framing on direct jobs). Not done here.
+
+---
+
+## 2026-06-25 — Analyser: domain-aware rate floor ($40 dev, $30 PPC/SEO)
+
+**Owner note.** "My developer rate is $40." The analyser applied a flat **$30/hr**
+floor to every job, so a web-dev posting paying $30-39 read as acceptable when
+it's actually below Artem's developer rate.
+
+**Fix (JobDetail.jsx, analyse()).** Added `_isWebDevJob` (regex over title +
+category + keywords + description: wordpress/shopify/opencart/php/react/landing
+page/custom module/…) → `_rateFloor = 40` for web-dev, `30` otherwise.
+- Deterministic mandatory-flag bands are now floor-relative: avg < floor-10
+  (-3, cap MAYBE), < floor-5 (-2), < floor (-1). For dev jobs that's <30/<35/<40;
+  PPC/SEO unchanged at <20/<25/<30.
+- `rateLine` states the job-specific floor explicitly and, on dev jobs, says to
+  use $40 "wherever the rules below reference his minimum" — overriding the
+  generic $30 in the static prompt.
+- Updated the static profile + RATE-RANGE + FIXED-PRICE rules to reference the
+  applicable floor ($30 PPC/SEO, $40 web-dev) instead of a hardcoded $30.
+- The $15 HARD-DISQUALIFIER ceiling is unchanged (floor only shifts the soft band).
+
+Verified: WordPress @ $35 → flag; Shopify @ $33 → -2; Google Ads @ $35 → OK;
+OpenCart @ $38 → flag. Compiles clean.
