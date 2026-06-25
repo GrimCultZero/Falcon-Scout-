@@ -94,3 +94,24 @@ as off-platform intent. Context didn't save it; the pattern alone fired.
 **Reusable lesson.** Gamification (mystery box / tiered discount mechanics) is a high-ROI add-on for fashion/streetwear eCommerce — especially when brand identity is strong but return-purchase rate is low. Positions web dev work as revenue driver, not just design. Good proof case for proposals involving eCommerce conversion, mobile UX, or OpenCart.
 
 **KB entry:** #487 (`case_study`, `is_core=1`)
+
+---
+
+## Case Study — Game-X PC Builder eCommerce (OpenCart custom modules, Jun 2026)
+
+**Client.** Game-X (game-x.com.ua) — Ukrainian PC hardware e-commerce store on OpenCart 3.x.
+
+**Problem.** 5,200+ SKUs with zero compatibility guidance — buyers couldn't tell if parts worked together. Support overwhelmed, carts abandoned.
+
+**Solution (8 weeks).** Three custom OpenCart modules built from scratch:
+1. **PC Configurator** — 6-step guided builder (CPU → MB → RAM → GPU → PSU → Case), each step auto-filters to compatible options only, live price counter, admin UI, mobile-responsive.
+2. **Compatibility Engine** — relational matrix over four rule layers (CPU↔MB socket, RAM type↔MB slot, GPU wattage↔PSU rating, case form factor↔MB size), real-time validation so zero invalid builds reach checkout.
+3. **Smart Cart** — build-aware checkout, saves complete builds per user, detects when a swapped part breaks compatibility and warns pre-checkout in plain language.
+
+**Tech.** OpenCart 3.x, PHP 8.1, MySQL, Vanilla JS, custom OC module API, CSS3, Git/CI.
+
+**Results (6 months).** +34% conversion (configurator vs standard pages), −60% pre-sale support tickets, 2.4× AOV, 4.9/5 CSAT.
+
+**Reusable lesson.** Strongest proof case for **complex custom OpenCart/PHP development** — not just theming but real backend logic (rule engine, stateful cart, admin tooling). Pairs with SMASH (#487, OpenCart theme + gamification) and Game-X (#496) to cover the OpenCart/eCommerce-dev vertical. Lead with this when a job needs custom modules, product configurators, or compatibility/validation logic.
+
+**KB entry:** #496 (`case_study`, `is_core=1`).
