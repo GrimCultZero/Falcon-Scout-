@@ -2373,6 +2373,35 @@ def list_proposals(
         return out
 
 
+# Service-domain classification for similarity. The OLD scoring used only the
+# Upwork `category` (+3) for topic and 5 points of COMMERCIAL attributes (rate,
+# spend, country) — so a web-dev job matched a Google Ads job purely on rate/
+# country. That produced the "similar jobs got a response" badge citing PPC/SEO
+# jobs for a web-dev posting. Domain is the real "same kind of work" signal.
+import re as _re_mod
+
+_DOMAIN_PATTERNS = {
+    # web development / site building — deliberately NOT generic "website"
+    # (an SEO "website optimization" job is SEO, not web-dev).
+    "webdev": r"\b(wordpress|woocommerce|elementor|shopify|webflow|wix|squarespace|web\s*development|web\s*developer|website\s+development|landing\s+page|front[-\s]?end|full[-\s]?stack|html|css|javascript|react|vue\.?js|php|laravel|plugin|theme\s+(?:development|customi[sz]ation)|page\s*speed|core\s+web\s+vitals|web\s+design|bug\s*fix|site\s+build)\b",
+    "ppc": r"\b(google\s+ads?|adwords|ppc|paid\s+search|paid\s+media|paid\s+social|performance\s+max|pmax|meta\s+ads?|facebook\s+ads?|instagram\s+ads?|tiktok\s+ads?|microsoft\s+ads?|bing\s+ads?|\bsem\b|ad\s+spend|google\s+merchant|shopping\s+ads?|media\s+buy)\b",
+    "seo": r"\b(seo|organic\s+(?:search|traffic)|rankings?|serp|backlinks?|link\s+building|on-?page|technical\s+seo|local\s+seo|keyword\s+research|google\s+business\s+profile|map\s+pack|search\s+visibility|\baeo\b)\b",
+    "smm": r"\b(social\s+media\s+(?:management|marketing|manager)|\bsmm\b|community\s+management|content\s+calendar)\b",
+    "email": r"\b(email\s+marketing|klaviyo|mailchimp|email\s+campaigns?|newsletter|email\s+automation)\b",
+    "automation": r"\b(n8n|make\.com|zapier|automation\s+workflow|ai\s+agent|chat\s*bot)\b",
+}
+
+
+def _job_domains(*texts) -> set:
+    """Classify a job into a set of service domains from its title/description.
+    Returns an empty set when nothing matches (caller treats unknown as
+    'don't gate', falling back to commercial scoring)."""
+    blob = " ".join(t for t in texts if t).lower()
+    if not blob:
+        return set()
+    return {name for name, pat in _DOMAIN_PATTERNS.items() if _re_mod.search(pat, blob)}
+
+
 @app.get("/proposals/similar")
 def similar_proposals(job_id: int = Query(..., description="ID of the job to find similar past proposals for")):
     """
@@ -2404,6 +2433,18 @@ def similar_proposals(job_id: int = Query(..., description="ID of the job to fin
         t_spend    = _spend_tier_label(_parse_spend_usd(target_snap.get("client_total_spent_detail")))
         t_rate     = _rate_band_label(target_snap)
         t_country  = _country_bucket_label(target_snap.get("client_country"))
+        # Service domain of the target. TITLE-FIRST: the title is the cleanest
+        # statement of what the job IS (a "WordPress … + Landing Pages" posting is
+        # web-dev even if the body also mentions SEO). Only fall back to the body
+        # when the title classifies to nothing. This is the PRIMARY "same kind of
+        # work" signal and gates out cross-domain matches (PPC/SEO vs web-dev).
+        _t_title = getattr(target_job, "title", None)
+        t_domains  = _job_domains(_t_title) or _job_domains(
+            _t_title,
+            getattr(target_job, "description_full", None) or getattr(target_job, "description_snippet", None),
+            getattr(target_job, "keywords", None),
+            t_category,
+        )
 
         # Load all proposals that have a snapshot
         all_proposals = session.query(Proposal).filter(
@@ -2429,18 +2470,37 @@ def similar_proposals(job_id: int = Query(..., description="ID of the job to fin
             p_spend    = _spend_tier_label(_parse_spend_usd(snap.get("client_total_spent_detail")))
             p_rate     = _rate_band_label(snap)
             p_country  = _country_bucket_label(snap.get("client_country"))
+            # Proposal's service domain — TITLE-FIRST (same rationale as target),
+            # falling back to the sent-letter preview + category only when the
+            # snapshot title classifies to nothing.
+            p_domains  = _job_domains(snap.get("title")) or _job_domains(
+                snap.get("title"), (p.sent_text or "")[:600], p_category)
 
+            # HARD GATE: when BOTH jobs have a known domain and they don't overlap,
+            # they are NOT the same kind of work — skip regardless of commercial
+            # overlap. This is what stops a web-dev job matching PPC/SEO proposals.
+            domain_overlap = t_domains & p_domains
+            if t_domains and p_domains and not domain_overlap:
+                continue
+
+            # Domain match is the PRIMARY signal now (+4), then category, then the
+            # commercial attributes as weak tie-breakers. Max = 4+3+1+1+1 = 10.
+            if domain_overlap:
+                score += 4
             if t_category and p_category and t_category == p_category:
                 score += 3
             if t_rate and p_rate and t_rate == p_rate:
-                score += 2
+                score += 1
             if t_spend and p_spend and t_spend == p_spend:
-                score += 2
+                score += 1
             if t_country and p_country and t_country == p_country:
                 score += 1
 
-            if score == 0:
-                continue  # no overlap at all — skip
+            # Require a real topical signal: at least a domain overlap OR a
+            # category match. Commercial-only overlap (rate/spend/country) is NOT
+            # "similar" — that was the old false-positive source.
+            if not domain_overlap and not (t_category and p_category and t_category == p_category):
+                continue
 
             snapshot_title = snap.get("title") or ""
             # client_reply_text is the strongest "this letter landed" signal —
@@ -2454,6 +2514,8 @@ def similar_proposals(job_id: int = Query(..., description="ID of the job to fin
                 "job_title":        snapshot_title,
                 "status":           p.status,
                 "similarity_score": score,
+                "domains":          sorted(p_domains),
+                "domain_match":     bool(domain_overlap),
                 "sent_text_preview": (p.sent_text or "")[:400],
                 "client_reply_text": reply_excerpt,
                 "has_client_reply":  bool(reply_excerpt),
@@ -2486,6 +2548,8 @@ def similar_proposals(job_id: int = Query(..., description="ID of the job to fin
             "positive_count": positive_count,
             "cold_count":     cold_count,
             "total_matched":  len(scored),
+            "target_domains": sorted(t_domains),
+            "max_score":      10,
         }
 
 

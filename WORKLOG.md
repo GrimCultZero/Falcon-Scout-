@@ -488,3 +488,45 @@ suppressed for a job class, filter the EXAMPLES for that class — don't rely on
 prose guard to override a concrete winning template. NOTE: browser-side KB context
 cache is keyed by job id; after a code change, reload before regenerating or a
 stale (unfiltered) context is reused for 5 min.
+
+---
+
+## 2026-06-25 — "Similar jobs got a response" badge: fix cross-domain false positives
+
+**Bug (owner-reported).** On a web-dev posting the badge claimed "3 similar jobs
+got a response" and listed PPC/SEO jobs (Paid Media for Google Ads, SEO Expert
+for Home Services, etc.) — none web-dev. Artem has no web-dev responses yet, so
+the badge was misleading.
+
+**How the function works (`GET /proposals/similar`, api/main.py).** Scores each
+past proposal vs the target job by feature overlap. OLD weights: same Upwork
+`category` +3, rate band +2, spend tier +2, country +1 (max 8). The ONLY topic
+signal was `category`; the other 5 points were COMMERCIAL attributes. So a web-dev
+job and a Google Ads job with the same rate/spend/country scored 3-5/8 and were
+called "similar" — pure false positive.
+
+**Fix.** Added service-DOMAIN classification as the primary signal:
+- `_job_domains(*texts)` → set from {webdev, ppc, seo, smm, email, automation}
+  via keyword patterns. webdev patterns are deliberately build/dev-specific
+  (wordpress/shopify/landing page/react/php…), NOT generic "website", so an SEO
+  "website optimization" job stays SEO.
+- **TITLE-FIRST**: classify from the title (cleanest intent), fall back to body
+  only if the title yields nothing. A "WordPress … + Landing Pages" job → {webdev}
+  even though its body mentions SEO. This was the key precision win — body-based
+  classification tagged it seo+webdev and let every SEO proposal through.
+- **HARD GATE**: if target and proposal both have known domains and they don't
+  intersect → skip. PPC/SEO proposals no longer match a web-dev job.
+- New weights (max 10): domain overlap +4, category +3, rate/spend/country +1
+  each. Also require a real topical signal (domain overlap OR category match) —
+  commercial-only overlap no longer qualifies.
+- Returns `target_domains`, per-result `domains`/`domain_match`, `max_score`.
+  Frontend "sim X/8" → "X/{max_score}".
+
+**Verified.** Web-dev job 3646: matched 36→5, all web-dev (Shopify dev/audit),
+positive_count 0 → badge correctly disappears. PPC job 3800: 28 matches, all PPC,
+including the replied + hired winners → badge fires with relevant jobs. Both
+compile clean.
+
+**Note.** This same domain classifier could later replace the loose `\bagency\b`
+scope match (a separate false-positive source flagged earlier — bare "agency"
+anywhere flips white-label framing on direct jobs). Not done here.

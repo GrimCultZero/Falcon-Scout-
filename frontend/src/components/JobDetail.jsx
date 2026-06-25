@@ -3054,7 +3054,7 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
                           color: r.outcome_signal === 'positive' ? '#00d070' : '#f59e0b',
                         }}>{r.status}</span>
                         <span style={{ opacity: 0.8 }}>{r.job_title || '(untitled)'}</span>
-                        <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 10, opacity: 0.5 }}>sim {r.similarity_score}/8</span>
+                        <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 10, opacity: 0.5 }}>sim {r.similarity_score}/{similar.max_score || 10}</span>
                       </div>
                     ))}
                   </div>
