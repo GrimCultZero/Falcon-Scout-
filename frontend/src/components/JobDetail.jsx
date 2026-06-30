@@ -4003,6 +4003,7 @@ Voice rules:
 - Always write in first person as Artem; sign off with exactly "Artem" on its own final line (capital A)
 - Open by addressing their specific problem/situation, never generic openers
 - Lead with a specific insight — but ONLY from what the POSTING actually says, from attached files, or from general domain expertise framed as a pattern. NEVER a fabricated diagnosis of their site/account (see NO FABRICATED DIAGNOSIS rule below).
+- NO ASSUMED VERTICAL / PRODUCT (mandatory): when the posting does NOT name the client's specific product, niche, or vertical (it just says "retail", "ecommerce", "a client", "our store", etc. with no product category), do NOT commit the letter to a specific product type and do NOT name concrete branded products the client never mentioned (Nike, Adidas, Apple, "running shoes", "Air Max size 10", etc.). Illustrative examples must stay category-neutral or explicitly hypothetical — use "[your product]", "a high-intent query for a specific model/size/SKU", "whatever you sell". Naming a concrete product/brand the client never stated reads as "assumed the wrong business" and undercuts your expertise. Demonstrate the METHOD generically and learn the specifics via the audit. Only use a concrete vertical/product/brand when the POSTING or an attached file actually names it.
 - NEVER open with meta-commentary about documents or context: banned openers include "I'm working from the job summary here", "the full PDF is really valuable", "having reviewed your brief", "based on the spec you shared", "after reading the attached document". Show you read it by what you say, not by saying you read it. The hook must be a strategic observation, not a process note.
 - Short punchy lines, no walls of text
 - DO NOT LECTURE THE CLIENT ABOUT THEIR OWN STRATEGY CHOICE: If the client has explicitly chosen an approach (parasite SEO, influencer marketing, a specific platform, a specific methodology), do not open by warning them about its risks or questioning whether it's wise. They know. They decided. Address the HOW, not whether their strategy is correct. Opening with "this approach comes with trade-offs — let me map the mechanics before diving in" is condescending and signals you're not the specialist they need. If you have a genuine tactical concern about execution, raise it briefly mid-letter after establishing fit — never as the opener.
@@ -4474,6 +4475,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const hasUnsolicitedLogistics = UNSOLICITED_LOGISTICS_RE.some(re => re.test(text))
             const hasFillerCloser = FILLER_CLOSER_RE.some(re => re.test(text))
 
+            // ── Assumed-vertical / fabricated-brand check ────────────────────
+            // On a thin posting that never names the client's product, the model
+            // invents a concrete vertical to sound specific (e.g. "buy Nike Air
+            // Max size 10" on a generic "retail" job). Any concrete consumer
+            // brand that appears in the DRAFT but NOT in the posting was ASSUMED,
+            // not given — flag it so the enforcer neutralises it to a generic
+            // example. (Case-study client names are Artem's own and live in the
+            // APPROVED CASE STUDIES block, so they're not in this list.)
+            const _CONSUMER_BRANDS_RE = /\b(nike|adidas|puma|reebok|new balance|under armour|gucci|prada|louis vuitton|chanel|zara|h&m|uniqlo|apple|samsung|sony|\blg\b|dell|\bhp\b|lenovo|nikon|canon|ikea|wayfair|sephora|ulta|lululemon|north face|patagonia|rolex|lego|dyson|bose|gopro|fitbit|peloton)\b/gi
+            const _postingBlob = `${job.title || ''} ${fullDescription}`.toLowerCase()
+            const _assumedBrands = [...new Set((text.match(_CONSUMER_BRANDS_RE) || []).map(b => b.toLowerCase()))]
+              .filter(b => !_postingBlob.includes(b))
+            const hasAssumedBrand = _assumedBrands.length > 0
+
             // ── Regulated-vertical / Vape Shop case-study checks (KB Rule 437) ──
             // (1) If the job is in a regulated/restricted-substance vertical
             //     (hemp/CBD/cannabis/vape/supplement/etc.) the draft MUST cite
@@ -4786,6 +4801,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !missingYearsExperience && !ppcMissingPremierPartner
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
+              && !hasAssumedBrand
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -4803,6 +4819,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasFabricatedDiagnosis && 'hasFabricatedDiagnosis',
               hasUnsolicitedLogistics && 'hasUnsolicitedLogistics',
               hasFillerCloser && 'hasFillerCloser',
+              hasAssumedBrand && 'hasAssumedBrand',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
@@ -4876,6 +4893,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (ppcMissingPremierPartner) {
               console.log('[Falcon] Rule pre-check: PPC/Google Ads job but draft missing "Google Premier Partner 2026" (Rule 439) — firing Claude enforcer.')
             }
+            if (hasAssumedBrand) {
+              console.log(`[Falcon] Rule pre-check: draft names brand(s) the posting never mentioned (${_assumedBrands.join(', ')}) — assumed vertical, firing Claude enforcer.`)
+            }
 
             // Build a list of specific violations found by the pre-check so the
             // enforcer knows exactly what to fix (and is allowed to add content
@@ -4901,6 +4921,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (hasFabricatedDiagnosis) {
               specificViolations.push(
                 'FABRICATED DIAGNOSIS (credibility-critical): The draft claims to have inspected the client\'s site/account, OR asserts a specific finding about their CURRENT state as fact (e.g. "i took a look at yoursite.com", "your technical foundation isn\'t set up", "Google isn\'t connecting those queries because [cause]", "your tracking is broken"). Artem has ONLY the job posting — he has not seen their property. Rewrite every such claim two ways: (1) reframe inspection claims as future investigation ("first thing i\'d check is whether X" instead of "your X is broken"); (2) reframe asserted findings as patterns/hypotheses ("often when a site isn\'t ranking for its own brand name it comes down to X or Y — i\'d confirm which in the audit" instead of "your foundation isn\'t set up"). Keep the sharp, knowledgeable tone — just move from "i already found this on your site" to "here\'s what i\'d look for and why". Do NOT invent any number describing their current performance.'
+              )
+            }
+            if (hasAssumedBrand) {
+              specificViolations.push(
+                `ASSUMED VERTICAL / FABRICATED BRAND (credibility-critical): The draft names concrete consumer brand(s) the posting never mentioned — ${_assumedBrands.join(', ')}. The posting does NOT state the client's specific product or vertical, so naming a product/brand assumes their business and risks reading as "assumed the wrong company". ` +
+                'REWRITE every illustrative example to be category-neutral or explicitly hypothetical — replace the named brand/product with "[your product]", "a specific model/size/SKU", "whatever you sell", or a generic "research query vs high-intent buy query" framing. Keep the underlying insight (buyer-intent segmentation, feed structure, etc.) — only strip the assumed product identity. Do NOT substitute a different specific brand; go neutral. Case-study client names in the APPROVED CASE STUDIES block are Artem\'s own and must NOT be touched.'
               )
             }
             if (hasUnsolicitedLogistics) {

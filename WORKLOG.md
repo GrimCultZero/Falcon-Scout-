@@ -554,3 +554,36 @@ page/custom module/…) → `_rateFloor = 40` for web-dev, `30` otherwise.
 
 Verified: WordPress @ $35 → flag; Shopify @ $33 → -2; Google Ads @ $35 → OK;
 OpenCart @ $38 → flag. Compiles clean.
+
+---
+
+## 2026-06-30 — Generator: no assumed vertical / fabricated brand on thin postings
+
+**Owner insight.** A Google Ads "retail" job (4437) had a 2-sentence posting that
+never named the client's product. The generated letter built its whole diagnostic
+around footwear — "best running shoes", "Nike vs Adidas", "buy Nike Air Max size
+10". On a client who sells anything else, that reads as "assumed the wrong
+business". Same family as the fabricated-opener problem: the model invents
+specifics to sound sharp when the posting is thin.
+
+**Fix (JobDetail.jsx).**
+1. Prompt rule (NO ASSUMED VERTICAL / PRODUCT): when the posting doesn't name the
+   product/vertical, keep illustrative examples category-neutral or hypothetical
+   ("[your product]", "a specific model/size/SKU", "whatever you sell") — never
+   name a concrete product/brand the client didn't state. Demonstrate the METHOD
+   generically; learn specifics via the audit.
+2. Deterministic enforcer pre-check (`hasAssumedBrand`): a curated consumer-brand
+   regex (Nike/Adidas/Apple/Samsung/Zara/IKEA/…) scans the DRAFT; any brand that
+   appears in the letter but NOT in the posting was assumed → fires the enforcer
+   with a specificViolation telling it to neutralise the example (go generic, do
+   NOT swap in another brand). Case-study client names are Artem's own (in the
+   APPROVED CASE STUDIES block) and aren't in the brand list, so they're safe.
+
+Verified: the real Nike/Adidas letter on the thin posting flags both; a posting
+that names Nike only flags Adidas; a neutral letter flags nothing. Compiles clean.
+
+Also reviewed the letter itself (cover-letter critique): strong PPC draft, correct
+case-study choice (Nectar Flowers + Skin Reboot, both paid-media ecommerce), clean
+close. One genuine glitch noted for the owner to hand-fix this time: Skin Reboot
+line printed "(attached as PDF)" twice — a dedup miss in _stripDuplicateCaseBlockLabel
+worth patching later.
