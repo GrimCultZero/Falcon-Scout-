@@ -2818,7 +2818,7 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         `Keywords: ${job.keywords || 'none'}`,
         `Description (full):\n${fullDescription}`,
         `Client: ${job.client_review_count || 0} reviews, ${job.client_rating_score || 0} rating, ${job.hire_rate || '?'}% hire rate, ${job.client_total_spent_detail || 'unknown spend'}, payment ${job.payment_verified ? 'verified' : 'NOT verified'}`,
-        `Activity: ${job.proposals || '?'} applicants, ${job.connects_required || '?'} connects, ${job.interviewing || 0} interviewing, ${job.client_already_hired ?? 0} ALREADY HIRED, ${job.invites_sent || 0} invites sent`,
+        `Activity: ${job.proposals || '?'} applicants, ${job.interviewing || 0} interviewing, ${job.client_already_hired ?? 0} ALREADY HIRED, ${job.invites_sent || 0} invites sent (NOTE: "connects required" is deliberately omitted — it is an ignored flat entry cost, NOT a competition signal; judge competition from applicant count and boost bids only)`,
         _boostBids.length
           ? `Boost competition (captured from the apply page — rivals' boost bids in connects, this is the REAL competition signal; do NOT confuse with the flat "connects required" cost which is IGNORED): ${_boostBids.map(b => `#${b.rank}=${b.connects}c`).join(', ')}. Top bid ${_topBoost} connects = what Artem must outbid to lead the boosted field.`
           : `Boost competition: not captured for this job (apply page not yet scraped) — judge competition from applicant count instead.`,
@@ -2935,6 +2935,7 @@ The "interviewing" count is the number of candidates the client is ALREADY in ac
 - If interviewing is 0 or absent: no penalty.
 
 CONNECTS COST — IGNORE (mandatory): Do NOT factor the "connects required" number into the score or verdict, and do NOT flag it. Artem boosts every proposal, so connect cost has no bearing on his decision. Even a very high connect requirement is irrelevant — never deduct points for it or mention it as a concern.
+CRITICAL — connects required is NOT a competition signal: the "connects required" number is a flat ENTRY PRICE Upwork sets, NOT a measure of how contested the job is. NEVER describe connects as a "competitive auction", "premium auction", "high competition", or infer demand/competition from it. Competition is read ONLY from (a) the applicant count and (b) the BOOST COMPETITION bids below. A high connects-required number with few applicants and low boost bids is an UNCONTESTED job — do not call it competitive. Conflating connect cost with auction/competition is a specific error to avoid.
 
 BOOST COMPETITION SIGNAL (mandatory when captured — this REPLACES connect cost as the real competition read): The job data may include "Boost competition" — the actual boost bids (in connects) rivals placed for the top proposal slots, scraped from the apply page. This IS decision-relevant (unlike the flat connect cost): it shows how aggressively others are fighting for visibility, and the TOP bid is what Artem must outbid to lead the boosted field. Weigh it as follows:
 - Top boost bid >= 100 connects: heavy competition — rivals want this badly and leading the field is expensive. -1 point and a flag. Does NOT cap the verdict (Artem can still boost in), but temper optimism on win-odds.

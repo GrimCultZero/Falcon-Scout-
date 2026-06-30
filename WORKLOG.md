@@ -720,3 +720,24 @@ sports SaaS" tracking talk do NOT. Compiles clean.
 NOTE: there is genuinely NO SaaS/software case study in the KB — if Artem has run
 Google Ads for a real SaaS client, adding that case (even an English distill of a
 Ukrainian one) would let the generator answer "yes, SaaS experience" truthfully.
+
+---
+
+## 2026-06-30 (cont.) — Analyser: stop conflating connect COST with auction competition
+
+Owner saw an analysis (welding SEO job 4179) flagging "High connect cost (15) —
+competitive auction, -1 point". That stored verdict predates today's connect-cost
+removal (cached), but it exposed a real conceptual trap: the model treats the flat
+"connects required" number as a competition/auction signal. It isn't — connects is
+a flat ENTRY PRICE; auction heat = BOOST BIDS (+ applicant count).
+
+Robustness fix (don't show the model data it must ignore):
+- Removed "N connects" from the analyser Activity line entirely; added a note that
+  connects is an ignored flat entry cost, not a competition signal.
+- Strengthened the CONNECTS COST — IGNORE rule: explicit "connects required is NOT
+  a competition signal — never call it a competitive/premium auction or infer
+  demand from it; competition is read ONLY from applicant count + boost bids. A
+  high connects number with few applicants/low boosts is an UNCONTESTED job."
+
+Re-run the analyser (reload first) to clear the stale connect-auction flags.
+Compiles clean.
