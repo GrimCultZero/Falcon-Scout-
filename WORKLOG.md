@@ -669,3 +669,24 @@ ROI calculus. Removed it from the analyser entirely:
   Activity line as context, but is explicitly excluded from the verdict.
 Interviewing-saturation and rate-floor signals are unchanged. Re-run the analyser
 on previously-scored jobs to clear old connect-cost flags. Compiles clean.
+
+---
+
+## 2026-06-30 (cont.) — Analyser: factor in BOOST competition (when captured)
+
+Counterpart to dropping connect cost. Connect cost is a flat entry price (ignored —
+Artem boosts everything); BOOST competition is the real read — how hard rivals are
+bidding (in connects) for the top proposal slots, scraped from the apply page
+(`job.boost_bids`: [{rank, connects, age}]). The TOP bid is what Artem must outbid
+to lead the field.
+
+- Deterministic flag from `job.boost_bids`: top bid >=100 → heavy, -1; 50-99 →
+  moderate, 0; <50 → light, mild positive on win-odds. Telemetry `boost:<bucket>`.
+- jobSummary now includes the captured boost bids (or notes none captured → fall
+  back to applicant count).
+- Prompt rule "BOOST COMPETITION SIGNAL": prefer it over raw applicant count when
+  present; heavy = -1 (does NOT cap verdict — he can boost in); light = winnable.
+
+Verified bucketing on real data (top bids 13–202): WP Head-of-Dev (202)=heavy,
+BI Analyst (181)=heavy, Shopify (61)=moderate, window cleaning (25)/Meta (13)=light.
+Compiles clean.

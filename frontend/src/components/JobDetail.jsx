@@ -2758,15 +2758,33 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       } else if (_interviewing >= 3) {
         mandatoryFlags.push(`Client already interviewing ${_interviewing} candidates — funnel is filling, -1 point`)
       }
-      // Connect cost is intentionally NOT a scoring factor: Artem boosts every
-      // proposal, so the connects-required number doesn't change his ROI calculus.
-      // (Removed the connects -1/-2 deductions and the interviewing+connects
-      // combined-saturation signal.)
+      // Connect COST is intentionally NOT a scoring factor: Artem boosts every
+      // proposal, so the flat connects-required number doesn't change his calculus.
+      // BOOST COMPETITION, however, IS meaningful — it shows how aggressively
+      // rivals are boosting for the top slot (captured from the apply page when
+      // available). The TOP boost bid is what Artem must outbid to lead the field.
+      const _boostBids = Array.isArray(job.boost_bids) ? job.boost_bids : []
+      const _boostConnects = _boostBids.map(b => Number(b.connects) || 0).filter(n => n > 0)
+      const _topBoost = _boostConnects.length ? Math.max(..._boostConnects) : 0
+      let _boostBucket = null
+      if (_topBoost > 0) {
+        if (_topBoost >= 100) {
+          _boostBucket = 'heavy'
+          mandatoryFlags.push(`Heavy boost competition (${_boostBids.length} boosters, top bid ${_topBoost} connects) — rivals are boosting hard for the top slot, so winning visibility costs a large boost. Real competition signal (Artem boosts everything, but leading THIS field is expensive). -1 point.`)
+        } else if (_topBoost >= 50) {
+          _boostBucket = 'moderate'
+          mandatoryFlags.push(`Moderate boost competition (${_boostBids.length} boosters, top bid ${_topBoost} connects) — a meaningful boost is needed to lead the field. Informational, no point change.`)
+        } else {
+          _boostBucket = 'light'
+          mandatoryFlags.push(`Light boost competition (${_boostBids.length} boosters, top bid ${_topBoost} connects) — the field isn't boosting hard; a modest boost wins a top slot. Mild positive on win-odds.`)
+        }
+      }
 
       // Telemetry (Phase C): record which analyser threshold flags fired.
       _recordViolations('analyser', job?.id, [
         (_avgRate > 0 && _avgRate < _rateFloor - 10) ? 'avgRate<<floor' : (_avgRate > 0 && _avgRate < _rateFloor - 5) ? 'avgRate<floor-5' : (_avgRate > 0 && _avgRate < _rateFloor) ? 'avgRate<floor' : null,
         _interviewing >= 10 ? 'interviewing>=10' : _interviewing >= 5 ? 'interviewing>=5' : _interviewing >= 3 ? 'interviewing>=3' : null,
+        _boostBucket ? `boost:${_boostBucket}` : null,
       ])
 
       // Explicit, deterministic rate descriptor — so the analyser NEVER has to
@@ -2800,6 +2818,9 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         `Description (full):\n${fullDescription}`,
         `Client: ${job.client_review_count || 0} reviews, ${job.client_rating_score || 0} rating, ${job.hire_rate || '?'}% hire rate, ${job.client_total_spent_detail || 'unknown spend'}, payment ${job.payment_verified ? 'verified' : 'NOT verified'}`,
         `Activity: ${job.proposals || '?'} applicants, ${job.connects_required || '?'} connects, ${job.interviewing || 0} interviewing, ${job.client_already_hired ?? 0} ALREADY HIRED, ${job.invites_sent || 0} invites sent`,
+        _boostBids.length
+          ? `Boost competition (captured from the apply page — rivals' boost bids in connects, this is the REAL competition signal; do NOT confuse with the flat "connects required" cost which is IGNORED): ${_boostBids.map(b => `#${b.rank}=${b.connects}c`).join(', ')}. Top bid ${_topBoost} connects = what Artem must outbid to lead the boosted field.`
+          : `Boost competition: not captured for this job (apply page not yet scraped) — judge competition from applicant count instead.`,
         job.avg_rate ? `Client avg hourly rate paid to freelancers: $${job.avg_rate}/hr` : '',
         job.preferred_qualifications ? `Preferred qualifications (Upwork's soft filter — for each criterion Artem doesn't meet, apply the SOFT NEGATIVE SIGNAL scoring rule from your system prompt: -1 point + a "Doesn't meet preferred: <criterion>" flag. ALSO apply the MALFORMED PREFERRED-QUALIFICATIONS GUARD — if a line looks nonsensical for the job context (sign-language requirement on a PPC job, two languages smushed without separators, etc.), treat it as scraping corruption and DO NOT penalise):\n${job.preferred_qualifications}` : '',
         mandatoryFlags.length ? `\nMANDATORY FLAGS — the analyser pre-check computed these from the data above; you MUST include each one verbatim in your "flags" array and apply the corresponding point deductions and verdict caps as stated in the system prompt:\n${mandatoryFlags.map((f, i) => `${i + 1}. ${f}`).join('\n')}` : '',
@@ -2913,6 +2934,12 @@ The "interviewing" count is the number of candidates the client is ALREADY in ac
 - If interviewing is 0 or absent: no penalty.
 
 CONNECTS COST — IGNORE (mandatory): Do NOT factor the "connects required" number into the score or verdict, and do NOT flag it. Artem boosts every proposal, so connect cost has no bearing on his decision. Even a very high connect requirement is irrelevant — never deduct points for it or mention it as a concern.
+
+BOOST COMPETITION SIGNAL (mandatory when captured — this REPLACES connect cost as the real competition read): The job data may include "Boost competition" — the actual boost bids (in connects) rivals placed for the top proposal slots, scraped from the apply page. This IS decision-relevant (unlike the flat connect cost): it shows how aggressively others are fighting for visibility, and the TOP bid is what Artem must outbid to lead the boosted field. Weigh it as follows:
+- Top boost bid >= 100 connects: heavy competition — rivals want this badly and leading the field is expensive. -1 point and a flag. Does NOT cap the verdict (Artem can still boost in), but temper optimism on win-odds.
+- Top boost bid 50-99: moderate — note it, no point change.
+- Top boost bid < 50: light — the field isn't boosting hard, a modest boost wins a top slot. Treat as a mild POSITIVE on win-odds (this is a winnable, under-contested job).
+- When boost competition IS captured, prefer it over raw applicant count as your competition read — it's the concrete signal. When it is NOT captured, fall back to applicant count. The MANDATORY FLAGS already encode the right bucket — include the boost flag verbatim and apply its point change.
 
 MALFORMED PREFERRED-QUALIFICATIONS GUARD (mandatory — scraping artifacts are not real client requirements):
 The "preferred_qualifications" field is scraped from Upwork's UI and can suffer concatenation bugs. If a line is obviously nonsensical for the job context — e.g. "Sign Language" listed for a routine Google Ads/PPC posting, two language requirements smushed without separators ("German Sign Language" when "German" and "Italian Sign Language" were probably separate entries), or an industry requirement that has zero relevance to the job category — treat that line as a likely scraping artifact and DO NOT penalise or flag it as a mismatch. You may note in the analysis "(preferred-qual data quality issue, skipped)" but do not deduct points. Apply common sense: a real client preferring sign-language fluency in a PPC manager is essentially never genuine; assume corruption.
