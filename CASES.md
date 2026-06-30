@@ -115,3 +115,17 @@ as off-platform intent. Context didn't save it; the pattern alone fired.
 **Reusable lesson.** Strongest proof case for **complex custom OpenCart/PHP development** — not just theming but real backend logic (rule engine, stateful cart, admin tooling). Pairs with SMASH (#487, OpenCart theme + gamification) and Game-X (#496) to cover the OpenCart/eCommerce-dev vertical. Lead with this when a job needs custom modules, product configurators, or compatibility/validation logic.
 
 **KB entry:** #496 (`case_study`, `is_core=1`).
+
+---
+
+## Case Study — Atlant Real Estate Google Ads (property developer, found Jun 30 2026)
+
+**Context.** Analyser SKIPped a "Real Estate Adwords Specialist" job (id 4381, score 2/10), its top reason: *"Artem has zero real-estate case studies."* That was WRONG — a strong real-estate Google Ads case existed in the KB but was invisible: auto-imported, Ukrainian title, `is_core=0`, so neither the analyser's static vertical list nor the model recognised it.
+
+**The case (KB #245, Ukrainian source → distilled to English KB #502, core).** Atlant (atlant.build), major Ukrainian property developer. Google Ads audit + ongoing management for new-listing/apartment-sales lead gen. Results (Jun–Nov 2023 vs prior 6mo): **+56.5% leads, −31% CPC, +144% clicks**, budget scaled +68% while cost/conversion rose <8%; paid drove 49% of traffic. Winning structure: branded campaigns per residential complex (lowest CPL) + PMax + DSA + remarketing + installment-plan campaigns.
+
+**Fix.** (1) Added clean English core `case_study` #502 so the generator can cite it. (2) Added REAL ESTATE to the analyser's PROVEN-RESULTS vertical list with an explicit "do NOT score real-estate PPC jobs as no-vertical-experience" instruction.
+
+**Reusable lesson.** The analyser/generator only "know" verticals that are (a) core and (b) in a language/title the model can match. Auto-imported Ukrainian case studies are effectively invisible proof. When a vertical gap is flagged, CHECK THE KB in the source language (нерухомість = real estate) before trusting "Artem has no X experience" — and promote/translate the match to a core English entry. Other auto-imported cases likely hide the same way (cargo/B2B #190, IKEA furniture #198, Irish-pub-in-Switzerland #176, etc.).
+
+**KB entries:** #502 (English, core) ← distilled from #245 (Ukrainian source).

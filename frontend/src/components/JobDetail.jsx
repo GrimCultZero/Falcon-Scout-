@@ -2846,6 +2846,7 @@ PROVEN RESULTS (use these to judge vertical fit — if the job is in one of thes
 - Medical/YMYL SEO: +1,861% organic traffic, +14,342% conversions (Derma Solution case study — attached in profile).
 - Local service ads: -92% Cost-Per-Lead, +1,405% conversions.
 - Ecommerce: +693% revenue via Technical SEO + PMax.
+- REAL ESTATE / property-developer Google Ads (DIRECT proof — do NOT score real-estate PPC jobs as "no vertical experience"): Atlant property developer, +56.5% leads, -31% CPC, budget scaled +68% with cost/conversion up <8%; branded per-complex campaigns + PMax + DSA for new-listing lead gen. This is real, citable proof for any real-estate / realtor / property / new-listing / home-builder Ads job, including ones that explicitly demand "real estate experience".
 - Programmatic local SEO: Top Map Pack in 70+ cities.
 - Google Merchant Center specialist (recent $200 and $1,645 fixed-price jobs, both 5-star).
 
