@@ -4528,17 +4528,39 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               .filter(b => !_postingBlob.includes(b))
             const hasAssumedBrand = _assumedBrands.length > 0
 
-            // ── Exact-vertical case must LEAD (real-estate guard) ─────────────
-            // We now have a direct real-estate Google Ads case (Atlant). On a
-            // real-estate job — especially one that demands "relevant real estate
-            // experience" — that case must be the FIRST proof cited, not buried
-            // after generic local-service cases (FridgeFix/House Painting). Flag
-            // when a generic case appears BEFORE any real-estate proof signal.
-            const _jobIsRealEstate = /\b(real\s*estate|realtor|realty|propert(?:y|ies)|new\s+listing|home\s+builder|brokerage|mls\b)\b/i.test(`${job.title || ''} ${fullDescription}`)
-            const _reSignalIdx = text.search(/\b(real\s*estate|atlant|property\s+develop|residential\s+(?:complex|development)|new[-\s]?listing)\b/i)
-            const _genericCaseIdx = text.search(/\b(fridgefix|house\s+painting)\b/i)
-            const realEstateCaseNotLeading = _jobIsRealEstate && _genericCaseIdx >= 0
-              && (_reSignalIdx < 0 || _genericCaseIdx < _reSignalIdx)
+            // ── Exact-vertical case must LEAD (generalised) ──────────────────
+            // When the job is in a vertical we hold a SPECIFIC case for, that case
+            // must be the FIRST proof cited — never buried after a generic local-
+            // service filler (FridgeFix appliance repair / House Painting). The
+            // table maps each vertical to (a) how to detect the job and (b) how to
+            // find that vertical's case signal in the draft. Add a row to extend.
+            // (Restricted/substance verticals are handled by the dedicated Vape
+            // Shop ordering rule, so they're intentionally not duplicated here.)
+            const _jobVerticalBlob = `${job.title || ''} ${fullDescription}`
+            const _GENERIC_FILLER_CASE_RE = /\b(fridgefix|house\s+painting)\b/i
+            const _VERTICAL_LEAD_CASES = [
+              { name: 'real estate',
+                jobRe: /\b(real\s*estate|realtor|realty|propert(?:y|ies)|new\s+listing|home\s+builder|brokerage|\bmls\b)\b/i,
+                caseRe: /\b(real\s*estate|atlant|property\s+develop|residential\s+(?:complex|development)|new[-\s]?listing)\b/i,
+                lead: 'Atlant property developer — real-estate Google Ads, new-listing lead gen: +56.5% leads, -31% CPC, +144% clicks (branded per-complex campaigns + PMax + DSA)' },
+              { name: 'medical / YMYL',
+                jobRe: /\b(medical|health\s*care|healthcare|clinic|dental|dentist|dermatolog\w*|aesthetic\w*|med[-\s]?spa|wellness|cosmetic|skin\s*care|botox|filler|telehealth|therapy)\b/i,
+                caseRe: /\b(derma\s*solution|skin\s*reboot|medical|aesthetic|dermatolog|ymyl)\b/i,
+                lead: 'Derma Solution (medical/YMYL — +1,861% organic traffic, +14,342% conversions) and/or Skin Reboot' },
+              { name: 'ecommerce',
+                jobRe: /\b(e-?commerce|online\s+store|shopify|woocommerce|magento|product\s+feed|merchant\s+center|shopping\s+ads?|\bdtc\b|\bd2c\b)\b/i,
+                caseRe: /\b(nectar\s*flowers|skin\s*reboot|smash|game-?x|oxytec|e-?commerce|shopify|\broas\b|revenue)\b/i,
+                lead: 'an ecommerce case (Nectar Flowers -72% CPA / +350% revenue, or Skin Reboot 17.51 ROAS)' },
+            ]
+            const _jobVertical = _VERTICAL_LEAD_CASES.find(v => v.jobRe.test(_jobVerticalBlob)) || null
+            let exactVerticalCaseNotLeading = false
+            if (_jobVertical) {
+              const _genIdx = text.search(_GENERIC_FILLER_CASE_RE)
+              const _verIdx = text.search(_jobVertical.caseRe)
+              // Flag when a generic filler case leads BEFORE the on-vertical case
+              // (or the on-vertical case is absent while a filler is present).
+              exactVerticalCaseNotLeading = _genIdx >= 0 && (_verIdx < 0 || _genIdx < _verIdx)
+            }
 
             // ── Regulated-vertical / Vape Shop case-study checks (KB Rule 437) ──
             // (1) If the job is in a regulated/restricted-substance vertical
@@ -4852,7 +4874,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !missingYearsExperience && !ppcMissingPremierPartner
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
-              && !hasAssumedBrand && !realEstateCaseNotLeading
+              && !hasAssumedBrand && !exactVerticalCaseNotLeading
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -4871,7 +4893,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasUnsolicitedLogistics && 'hasUnsolicitedLogistics',
               hasFillerCloser && 'hasFillerCloser',
               hasAssumedBrand && 'hasAssumedBrand',
-              realEstateCaseNotLeading && 'realEstateCaseNotLeading',
+              exactVerticalCaseNotLeading && 'exactVerticalCaseNotLeading',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
@@ -4948,8 +4970,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (hasAssumedBrand) {
               console.log(`[Falcon] Rule pre-check: draft names brand(s) the posting never mentioned (${_assumedBrands.join(', ')}) — assumed vertical, firing Claude enforcer.`)
             }
-            if (realEstateCaseNotLeading) {
-              console.log('[Falcon] Rule pre-check: real-estate job but draft leads with a generic case before the real-estate (Atlant) case — firing Claude enforcer to reorder.')
+            if (exactVerticalCaseNotLeading) {
+              console.log(`[Falcon] Rule pre-check: ${_jobVertical?.name} job but draft leads with a generic filler case before the on-vertical case — firing Claude enforcer to reorder.`)
             }
 
             // Build a list of specific violations found by the pre-check so the
@@ -4984,11 +5006,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 'REWRITE every illustrative example to be category-neutral or explicitly hypothetical — replace the named brand/product with "[your product]", "a specific model/size/SKU", "whatever you sell", or a generic "research query vs high-intent buy query" framing. Keep the underlying insight (buyer-intent segmentation, feed structure, etc.) — only strip the assumed product identity. Do NOT substitute a different specific brand; go neutral. Case-study client names in the APPROVED CASE STUDIES block are Artem\'s own and must NOT be touched.'
               )
             }
-            if (realEstateCaseNotLeading) {
+            if (exactVerticalCaseNotLeading && _jobVertical) {
               specificViolations.push(
-                'CASE-STUDY ORDERING — REAL ESTATE MUST LEAD (relevance-critical): This is a real-estate job (and the posting demands relevant real-estate experience), but the draft cites a generic local-service case (FridgeFix appliance repair / House Painting) BEFORE the real-estate proof. ' +
-                'REORDER the proof block so the REAL ESTATE case leads: "Atlant property developer — Google Ads for new-listing lead gen: grew leads 56.5%, dropped CPC 31%, +144% clicks via branded per-complex campaigns + PMax + DSA." It must be the FIRST case study. ' +
-                'Then keep AT MOST one supporting case only if it adds the same conversion mechanic (local lead gen). Drop the weakest generic case rather than pad. The on-vertical case answering "RELEVANT REAL ESTATE experience" is the most important element of this letter — it cannot be buried.'
+                `CASE-STUDY ORDERING — ${_jobVertical.name.toUpperCase()} CASE MUST LEAD (relevance-critical): This is a ${_jobVertical.name} job, but the draft cites a generic local-service filler case (FridgeFix appliance repair / House Painting) BEFORE the on-vertical proof. ` +
+                `REORDER the proof block so the ${_jobVertical.name} case leads: ${_jobVertical.lead}. It must be the FIRST case study cited. ` +
+                'Then keep AT MOST one supporting case only if it adds the same conversion mechanic. Drop the weakest generic case rather than pad — the on-vertical case is the most important element of this letter and cannot be buried after a generic one.'
               )
             }
             if (hasUnsolicitedLogistics) {

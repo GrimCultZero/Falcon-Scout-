@@ -635,3 +635,22 @@ non-real-estate jobs unaffected. Compiles clean.
 is currently real-estate-specific (our newest vertical). The same buried-best-case
 failure can happen for any vertical; a generic version would map job-vertical →
 expected lead case and check ordering. Deferred.
+
+---
+
+## 2026-06-30 (cont.) — Generalised the exact-vertical-leads guard
+
+Replaced the real-estate-specific `realEstateCaseNotLeading` guard with a
+table-driven `exactVerticalCaseNotLeading`. `_VERTICAL_LEAD_CASES` maps each
+vertical we hold a specific case for to (jobRe, caseRe, lead-blurb):
+real estate → Atlant; medical/YMYL → Derma/Skin Reboot; ecommerce → Nectar/
+Skin Reboot/etc. The job's vertical is the first row whose jobRe matches; if a
+generic local-service filler (FridgeFix/House Painting) appears in the draft
+BEFORE that vertical's case signal, the enforcer fires and reorders so the
+on-vertical case leads. specificViolation + log are now vertical-aware (use the
+matched row's name + lead blurb). Restricted/substance verticals stay with the
+dedicated Vape Shop ordering rule (not duplicated). Extensible: add a row.
+
+Verified across RE/medical/ecommerce (generic-leads → flag; vertical-leads →
+pass), plus local-services and generic-PPC jobs correctly NOT flagged. Compiles
+clean.
