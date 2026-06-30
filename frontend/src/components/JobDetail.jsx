@@ -4102,9 +4102,11 @@ When offering an SEO promotion plan:
 
 CASE STUDY SELECTION RULE (mandatory):
 Pick case studies that are as vertically close to the client's industry as possible. Priority order:
-1. Exact vertical match (automotive → automotive, e-commerce → e-commerce)
+1. Exact vertical match (automotive → automotive, e-commerce → e-commerce, real estate → Atlant Real Estate)
 2. Same conversion mechanic (form fill / phone call → use any local-service case study; online purchase → use e-commerce case study)
 3. Adjacent vertical as last resort — but explicitly frame the parallel: "similar tracking challenge in [vertical], same mechanic"
+
+LEAD WITH THE EXACT-VERTICAL CASE (mandatory — overrides default ordering): if ANY approved case study is in the SAME industry as the job (real estate → Atlant Real Estate; ecommerce → an ecommerce case; medical/YMYL → Derma Solution / Skin Reboot; local services → FridgeFix / House Painting), that case MUST be the FIRST case study cited — the LEAD proof, never buried after a generic one. This is DOUBLY mandatory when the posting explicitly demands experience/portfolio in that vertical (e.g. "provide links to RELEVANT REAL ESTATE experience", "must have X experience"): the exact-vertical case is then the single most important element of the letter — open the proof block with it, demote or drop off-vertical cases, and do NOT pad with loosely-related ones. Citing a generic local-service case (FridgeFix appliance repair, House Painting) BEFORE the on-vertical case on a job that demanded that vertical is a ranking failure — fix it before emitting.
 NEVER use a consumer appliance repair or painting contractor case study for a B2B or automotive brief without explicitly bridging the analogy. If no close match exists, say so and lean on the Premier Partner credential and process description instead of a weak case study.
 EXPERIENCE-GAP EXCEPTION (critical — prevents self-disqualification): If the analyser flags an experience gap OR the posting explicitly asks for proof/examples/portfolio of work Artem hasn't done, do NOT cite a case study from a completely different service type as a substitute. An off-target case study (e.g. owned-domain SEO results on a parasite SEO / third-party platform job; Google Ads case studies on a social media management job) actively signals that you didn't read the brief and don't have the specific experience. In these situations: skip the case study section entirely and lean on process depth, credentials (Top Rated, Premier Partner, 12 years), and the audit/discovery offer. Zero case studies is better than the wrong case study.
 
@@ -4155,7 +4157,7 @@ CASE STUDY SELECTION — match the case study's domain to the job's domain (mand
 The job is one of: PPC/Google Ads, SEO, or mixed (both). Identify which from the posting (keywords like "Google Ads", "PMax", "Shopping", "PPC", "ad spend", "CPC", "ROAS" → PPC; "SEO", "ranking", "organic traffic", "schema", "AEO", "GEO", "AI Overviews", "content" → SEO).
 
 Case studies by domain (use ONLY case studies whose domain matches the job):
-- PPC / Google Ads case studies: FridgeFix (-92% cost/conv, +1,405% conv), House Painting (2,100+ clicks, 7.3% CTR), Nectar Flowers (-72% CPA, +350% revenue), Skin Reboot (PPC angle — 17.51 ROAS, $12K→$95K revenue PDF).
+- PPC / Google Ads case studies: Atlant Real Estate (property developer — +56.5% leads, -31% CPC, +144% clicks; new-listing lead gen via branded per-complex campaigns + PMax + DSA — the DIRECT proof for any real-estate / realtor / property / new-listing PPC job), FridgeFix (-92% cost/conv, +1,405% conv), House Painting (2,100+ clicks, 7.3% CTR), Nectar Flowers (-72% CPA, +350% revenue), Skin Reboot (PPC angle — 17.51 ROAS, $12K→$95K revenue PDF).
 - SEO case studies: Derma Solution (+1,861% organic traffic, +14,342% conv PDF), Skin Reboot (SEO angle — +91.58% traffic, +693% revenue PDF), Multilingual Site (17,100 new monthly visits, 18 Top 1 + 47 Top 3 keywords).
 - Mixed-discipline jobs: pick one from each domain.
 
@@ -4526,6 +4528,18 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               .filter(b => !_postingBlob.includes(b))
             const hasAssumedBrand = _assumedBrands.length > 0
 
+            // ── Exact-vertical case must LEAD (real-estate guard) ─────────────
+            // We now have a direct real-estate Google Ads case (Atlant). On a
+            // real-estate job — especially one that demands "relevant real estate
+            // experience" — that case must be the FIRST proof cited, not buried
+            // after generic local-service cases (FridgeFix/House Painting). Flag
+            // when a generic case appears BEFORE any real-estate proof signal.
+            const _jobIsRealEstate = /\b(real\s*estate|realtor|realty|propert(?:y|ies)|new\s+listing|home\s+builder|brokerage|mls\b)\b/i.test(`${job.title || ''} ${fullDescription}`)
+            const _reSignalIdx = text.search(/\b(real\s*estate|atlant|property\s+develop|residential\s+(?:complex|development)|new[-\s]?listing)\b/i)
+            const _genericCaseIdx = text.search(/\b(fridgefix|house\s+painting)\b/i)
+            const realEstateCaseNotLeading = _jobIsRealEstate && _genericCaseIdx >= 0
+              && (_reSignalIdx < 0 || _genericCaseIdx < _reSignalIdx)
+
             // ── Regulated-vertical / Vape Shop case-study checks (KB Rule 437) ──
             // (1) If the job is in a regulated/restricted-substance vertical
             //     (hemp/CBD/cannabis/vape/supplement/etc.) the draft MUST cite
@@ -4838,7 +4852,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !missingYearsExperience && !ppcMissingPremierPartner
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
-              && !hasAssumedBrand
+              && !hasAssumedBrand && !realEstateCaseNotLeading
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -4857,6 +4871,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasUnsolicitedLogistics && 'hasUnsolicitedLogistics',
               hasFillerCloser && 'hasFillerCloser',
               hasAssumedBrand && 'hasAssumedBrand',
+              realEstateCaseNotLeading && 'realEstateCaseNotLeading',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
@@ -4933,6 +4948,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (hasAssumedBrand) {
               console.log(`[Falcon] Rule pre-check: draft names brand(s) the posting never mentioned (${_assumedBrands.join(', ')}) — assumed vertical, firing Claude enforcer.`)
             }
+            if (realEstateCaseNotLeading) {
+              console.log('[Falcon] Rule pre-check: real-estate job but draft leads with a generic case before the real-estate (Atlant) case — firing Claude enforcer to reorder.')
+            }
 
             // Build a list of specific violations found by the pre-check so the
             // enforcer knows exactly what to fix (and is allowed to add content
@@ -4964,6 +4982,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 `ASSUMED VERTICAL / FABRICATED BRAND (credibility-critical): The draft names concrete consumer brand(s) the posting never mentioned — ${_assumedBrands.join(', ')}. The posting does NOT state the client's specific product or vertical, so naming a product/brand assumes their business and risks reading as "assumed the wrong company". ` +
                 'REWRITE every illustrative example to be category-neutral or explicitly hypothetical — replace the named brand/product with "[your product]", "a specific model/size/SKU", "whatever you sell", or a generic "research query vs high-intent buy query" framing. Keep the underlying insight (buyer-intent segmentation, feed structure, etc.) — only strip the assumed product identity. Do NOT substitute a different specific brand; go neutral. Case-study client names in the APPROVED CASE STUDIES block are Artem\'s own and must NOT be touched.'
+              )
+            }
+            if (realEstateCaseNotLeading) {
+              specificViolations.push(
+                'CASE-STUDY ORDERING — REAL ESTATE MUST LEAD (relevance-critical): This is a real-estate job (and the posting demands relevant real-estate experience), but the draft cites a generic local-service case (FridgeFix appliance repair / House Painting) BEFORE the real-estate proof. ' +
+                'REORDER the proof block so the REAL ESTATE case leads: "Atlant property developer — Google Ads for new-listing lead gen: grew leads 56.5%, dropped CPC 31%, +144% clicks via branded per-complex campaigns + PMax + DSA." It must be the FIRST case study. ' +
+                'Then keep AT MOST one supporting case only if it adds the same conversion mechanic (local lead gen). Drop the weakest generic case rather than pad. The on-vertical case answering "RELEVANT REAL ESTATE experience" is the most important element of this letter — it cannot be buried.'
               )
             }
             if (hasUnsolicitedLogistics) {

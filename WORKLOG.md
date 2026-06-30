@@ -603,3 +603,35 @@ that both carry an attachment phrase into one (keeps the descriptor + a single
 inside one parenthetical. Wired into all three post-processing chains (generate,
 chat-rewrite, rescan) at the `_cleanPasteText` layer. Single correct parentheticals
 are untouched. Verified on the real buggy line + variants; compiles clean.
+
+---
+
+## 2026-06-30 (cont.) — Generator must LEAD with the exact-vertical case study
+
+**Owner complaint.** On the Real Estate Adwords job, the generator finally cited the
+Atlant real-estate case — but THIRD, after FridgeFix (appliance repair) and House
+Painting. On a posting that explicitly demands "RELEVANT REAL ESTATE experience",
+the on-vertical case must LEAD the proof, not be buried.
+
+**Root cause.** (1) The generator's static "Case studies by domain" PPC menu didn't
+list the real-estate case, so the model treated it as a secondary KB case and led
+with familiar menu cases. (2) The priority-order guidance ("exact vertical first")
+was soft and unenforced.
+
+**Fix (JobDetail.jsx).**
+1. Added Atlant Real Estate to the static PPC case-study menu with metrics.
+2. New "LEAD WITH THE EXACT-VERTICAL CASE" prompt rule: the same-industry case MUST
+   be cited first; doubly mandatory when the posting demands that vertical's
+   experience; demote/drop off-vertical cases, don't pad.
+3. Deterministic enforcer guard `realEstateCaseNotLeading`: on a real-estate job,
+   if a generic case (FridgeFix/House Painting) appears BEFORE any real-estate
+   signal in the draft → fire the enforcer to reorder (Atlant leads). Wired into
+   draftCompliant + telemetry + log + specificViolations.
+
+Verified: the real (bad) FridgeFix-first draft flags; an Atlant-first draft passes;
+non-real-estate jobs unaffected. Compiles clean.
+
+**General lesson worth generalising later.** The "exact-vertical case leads" guard
+is currently real-estate-specific (our newest vertical). The same buried-best-case
+failure can happen for any vertical; a generic version would map job-vertical →
+expected lead case and check ordering. Deferred.
