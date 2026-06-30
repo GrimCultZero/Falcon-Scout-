@@ -2736,7 +2736,6 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       // the user message as forced-include items.
       const _avgRate = Number(job.avg_rate) || 0
       const _interviewing = Number(job.interviewing) || 0
-      const _connects = Number(job.connects_required) || 0
       // Domain-aware rate floor. Artem's DEVELOPER rate is $40/hr; his PPC/SEO
       // floor is $30/hr. A web-dev job paying $30-39 IS below his dev rate, so it
       // must be flagged — a flat $30 floor under-rated those jobs.
@@ -2759,21 +2758,15 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       } else if (_interviewing >= 3) {
         mandatoryFlags.push(`Client already interviewing ${_interviewing} candidates — funnel is filling, -1 point`)
       }
-      if (_connects >= 16) {
-        mandatoryFlags.push(`Very high connect cost (${_connects} connects) — premium auction, -2 points`)
-      } else if (_connects >= 12) {
-        mandatoryFlags.push(`High connect cost (${_connects} connects) — Upwork-rated competitive, -1 point`)
-      }
-      if (_interviewing >= 5 && _connects >= 12) {
-        mandatoryFlags.push(`COMBINED SIGNAL: interviewing ≥ 5 AND connects ≥ 12 → never score above MAYBE`)
-      }
+      // Connect cost is intentionally NOT a scoring factor: Artem boosts every
+      // proposal, so the connects-required number doesn't change his ROI calculus.
+      // (Removed the connects -1/-2 deductions and the interviewing+connects
+      // combined-saturation signal.)
 
       // Telemetry (Phase C): record which analyser threshold flags fired.
       _recordViolations('analyser', job?.id, [
         (_avgRate > 0 && _avgRate < _rateFloor - 10) ? 'avgRate<<floor' : (_avgRate > 0 && _avgRate < _rateFloor - 5) ? 'avgRate<floor-5' : (_avgRate > 0 && _avgRate < _rateFloor) ? 'avgRate<floor' : null,
         _interviewing >= 10 ? 'interviewing>=10' : _interviewing >= 5 ? 'interviewing>=5' : _interviewing >= 3 ? 'interviewing>=3' : null,
-        _connects >= 16 ? 'connects>=16' : _connects >= 12 ? 'connects>=12' : null,
-        (_interviewing >= 5 && _connects >= 12) ? 'combinedSaturation' : null,
       ])
 
       // Explicit, deterministic rate descriptor — so the analyser NEVER has to
@@ -2919,11 +2912,7 @@ The "interviewing" count is the number of candidates the client is ALREADY in ac
 - If interviewing >= 10: subtract 3 points AND cap verdict at MAYBE (never APPLY). Flag: "Client already interviewing N candidates — shortlist is closing; entering this late rarely converts even with strong fit. Strongly consider SKIP unless fit is exceptional and budget alignment is provable".
 - If interviewing is 0 or absent: no penalty.
 
-CONNECTS-COST SIGNAL (mandatory — Upwork's auction-cost flag):
-The "connects" required to apply is Upwork's premium-tier marker. High connects = the platform classifies this job as competitive / premium-budget; the cost of applying is significant against the expected return.
-- If connects_required >= 12 but < 16: subtract 1 point. Flag: "High connect cost (N connects) — Upwork rates this competitive; weigh ROI against fit confidence".
-- If connects_required >= 16: subtract 2 points. Flag: "Very high connect cost (N connects) — premium auction; only apply with high confidence on fit and rate alignment".
-- When BOTH interviewing >= 5 AND connects_required >= 12 are present, NEVER score above MAYBE regardless of fit. The combined signal is the platform telling you the funnel is saturated AND costly to enter.
+CONNECTS COST — IGNORE (mandatory): Do NOT factor the "connects required" number into the score or verdict, and do NOT flag it. Artem boosts every proposal, so connect cost has no bearing on his decision. Even a very high connect requirement is irrelevant — never deduct points for it or mention it as a concern.
 
 MALFORMED PREFERRED-QUALIFICATIONS GUARD (mandatory — scraping artifacts are not real client requirements):
 The "preferred_qualifications" field is scraped from Upwork's UI and can suffer concatenation bugs. If a line is obviously nonsensical for the job context — e.g. "Sign Language" listed for a routine Google Ads/PPC posting, two language requirements smushed without separators ("German Sign Language" when "German" and "Italian Sign Language" were probably separate entries), or an industry requirement that has zero relevance to the job category — treat that line as a likely scraping artifact and DO NOT penalise or flag it as a mismatch. You may note in the analysis "(preferred-qual data quality issue, skipped)" but do not deduct points. Apply common sense: a real client preferring sign-language fluency in a PPC manager is essentially never genuine; assume corruption.

@@ -654,3 +654,18 @@ dedicated Vape Shop ordering rule (not duplicated). Extensible: add a row.
 Verified across RE/medical/ecommerce (generic-leads → flag; vertical-leads →
 pass), plus local-services and generic-PPC jobs correctly NOT flagged. Compiles
 clean.
+
+---
+
+## 2026-06-30 (cont.) — Analyser: drop connect cost from scoring
+
+Owner boosts every proposal, so the "connects required" number doesn't change his
+ROI calculus. Removed it from the analyser entirely:
+- Deleted the deterministic connect deductions (connects ≥12 → -1, ≥16 → -2) and
+  the interviewing+connects combined-saturation "never above MAYBE" signal.
+- Removed connects from analyser telemetry; removed the now-unused `_connects`.
+- Replaced the prompt's CONNECTS-COST SIGNAL section with an explicit "CONNECTS
+  COST — IGNORE" rule (do not score/flag it). The raw connects number stays in the
+  Activity line as context, but is explicitly excluded from the verdict.
+Interviewing-saturation and rate-floor signals are unchanged. Re-run the analyser
+on previously-scored jobs to clear old connect-cost flags. Compiles clean.
