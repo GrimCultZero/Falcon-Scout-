@@ -173,7 +173,9 @@ function extractApplicationChecklist(text) {
     classified.map((c, i) => `  ${i + 1}. ${c.text}${c.factual ? '   ← FACTUAL: answer from ARTEM\'S BUSINESS FACTS below if it covers this; otherwise a clear placeholder like [[ ARTEM: fill in ]] — never invent an unknown number, price, URL, or claim.' : ''}`).join('\n') +
     (hasFactual
       ? `\n\nFACTUAL ITEMS RULE (critical): for team size, portfolio/site URLs, landing-page turnaround, and monthly retainer, use the values in "ARTEM'S BUSINESS FACTS" below. For anything factual NOT covered there (e.g. a specific client name, an exact metric you don't have), do NOT fabricate — emit a visible [[ ARTEM: … ]] placeholder so he fills it before sending.`
-      : ``)
+      : ``) +
+    `\n\nNO BODY↔ANSWERS DUPLICATION (mandatory structure): when you answer these items as a numbered/labelled list, do NOT ALSO pre-answer the same questions in the letter body. Pick one home for each piece of content. The right shape: a SHORT hook (the client's core problem + the credentials + ONE sharp differentiating insight), then go straight to the numbered answers where the substance lives. Do NOT write full body sections ("here's my approach…", "here's how I'd build the pages…") that the numbered answers then repeat almost verbatim — that doubles the length and reads as padding. If a point belongs in an answer, it does NOT also belong in the body.` +
+    `\n\nTIMELINE/DURATION QUESTIONS (mandatory): if any checklist item asks "how long", "rough timeline", "turnaround", "ETA", "when can you complete/start", or similar, the answer MUST contain a CONCRETE time estimate (e.g. "3–5 business days", "about a week", "2–3 days once I have access"). Describing the deliverable or the steps is NOT an answer to a timeline question — give an actual duration. (This is the one case where stating a timeline in the letter is REQUIRED, overriding the usual omit-timeline rule.)`
 
   return { items: classified, promptBlock, hasFactual }
 }
@@ -4429,7 +4431,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // Explicit "Timeline:" label in the letter body
               /^[ \t]*Timeline\s*:/im,
             ]
-            const coverHasTimeline = COVER_TIMELINE_RE.some(re => re.test(text))
+            // Does the POSTING explicitly ask for a timeline/duration? If so, a
+            // timeline in the letter is REQUIRED, not forbidden — so we must NOT
+            // strip it (gate coverHasTimeline off), and we separately REQUIRE that
+            // a concrete estimate is present.
+            const _postingAsksTimeline = /\b(rough\s+timeline|timeline\s+for|provide\s+(?:a\s+)?timeline|estimated?\s+(?:timeline|completion|delivery|duration)|how\s+long\s+(?:will|would|does|it|to)\b|turn[\s-]?around\s+time|delivery\s+time(?:frame|line)?|when\s+(?:can|could|will)\s+you\s+(?:complete|finish|deliver|start|have)|time\s*frame|timeframe|\beta\b|how\s+(?:soon|quickly)|completion\s+time|expected\s+(?:timeline|duration|completion))\b/i.test(`${job.title || ''} ${fullDescription}`)
+            // Only fire the "strip the timeline" guard when the client did NOT ask.
+            const coverHasTimeline = !_postingAsksTimeline && COVER_TIMELINE_RE.some(re => re.test(text))
+            // Conversely: if the client ASKED for a timeline, the draft MUST give a
+            // concrete duration. A deliverable/steps description is not an answer.
+            const _draftHasTimeEstimate = /(\b\d+\s*(?:[-–]\s*\d+)?\s*(?:hour|hr|day|business\s+day|working\s+day|week|month)s?\b|within\s+(?:a\s+|about\s+)?\d|same[-\s]day|next[-\s]day|by\s+(?:end\s+of\s+)?(?:the\s+)?(?:day|week|month)|a\s+(?:few|couple\s+of)\s+(?:days|weeks))/i.test(text)
+            const timelineRequestedButMissing = _postingAsksTimeline && !_draftHasTimeEstimate
 
             // ── Forbidden-phrase check ───────────────────────────────────────
             // Patterns that are deterministically wrong regardless of which
@@ -4909,6 +4921,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
+              && !timelineRequestedButMissing
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -4929,6 +4942,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasAssumedBrand && 'hasAssumedBrand',
               exactVerticalCaseNotLeading && 'exactVerticalCaseNotLeading',
               caseMislabeledAsSaas && 'caseMislabeledAsSaas',
+              timelineRequestedButMissing && 'timelineRequestedButMissing',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
@@ -5011,6 +5025,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (caseMislabeledAsSaas) {
               console.log('[Falcon] Rule pre-check: a non-SaaS case study is described as SaaS/software (business-model fabrication) — firing Claude enforcer.')
             }
+            if (timelineRequestedButMissing) {
+              console.log('[Falcon] Rule pre-check: posting asks for a timeline/duration but the draft gives no concrete estimate — firing Claude enforcer.')
+            }
 
             // Build a list of specific violations found by the pre-check so the
             // enforcer knows exactly what to fix (and is allowed to add content
@@ -5042,6 +5059,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 `ASSUMED VERTICAL / FABRICATED BRAND (credibility-critical): The draft names concrete consumer brand(s) the posting never mentioned — ${_assumedBrands.join(', ')}. The posting does NOT state the client's specific product or vertical, so naming a product/brand assumes their business and risks reading as "assumed the wrong company". ` +
                 'REWRITE every illustrative example to be category-neutral or explicitly hypothetical — replace the named brand/product with "[your product]", "a specific model/size/SKU", "whatever you sell", or a generic "research query vs high-intent buy query" framing. Keep the underlying insight (buyer-intent segmentation, feed structure, etc.) — only strip the assumed product identity. Do NOT substitute a different specific brand; go neutral. Case-study client names in the APPROVED CASE STUDIES block are Artem\'s own and must NOT be touched.'
+              )
+            }
+            if (timelineRequestedButMissing) {
+              specificViolations.push(
+                'MISSING TIMELINE ANSWER (the client explicitly asked): The posting asks for a timeline / how long / turnaround / ETA, but the draft gives NO concrete duration — it describes the deliverable or steps instead. ' +
+                'ADD a concrete time estimate that directly answers the question (e.g. "I\'d complete the review in about 3–5 business days once I have staging access", "roughly a week end-to-end"). Keep it realistic and scope-appropriate. This is the ONE case where a timeline in the letter is REQUIRED — do not omit it, and do not answer a "how long" question with a description of what you\'ll deliver.'
               )
             }
             if (caseMislabeledAsSaas) {

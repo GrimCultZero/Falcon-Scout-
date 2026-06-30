@@ -741,3 +741,37 @@ Robustness fix (don't show the model data it must ignore):
 
 Re-run the analyser (reload first) to clear the stale connect-auction flags.
 Compiles clean.
+
+---
+
+## 2026-06-30 (cont.) — Generator: kill body↔answers duplication + require timeline when asked
+
+From reviewing a Technical-SEO+WordPress letter (job 4097) that (a) wrote full body
+sections AND a numbered answers section repeating them ~verbatim, and (b) answered
+the client's "rough timeline" question with a deliverable description, no duration.
+
+**Fix 1 — no body↔answers duplication.** Added to the application-checklist prompt
+block: when you answer the items as a numbered list, do NOT also pre-answer them in
+the body. Shape = short hook (problem + credentials + one differentiator) → straight
+to the numbered answers. No full body section that the answers then repeat.
+
+**Fix 2 — timeline required WHEN the client asks (resolves the Rule-17 conflict).**
+- `_postingAsksTimeline`: detects explicit timeline/duration requests ("rough
+  timeline", "how long", "turnaround", "ETA", "when can you complete", …).
+- Gated `coverHasTimeline` (the strip-timeline guard) with `!_postingAsksTimeline`
+  so a legitimately-requested timeline is NOT stripped.
+- New `timelineRequestedButMissing`: posting asks for a timeline AND the draft has
+  no concrete duration phrase → fire enforcer to ADD an estimate. Wired into
+  draftCompliant + telemetry + log + specificViolations.
+- Prompt rule in the checklist block: a "how long" answer MUST give an actual
+  duration, not a deliverable description (overrides the usual omit-timeline rule).
+
+Verified: the real posting flags as timeline-asking; the bad answer #5 (no duration)
+flags missing; a "4–6 business days" answer passes; non-timeline postings unaffected.
+Compiles clean.
+
+(Open, needs Artem's ground truth, NOT fixed in code: the letter claimed CallRail/
+DNI past client work — no CallRail/DNI case in KB — and gave Golden State Trailers
+"+350% organic / 72 city pages" which looks conflated with Nectar Flowers' +350%
+revenue and the separate 70+-cities programmatic case. Awaiting real numbers / a real
+CallRail case before adding a guard or KB entry.)
