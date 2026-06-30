@@ -10,7 +10,7 @@
   // Version stamp — bump alongside manifest. Lets us confirm at a glance which
   // build is actually running (the loaded extension has repeatedly lagged the
   // edited source). Visible in the proposals-tab console on load.
-  const FALCON_PROPOSAL_JS_VERSION = '2.8';
+  const FALCON_PROPOSAL_JS_VERSION = '2.9';
   console.log('[Cockpit Proposal] proposal.js loaded — build', FALCON_PROPOSAL_JS_VERSION, '@', window.location.pathname);
 
   // ── Wait for the page to render ────────────────────────────────────────
@@ -747,63 +747,88 @@
     return p === '/nx/proposals' || p === '/ab/proposals';
   }
 
-  async function waitForListContent(maxMs = 30000) {
+  // Count currently-rendered submitted-proposal rows (one "Initiated <date>" per row).
+  function _countInitiatedRows() {
+    return ((document.body.innerText || '').match(/\binitiated\b/gi) || []).length;
+  }
+
+  // Find the element that actually scrolls. Upwork sometimes scrolls an inner
+  // container rather than the window; sweeping the wrong one renders nothing.
+  function _scrollTargets() {
+    const targets = [document.scrollingElement || document.documentElement];
+    for (const el of document.querySelectorAll('div, main, section')) {
+      const cs = getComputedStyle(el);
+      if (/(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 400) {
+        targets.push(el);
+      }
+    }
+    return targets;
+  }
+
+  // Sweep an element top→bottom in steps so every lazy-load trigger fires. Works
+  // in a HIDDEN/background tab because scrollTop is set synchronously (no rAF,
+  // no IntersectionObserver-on-paint dependency).
+  async function _sweep(el, stepWaitMs) {
+    const max = el.scrollHeight;
+    const step = Math.max(300, Math.floor((el.clientHeight || 600) * 0.8));
+    for (let y = 0; y <= max + step; y += step) {
+      try {
+        if (el === document.scrollingElement || el === document.documentElement) {
+          window.scrollTo(0, y);
+        } else {
+          el.scrollTop = y;
+        }
+      } catch {}
+      await new Promise(r => setTimeout(r, stepWaitMs));
+    }
+  }
+
+  async function waitForListContent(maxMs = 45000) {
     const start = Date.now();
-    let scrollAttempts = 0;
-    // The /nx/proposals/ page stacks "Offers", "Invites", and "Submitted
-    // proposals" vertically. The Submitted section is lazy-loaded — its
-    // rows only render once it's scrolled into view. We:
-    //   1. Wait for the "Submitted proposals" header to appear
-    //   2. Find it in the DOM and scroll it into view
-    //   3. Wait for at least one "Initiated <date>" row to appear
-    //   4. Scroll to the BOTTOM to make sure all 31+ rows hydrate
+
+    // Step 1: wait for the "Submitted proposals" header to exist at all.
     while (Date.now() - start < maxMs) {
-      const body = document.body.innerText || '';
-
-      // Step 1: the header must be present
-      if (!/submitted\s+proposals/i.test(body)) {
-        await new Promise(r => setTimeout(r, 500));
-        continue;
-      }
-
-      // Step 2: locate the Submitted-proposals header in the DOM and scroll
-      // to it. Do this a few times because Upwork's SPA re-renders sections
-      // as content streams in.
-      if (scrollAttempts < 4) {
-        const headers = document.querySelectorAll('h1, h2, h3, h4, [role="heading"]');
-        for (const h of headers) {
-          const t = (h.innerText || '').trim().toLowerCase();
-          if (t.startsWith('submitted proposals')) {
-            try {
-              h.scrollIntoView({ behavior: 'instant', block: 'start' });
-              // Also scroll a bit past the header so rows below render
-              window.scrollBy({ top: 200, behavior: 'instant' });
-            } catch {
-              h.scrollIntoView();
-            }
-            break;
-          }
-        }
-        // Also scroll to the bottom of the page on later attempts to force
-        // any virtualised rows past the first viewport to hydrate.
-        if (scrollAttempts >= 2) {
-          window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
-        }
-        scrollAttempts++;
-        await new Promise(r => setTimeout(r, 700));
-      }
-
-      // Step 3: check for actual rows
-      if (/\binitiated\s+\w+\s+\d/i.test(body)) {
-        // Settle a moment more so all rows hydrate before scraping
-        await new Promise(r => setTimeout(r, 600));
-        return true;
-      }
-
+      if (/submitted\s+proposals/i.test(document.body.innerText || '')) break;
       await new Promise(r => setTimeout(r, 500));
     }
-    console.warn('[Cockpit Proposal] Timed out waiting for Submitted proposals rows to render');
-    return false;
+
+    // Step 2: bring the Submitted section into view.
+    for (const h of document.querySelectorAll('h1, h2, h3, h4, [role="heading"]')) {
+      if ((h.innerText || '').trim().toLowerCase().startsWith('submitted proposals')) {
+        try { h.scrollIntoView({ behavior: 'instant', block: 'start' }); } catch { try { h.scrollIntoView(); } catch {} }
+        break;
+      }
+    }
+    await new Promise(r => setTimeout(r, 400));
+
+    // Step 3: sweep top→bottom repeatedly until the rendered row count STOPS
+    // growing (all lazy rows loaded) or the budget runs out. This is what makes
+    // a BACKGROUND tab capture the full list instead of only the first viewport.
+    let prevCount = -1;
+    let stablePasses = 0;
+    const targets = _scrollTargets();
+    while (Date.now() - start < maxMs) {
+      for (const el of targets) await _sweep(el, 250);
+      // settle, then re-measure
+      await new Promise(r => setTimeout(r, 500));
+      const count = _countInitiatedRows();
+      if (count > 0 && count === prevCount) {
+        stablePasses++;
+        if (stablePasses >= 2) {            // two consecutive equal counts = done
+          // scroll back to top so the scrape sees a clean, fully-rendered DOM
+          try { window.scrollTo(0, 0); } catch {}
+          await new Promise(r => setTimeout(r, 300));
+          return true;
+        }
+      } else {
+        stablePasses = 0;
+      }
+      prevCount = count;
+    }
+
+    const ok = _countInitiatedRows() > 0;
+    if (!ok) console.warn('[Cockpit Proposal] Timed out waiting for Submitted proposals rows to render');
+    return ok;
   }
 
   // Scan the whole document for currently-rendered "viewed by client"

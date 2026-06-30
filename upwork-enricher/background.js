@@ -571,15 +571,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // backend, and shows an on-page banner. The worker's only job is opening
     // the tab. We still persist the tab id as a belt-and-suspenders fallback.
     const openedTabIds = [];
-    // BOTH legs use the reliable v2 pattern: ?falconsync=1 URL marker →
-    // content script scrapes → direct POST to the backend → on-page banner.
-    //  • Proposals leg: ACTIVE tab — Upwork's virtualised row list won't
-    //    hydrate (and scrolling is a no-op) in a background tab, so the
-    //    "Viewed by client" indicator never appears in the DOM. Same root
-    //    cause that was fixed for the messages leg.
-    //  • Messages leg: background is fine — opened second so proposals wins
-    //    focus and gets proper rendering for its scroll + lazy-load.
-    // Open messages FIRST (background) so proposals tab gets focus.
+    // BOTH legs run in BACKGROUND tabs (active:false) so the sync never steals
+    // focus while Artem is working. The ?falconsync=1 URL marker triggers the
+    // content script, which scrapes, POSTs straight to the backend, and shows an
+    // on-page banner. To make Upwork's virtualised proposal list hydrate while the
+    // tab is hidden, proposal.js force-renders the list itself (repeated full-height
+    // scroll sweeps with a generous budget — see waitForListContent), instead of
+    // relying on the tab being the foreground/active one.
     chrome.tabs.create(
       { url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1', active: false },
       (mtab) => {
@@ -588,10 +586,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (mtab && mtab.id) { _persistSyncTab(mtab.id); openedTabIds.push(mtab.id); _scheduleTabCleanup(mtab.id, 4); }
         console.log('[Cockpit BG] sync messages tab opened (bg):', mtab && mtab.id);
         chrome.tabs.create(
-          { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: true },
+          { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
           (tab) => {
-            if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 3); }
-            console.log('[Cockpit BG] sync proposals tab opened (active):', tab && tab.id);
+            if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 4); }
+            console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
             sendResponse({ ok: true, tabIds: openedTabIds });
           }
         );

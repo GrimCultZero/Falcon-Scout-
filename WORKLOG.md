@@ -775,3 +775,23 @@ DNI past client work — no CallRail/DNI case in KB — and gave Golden State Tr
 "+350% organic / 72 city pages" which looks conflated with Nectar Flowers' +350%
 revenue and the separate 70+-cities programmatic case. Awaiting real numbers / a real
 CallRail case before adding a guard or KB entry.)
+
+---
+
+## 2026-06-30 (cont.) — Sync runs in BACKGROUND tabs again (no focus steal)
+
+Owner: sync should not steal focus. The proposals leg had been forced to an ACTIVE
+tab because Upwork's lazy-loaded list didn't hydrate while backgrounded. Reverted to
+a background tab (active:false) and made proposal.js render the list itself instead
+of depending on foreground:
+- `waitForListContent` rewritten: finds the real scroll container(s), sweeps
+  top→bottom in synchronous `scrollTop` steps (works in a hidden tab — no rAF /
+  IntersectionObserver-on-paint dependency), and repeats the sweep until the rendered
+  "Initiated" row count is stable for 2 passes (all lazy rows loaded), then scrolls
+  back to top for a clean scrape. Budget 30s→45s. The list is append-style (rows stay
+  once rendered), so a full sweep captures everything including the zero-size
+  "Viewed by client" spans.
+- background.js: both sync tabs now active:false; proposals failsafe cleanup 3→4 min.
+- Bumped manifest 4.2→4.3, proposal.js stamp 2.8→2.9 (reload the extension).
+
+Verified syntax (node --check) on both files.
