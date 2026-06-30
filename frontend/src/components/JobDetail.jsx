@@ -4177,8 +4177,8 @@ CASE STUDY SELECTION — match the case study's domain to the job's domain (mand
 The job is one of: PPC/Google Ads, SEO, or mixed (both). Identify which from the posting (keywords like "Google Ads", "PMax", "Shopping", "PPC", "ad spend", "CPC", "ROAS" → PPC; "SEO", "ranking", "organic traffic", "schema", "AEO", "GEO", "AI Overviews", "content" → SEO).
 
 Case studies by domain (use ONLY case studies whose domain matches the job):
-- PPC / Google Ads case studies: Atlant Real Estate (property developer — +56.5% leads, -31% CPC, +144% clicks; new-listing lead gen via branded per-complex campaigns + PMax + DSA — the DIRECT proof for any real-estate / realtor / property / new-listing PPC job), FridgeFix (-92% cost/conv, +1,405% conv), House Painting (2,100+ clicks, 7.3% CTR), Nectar Flowers (-72% CPA, +350% revenue), Skin Reboot (PPC angle — 17.51 ROAS, $12K→$95K revenue PDF).
-- SEO case studies: Derma Solution (+1,861% organic traffic, +14,342% conv PDF), Skin Reboot (SEO angle — +91.58% traffic, +693% revenue PDF), Multilingual Site (17,100 new monthly visits, 18 Top 1 + 47 Top 3 keywords).
+- PPC / Google Ads case studies: Atlant Real Estate (property developer — +56.5% conv, -31% CPC, +144% clicks; new-listing lead gen via branded per-complex campaigns + PMax + DSA — the DIRECT proof for any real-estate / realtor / property / new-listing PPC job), ChronoCash (European LUXURY WATCH dealer, high-ticket B2C — €0.52 CPC, +42% conversions, 4.69K conv from 9.21K clicks; Video + PMax + DSA + Demand Gen — the lead case for luxury / high-ticket / jewellery / watch PPC), FridgeFix (-92% cost/conv, +1,405% conv), House Painting (2,100+ clicks, 7.3% CTR), Nectar Flowers (-72% CPA, +350% income), Skin Reboot (PPC angle — 17.51 PMax ROAS, +693.8% revenue, restricted/beauty PDF).
+- SEO case studies: Derma Solution (+1,861% organic traffic, +14,342% conv PDF), Skin Reboot (SEO angle — +91.58% traffic, +693.8% revenue PDF), Golden State Trailers (B2B manufacturer — +350% organic traffic, 72 city pages, 67 keywords Top 3, 110 referring domains), Luxury Parfums (ecommerce scents — +79% visits, +143% revenue, 33 keywords Top 1), Multilingual Site (17,100 new monthly visits, 18 Top 1 + 47 Top 3 keywords).
 - Mixed-discipline jobs: pick one from each domain.
 
 CRITICAL: NEVER cite a PPC-only case study (FridgeFix, House Painting, Nectar Flowers) in an SEO proposal. NEVER cite an SEO-only case study (Derma Solution organic traffic, Multilingual Site rankings) in a PPC proposal. Skin Reboot is the only case study with both PPC and SEO angles — pick the metric that matches.
@@ -5209,7 +5209,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 : 'Multilingual Site, Derma Solution organic-traffic results (SEO-only — do not cite in PPC proposals)'
               const rightCases = jobIsSeo
                 ? 'Derma Solution (+1,861% organic traffic, +14,342% conv — PDF), Skin Reboot SEO angle (+91.58% traffic, +693% revenue — PDF), Multilingual Site (17,100 new monthly visits)'
-                : 'FridgeFix (-92% cost/conv, +1,405% conv), House Painting (2,100+ clicks, 7.3% CTR), Nectar Flowers (-72% CPA, +350% revenue), Skin Reboot PPC angle (17.51 ROAS, $12K→$95K — PDF)'
+                : 'FridgeFix (-92% cost/conv, +1,405% conv), House Painting (2,100+ clicks, 7.3% CTR), Nectar Flowers (-72% CPA, +350% income), ChronoCash (luxury watches — €0.52 CPC, +42% conv), Skin Reboot PPC angle (17.51 PMax ROAS, +693.8% revenue — PDF)'
               specificViolations.push(
                 `CASE STUDY DOMAIN MISMATCH: This is a ${jobDomain} job, but the draft cites a ${wrongDomain} case study. ` +
                 `Wrong (remove): ${wrongCases}. ` +

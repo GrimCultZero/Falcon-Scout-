@@ -129,3 +129,16 @@ as off-platform intent. Context didn't save it; the pattern alone fired.
 **Reusable lesson.** The analyser/generator only "know" verticals that are (a) core and (b) in a language/title the model can match. Auto-imported Ukrainian case studies are effectively invisible proof. When a vertical gap is flagged, CHECK THE KB in the source language (нерухомість = real estate) before trusting "Artem has no X experience" — and promote/translate the match to a core English entry. Other auto-imported cases likely hide the same way (cargo/B2B #190, IKEA furniture #198, Irish-pub-in-Switzerland #176, etc.).
 
 **KB entries:** #502 (English, core) ← distilled from #245 (Ukrainian source).
+
+---
+
+## Case metrics — authoritative recap loaded (Jun 30 2026)
+
+Owner supplied `Cases recap.docx` with REAL numbers for all cases → stored as core KB note **#506** (single source of truth). Key reconciliations vs what the generator had been citing:
+- **Skin Reboot "$12k→$95k revenue" was FABRICATED** — real figures: +91.58% traffic, +134.12% conv, **+693.8% revenue, 17.51 PMax ROAS** (overall ROAS 15.04, 50,036 clicks). Removed the dollar figure from both generator case menus.
+- **Golden State Trailers "+350% organic / 72 city pages" is REAL** (67 kw Top 3, 110 ref domains) — an earlier review wrongly flagged it as conflated; the generator was accurate.
+- **ChronoCash = NEW case** (KB **#507**): European luxury watch dealer, Google Ads — €0.52 CPC, +42% conv, 4.69K conv from 9.21K clicks, €4.83K/mo (Video+PMax+DSA+Demand Gen). Added to PPC menu as the lead luxury/high-ticket case.
+- **Luxury Parfums** added to SEO menu (+79% visits, +143% revenue, 33 kw Top 1).
+- **Confirmed gaps:** NO CallRail/DNI case and NO SaaS case exist — so prior letters claiming CallRail experience were unbacked; the SaaS-mislabel and CallRail concerns stand.
+
+Full per-case numbers live in KB #506; CASES.md keeps just the deltas.
