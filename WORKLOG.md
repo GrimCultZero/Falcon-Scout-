@@ -690,3 +690,33 @@ to lead the field.
 Verified bucketing on real data (top bids 13–202): WP Head-of-Dev (202)=heavy,
 BI Analyst (181)=heavy, Shopify (61)=moderate, window cleaning (25)/Meta (13)=light.
 Compiles clean.
+
+---
+
+## 2026-06-30 (cont.) — Guard: don't relabel a case study's business model (Skin Reboot ≠ SaaS)
+
+On a "Sports SaaS" Google Ads job (4212), the generator's screening answer called
+Skin Reboot "a SaaS case". Skin Reboot is health/wellness SKINCARE ECOMMERCE (DTC,
+17.51 ROAS, $12k→$95k) — there is NO SaaS case in the KB. Relabeling an ecommerce
+case as SaaS to fake vertical fit is a fabrication the client catches on opening it.
+(The cover letter itself was fine — it bridged the SaaS tracking mechanic generically
+without faking a case; the mislabel was in the chat screening answer.)
+
+**Fixes (JobDetail.jsx).**
+1. Generator prompt — "CASE-STUDY BUSINESS-MODEL INTEGRITY" rule: each case has a
+   FIXED real model (Skin Reboot/Nectar = ecommerce, FridgeFix/House Painting =
+   local service, Derma = clinic, Atlant = real estate; none is SaaS). On a vertical
+   with no case, cite honestly + bridge the mechanic, or skip — never relabel.
+2. Chat screening-answer path — same rule added to its HARD RULES (that's where the
+   mislabel happened).
+3. Deterministic enforcer guard `caseMislabeledAsSaas`: fires when a known non-SaaS
+   case name sits within ~50 chars of a SaaS/software term (either order). Wired into
+   draftCompliant + telemetry + log + specificViolations.
+
+Verified the detector: "Skin Reboot, a SaaS brand" / "B2B software" / "my SaaS case
+Skin Reboot" all flag; honest "Skin Reboot, skincare ecommerce" and generic "your
+sports SaaS" tracking talk do NOT. Compiles clean.
+
+NOTE: there is genuinely NO SaaS/software case study in the KB — if Artem has run
+Google Ads for a real SaaS client, adding that case (even an English distill of a
+Ukrainian one) would let the generator answer "yes, SaaS experience" truthfully.

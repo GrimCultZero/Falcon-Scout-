@@ -1982,6 +1982,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
             '- NEVER just narrate the plan ("splitting into two deliverables…", "I\'m using…"). Emit the actual <proposal> and <answer> text. Narration with no deliverable is a FAILURE.',
             '- Keep <remarks> to ONE short sentence about the work, no tag names, no plan description.',
             '- NEVER reference internal tooling, databases, or knowledge bases in the answer text. Do NOT write "in the KB", "in my KB", "not in the KB right now", or any variant. The client has no idea what a KB is.',
+            '- CASE-STUDY BUSINESS-MODEL INTEGRITY: never relabel a case study\'s real industry/business model to match the client\'s vertical. Skin Reboot is skincare ECOMMERCE (NOT SaaS/software); Nectar Flowers is an ecommerce florist; FridgeFix/House Painting are local services; Derma Solution is a medical clinic; Atlant is real estate. If the client asks "do you have experience with X" (e.g. SaaS) and there is NO case in that exact vertical, do NOT fake it by calling an ecommerce case "a SaaS case". Instead answer honestly: cite the closest case by its REAL model and bridge the transferable mechanic ("same trial-vs-paid ROAS tracking challenge, different business model"), or say the experience is adjacent and lean on the method. A relabeled case is a lie the client catches instantly.',
             '',
             'WHEN A SCREENING QUESTION ASKS FOR PROOF, CAMPAIGNS, OR COMPANY NAMES:',
             '',
@@ -4179,6 +4180,11 @@ Case studies by domain (use ONLY case studies whose domain matches the job):
 
 CRITICAL: NEVER cite a PPC-only case study (FridgeFix, House Painting, Nectar Flowers) in an SEO proposal. NEVER cite an SEO-only case study (Derma Solution organic traffic, Multilingual Site rankings) in a PPC proposal. Skin Reboot is the only case study with both PPC and SEO angles — pick the metric that matches.
 
+CASE-STUDY BUSINESS-MODEL INTEGRITY (mandatory — credibility-critical): Each case study has a FIXED, REAL business model. NEVER relabel a case's industry or business model to force-fit the job's vertical. In particular:
+- Skin Reboot = health/wellness SKINCARE ECOMMERCE (DTC physical product). It is NOT SaaS, NOT software, NOT a subscription product. Never call it "a SaaS case", "B2B software", or similar.
+- Nectar Flowers = ecommerce FLORIST (physical product). FridgeFix = appliance REPAIR (local service). House Painting = painting CONTRACTOR (local service). Derma Solution = medical aesthetics CLINIC. Atlant = REAL ESTATE developer. Game-X / SMASH / GKit = ecommerce store builds. None of these is SaaS/software.
+- When the job is in a vertical we have NO case study for (e.g. SaaS / software / a subscription product), do NOT recategorize an ecommerce or local-service case to match. Either (a) cite the case HONESTLY by its real model and bridge the transferable MECHANIC ("same trial-vs-paid ROAS tracking problem, different business model"), or (b) skip the case and lean on the method + Premier Partner credential. A relabeled case is a fabrication the client catches the moment they open it.
+
 RESTRICTED/YMYL JOBS OVERRIDE (vertical beats channel for the supporting slots): when the job is in a restricted/regulated/YMYL vertical (peptides, skincare, medical aesthetics, supplements, CBD/vape, health/wellness), DO NOT use the generic consumer cases (FridgeFix, House Painting, Nectar Flowers, Golden State Trailers) EVEN ON A PPC JOB — they are off-vertical and signal weak relevance judgment. Use Skin Reboot (the restricted/YMYL paid hero) as the lead, and at most one more genuinely restricted/YMYL case. Fewer on-point cases beat more with a generic filler. If only Skin Reboot truly fits, cite only Skin Reboot and stop.
 
 VAPE SHOP ORDERING RULE (mandatory — overrides any KB rule that contradicts this): Vape Shop is the LEAD case study ONLY when the job is in a substance-restricted vertical where paid advertising is blocked or severely limited — specifically: CBD, hemp, cannabis, THC, e-cigarettes/vaping products, kratom, peptides, SARMs, or similar regulated-substance e-commerce. The reason Vape Shop leads in those cases is the shared "paid is blocked, organic must carry the load" constraint — that is the direct vertical parallel. For healthcare / medical / YMYL jobs where paid advertising is fully available (ABA therapy, medical aesthetics clinics, healthcare SaaS, telehealth), Vape Shop is NOT the lead. On those jobs: Derma Solution leads (strongest YMYL medical proof), Skin Reboot second, Vape Shop third at most or omitted. Any KB rule saying "Vape Shop leads on restricted/YMYL" applies only to substance-restricted, not to general healthcare YMYL.
@@ -4544,6 +4550,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               .filter(b => !_postingBlob.includes(b))
             const hasAssumedBrand = _assumedBrands.length > 0
 
+            // ── Case-study business-model mislabel (credibility-critical) ─────
+            // None of Artem's case studies is SaaS/software. On a SaaS/software
+            // job the model has relabeled an ecommerce case (e.g. Skin Reboot
+            // skincare) as "a SaaS case" to fake vertical fit. Flag when a known
+            // non-SaaS case name appears within ~50 chars of a SaaS/software term
+            // (either order) — that's a fabricated business model.
+            const _NON_SAAS_CASE = '(?:skin\\s*reboot|nectar\\s*flowers|fridgefix|house\\s+painting|derma\\s*solution|atlant|smash|game-?x|gkit|oxytec|vape\\s*shop|multilingual\\s+site|golden\\s+state\\s+trailers|trailers)'
+            const _SAAS_TERM = '(?:saas|software[- ]as[- ]a[- ]service|b2b\\s+software|software\\s+(?:platform|company|product|brand|business)|subscription\\s+(?:software|platform|saas))'
+            const _MISLABEL_RE = new RegExp(`\\b${_NON_SAAS_CASE}\\b[^.!?\\n]{0,50}\\b${_SAAS_TERM}\\b|\\b${_SAAS_TERM}\\b[^.!?\\n]{0,50}\\b${_NON_SAAS_CASE}\\b`, 'i')
+            const caseMislabeledAsSaas = _MISLABEL_RE.test(text)
+
             // ── Exact-vertical case must LEAD (generalised) ──────────────────
             // When the job is in a vertical we hold a SPECIFIC case for, that case
             // must be the FIRST proof cited — never buried after a generic local-
@@ -4890,7 +4907,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !missingYearsExperience && !ppcMissingPremierPartner
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
-              && !hasAssumedBrand && !exactVerticalCaseNotLeading
+              && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -4910,6 +4927,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasFillerCloser && 'hasFillerCloser',
               hasAssumedBrand && 'hasAssumedBrand',
               exactVerticalCaseNotLeading && 'exactVerticalCaseNotLeading',
+              caseMislabeledAsSaas && 'caseMislabeledAsSaas',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
@@ -4989,6 +5007,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (exactVerticalCaseNotLeading) {
               console.log(`[Falcon] Rule pre-check: ${_jobVertical?.name} job but draft leads with a generic filler case before the on-vertical case — firing Claude enforcer to reorder.`)
             }
+            if (caseMislabeledAsSaas) {
+              console.log('[Falcon] Rule pre-check: a non-SaaS case study is described as SaaS/software (business-model fabrication) — firing Claude enforcer.')
+            }
 
             // Build a list of specific violations found by the pre-check so the
             // enforcer knows exactly what to fix (and is allowed to add content
@@ -5020,6 +5041,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 `ASSUMED VERTICAL / FABRICATED BRAND (credibility-critical): The draft names concrete consumer brand(s) the posting never mentioned — ${_assumedBrands.join(', ')}. The posting does NOT state the client's specific product or vertical, so naming a product/brand assumes their business and risks reading as "assumed the wrong company". ` +
                 'REWRITE every illustrative example to be category-neutral or explicitly hypothetical — replace the named brand/product with "[your product]", "a specific model/size/SKU", "whatever you sell", or a generic "research query vs high-intent buy query" framing. Keep the underlying insight (buyer-intent segmentation, feed structure, etc.) — only strip the assumed product identity. Do NOT substitute a different specific brand; go neutral. Case-study client names in the APPROVED CASE STUDIES block are Artem\'s own and must NOT be touched.'
+              )
+            }
+            if (caseMislabeledAsSaas) {
+              specificViolations.push(
+                'CASE-STUDY BUSINESS-MODEL FABRICATION (credibility-critical): The draft describes one of Artem\'s case studies as SaaS / software / a subscription product. NONE of his cases is SaaS — Skin Reboot is skincare ECOMMERCE, Nectar Flowers an ecommerce florist, FridgeFix/House Painting local services, etc. ' +
+                'FIX: stop calling the case a SaaS/software case. Either describe it by its REAL business model and bridge the transferable mechanic to the client\'s SaaS context ("same trial-vs-paid ROAS tracking challenge, different business model"), or remove the case and lean on the method + Premier Partner credential. Do NOT relabel a case\'s industry to match the job — the client opens it and sees the truth.'
               )
             }
             if (exactVerticalCaseNotLeading && _jobVertical) {
