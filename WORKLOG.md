@@ -587,3 +587,19 @@ case-study choice (Nectar Flowers + Skin Reboot, both paid-media ecommerce), cle
 close. One genuine glitch noted for the owner to hand-fix this time: Skin Reboot
 line printed "(attached as PDF)" twice — a dedup miss in _stripDuplicateCaseBlockLabel
 worth patching later.
+
+---
+
+## 2026-06-30 (cont.) — Fix doubled attachment label ("(attached as PDF)" twice)
+
+The Skin Reboot case line rendered "Skin Reboot (attached as PDF) (health/wellness
+ecommerce, attached as PDF):" — the attachment phrase printed twice across two
+parentheticals. `_stripDuplicateCaseBlockLabel` only handled the "Relevant case
+studies:" header, not this.
+
+Added `_stripDuplicateAttachmentLabel(text)`: (1) merges two adjacent parentheticals
+that both carry an attachment phrase into one (keeps the descriptor + a single
+"attached as PDF"/"in profile highlights"); (2) collapses the same phrase repeated
+inside one parenthetical. Wired into all three post-processing chains (generate,
+chat-rewrite, rescan) at the `_cleanPasteText` layer. Single correct parentheticals
+are untouched. Verified on the real buggy line + variants; compiles clean.
