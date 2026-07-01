@@ -1599,6 +1599,21 @@ function _stripDuplicateAttachmentLabel(text) {
       .replace(/,\s*,/g, ',').replace(/\s+,/g, ',').replace(/^[\s,;]+|[\s,;]+$/g, '')
     return `(${collapsed})`
   })
+  // 3) Redundant STANDALONE attach sentence within a paragraph that already has
+  //    the attach phrase in a parenthetical label. e.g.
+  //    "Derma Solution (attached as PDF): … 155 referring domains. Attached as a PDF."
+  //    → drop the trailing standalone "Attached as a PDF." sentence.
+  out = out.split(/\n{2,}/).map(para => {
+    const gRe = new RegExp(_ATTACH_PHRASE_RE.source, 'gi')
+    if ((para.match(gRe) || []).length < 2) return para
+    // Only act when the label form is present in a parenthetical (that's the keeper).
+    const hasParenAttach = /\([^)]*\battached\s+(?:as\s+(?:a\s+)?pdf|in\s+(?:the\s+)?profile\s+highlights)\b[^)]*\)/i.test(para)
+    if (!hasParenAttach) return para
+    // Remove a standalone attach clause sitting at a sentence boundary (not inside parens).
+    return para
+      .replace(/([.!?])\s+(?:also\s+)?attached\s+(?:as\s+(?:a\s+)?pdf|in\s+(?:the\s+)?profile\s+highlights)\s*[.!?]?(?=\s|$)/gi, '$1')
+      .replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.!?,;:])/g, '$1').trimEnd()
+  }).join('\n\n')
   if (out !== text) {
     console.log('[Falcon] Collapsed duplicate attachment label(s).')
     _recordViolations('generator', null, ['duplicateAttachmentLabel'])

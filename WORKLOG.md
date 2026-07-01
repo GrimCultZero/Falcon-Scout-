@@ -909,3 +909,18 @@ untouched. (Bug caught in test: CANON regex needed the `i` flag — "technical S
 vs "technical seo".)
 
 Verified on the real snippet; compiles clean.
+
+---
+
+## 2026-07-01 — Strip redundant trailing "Attached as a PDF." sentence
+
+Owner: a Derma Solution case-study entry had the attach phrase twice — in the label
+"(attached as PDF):" AND as a trailing standalone sentence "…155 referring domains.
+Attached as a PDF." The earlier _stripDuplicateAttachmentLabel only handled adjacent
+parentheticals, not a trailing sentence.
+
+Fix: added pass (3) to _stripDuplicateAttachmentLabel — per paragraph, when the
+attach phrase appears 2+ times AND one is a parenthetical label (the keeper), remove
+the standalone attach clause sitting at a sentence boundary ("… . Attached as a
+PDF."). Handles both "attached as (a) PDF" and "in profile highlights". Single labels
+and the parenthetical stay. Verified on the real snippet; compiles clean.
