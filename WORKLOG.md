@@ -795,3 +795,29 @@ of depending on foreground:
 - Bumped manifest 4.2→4.3, proposal.js stamp 2.8→2.9 (reload the extension).
 
 Verified syntax (node --check) on both files.
+
+---
+
+## 2026-07-01 — Generator: stop echoing the client's screening questions verbatim
+
+Owner feedback on a local-services Google Ads letter: it pasted the client's exact
+question text as headings ("1. Your experience with local service business campaigns
+(with a quick example or result)") then answered underneath — the #1 tell of a
+mechanical AI form-fill.
+
+Fix (JobDetail.jsx):
+- Application-checklist prompt block: the item list is now framed as FOR-YOUR-
+  REFERENCE (cover every point) with a new highest-priority "ANSWER IN YOUR OWN
+  VOICE — NEVER ECHO THE QUESTIONS" rule: no pasted question headings; answer in
+  Artem's words woven into natural prose; if a label helps, a SHORT self-authored
+  2–4-word label only ("Local results:", "First thing I'd check:"), never the
+  client's sentence. Prefer prose over numbered lists.
+- Softened the NO-DUPLICATION rule so it no longer assumes/encourages a numbered
+  format.
+- Deterministic guard `hasEchoedQuestion`: uses the extracted checklist item texts;
+  if a question's wording (>=25 chars) appears near-verbatim (45-char prefix) in the
+  draft → fire enforcer to rephrase. Wired into draftCompliant + telemetry + log +
+  specificViolations (quotes the offending echo).
+
+Verified: the real bad draft flags all 3 echoed questions; an own-words version
+flags none. Compiles clean.

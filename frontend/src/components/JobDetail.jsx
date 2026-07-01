@@ -169,12 +169,13 @@ function extractApplicationChecklist(text) {
 
   const promptBlock =
     `⛔ MANDATORY APPLICATION CHECKLIST (the client put this in the posting — this OVERRIDES any attached file's topic; the POSTING defines what to answer):\n` +
-    `The proposal will be AUTO-REJECTED if it does not address EVERY item below. Answer each one explicitly and concisely (a short labelled line or sentence per item is fine):\n` +
+    `The proposal will be AUTO-REJECTED if it does not address EVERY item below. This list is FOR YOUR REFERENCE — cover every point, but do NOT reproduce this list or its wording in the letter (see the ANSWER IN YOUR OWN VOICE rule below):\n` +
     classified.map((c, i) => `  ${i + 1}. ${c.text}${c.factual ? '   ← FACTUAL: answer from ARTEM\'S BUSINESS FACTS below if it covers this; otherwise a clear placeholder like [[ ARTEM: fill in ]] — never invent an unknown number, price, URL, or claim.' : ''}`).join('\n') +
+    `\n\nANSWER IN YOUR OWN VOICE — NEVER ECHO THE QUESTIONS (mandatory, highest-priority on wording): Do NOT paste or restate the client's question text as a heading before answering it. Copying their exact wording — e.g. "1. Your experience with local service business campaigns (with a quick example or result)" then an answer — is the #1 tell of a mechanical AI form-fill and it reads terribly. Instead: answer the points in Artem's own words, woven into natural, flowing prose the way a person actually writes. If a light structure genuinely helps readability, use a SHORT self-authored label of 2–4 words in Artem's voice ("Local results:", "First thing I'd check:", "Rate & availability:") — NEVER the client's full question echoed back. The client can see their own questions; repeating them wastes space and signals a template. Prefer flowing paragraphs over any numbered list; a numbered list is acceptable ONLY when the client explicitly numbered the questions AND you keep the labels to a few of your own words.` +
     (hasFactual
       ? `\n\nFACTUAL ITEMS RULE (critical): for team size, portfolio/site URLs, landing-page turnaround, and monthly retainer, use the values in "ARTEM'S BUSINESS FACTS" below. For anything factual NOT covered there (e.g. a specific client name, an exact metric you don't have), do NOT fabricate — emit a visible [[ ARTEM: … ]] placeholder so he fills it before sending.`
       : ``) +
-    `\n\nNO BODY↔ANSWERS DUPLICATION (mandatory structure): when you answer these items as a numbered/labelled list, do NOT ALSO pre-answer the same questions in the letter body. Pick one home for each piece of content. The right shape: a SHORT hook (the client's core problem + the credentials + ONE sharp differentiating insight), then go straight to the numbered answers where the substance lives. Do NOT write full body sections ("here's my approach…", "here's how I'd build the pages…") that the numbered answers then repeat almost verbatim — that doubles the length and reads as padding. If a point belongs in an answer, it does NOT also belong in the body.` +
+    `\n\nNO BODY↔ANSWERS DUPLICATION (mandatory structure): do NOT cover the same point twice — once in a body section and again where you address the checklist. Pick one home for each piece of content. The right shape: a SHORT hook (the client's core problem + the credentials + ONE sharp differentiating insight), then address their points once, in your own words. Do NOT write full body sections ("here's my approach…", "here's how I'd build the pages…") that you then repeat almost verbatim when answering the questions — that doubles the length and reads as padding.` +
     `\n\nTIMELINE/DURATION QUESTIONS (mandatory): if any checklist item asks "how long", "rough timeline", "turnaround", "ETA", "when can you complete/start", or similar, the answer MUST contain a CONCRETE time estimate (e.g. "3–5 business days", "about a week", "2–3 days once I have access"). Describing the deliverable or the steps is NOT an answer to a timeline question — give an actual duration. (This is the one case where stating a timeline in the letter is REQUIRED, overriding the usual omit-timeline rule.)`
 
   return { items: classified, promptBlock, hasFactual }
@@ -4574,6 +4575,23 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _MISLABEL_RE = new RegExp(`\\b${_NON_SAAS_CASE}\\b[^.!?\\n]{0,50}\\b${_SAAS_TERM}\\b|\\b${_SAAS_TERM}\\b[^.!?\\n]{0,50}\\b${_NON_SAAS_CASE}\\b`, 'i')
             const caseMislabeledAsSaas = _MISLABEL_RE.test(text)
 
+            // ── Echoed-question check (mechanical AI-form-fill tell) ─────────
+            // The generator sometimes pastes the client's screening questions
+            // verbatim as headings ("Your experience with local service business
+            // campaigns (with a quick example or result)") before answering — the
+            // #1 tell that a human didn't write it. If a checklist item's wording
+            // appears near-verbatim in the draft, flag it for rephrasing.
+            const _normEcho = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+            const _draftNorm = _normEcho(text)
+            const _echoedQuestions = (applicationChecklist?.items || [])
+              .map(it => (it.text || '').trim())
+              .filter(q => q.length >= 25)                 // only long questions, not short labels
+              .filter(q => {
+                const nq = _normEcho(q)
+                return _draftNorm.includes(nq.slice(0, Math.min(nq.length, 45)))
+              })
+            const hasEchoedQuestion = _echoedQuestions.length > 0
+
             // ── Exact-vertical case must LEAD (generalised) ──────────────────
             // When the job is in a vertical we hold a SPECIFIC case for, that case
             // must be the FIRST proof cited — never buried after a generic local-
@@ -4921,7 +4939,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
-              && !timelineRequestedButMissing
+              && !timelineRequestedButMissing && !hasEchoedQuestion
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -4943,6 +4961,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               exactVerticalCaseNotLeading && 'exactVerticalCaseNotLeading',
               caseMislabeledAsSaas && 'caseMislabeledAsSaas',
               timelineRequestedButMissing && 'timelineRequestedButMissing',
+              hasEchoedQuestion && 'hasEchoedQuestion',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
@@ -5028,6 +5047,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (timelineRequestedButMissing) {
               console.log('[Falcon] Rule pre-check: posting asks for a timeline/duration but the draft gives no concrete estimate — firing Claude enforcer.')
             }
+            if (hasEchoedQuestion) {
+              console.log(`[Falcon] Rule pre-check: draft echoes the client's screening question(s) verbatim (${_echoedQuestions.length}) — mechanical form-fill, firing Claude enforcer.`)
+            }
 
             // Build a list of specific violations found by the pre-check so the
             // enforcer knows exactly what to fix (and is allowed to add content
@@ -5059,6 +5081,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 `ASSUMED VERTICAL / FABRICATED BRAND (credibility-critical): The draft names concrete consumer brand(s) the posting never mentioned — ${_assumedBrands.join(', ')}. The posting does NOT state the client's specific product or vertical, so naming a product/brand assumes their business and risks reading as "assumed the wrong company". ` +
                 'REWRITE every illustrative example to be category-neutral or explicitly hypothetical — replace the named brand/product with "[your product]", "a specific model/size/SKU", "whatever you sell", or a generic "research query vs high-intent buy query" framing. Keep the underlying insight (buyer-intent segmentation, feed structure, etc.) — only strip the assumed product identity. Do NOT substitute a different specific brand; go neutral. Case-study client names in the APPROVED CASE STUDIES block are Artem\'s own and must NOT be touched.'
+              )
+            }
+            if (hasEchoedQuestion) {
+              specificViolations.push(
+                `ECHOED SCREENING QUESTIONS (mechanical form-fill — wording-critical): The draft pastes the client's question wording near-verbatim as a heading/label before answering — e.g. "${_echoedQuestions[0].slice(0, 70)}${_echoedQuestions[0].length > 70 ? '…' : ''}". No human echoes the client's own questions back at them; it reads as an AI template. ` +
+                'REWRITE so the answers are in Artem\'s own words woven into natural prose. Remove every pasted question heading. If a light label genuinely aids readability, use a SHORT self-authored 2–4-word label in Artem\'s voice ("Local results:", "First thing I\'d check:", "Rate & availability:") — never the client\'s full question. Cover every point, just don\'t restate the questions.'
               )
             }
             if (timelineRequestedButMissing) {
