@@ -821,3 +821,23 @@ Fix (JobDetail.jsx):
 
 Verified: the real bad draft flags all 3 echoed questions; an own-words version
 flags none. Compiles clean.
+
+---
+
+## 2026-07-01 — Analyser aligned with the Loom / Rule-2 ban
+
+Owner spotted: on the German paving-contractor audit job (client asked for "a short
+Loom video or a quick call"), the analyser recommended "offer an async Loom recap
+(Artem records a walkthrough video)". That contradicts the generator's HARD ban on
+naming Loom / committing to video deliverables — the analyser was advising the exact
+thing the letter is forbidden to write.
+
+Fix: added "WALKTHROUGH / LOOM / VIDEO-EXPLANATION REQUESTS — ADVISE COMPLIANTLY" to
+the analyser prompt (after the Rule-2 scope section). It must NOT recommend offering
+Loom or a recorded video; instead recommend a written plain-language findings summary
+(+ optionally a single short wrap-up call if the client insists), and never name Loom
+in reasoning/flags. Scoring impact still follows the existing Rule-2 rules (a
+secondary "explain your findings" ask on a done-for-you audit is fine).
+
+Compiles clean. (Analyser text is internal/not client-facing, so this is about
+consistency + not steering the letter toward a banned offer, not a client leak.)
