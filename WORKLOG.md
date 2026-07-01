@@ -863,3 +863,29 @@ Flow (reuses the apply-page bid scrape, no full enrichment):
   ~1.5s of saving.
 
 Manifest 4.3→4.4 (reload extension). All files syntax-checked; frontend compiles.
+
+---
+
+## 2026-07-01 — Audit job wrongly got the 3-month SEO promotion plan (owner caught it)
+
+Owner: client asked for an SEO AUDIT but the generator offered a "3-month SEO
+promotion plan". Confirmed + root-caused.
+
+Root cause: the audit-vs-plan classifier's retainer/ongoing detector used a bare
+`long.?term`. The posting said "quick wins vs. long-term strategy" (a section of the
+audit REPORT), so `long-term` matched → jobIsAuditOnly=false → missingSeoPlanOffer
+fired → the enforcer ADDED the promotion plan. "long-term strategy" is a deliverable
+phrase, not a continuing engagement.
+
+Fix (JobDetail.jsx):
+- Retainer signal regex tightened: "long-term" only counts when followed by an
+  engagement word (partnership/work/management/contract/retainer/support/…); the
+  "monthly"/"ongoing" arms now require an engagement noun too. So "long-term
+  strategy/recommendations/goals" no longer misread as ongoing work.
+- Added inverse guard `wrongPlanOnAuditJob`: on a pure audit-only SEO job, if the
+  draft offers the 3-month promotion plan, the enforcer STRIPS it (keeps the
+  technical-audit sample). Wired into draftCompliant + telemetry + log +
+  specificViolations.
+
+Verified: evdokimos posting now classifies audit-only; monthly-retainer /
+audit+retainer / long-term-partnership correctly still allow the plan. Compiles clean.

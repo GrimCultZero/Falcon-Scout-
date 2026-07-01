@@ -4848,20 +4848,33 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             //       (e.g. "5 business days", "3-5 days", "a week")
             let missingSeoPlanOffer = false
             let wrongSeoPlanTiming = false
+            let wrongPlanOnAuditJob = false
             if (jobIsSeo && !jobIsPpc && !jobIsWebdev) {
               const hasSeoPlanMention = /\b(?:seo\s+(?:promotion\s+)?plan|seo\s+roadmap|promotion\s+plan)\b/i.test(text)
               // For a pure audit-only job with no retainer/ongoing component, the audit
               // sample attachment IS the CTA — suppress the plan check. But if the job
               // mentions a retainer or ongoing work, the plan is still required even when
               // the job starts with an audit phase.
+              // Retainer/ongoing signal = an ACTUAL continuing engagement, not a
+              // deliverable phrase. "long-term strategy / plan / recommendations /
+              // goals" are audit-REPORT sections, NOT ongoing work — so "long-term"
+              // only counts when followed by an engagement word (partnership, work,
+              // management, contract, retainer, support, collaboration, basis, …).
+              const _RETAINER_SIGNAL_RE = /\b(retainer|ongoing\s+(?:seo|work|management|support|optimi|improvement|help|maintenance)|monthly\s+(?:seo|retainer|management|work|support|hours?)|recurring|continue\s+improving|long.?term\s+(?:engagement|partnership|work|management|contract|support|collaboration|retainer|relationship|role|help|assistance|basis|commitment|maintenance))\b/i
               const jobIsAuditOnly = /\baudit\b/i.test(jobContextLower) &&
-                !/\b(retainer|ongoing|monthly|long.?term|retainer|continue\s+improving|recurring)\b/i.test(jobContextLower)
+                !_RETAINER_SIGNAL_RE.test(jobContextLower)
               const draftHasAuditSampleAttach = /\battach(?:ing|ed)?\b[^.]{0,60}\bsample\b[^.]{0,80}\baudit\b/i.test(text) ||
                 /\baudit\b[^.]{0,60}\bsample\b[^.]{0,60}\battach/i.test(text)
               // Suppress plan requirement ONLY for audit-only jobs where the draft already
               // has the audit-sample attachment as its CTA.
               const planSuppressedByAuditCTA = jobIsAuditOnly && draftHasAuditSampleAttach
               missingSeoPlanOffer = !hasSeoPlanMention && !planSuppressedByAuditCTA
+              // Inverse: on a pure AUDIT-ONLY job, the 3-month SEO promotion plan is
+              // the WRONG deliverable — it's an ongoing-campaign document. If the
+              // draft offers it, strip it (the client asked for an audit, not a
+              // retainer pitch). Not fired on audit+retainer jobs (jobIsAuditOnly
+              // is false there).
+              wrongPlanOnAuditJob = jobIsAuditOnly && hasSeoPlanMention
               if (hasSeoPlanMention) {
                 // Find the position of the plan mention, then look at the
                 // surrounding ±200-char window for a timing phrase. Fire if
@@ -4997,7 +5010,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             const draftCompliant = timingCompliant && !hasForbiddenPhrase && !hasCircumventionRisk && !missingPdfLabel
               && !missingAuditSampleMention && !missingCaseStudy && !missingHighlightsPhrase
-              && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming
+              && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming && !wrongPlanOnAuditJob
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -5033,6 +5046,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
               missingSeoPlanOffer && 'missingSeoPlanOffer',
               wrongSeoPlanTiming && 'wrongSeoPlanTiming',
+              wrongPlanOnAuditJob && 'wrongPlanOnAuditJob',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -5076,6 +5090,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongSeoPlanTiming) {
               console.log('[Falcon] Rule pre-check: SEO promotion plan offered with wrong timing (must be "2 working days") — firing Claude enforcer.')
+            }
+            if (wrongPlanOnAuditJob) {
+              console.log('[Falcon] Rule pre-check: audit-only SEO job but draft offers the 3-month SEO promotion plan (wrong deliverable) — firing Claude enforcer to remove it.')
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -5267,6 +5284,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 'DELETE the entire audit-offer / audit-sample sentence. Do NOT replace it with another audit mention. ' +
                 'If a deliverable/attachment is wanted to show depth, the correct one for a from-scratch launch is the SETUP + LAUNCH PLAN (week-by-week build approach: technical foundation, Merchant Center feed, campaign architecture, scaling triggers) which the draft should already describe — do not attach an "audit". You MAY keep a brief offer to share a relevant case study PDF, but remove all audit-as-deliverable language. ' +
                 'End the letter on a substantive line per the closing rules (no filler closer).'
+              )
+            }
+            if (wrongPlanOnAuditJob) {
+              specificViolations.push(
+                'WRONG DELIVERABLE — SEO PROMOTION PLAN ON AN AUDIT-ONLY JOB: The client asked for a one-time SEO AUDIT / ranking analysis with a written report + prioritized recommendations — NOT ongoing SEO management. There is no retainer or continuing engagement in this posting (any "long-term strategy / recommendations" is a SECTION of the audit report, not ongoing work). The draft offers a "3-month SEO promotion plan", which is an ongoing-campaign document — the wrong deliverable, and it reads as an unwanted upsell. ' +
+                'DELETE the entire "i can prepare a custom 3-month SEO promotion plan…" sentence AND its "attaching a sample SEO promotion plan" clause. KEEP the technical SEO audit sample attachment ("i\'m attaching a sample technical SEO audit…") — that IS the correct proof for this job. The deliverable is the audit + prioritized findings doc, nothing more.'
               )
             }
             if (missingSeoPlanOffer) {
