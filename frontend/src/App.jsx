@@ -440,12 +440,19 @@ export default function App() {
     window.addEventListener('cockpit:enrich', startPoll)
     window.addEventListener('cockpit:enrich:complete', onComplete)
     window.addEventListener('cockpit:enrich:error', stopPoll)
+    // "Update bids" uses the same rapid-refresh so the new boost data shows fast.
+    window.addEventListener('cockpit:update-bids', startPoll)
+    window.addEventListener('cockpit:bids:complete', onComplete)
+    window.addEventListener('cockpit:bids:error', stopPoll)
 
     return () => {
       stopPoll()
       window.removeEventListener('cockpit:enrich', startPoll)
       window.removeEventListener('cockpit:enrich:complete', onComplete)
       window.removeEventListener('cockpit:enrich:error', stopPoll)
+      window.removeEventListener('cockpit:update-bids', startPoll)
+      window.removeEventListener('cockpit:bids:complete', onComplete)
+      window.removeEventListener('cockpit:bids:error', stopPoll)
     }
   }, [selectedId, query, filter, fetchSelectedJob, fetchJobs])
 

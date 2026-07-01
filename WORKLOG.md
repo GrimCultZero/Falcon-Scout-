@@ -841,3 +841,25 @@ secondary "explain your findings" ask on a done-for-you audit is fine).
 
 Compiles clean. (Analyser text is internal/not client-facing, so this is about
 consistency + not steering the letter toward a banned offer, not a client leak.)
+
+---
+
+## 2026-07-01 — "Update bids" button (refresh boost competition only)
+
+Owner: bid competition changes constantly; need to refresh it without re-enriching
+the whole job. Added an "Update bids" button next to Enrich/Enriched.
+
+Flow (reuses the apply-page bid scrape, no full enrichment):
+- JobDetail: ⚡ Update bids button → dispatches `cockpit:update-bids` {job_id}.
+- bridge.js: forwards `UPDATE_BIDS` to background; relays `BIDS_UPDATED` →
+  `cockpit:bids:complete` / `:error`.
+- background.js: `UPDATE_BIDS` opens ONLY the apply page in a background tab,
+  tracked in `_manualBidsTabs` (tabId→job_id). apply.js scrapes the boost table and
+  sends BOOST_BIDS as usual; the handler POSTs to /jobs/{id}/boost-bids and, when the
+  tab was a manual one, fires `notifyCockpit('BIDS_UPDATED', {count})` (also on
+  no-bids / error).
+- App.jsx: `cockpit:update-bids` / `:complete` hooked into the existing enrich
+  rapid-refresh so the new bids show in the "Boost competition" enriched row within
+  ~1.5s of saving.
+
+Manifest 4.3→4.4 (reload extension). All files syntax-checked; frontend compiles.

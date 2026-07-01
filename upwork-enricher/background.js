@@ -3,6 +3,9 @@ const API_BASE = 'http://127.0.0.1:8000';
 
 // Track tabs opened as silent background enrichment tabs
 const _bgTabs = new Set();
+// Track tabs opened by a MANUAL "Update bids" click: tabId → job_id. Lets the
+// BOOST_BIDS handler notify the dashboard when a user-triggered bid refresh finishes.
+const _manualBidsTabs = new Map();
 // Track pending Ahrefs enrichments: domain → { job_id }
 const _ahrefsPending = new Map();
 // Track pending website inspections: tabId → { job_id, url }
@@ -363,6 +366,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // ── Save boost bid competition data (from apply.js) ──────────────────────
+  // ── Manual "Update bids" trigger from the dashboard ──────────────────────
+  // Opens ONLY the apply page for one job in a background tab so apply.js can
+  // re-scrape the boost-bid competition table. No full re-enrichment — this is a
+  // lightweight refresh of the constantly-changing bid data only.
+  if (message.type === 'UPDATE_BIDS' && message.job_id) {
+    const rawId = String(message.job_id).replace(/^~/, '');
+    const applyUrl = `https://www.upwork.com/nx/proposals/job/~${rawId}/apply/`;
+    chrome.tabs.create({ url: applyUrl, active: false }, (tab) => {
+      if (chrome.runtime.lastError || !tab || !tab.id) {
+        notifyCockpit('BIDS_UPDATED', { job_id: rawId, ok: false, error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || 'could not open apply tab' });
+        sendResponse({ ok: false });
+        return;
+      }
+      _bgTabs.add(tab.id);
+      _manualBidsTabs.set(tab.id, rawId);
+      _scheduleTabCleanup(tab.id, 2);
+      console.log('[Cockpit BG] UPDATE_BIDS apply tab', tab.id, '→', applyUrl);
+      sendResponse({ ok: true, tabId: tab.id });
+    });
+    return true; // async
+  }
+
   if (message.type === 'BOOST_BIDS' && message.job_id) {
     const jobId = String(message.job_id).replace(/^~/, '');
     const diag = message._diag || {};
@@ -374,12 +399,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       '| finalUrl:', diag.finalUrl || '?',
       '| snippet:', (diag.bodySnippet || '').slice(0, 80));
     const bids = message.bids || [];
+    // Was this scrape triggered by a manual "Update bids" click? If so, notify
+    // the dashboard when it finishes (success, no-bids, or error).
+    const _manualJobId = sender.tab ? _manualBidsTabs.get(sender.tab.id) : null;
+    const _isManual = !!_manualJobId;
     // Only POST to backend if we actually have bids
     if (!bids.length) {
       sendResponse({ ok: true, saved: false, reason: 'no_bids' });
-      if (sender.tab && _bgTabs.has(sender.tab.id)) {
-        _bgTabs.delete(sender.tab.id);
-        chrome.tabs.remove(sender.tab.id);
+      if (_isManual) notifyCockpit('BIDS_UPDATED', { job_id: jobId, ok: true, count: 0 });
+      if (sender.tab) {
+        _manualBidsTabs.delete(sender.tab.id);
+        if (_bgTabs.has(sender.tab.id)) { _bgTabs.delete(sender.tab.id); chrome.tabs.remove(sender.tab.id); }
       }
       return true;
     }
@@ -392,15 +422,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(result => {
         sendResponse({ ok: true, result });
         console.log('[Cockpit BG] Boost bids saved for ~' + jobId + ':', result);
+        if (_isManual) notifyCockpit('BIDS_UPDATED', { job_id: jobId, ok: true, count: bids.length });
       })
       .catch(err => {
         sendResponse({ ok: false, error: err.message });
         console.error('[Cockpit BG] Boost bids save error:', err);
+        if (_isManual) notifyCockpit('BIDS_UPDATED', { job_id: jobId, ok: false, error: err.message });
       })
       .finally(() => {
-        if (sender.tab && _bgTabs.has(sender.tab.id)) {
-          _bgTabs.delete(sender.tab.id);
-          chrome.tabs.remove(sender.tab.id);
+        if (sender.tab) {
+          _manualBidsTabs.delete(sender.tab.id);
+          if (_bgTabs.has(sender.tab.id)) { _bgTabs.delete(sender.tab.id); chrome.tabs.remove(sender.tab.id); }
         }
       });
     return true; // keep channel open for async response

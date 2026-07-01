@@ -47,6 +47,32 @@
     });
   });
 
+  // Page → Extension: refresh ONLY the boost-bid competition data for one job
+  // (opens the apply page in a background tab; no full re-enrichment).
+  window.addEventListener('cockpit:update-bids', (e) => {
+    const { job_id } = e.detail || {};
+    if (!job_id) return;
+    if (!chrome.runtime || !chrome.runtime.id) {
+      window.dispatchEvent(new CustomEvent('cockpit:bids:error', {
+        detail: { error: 'Extension was reloaded — hard-refresh this page (Ctrl+Shift+R).' }
+      }));
+      return;
+    }
+    chrome.runtime.sendMessage({ type: 'UPDATE_BIDS', job_id }, (response) => {
+      if (chrome.runtime.lastError) {
+        window.dispatchEvent(new CustomEvent('cockpit:bids:error', {
+          detail: { error: chrome.runtime.lastError.message }
+        }));
+        return;
+      }
+      if (!response || response.ok !== true) {
+        window.dispatchEvent(new CustomEvent('cockpit:bids:error', {
+          detail: { error: (response && response.error) || 'could not open apply tab' }
+        }));
+      }
+    });
+  });
+
   // Page → Extension: scrape a client website for cover-letter personalisation.
   window.addEventListener('cockpit:inspect-website', (e) => {
     const { job_id, url } = e.detail || {};
@@ -155,6 +181,12 @@
           url:     message.url,
           summary: message.summary,
         }
+      }));
+    }
+    // Extension → Page: manual "Update bids" finished → refresh the job detail.
+    if (message.type === 'BIDS_UPDATED') {
+      window.dispatchEvent(new CustomEvent(message.ok === false ? 'cockpit:bids:error' : 'cockpit:bids:complete', {
+        detail: { job_id: message.job_id, count: message.count, error: message.error || null }
       }));
     }
     if (message.type === 'AHREFS_COMPLETE') {

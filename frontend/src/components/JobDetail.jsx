@@ -729,6 +729,8 @@ export default function JobDetail({ job }) {
   const [enrichDebug, setEnrichDebug] = useState(null)  // last enrichment result or error
   const [enrichDebugOpen, setEnrichDebugOpen] = useState(false)
   const [bridgeReady, setBridgeReady] = useState(false)
+  const [updatingBids, setUpdatingBids] = useState(false)
+  const [bidsMsg, setBidsMsg] = useState('')
   const leftColRef = useRef(null)
   const wrapperRef = useRef(null)
 
@@ -797,6 +799,31 @@ export default function JobDetail({ job }) {
     }
   }, [])
 
+  // "Update bids" completion / error — refresh the boost-competition data only.
+  useEffect(() => {
+    const onBidsDone = (e) => {
+      setUpdatingBids(false)
+      const n = e.detail?.count
+      setBidsMsg(typeof n === 'number' ? (n > 0 ? `✓ bids updated (${n})` : '✓ no active bids yet') : '✓ bids updated')
+    }
+    const onBidsErr = (e) => {
+      setUpdatingBids(false)
+      setBidsMsg('✗ ' + (e.detail?.error || 'update failed'))
+    }
+    window.addEventListener('cockpit:bids:complete', onBidsDone)
+    window.addEventListener('cockpit:bids:error', onBidsErr)
+    return () => {
+      window.removeEventListener('cockpit:bids:complete', onBidsDone)
+      window.removeEventListener('cockpit:bids:error', onBidsErr)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!bidsMsg) return
+    const t = setTimeout(() => setBidsMsg(''), 4000)
+    return () => clearTimeout(t)
+  }, [bidsMsg])
+
   // Clear the status message after 3 s
   useEffect(() => {
     if (!enrichMsg) return
@@ -827,6 +854,26 @@ export default function JobDetail({ job }) {
     setTimeout(() => {
       setEnriching(prev => { if (prev) setEnrichMsg('✗ No response from extension — reload the tab'); return false })
     }, 15000)
+  }
+
+  const handleUpdateBids = (event) => {
+    if (!bridgeReady) {
+      setBidsMsg('✗ Extension not connected — reload this tab (F5)')
+      return
+    }
+    const rawId = (job.upwork_job_id || '').replace(/^~/, '')
+    if (!rawId) {
+      setBidsMsg('✗ No Upwork job id — enrich first')
+      return
+    }
+    try { if (event && event.currentTarget) { flashLogo(event.currentTarget) } } catch {}
+    setBidsMsg('')
+    window.dispatchEvent(new CustomEvent('cockpit:update-bids', { detail: { job_id: rawId } }))
+    setUpdatingBids(true)
+    // Safety timeout — the apply page load + scrape can take ~15-20s.
+    setTimeout(() => {
+      setUpdatingBids(prev => { if (prev) setBidsMsg('✗ No response — the apply page may not have loaded'); return false })
+    }, 30000)
   }
 
   const hasEnrichment = job.enriched_at || job.connects_required || job.proposals || job.hire_rate
@@ -968,6 +1015,23 @@ export default function JobDetail({ job }) {
                       : <><LogoCanvas />Enrich</>
                   }
                 </button>
+                {/* Update bids — refreshes ONLY the boost-competition data (opens
+                    the apply page in a background tab). Bids change constantly, so
+                    this is a lightweight refresh separate from full enrichment. */}
+                <button
+                  onClick={handleUpdateBids}
+                  disabled={updatingBids || !hasDirectUrl}
+                  title="Refresh the boost-bid competition data only (no full re-enrichment)"
+                  className="btn-secondary"
+                  style={{ flexShrink: 0, paddingTop: 5, paddingBottom: 5, fontSize: 12.5 }}
+                >
+                  {updatingBids ? <><LogoCanvas spinning />Updating bids…</> : <>⚡ Update bids</>}
+                </button>
+                {bidsMsg && (
+                  <span style={{ fontSize: 11, color: bidsMsg.startsWith('✗') ? '#ef4444' : 'var(--text3)', flexShrink: 1, minWidth: 0 }}>
+                    {bidsMsg}
+                  </span>
+                )}
                 {enrichMsg && (
                   <span style={{ fontSize: 11, color: enrichMsg.startsWith('✗') ? '#ef4444' : 'var(--text3)', flexShrink: 1, minWidth: 0 }}>
                     {enrichMsg}
