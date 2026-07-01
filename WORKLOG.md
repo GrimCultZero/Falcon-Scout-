@@ -924,3 +924,27 @@ attach phrase appears 2+ times AND one is a parenthetical label (the keeper), re
 the standalone attach clause sitting at a sentence boundary ("… . Attached as a
 PDF."). Handles both "attached as (a) PDF" and "in profile highlights". Single labels
 and the parenthetical stay. Verified on the real snippet; compiles clean.
+
+---
+
+## 2026-07-01 — Kill fabricated vertical/geographic experience in the opener
+
+Owner: "too many hallucinations in the beginning." On the Greek .edu audit job the
+opener claimed "I work with educational sites in Greece" and "multilingual education
+sites" — Artem has NO education case and NO Greek client; the real multilingual case
+is CONSTRUCTION/CONSULTING (Italy/Austria). The model relabeled a case + invented a
+geography to fake fit.
+
+Fix (JobDetail.jsx):
+- Prompt rule "NO FABRICATED VERTICAL / GEOGRAPHIC EXPERIENCE" in the opener rules:
+  never claim work in the client's vertical/country without a matching case; real
+  geos = US/Canada/Ukraine/Italy-Austria; real verticals = the approved cases only;
+  the multilingual case is construction/consulting, never "education". May reference
+  the client's context, never claim having DONE it.
+- Deterministic guard `fabricatedGeoExperience`: if the opener (first 500 chars)
+  claims work "in <client's country>" (or "<country> sites/clients") and that country
+  is NOT one of Artem's real case geos, fire the enforcer to rewrite the opener.
+  Wired into draftCompliant + telemetry + log + specificViolations.
+
+Verified: "educational sites in Greece" flags; client-context reference ("for your
+education site…") and US-client mentions don't. Compiles clean.

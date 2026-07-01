@@ -4179,6 +4179,7 @@ Voice rules:
 - Open by addressing their specific problem/situation, never generic openers
 - Lead with a specific insight — but ONLY from what the POSTING actually says, from attached files, or from general domain expertise framed as a pattern. NEVER a fabricated diagnosis of their site/account (see NO FABRICATED DIAGNOSIS rule below).
 - NO ASSUMED VERTICAL / PRODUCT (mandatory): when the posting does NOT name the client's specific product, niche, or vertical (it just says "retail", "ecommerce", "a client", "our store", etc. with no product category), do NOT commit the letter to a specific product type and do NOT name concrete branded products the client never mentioned (Nike, Adidas, Apple, "running shoes", "Air Max size 10", etc.). Illustrative examples must stay category-neutral or explicitly hypothetical — use "[your product]", "a high-intent query for a specific model/size/SKU", "whatever you sell". Naming a concrete product/brand the client never stated reads as "assumed the wrong business" and undercuts your expertise. Demonstrate the METHOD generically and learn the specifics via the audit. Only use a concrete vertical/product/brand when the POSTING or an attached file actually names it.
+- NO FABRICATED VERTICAL / GEOGRAPHIC EXPERIENCE (mandatory — credibility-critical): NEVER open by claiming Artem has worked in the CLIENT'S vertical or country when no approved case study proves it. Banned openers: "I work with educational sites in Greece", "I've worked with [client's industry] clients", "my [client's-country] clients", "worked with [vertical] sites" for a vertical he has no case in. Artem's real case geographies are US, Canada, Ukraine, Italy/Austria (Europe) — do NOT claim work in any other country. Artem's real verticals are ONLY what the approved case studies list (medical/YMYL, ecommerce, local services, real estate, construction/consulting, PPC) — do NOT relabel a case to fit (the multilingual case is CONSTRUCTION/CONSULTING, never "education"). You MAY reference the CLIENT'S context ("for an education site in a competitive local market…"), but never claim Artem has DONE that vertical or geography. When there's no matching case, lead with the transferable technical METHOD and cite only the real cases.
 - NEVER open with meta-commentary about documents or context: banned openers include "I'm working from the job summary here", "the full PDF is really valuable", "having reviewed your brief", "based on the spec you shared", "after reading the attached document". Show you read it by what you say, not by saying you read it. The hook must be a strategic observation, not a process note.
 - Short punchy lines, no walls of text
 - DO NOT LECTURE THE CLIENT ABOUT THEIR OWN STRATEGY CHOICE: If the client has explicitly chosen an approach (parasite SEO, influencer marketing, a specific platform, a specific methodology), do not open by warning them about its risks or questioning whether it's wise. They know. They decided. Address the HOW, not whether their strategy is correct. Opening with "this approach comes with trade-offs — let me map the mechanics before diving in" is condescending and signals you're not the specialist they need. If you have a genuine tactical concern about execution, raise it briefly mid-letter after establishing fit — never as the opener.
@@ -4709,6 +4710,26 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               })
             const hasEchoedQuestion = _echoedQuestions.length > 0
 
+            // ── Fabricated GEOGRAPHIC experience (opener) ────────────────────
+            // The opener sometimes claims Artem "works with sites in <the client's
+            // country>" when he has no case study there — a fabricated track record
+            // (e.g. "I work with educational sites in Greece"). Artem's real case
+            // geographies are a small known set; naming the client's country as a
+            // place he works, when it's not one of them, is a fabrication.
+            // Artem's REAL case-study geographies (do not flag these). Greece is
+            // NOT here — he has no Greek client, so a "in Greece" claim is fabricated.
+            const _ARTEM_CASE_GEOS = /\b(usa?|united\s+states|america|canad|ukrain|ital|austria|europe|european)\b/i
+            const _clientCountry = (job.client_country || '').trim()
+            let fabricatedGeoExperience = false
+            if (_clientCountry.length >= 4 && !_ARTEM_CASE_GEOS.test(_clientCountry)) {
+              const cc = _clientCountry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+              const opening = text.slice(0, 500)
+              const geoClaimRe = new RegExp(
+                `\\b(?:work(?:ed|ing)?\\s+with|clients?\\s+in|sites?\\s+in|projects?\\s+in|experience\\s+(?:in|with)|i'?ve\\s+worked)\\b[^.\\n]{0,45}\\b${cc}\\b`
+                + `|\\b${cc}\\b[^.\\n]{0,25}\\b(?:sites?|clients?|businesses|market)\\b`, 'i')
+              fabricatedGeoExperience = geoClaimRe.test(opening)
+            }
+
             // ── Exact-vertical case must LEAD (generalised) ──────────────────
             // When the job is in a vertical we hold a SPECIFIC case for, that case
             // must be the FIRST proof cited — never buried after a generic local-
@@ -5069,7 +5090,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
-              && !timelineRequestedButMissing && !hasEchoedQuestion
+              && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -5092,6 +5113,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               caseMislabeledAsSaas && 'caseMislabeledAsSaas',
               timelineRequestedButMissing && 'timelineRequestedButMissing',
               hasEchoedQuestion && 'hasEchoedQuestion',
+              fabricatedGeoExperience && 'fabricatedGeoExperience',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
@@ -5184,6 +5206,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (hasEchoedQuestion) {
               console.log(`[Falcon] Rule pre-check: draft echoes the client's screening question(s) verbatim (${_echoedQuestions.length}) — mechanical form-fill, firing Claude enforcer.`)
             }
+            if (fabricatedGeoExperience) {
+              console.log(`[Falcon] Rule pre-check: opener claims experience in the client's country (${_clientCountry}) with no case study there — fabricated geo/vertical experience, firing Claude enforcer.`)
+            }
 
             // Build a list of specific violations found by the pre-check so the
             // enforcer knows exactly what to fix (and is allowed to add content
@@ -5215,6 +5240,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 `ASSUMED VERTICAL / FABRICATED BRAND (credibility-critical): The draft names concrete consumer brand(s) the posting never mentioned — ${_assumedBrands.join(', ')}. The posting does NOT state the client's specific product or vertical, so naming a product/brand assumes their business and risks reading as "assumed the wrong company". ` +
                 'REWRITE every illustrative example to be category-neutral or explicitly hypothetical — replace the named brand/product with "[your product]", "a specific model/size/SKU", "whatever you sell", or a generic "research query vs high-intent buy query" framing. Keep the underlying insight (buyer-intent segmentation, feed structure, etc.) — only strip the assumed product identity. Do NOT substitute a different specific brand; go neutral. Case-study client names in the APPROVED CASE STUDIES block are Artem\'s own and must NOT be touched.'
+              )
+            }
+            if (fabricatedGeoExperience) {
+              specificViolations.push(
+                `FABRICATED GEOGRAPHIC / VERTICAL EXPERIENCE (credibility-critical): The opener claims Artem works with sites in ${_clientCountry} and/or in the client's specific vertical — but he has NO case study in ${_clientCountry} and none in that vertical. This is a fabricated track record the client can expose in one question. ` +
+                `REWRITE the opening so it does NOT claim experience in the client's country or vertical. Do NOT relabel a real case to match (the multilingual case is CONSTRUCTION/CONSULTING, not education; it is Italy/Austria, not ${_clientCountry}). Frame the hook around the transferable TECHNICAL METHOD (what Google indexes vs. what the site thinks it exposes, 12-month GSC diagnosis, multilingual indexing) and cite only what the approved case studies actually prove. It is fine to reference the CLIENT's situation ("for an education site in a competitive local market…") — just never claim Artem has DONE that vertical/geography before.`
               )
             }
             if (hasEchoedQuestion) {
