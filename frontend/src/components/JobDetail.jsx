@@ -1606,6 +1606,42 @@ function _stripDuplicateAttachmentLabel(text) {
   return out
 }
 
+// Collapse a DUPLICATED reference to the audit SAMPLE attachment. The generator
+// sometimes points at it inline ("(see attached sample - lemoos.com audit)") AND
+// again in the canonical closing sentence ("i'm attaching a sample technical SEO
+// audit so you can see the format and depth."). Two mentions of the same
+// attachment reads as sloppy/padded — keep the canonical closing sentence and
+// drop the inline parenthetical; if multiple canonical sentences exist, keep one.
+const _AUDIT_SAMPLE_CANON_RE = /\bi['’]?m\s+(?:also\s+)?attaching\s+a\s+sample\s+(?:recent\s+)?(?:technical\s+seo|google\s+ads)\s+audit\b[^.\n]*\.?/gi
+// A parenthetical that references the attached audit sample (contains both an
+// "attach*" word and "audit"). Case-study labels ("(attached as PDF)") never
+// contain "audit", so this won't touch them.
+const _AUDIT_SAMPLE_INLINE_RE = /\s*\([^)]*\battach\w*[^)]*\baudit\b[^)]*\)/gi
+function _stripDuplicateAuditSampleMention(text) {
+  if (!text) return text
+  let t = text
+  const canon = t.match(_AUDIT_SAMPLE_CANON_RE) || []
+  const inline = t.match(_AUDIT_SAMPLE_INLINE_RE) || []
+  // If the canonical closing offer exists, remove inline parenthetical audit-sample refs.
+  if (canon.length >= 1 && inline.length >= 1) {
+    t = t.replace(_AUDIT_SAMPLE_INLINE_RE, '')
+  }
+  // If multiple canonical offers remain, keep only the last.
+  const remaining = t.match(_AUDIT_SAMPLE_CANON_RE) || []
+  if (remaining.length > 1) {
+    let seen = 0
+    t = t.replace(_AUDIT_SAMPLE_CANON_RE, (m) => { seen++; return seen < remaining.length ? '' : m })
+  }
+  // Tidy artifacts left by removals: doubled spaces, space-before-punctuation,
+  // and a stray blank line where a whole sentence was removed.
+  t = t.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.,;:])/g, '$1').replace(/\n{3,}/g, '\n\n')
+  if (t !== text) {
+    console.log('[Falcon] Collapsed duplicate audit-sample attachment mention.')
+    _recordViolations('generator', null, ['duplicateAuditSample'])
+  }
+  return t
+}
+
 // Strips fabricated vertical-specific web dev experience in the opening sentence.
 // Pattern: "12 years in digital, building and ranking car rental sites on WordPress."
 // This claims a vertical build track record that doesn't exist in the approved case
@@ -2099,7 +2135,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // Run the chat-reworked letter through the same deterministic cleaning
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
-        const newProposal  = proposalMatch ? _humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAttachmentLabel(_cleanPasteText(_stripProtocolTags(proposalMatch[1])))))))))) : null
+        const newProposal  = proposalMatch ? _humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))))))) : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // Cover-letter rewrite path — only push when content actually changed.
@@ -5054,7 +5090,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAttachmentLabel(_cleanPasteText(text))), jobIsRegulatedForStrip))))))).trim())
+              setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_cleanPasteText(text)))), jobIsRegulatedForStrip))))))).trim())
               return
             }
 
@@ -5409,7 +5445,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAttachmentLabel(_cleanPasteText(text)), jobIsRegulatedForStrip))))))).trim())
+      setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_cleanPasteText(text))), jobIsRegulatedForStrip))))))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {

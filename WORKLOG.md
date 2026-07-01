@@ -889,3 +889,23 @@ Fix (JobDetail.jsx):
 
 Verified: evdokimos posting now classifies audit-only; monthly-retainer /
 audit+retainer / long-term-partnership correctly still allow the plan. Compiles clean.
+
+---
+
+## 2026-07-01 — Strip duplicate audit-SAMPLE attachment mention
+
+Owner: a letter referenced the audit sample twice — inline "36-page technical
+report (see attached sample - lemoos.com audit)" AND the canonical closing
+"I'm attaching a sample technical SEO audit so you can see the format and depth."
+
+Fix: added deterministic post-processor `_stripDuplicateAuditSampleMention`
+(JobDetail.jsx). When the canonical closing offer exists AND an inline parenthetical
+also references the attached audit sample (parenthetical containing both "attach*"
+and "audit"), it removes the inline parenthetical; if multiple canonical sentences
+exist it keeps the last. Wired into all three post-processing chains next to
+_stripDuplicateAttachmentLabel. Case-study labels ("(attached as a PDF)") never
+contain "audit" so they're untouched; the priority-framework parenthetical is
+untouched. (Bug caught in test: CANON regex needed the `i` flag — "technical SEO"
+vs "technical seo".)
+
+Verified on the real snippet; compiles clean.
