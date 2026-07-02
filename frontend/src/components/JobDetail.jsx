@@ -1668,6 +1668,17 @@ const _ANY_CASE_NAME_RE = /^(?:nectar\s*flowers|fridgefix|house\s+painting|golde
 // so the client has no idea these are relevant proof or that they're attached. If a
 // non-PDF case study is present and "profile highlights" appears nowhere, insert the
 // canonical lead-in immediately before the first case-study paragraph.
+// A few interchangeable lead-in phrasings so inserted transitions don't look
+// templated across letters. Each keeps the mandatory "(attached in profile
+// highlights):" attachment label — only the intro words vary.
+const _HIGHLIGHTS_LEADINS = [
+  'Here are some relevant results (attached in profile highlights):',
+  'A few relevant results (attached in profile highlights):',
+  'Some comparable results (attached in profile highlights):',
+  'A few results from similar work (attached in profile highlights):',
+  'Proof this approach works (attached in profile highlights):',
+  'A couple of relevant wins (attached in profile highlights):',
+]
 function _ensureCaseStudyHighlightsLeadIn(text) {
   if (!text) return text
   if (/profile\s+highlights?/i.test(text)) return text  // already announced/labelled
@@ -1676,8 +1687,9 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   if (!hasNonPdf) return text  // only PDF cases → they carry their own label
   const firstCaseIdx = paras.findIndex(p => _ANY_CASE_NAME_RE.test(p.trim()))
   if (firstCaseIdx < 0) return text
-  paras.splice(firstCaseIdx, 0, 'Here are some relevant results (attached in profile highlights):')
-  console.log('[Falcon] Inserted missing case-study "attached in profile highlights" lead-in.')
+  const leadIn = _HIGHLIGHTS_LEADINS[Math.floor(Math.random() * _HIGHLIGHTS_LEADINS.length)]
+  paras.splice(firstCaseIdx, 0, leadIn)
+  console.log('[Falcon] Inserted missing case-study lead-in:', leadIn)
   _recordViolations('generator', null, ['insertedHighlightsLeadIn'])
   return paras.join('\n\n')
 }
