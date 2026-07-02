@@ -948,3 +948,34 @@ Fix (JobDetail.jsx):
 
 Verified: "educational sites in Greece" flags; client-context reference ("for your
 education site…") and US-client mentions don't. Compiles clean.
+
+---
+
+## 2026-07-02 — Case studies dumped with no "attached in profile highlights" lead-in
+
+Owner: generator "constantly violates the attachment rule" — dropped the case-study
+recap (Nectar Flowers / FridgeFix / House Painting) with NO lead-in announcing they're
+relevant results and NO "attached in profile highlights" label.
+
+Root cause: the missingHighlightsPhrase guard's `hasNonPdfResultSignal` detected case
+studies only by verbs ("grew/increased/reduced revenue") or "case study". This letter
+used a terse "Name: -X% metric, +Y% metric" format with NO verbs → signal missed →
+enforcer never fired → no lead-in. And the enforcer (LLM) is unreliable at ADDING it.
+
+Fix (deterministic, JobDetail.jsx):
+- `_ensureCaseStudyHighlightsLeadIn(text)`: if a known NON-PDF case name (Nectar
+  Flowers, FridgeFix, House Painting, Golden State Trailers, Multilingual Site,
+  Oxytec, Luxury Parfums, ChronoCash, Atlant, Vape Shop, SMASH, Game-X, GKit) starts
+  a paragraph AND "profile highlights" appears nowhere, insert "Here are some relevant
+  results (attached in profile highlights):" before the first case-study paragraph.
+  Idempotent. Wired into all three post-processing chains.
+- Also augmented `hasNonPdfResultSignal` with the case-name signal so the enforcer
+  check is accurate for terse formats.
+
+Verified on the real letter; compiles clean.
+
+OPEN (complaint 2, not yet fixed — discussed with owner): the letter tacked on
+"I'm attaching a sample of a recent Google Ads audit" on a campaign-BUILD/management
+job (sparse "see attached document", no audit-of-existing-account signal) with no
+audit offer/context — an orphaned audit-sample line. Needs a guard that only allows
+the audit-sample line when the letter actually offers an audit deliverable.

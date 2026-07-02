@@ -1657,6 +1657,31 @@ function _stripDuplicateAuditSampleMention(text) {
   return t
 }
 
+// Known case-study names, anchored to a paragraph start (they begin their entry).
+// PDF cases (Derma Solution / Skin Reboot) carry their own "(attached as PDF)"
+// label; every OTHER case needs the "(attached in profile highlights)" lead-in.
+const _NON_PDF_CASE_NAME_RE = /^(?:nectar\s*flowers|fridgefix|house\s+painting|golden\s+state\s+trailers|multilingual\s+site|oxytec|luxury\s+parfums|chronocash|atlant|vape\s*shop|smash|game-?x|gkit)\b/i
+const _ANY_CASE_NAME_RE = /^(?:nectar\s*flowers|fridgefix|house\s+painting|golden\s+state\s+trailers|multilingual\s+site|oxytec|luxury\s+parfums|chronocash|atlant|vape\s*shop|smash|game-?x|gkit|derma\s*solution|skin\s*reboot)\b/i
+// Deterministically ensure the case-study block ANNOUNCES the cases and labels the
+// non-PDF ones as attached. The generator sometimes dumps "Nectar Flowers: …" /
+// "FridgeFix: …" straight into the letter with no lead-in and no attachment label —
+// so the client has no idea these are relevant proof or that they're attached. If a
+// non-PDF case study is present and "profile highlights" appears nowhere, insert the
+// canonical lead-in immediately before the first case-study paragraph.
+function _ensureCaseStudyHighlightsLeadIn(text) {
+  if (!text) return text
+  if (/profile\s+highlights?/i.test(text)) return text  // already announced/labelled
+  const paras = text.split(/\n{2,}/)
+  const hasNonPdf = paras.some(p => _NON_PDF_CASE_NAME_RE.test(p.trim()))
+  if (!hasNonPdf) return text  // only PDF cases → they carry their own label
+  const firstCaseIdx = paras.findIndex(p => _ANY_CASE_NAME_RE.test(p.trim()))
+  if (firstCaseIdx < 0) return text
+  paras.splice(firstCaseIdx, 0, 'Here are some relevant results (attached in profile highlights):')
+  console.log('[Falcon] Inserted missing case-study "attached in profile highlights" lead-in.')
+  _recordViolations('generator', null, ['insertedHighlightsLeadIn'])
+  return paras.join('\n\n')
+}
+
 // Strips fabricated vertical-specific web dev experience in the opening sentence.
 // Pattern: "12 years in digital, building and ranking car rental sites on WordPress."
 // This claims a vertical build track record that doesn't exist in the approved case
@@ -2150,7 +2175,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // Run the chat-reworked letter through the same deterministic cleaning
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
-        const newProposal  = proposalMatch ? _humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))))))) : null
+        const newProposal  = proposalMatch ? _humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1])))))))))))) : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // Cover-letter rewrite path — only push when content actually changed.
@@ -5058,6 +5083,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // study identifiers); if two appear without a \n\n between them,
             // the block is a single run-on paragraph.
             const hasNonPdfResultSignal = [
+              // Known non-PDF case names at a paragraph start (terse "Name: metric"
+              // entries have no verbs, so name-matching is the reliable signal).
+              /(?:^|\n)\s*(?:nectar\s*flowers|fridgefix|house\s+painting|golden\s+state\s+trailers|multilingual\s+site|oxytec|luxury\s+parfums|chronocash|atlant|vape\s*shop|smash|game-?x|gkit)\b/i,
               /case\s+stud/i,
               /grew\s+(?:their\s+)?(?:roas|revenue|traffic|conversions?|sales)/i,
               /(?:reduced?|cut|lowered?)\s+(?:cpa|cost|spend|cpc)/i,
@@ -5127,7 +5155,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_cleanPasteText(text)))), jobIsRegulatedForStrip))))))).trim())
+              setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text))))), jobIsRegulatedForStrip))))))).trim())
               return
             }
 
@@ -5491,7 +5519,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_cleanPasteText(text))), jobIsRegulatedForStrip))))))).trim())
+      setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text)))), jobIsRegulatedForStrip))))))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
