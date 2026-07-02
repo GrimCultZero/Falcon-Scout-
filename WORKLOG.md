@@ -974,8 +974,11 @@ Fix (deterministic, JobDetail.jsx):
 
 Verified on the real letter; compiles clean.
 
-OPEN (complaint 2, not yet fixed — discussed with owner): the letter tacked on
-"I'm attaching a sample of a recent Google Ads audit" on a campaign-BUILD/management
-job (sparse "see attached document", no audit-of-existing-account signal) with no
-audit offer/context — an orphaned audit-sample line. Needs a guard that only allows
-the audit-sample line when the letter actually offers an audit deliverable.
+RESOLVED (complaint 2 — NOT a bug): the owner's attached "Stages of work.pdf" is the
+CLIENT's 8-stage methodology, and Stage 1 = "Market and competitor audit", Stage 2 =
+"Audit of the site and its components". So the audit IS in scope and the
+"I'm attaching a sample of a recent Google Ads audit" line is CORRECT/relevant here.
+Do NOT build an audit-sample strip guard for this case. The real complaint was the
+missing TRANSITION into the case studies — solved by _ensureCaseStudyHighlightsLeadIn
+above (inserts "Here are some relevant results (attached in profile highlights):"
+before the first case, so the recap no longer drops in cold after Stage 7-8).
