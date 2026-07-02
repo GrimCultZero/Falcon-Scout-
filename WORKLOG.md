@@ -1070,3 +1070,18 @@ Fix:
 
 Verified: "Recent Shopify work: SMASH" flags; "Recent ecommerce work: SMASH (OpenCart)"
 and a Shopify-portfolio-only mention pass. Compiles clean.
+
+---
+
+## 2026-07-02 — _splitCrammedCaseStudies mangled a compound sentence
+
+Owner: a case line read "SMASH: (streetwear …) and." with a dangling "and", plus an
+orphaned "I also built" prefix. Cause: the split post-processor fired on a legit
+COMPOUND sentence ("… I also built SMASH (…) and Game-X (…) on OpenCart — transferable")
+and split it at each case name, leaving a trailing conjunction and a fragment prefix.
+
+Fix: split ONLY a period-separated case LIST — each case (after the first) must be
+preceded by a sentence boundary (.!?). If cases are joined by a conjunction into one
+flowing sentence, leave the paragraph untouched. Verified: the compound "SMASH (…)
+and Game-X (…)" sentence is now left intact; a period-separated "Nectar … FridgeFix …
+Skin Reboot" list still splits. Compiles clean.

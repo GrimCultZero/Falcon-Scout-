@@ -1717,6 +1717,15 @@ function _splitCrammedCaseStudies(text) {
     }
     if (hits.length < 2) { result.push(para); continue }  // not a crammed block
     hits.sort((a, b) => a.idx - b.idx)
+    // Only split a period-separated case LIST — each case (after the first) preceded
+    // by a sentence boundary (.!?). If the cases are joined by a conjunction into ONE
+    // flowing sentence ("… SMASH (…) and Game-X (…) on OpenCart"), leave it alone —
+    // splitting a compound sentence mangles it (dangling "and", orphaned prefix).
+    let isList = true
+    for (let i = 1; i < hits.length; i++) {
+      if (!/[.!?]$/.test(para.slice(0, hits[i].idx).replace(/\s+$/, ''))) { isList = false; break }
+    }
+    if (!isList) { result.push(para); continue }
     changed = true
     // Keep substantial non-lead-in prefix text (a full sentence, not "Recent examples:").
     const prefix = para.slice(0, hits[0].idx).trim()
