@@ -1024,3 +1024,27 @@ from _ensureCaseStudyHighlightsLeadIn so it runs in all 3 post-processing chains
 
 Verified on the real crammed letter → 3 clean separated, labelled entries. Lesson
 (again): restructuring is the enforcer's weak spot — make it deterministic. Compiles.
+
+---
+
+## 2026-07-02 — Generator only knew ONE web-dev case (GKit); now knows all three
+
+Owner: generator always pastes only GKit for development jobs. Root cause: three
+sources all said GKit is the ONLY web-dev case, even though SMASH (#487) and Game-X
+(#496) were added weeks ago:
+- KB rule #477 (scope:webdev, injected on web-dev jobs): "The primary web development
+  case study to reference is GKit."
+- Generator prompt: "The only documented web dev BUILD is GKit."
+- Analyser prompt: "Proven case: GKit brand fashion store."
+
+Fix: updated all three to list GKit + SMASH + Game-X with routing —
+- Game-X → LEAD for custom-module / configurator / backend / complex functionality
+  (6-step PC Configurator + Compatibility Engine + Smart Cart, PHP 8.1, +34% conv).
+- SMASH → LEAD for custom theme / gamification / conversion / mobile UX
+  (bespoke OpenCart theme + Lucky Box module, +217% revenue).
+- GKit → LEAD for fashion / bilingual / CRM-integrated builds.
+Rule #477 tells it to pick the 1-2 best-fit, not dump all three, and not fabricate
+metrics. Compiles clean.
+
+Lesson: when adding a case study, grep the prompt/KB for "only"/"primary"/"the case"
+claims that pin the model to an older single example.
