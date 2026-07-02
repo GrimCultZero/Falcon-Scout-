@@ -1109,3 +1109,29 @@ Fix:
 
 Verified: maintenance job + SEO opener flags; maintenance + dev opener and new-build +
 SEO opener both pass. Compiles clean.
+
+---
+
+## 2026-07-02 — Sound less AI: em-dash reduction + no listy outline (researched)
+
+Owner: fundamental "sound less AI, more human" ask. Researched best practices
+([ERAS], [George Kao], [Surfer SEO], Upwork/GigRadar cover-letter guides). Finding:
+the current humanizer works on the WRONG layer — it adds surface typos/dropped commas
+to a letter whose STRUCTURE and PUNCTUATION are the real AI tells. Top tells confirmed:
+em-dash overuse (ChatGPT's #1 fingerprint), listy/labeled outline structure, hedging,
+credential-dump openers, buzzwords.
+
+Owner scoped it (AskUserQuestion): KEEP the deliberate typos, LIGHT TOUCH — fix only
+the em-dashes and the listy structure, keep the tone. Implemented exactly that:
+- Deterministic em-dash reducer in _humanizeCasing (all 3 chains): the spaced-dash
+  clause connector (" - ", "—", "–") before a lowercase word — keep the FIRST as an
+  occasional human dash, convert the rest to commas. Numeric ranges / times
+  ("$35 - 40/hr", "9am - 5pm") are safe (lookahead requires a lowercase letter).
+- Prompt rules: #5 MINIMAL DASHES (at most one), #6 NO OUTLINE / LABELED-SECTION
+  structure (banned "First thing I'd audit:", "Site side:", "Step N:", "Then X -"; write
+  flowing prose). Removed the old rule that ENCOURAGED dashes.
+- Deterministic guard hasListyOutline (2+ outline-label patterns → enforcer rewrites
+  the body as prose). Verified on the real letter: listy body flags, prose passes.
+
+DEFERRED (owner chose light touch, not now): hedging removal, buzzword strip,
+proof-of-fit opener rework, length caps. Revisit if the light touch isn't enough.

@@ -1953,6 +1953,16 @@ function _humanizeCasing(s) {
       return pre + ch.toUpperCase()
     }
   )
+  // Reduce the em-dash / spaced-hyphen connector — ChatGPT's single most
+  // recognizable punctuation tell (the current letters use " - " in nearly every
+  // sentence). Keep the FIRST as an occasional human dash; convert the rest to
+  // commas. Only a SPACED dash directly before a lowercase word (a clause
+  // connector) is touched — never hyphenated compounds ("high-intent"), numeric
+  // ranges ("300-500", "9am - 5pm"), or dashes before a capitalised proper noun.
+  {
+    let dashCount = 0
+    t = t.replace(/[ \t]+[-–—][ \t]+(?=[a-z])/g, () => (++dashCount === 1 ? ' - ' : ', '))
+  }
   return t
 }
 
@@ -4332,8 +4342,11 @@ The goal is natural human inconsistency. Apply ALL of the following in every let
 
 4. SENTENCE RHYTHM VARIATION:
    - mix very short sentences ("that's the fix.") with longer ones
-   - occasionally use a dash instead of a comma — like this
    - one contraction that's slightly informal: "gonna" or "wanna" is too far — stick to "can't", "won't", "don't", "I'll", "it's"
+
+5. MINIMAL DASHES (the #1 AI punctuation tell): the em-dash / spaced-hyphen connector ("... blind - fix that", "structure - keyword types") is the single most recognizable ChatGPT fingerprint. Use AT MOST ONE spaced dash in the whole letter; everywhere else use a comma or start a new sentence. Do NOT pepper the letter with " - " connectors.
+
+6. NO OUTLINE / LABELED-SECTION STRUCTURE (biggest structural AI tell): do NOT write the body as a labeled outline. BANNED: "First thing I'd audit:", "First:", "Then [X] -", "Next:", "Step 1:", "On the site side:", "[X] side:", or any run of short label-then-colon mini-sections. Write the diagnosis and approach as FLOWING PROSE — 2-3 real paragraphs where ideas connect naturally, the way a person actually explains something out loud. It is fine to name what you'd check — just weave it into sentences ("I'd start by making sure the conversion tracking is even firing right, because when that's broken the algorithm optimises blind") instead of a colon-delimited checklist. The ONLY acceptable labeled block is the case-study section per its format rules.
 
 The imperfections should feel like someone typed fast and didn't proofread, NOT like random errors inserted mechanically. Keep them OCCASIONAL — 1–2 per letter, spread far apart, never clustered. Casing is NOT one of these imperfections (see rule 1: "I" and "Artem" are always correct). The letter should read as a sharp professional who typed quickly, not as someone who can't capitalise.
 - Offer a quick audit/read as low-commitment entry point
@@ -4850,6 +4863,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               })
             const hasEchoedQuestion = _echoedQuestions.length > 0
 
+            // ── Listy / labeled-outline structure (structural AI tell) ───────
+            // The body reading as a labeled outline ("First thing I'd audit:",
+            // "Site side:", "Step 1:") is a top AI tell. Flag when 2+ such labels
+            // appear so the enforcer dissolves them into flowing prose. ("Recent
+            // examples:" and the case-study lead-ins are excluded — that block is
+            // allowed to have a lead-in.)
+            const _OUTLINE_LABEL_RES = [
+              /\bfirst\s+thing\s+i(?:['’]?d| would| i['’]?ll)?\b/i,
+              /(?:^|\n|[.!?]\s)\s*(?:first|second|third|fourth|then|next|finally|lastly)\s*[,:]/i,
+              /\b(?:on\s+the\s+)?(?:site|tracking|campaign|account|technical|analytics|creative|copy|landing[-\s]?page|paid|organic)\s+side\s*:/i,
+              /\bstep\s+\d+\s*[-:–]/i,
+            ]
+            const hasListyOutline = _OUTLINE_LABEL_RES.filter(re => re.test(text)).length >= 2
+
             // ── Fabricated GEOGRAPHIC experience (opener) ────────────────────
             // The opener sometimes claims Artem "works with sites in <the client's
             // country>" when he has no case study there — a fabricated track record
@@ -5243,7 +5270,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
-              && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev
+              && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -5266,6 +5293,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               caseMislabeledAsSaas && 'caseMislabeledAsSaas',
               openCartMislabeledAsPlatform && 'openCartMislabeledAsPlatform',
               seoLedOnMaintenanceWebdev && 'seoLedOnMaintenanceWebdev',
+              hasListyOutline && 'hasListyOutline',
               timelineRequestedButMissing && 'timelineRequestedButMissing',
               hasEchoedQuestion && 'hasEchoedQuestion',
               fabricatedGeoExperience && 'fabricatedGeoExperience',
@@ -5361,6 +5389,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (seoLedOnMaintenanceWebdev) {
               console.log('[Falcon] Rule pre-check: maintenance/changes web-dev job but opener leads with SEO/ranking pitch — off-target, firing Claude enforcer.')
             }
+            if (hasListyOutline) {
+              console.log('[Falcon] Rule pre-check: body uses a labeled-outline structure (First thing I\'d…/Site side:/Step N) — AI tell, firing Claude enforcer to rewrite as prose.')
+            }
             if (timelineRequestedButMissing) {
               console.log('[Falcon] Rule pre-check: posting asks for a timeline/duration but the draft gives no concrete estimate — firing Claude enforcer.')
             }
@@ -5419,6 +5450,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 'MISSING TIMELINE ANSWER (the client explicitly asked): The posting asks for a timeline / how long / turnaround / ETA, but the draft gives NO concrete duration — it describes the deliverable or steps instead. ' +
                 'ADD a concrete time estimate that directly answers the question (e.g. "I\'d complete the review in about 3–5 business days once I have staging access", "roughly a week end-to-end"). Keep it realistic and scope-appropriate. This is the ONE case where a timeline in the letter is REQUIRED — do not omit it, and do not answer a "how long" question with a description of what you\'ll deliver.'
+              )
+            }
+            if (hasListyOutline) {
+              specificViolations.push(
+                'LISTY / LABELED-OUTLINE STRUCTURE (structural AI tell): The body reads as a labeled outline — "First thing I\'d audit:", "Then campaign structure -", "Site side:", "Step N:", or similar colon-delimited mini-sections. This is one of the clearest "a bot wrote it" signals. ' +
+                'REWRITE the diagnosis/approach as FLOWING PROSE — 2-3 connected paragraphs where the ideas link naturally, the way a person explains something out loud. Keep every fact and check you already named, just weave them into sentences instead of a checklist ("I\'d start by making sure the conversion tracking is even firing right, because when that\'s broken the algorithm optimises blind, then look at whether budget is going to high-intent terms or leaking to broad informational queries…"). Do NOT keep any "First:/Then:/Site side:/Step N:" labels. Leave the case-study block and its lead-in as they are.'
               )
             }
             if (seoLedOnMaintenanceWebdev) {
