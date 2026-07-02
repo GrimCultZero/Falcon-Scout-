@@ -1679,6 +1679,76 @@ const _HIGHLIGHTS_LEADINS = [
   'Proof this approach works (attached in profile highlights):',
   'A couple of relevant wins (attached in profile highlights):',
 ]
+
+// Known case studies: canonical name + whether it's a PDF (Derma / Skin Reboot).
+const _CASE_META = [
+  { re: /\bnectar\s*flowers\b/i, name: 'Nectar Flowers', pdf: false },
+  { re: /\bfridgefix\b/i, name: 'FridgeFix', pdf: false },
+  { re: /\bhouse\s+painting\b/i, name: 'House Painting', pdf: false },
+  { re: /\bgolden\s+state\s+trailers\b/i, name: 'Golden State Trailers', pdf: false },
+  { re: /\bmultilingual\s+site\b/i, name: 'Multilingual Site', pdf: false },
+  { re: /\boxytec\b/i, name: 'Oxytec', pdf: false },
+  { re: /\bluxury\s+parfums\b/i, name: 'Luxury Parfums', pdf: false },
+  { re: /\bchronocash\b/i, name: 'ChronoCash', pdf: false },
+  { re: /\batlant\b/i, name: 'Atlant', pdf: false },
+  { re: /\bvape\s*shop\b/i, name: 'Vape Shop', pdf: false },
+  { re: /\bsmash\b/i, name: 'SMASH', pdf: false },
+  { re: /\bgame-?x\b/i, name: 'Game-X', pdf: false },
+  { re: /\bgkit\b/i, name: 'GKit', pdf: false },
+  { re: /\bderma\s*solution\b/i, name: 'Derma Solution', pdf: true },
+  { re: /\bskin\s*reboot\b/i, name: 'Skin Reboot', pdf: true },
+]
+// Split a CRAMMED case-study paragraph (2+ case studies run together in one line/
+// paragraph) into one entry per paragraph — the enforcer is unreliable at this, so
+// do it deterministically. Each entry becomes "Name: <description>." with a blank
+// line between; PDF cases keep an inline "(attached as PDF)" label; non-PDF cases are
+// covered by a single "(attached in profile highlights):" lead-in.
+function _splitCrammedCaseStudies(text) {
+  if (!text) return text
+  const alreadyHasPhrase = /profile\s+highlights?/i.test(text)
+  const paras = text.split(/\n{2,}/)
+  let changed = false
+  const result = []
+  for (const para of paras) {
+    const hits = []
+    for (const meta of _CASE_META) {
+      const m = para.match(meta.re)
+      if (m) hits.push({ idx: m.index, len: m[0].length, meta })
+    }
+    if (hits.length < 2) { result.push(para); continue }  // not a crammed block
+    hits.sort((a, b) => a.idx - b.idx)
+    changed = true
+    // Keep substantial non-lead-in prefix text (a full sentence, not "Recent examples:").
+    const prefix = para.slice(0, hits[0].idx).trim()
+    if (prefix && prefix.length > 60 && !/[:—-]\s*$/.test(prefix)) result.push(prefix)
+    let hasNonPdf = false
+    const entries = []
+    for (let i = 0; i < hits.length; i++) {
+      const end = i + 1 < hits.length ? hits[i + 1].idx : para.length
+      const seg = para.slice(hits[i].idx, end).trim()
+      let after = seg.slice(hits[i].len).replace(/^\s+/, '')
+      let label = ''
+      const lbl = after.match(/^\((?:case\s+study\s+)?attached\s+as\s+a?\s*pdf\)/i)
+      if (lbl) { label = ' (attached as PDF)'; after = after.slice(lbl[0].length).replace(/^\s+/, '') }
+      after = after.replace(/^[:\-–—]\s*/, '').replace(/[\s,;]+$/, '')
+      if (after && !/[.!?]$/.test(after)) after += '.'
+      if (!hits[i].meta.pdf) hasNonPdf = true
+      entries.push(`${hits[i].meta.name}${label}: ${after}`.trim())
+    }
+    if (!alreadyHasPhrase) {
+      result.push(hasNonPdf
+        ? _HIGHLIGHTS_LEADINS[Math.floor(Math.random() * _HIGHLIGHTS_LEADINS.length)]
+        : 'Here are some relevant results:')
+    }
+    for (const e of entries) result.push(e)
+  }
+  if (changed) {
+    console.log('[Falcon] Split crammed case-study paragraph into separate labelled entries.')
+    _recordViolations('generator', null, ['splitCrammedCaseStudies'])
+  }
+  return result.join('\n\n')
+}
+
 function _ensureCaseStudyHighlightsLeadIn(text) {
   if (!text) return text
   // Backstop: kill the FABRICATED Skin Reboot "$12k → $95k" revenue figure if it ever
@@ -1690,6 +1760,9 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
     _recordViolations('generator', null, ['fabricatedSkinRebootRevenue'])
   }
   text = deFab
+  // Split a crammed one-paragraph case block into separate labelled entries (this
+  // also adds the lead-in when it fires).
+  text = _splitCrammedCaseStudies(text)
   if (/profile\s+highlights?/i.test(text)) return text  // already announced/labelled
   const paras = text.split(/\n{2,}/)
   const hasNonPdf = paras.some(p => _NON_PDF_CASE_NAME_RE.test(p.trim()))

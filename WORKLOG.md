@@ -1002,3 +1002,25 @@ chains): any "$12k [→/to/-] $95k" (optionally preceded by "from") is replaced 
 Lesson: when killing a fabricated metric, grep the WHOLE prompt (examples + enforcer
 strings), not just the case menu — the model copies verbatim from its own examples.
 Verified; compiles clean.
+
+---
+
+## 2026-07-02 — Deterministically split crammed case-study paragraphs
+
+Owner: "again violated the attachments rule and why are case studies not divided by
+paragraphs, written in one line?" The letter ran all 3 cases into ONE paragraph
+("Recent examples: Nectar Flowers … FridgeFix … Skin Reboot …") with no
+"attached in profile highlights" label on the non-PDF ones. The csCrammed guard DID
+fire the enforcer, but the LLM enforcer failed to reformat (unreliable at
+restructuring) — so the output was still crammed.
+
+Fix (deterministic, JobDetail.jsx): `_splitCrammedCaseStudies` + `_CASE_META`
+(canonical name + PDF flag per case). When a single paragraph contains 2+ known case
+names, it's split into one entry per paragraph: "Name: <description>." with blank
+lines between, an inline "(attached as PDF)" label preserved for Derma/Skin Reboot,
+a single "(attached in profile highlights):" lead-in for the non-PDF ones, and the
+short "Recent examples:" prefix dropped (substantial prefix text is kept). Called
+from _ensureCaseStudyHighlightsLeadIn so it runs in all 3 post-processing chains.
+
+Verified on the real crammed letter → 3 clean separated, labelled entries. Lesson
+(again): restructuring is the enforcer's weak spot — make it deterministic. Compiles.
