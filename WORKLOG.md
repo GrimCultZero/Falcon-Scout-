@@ -982,3 +982,23 @@ Do NOT build an audit-sample strip guard for this case. The real complaint was t
 missing TRANSITION into the case studies — solved by _ensureCaseStudyHighlightsLeadIn
 above (inserts "Here are some relevant results (attached in profile highlights):"
 before the first case, so the recap no longer drops in cold after Stage 7-8).
+
+---
+
+## 2026-07-02 — Kill the resurgent Skin Reboot "$12k → $95k" fabrication (prompt example source)
+
+Owner shared a strong letter that nonetheless said "Skin Reboot: scaled revenue
+$12k → $95k at 17.51 ROAS". The fabricated dollar figure (real: +693.8% revenue) was
+thought killed when removed from the static case menu, but it was STILL hardcoded in
+THREE prompt locations the fix missed:
+- the PATTERN C case-study FORMATTING EXAMPLE (line ~4387) — the model copied it verbatim
+- two enforcer specificViolation strings (Vape/PPC channel rules)
+
+Fix: replaced all three with the real figure ("+693.8% revenue at 17.51 PMax ROAS").
+Added a deterministic backstop in _ensureCaseStudyHighlightsLeadIn (runs in all 3
+chains): any "$12k [→/to/-] $95k" (optionally preceded by "from") is replaced with
+"+693.8%", so the fabrication can never reach a client even if reproduced from training.
+
+Lesson: when killing a fabricated metric, grep the WHOLE prompt (examples + enforcer
+strings), not just the case menu — the model copies verbatim from its own examples.
+Verified; compiles clean.

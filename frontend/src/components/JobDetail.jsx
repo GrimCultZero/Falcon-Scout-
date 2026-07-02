@@ -1681,6 +1681,15 @@ const _HIGHLIGHTS_LEADINS = [
 ]
 function _ensureCaseStudyHighlightsLeadIn(text) {
   if (!text) return text
+  // Backstop: kill the FABRICATED Skin Reboot "$12k → $95k" revenue figure if it ever
+  // resurfaces (real: +693.8% revenue at 17.51 PMax ROAS). Removed from all prompt
+  // sources, but guarded here so it can never reach a client again.
+  const deFab = text.replace(/(?:from\s+)?\$?\s*12\s*k\s*(?:→|->|to|–|—|-)\s*\$?\s*95\s*k/gi, '+693.8%')
+  if (deFab !== text) {
+    console.log('[Falcon] Replaced fabricated Skin Reboot $12k→$95k with real +693.8%.')
+    _recordViolations('generator', null, ['fabricatedSkinRebootRevenue'])
+  }
+  text = deFab
   if (/profile\s+highlights?/i.test(text)) return text  // already announced/labelled
   const paras = text.split(/\n{2,}/)
   const hasNonPdf = paras.some(p => _NON_PDF_CASE_NAME_RE.test(p.trim()))
@@ -4384,7 +4393,7 @@ here are some relevant results — the non-PDF case studies are attached in prof
 
 Nectar Flowers: Rebuilt campaign structure around purchase intent. Dropped cost per conversion 72% and grew transaction revenue 350%.
 
-Skin Reboot: Scaled monthly revenue from $12k to $95k at 17.51 ROAS by fixing tracking and tightening intent targeting. (case study attached as a PDF)
+Skin Reboot: Grew revenue +693.8% at 17.51 PMax ROAS by fixing tracking and tightening intent targeting. (case study attached as a PDF)
 
 RULES (apply to all three patterns):
 - Blank line between every entry — mandatory, not optional
@@ -5383,14 +5392,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (vapeOnPpcOnlyJob) {
               specificViolations.push(
                 'VAPE SHOP ON A PURE-PPC JOB — CHANNEL MISMATCH (Rule 437): The draft cites the Vape Shop case on a Google Ads / paid-media job that has NO SEO scope. Vape Shop is an SEO case — its metrics (monthly visitors, referring domains, keywords in Top 1) are organic, not paid — so it is off-channel here and weakens the pitch. ' +
-                'DELETE the entire Vape Shop paragraph (and remove "vape shop" from any case-studies lead-in line). On this pure-PPC job the regulated/restricted proof is Skin Reboot\'s PAID angle (17.51 ROAS, $12k→$95k revenue via PMax) — keep that as the lead. Do not replace Vape with another SEO case.'
+                'DELETE the entire Vape Shop paragraph (and remove "vape shop" from any case-studies lead-in line). On this pure-PPC job the regulated/restricted proof is Skin Reboot\'s PAID angle (17.51 PMax ROAS, +693.8% revenue) — keep that as the lead. Do not replace Vape with another SEO case.'
               )
             }
             if (irrelevantCaseOnRegulated) {
               specificViolations.push(
                 'IRRELEVANT CASE STUDY ON A RESTRICTED/YMYL JOB (Rule 407): The draft cites a generic consumer case study (Nectar Flowers / House Painting / FridgeFix / Golden State Trailers) on a restricted/regulated/YMYL brief (peptides, skincare, supplements, medical aesthetics, etc.). These off-vertical cases signal weak relevance judgment and dilute the on-point restricted cases beside them. ' +
                 'DELETE the generic consumer case entirely. Do NOT replace it with another case unless that case is genuinely restricted/YMYL-relevant. Fewer, on-point cases are STRONGER than more cases with a filler — it is correct to end with just 1-2 restricted-niche cases (Skin Reboot, Derma Solution, Vape Shop). ' +
-                'Also match channel: on a Google Ads/PPC job cite the PAID result (e.g. Skin Reboot 17.51 ROAS, $12k→$95k), not a case\'s SEO/organic-traffic numbers.'
+                'Also match channel: on a Google Ads/PPC job cite the PAID result (e.g. Skin Reboot 17.51 PMax ROAS, +693.8% revenue), not a case\'s SEO/organic-traffic numbers.'
               )
             }
             if (launchJobMissingCTA) {
