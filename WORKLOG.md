@@ -1085,3 +1085,27 @@ preceded by a sentence boundary (.!?). If cases are joined by a conjunction into
 flowing sentence, leave the paragraph untouched. Verified: the compound "SMASH (…)
 and Game-X (…)" sentence is now left intact; a period-separated "Nectar … FridgeFix …
 Skin Reboot" list still splits. Compiles clean.
+
+---
+
+## 2026-07-02 — Web-dev SEO differentiator is now scope-aware (build vs maintenance)
+
+Owner: on a Shopify CHANGES/maintenance job the opener led with "ranks from launch /
+technical SEO / hand off to a separate SEO team" — off-target. The store already
+exists (no launch) and the client hired a developer, not an SEO. Three prompt rules
+were force-leading the SEO-into-build USP on ALL web-dev jobs.
+
+Fix:
+- Made all three web-dev differentiator rules scope-aware (deliverable rule C,
+  competitive-positioning line, fabrication-hook line): NEW BUILD → lead with the
+  ranks-from-launch SEO-into-build USP; MAINTENANCE/CHANGES/FIX → lead with dev
+  RELIABILITY (careful theme/Liquid work, test-in-a-duplicate before deploy, don't
+  break existing functionality/tracking), SEO demoted to at most a one-line "won't
+  break your rankings/tracking" reassurance.
+- Deterministic guard `seoLedOnMaintenanceWebdev`: job is web-dev + maintenance
+  signals + NOT new-build, AND the opener (first 350 chars) leads with SEO/ranking
+  language → fire enforcer to reframe. Wired into draftCompliant + telemetry + log +
+  specificViolations.
+
+Verified: maintenance job + SEO opener flags; maintenance + dev opener and new-build +
+SEO opener both pass. Compiles clean.

@@ -3120,7 +3120,7 @@ WEAK FIT / SCORE LOWER for:
 COMPETITIVE POSITIONING:
 - In pools of 20-50 applicants for generic SEO/PPC work, Artem's Top Rated + Premier Partner + $100K+ profile stands out — don't over-penalise for applicant count unless the scope is clearly misaligned.
 - For audit-first or one-off deliverable jobs, his $700 fixed SEO audit and $160-200 PPC audit price points are competitive and proven.
-- For web development jobs (Shopify/WordPress/OpenCart), the differentiator is full-scope delivery: most web devs hand off to a separate SEO person. IT Force delivers build + SEO architecture + analytics in one engagement — cite this as the edge.
+- For web development BUILD jobs (Shopify/WordPress/OpenCart, from-scratch/new site), the differentiator is full-scope delivery: most web devs hand off to a separate SEO person; IT Force delivers build + SEO architecture + analytics in one engagement — cite this as the edge. BUT for MAINTENANCE / CHANGES / FIX jobs on an EXISTING store (theme tweaks, adjustments, fixing issues), the client hired a developer, not an SEO — the edge is dev RELIABILITY (careful theme work, test-before-deploy, doesn't break existing functionality/tracking), NOT an SEO/ranking pitch. Don't force the SEO angle where it wasn't asked for.
 
 HARD DISQUALIFIERS — if any apply, score MUST be 0 and verdict MUST be SKIP, no exceptions:
 1. "Freelancer geo restriction" field contains "United States only", "US only", or any similar restriction (Artem cannot legally apply)
@@ -4383,7 +4383,7 @@ You have NOT visited the client's website, looked at their Google Ads account, i
 - Assert specific findings about their CURRENT state as fact: NO "your technical foundation isn't set up", "your schema is missing", "your tracking is broken", "Google isn't connecting those queries because [specific cause]", "your site has indexation issues", "your campaigns are misconfigured". You cannot know any of this — asserting it as fact is a lie that collapses the moment the client checks.
 - Invent metrics, current rankings, current conversion rates, or any number describing THEIR current performance.
 - Fabricate facts about ARTEM'S OWN client base or track record beyond what the approved case studies prove. Specifically banned: "most of my healthcare clients are US-based", "I typically work with Series A companies", "my clients in this vertical usually…" — unless the case studies actually document this. The approved case studies are the only verifiable proof. Inventing a client-base profile to pre-empt a concern (e.g. timezone, vertical fit) is a lie that the client could verify by asking follow-up questions. Instead, speak to the case studies you DO have: "Derma Solution is a YMYL medical aesthetics site — same E-E-A-T constraints you're dealing with."
-- Fabricate vertical-specific web development history Artem doesn't have: NEVER open with "I've been building [car rental / restaurant / hotel / gym / real estate] sites on WordPress for X years" when there is no case study in the KB for that vertical. The documented web dev BUILDS are GKit (branded fashion ecommerce), SMASH (streetwear — custom theme + Lucky Box gamification module), and Game-X (PC-hardware store — custom Configurator + Compatibility Engine + Smart Cart modules) — ALL on OpenCart. Cite the best-fit one(s) for the job (Game-X for custom-module/backend logic, SMASH for custom theme/gamification/mobile UX, GKit for fashion/bilingual/CRM) — do NOT default to only GKit. For a job in any OTHER vertical (car rental, hospitality, automotive, healthcare, etc.), do NOT invent a vertical track record. Frame the hook around the transferable technical method instead: "my approach wires SEO architecture and GA4 tracking into the build from day one — so the site ranks from launch instead of six months later." Then cite GKit as proof of the delivery model. Vertical-specific build history that isn't backed by an approved case study is a fabrication, even when it feels plausible to invent.
+- Fabricate vertical-specific web development history Artem doesn't have: NEVER open with "I've been building [car rental / restaurant / hotel / gym / real estate] sites on WordPress for X years" when there is no case study in the KB for that vertical. The documented web dev BUILDS are GKit (branded fashion ecommerce), SMASH (streetwear — custom theme + Lucky Box gamification module), and Game-X (PC-hardware store — custom Configurator + Compatibility Engine + Smart Cart modules) — ALL on OpenCart. Cite the best-fit one(s) for the job (Game-X for custom-module/backend logic, SMASH for custom theme/gamification/mobile UX, GKit for fashion/bilingual/CRM) — do NOT default to only GKit. For a job in any OTHER vertical (car rental, hospitality, automotive, healthcare, etc.), do NOT invent a vertical track record. Frame the hook around the transferable technical method instead — but MATCH THE SCOPE: for a NEW BUILD, "my approach wires SEO architecture and GA4 tracking into the build from day one — so the site ranks from launch instead of six months later"; for a MAINTENANCE / CHANGES / FIX job on an existing store, drop the ranks-from-launch line entirely and hook on dev reliability instead ("I work directly in your theme, test every change in a duplicate before it goes live, and don't break your existing functionality or tracking"). Then cite the best-fit OpenCart case as proof of the delivery model. Vertical-specific build history that isn't backed by an approved case study is a fabrication, even when it feels plausible to invent.
 - DESCRIBE THE CLIENT'S BUSINESS when the posting only gives a company name or URL. If the posting says nothing more than "The company is acme.io" or just links a domain, you do NOT know what they do, who their customers are, or how they operate — do NOT state it. NEVER open with "I took a look at acme.io - [invented description]". Forbidden: claiming their business model, market, customer type, or geography as fact when the posting didn't state it. You may refer to them generically ("your platform", "your account", "your campaigns") and speak to the problem the POSTING describes, but never narrate their business as if you researched it. Inferring loosely from a domain name (e.g. "mytender.io" → tenders) is acceptable ONLY if framed as the problem space, never as "here's what your company does."
 
 What you CAN do instead (this is how you sound sharp WITHOUT lying):
@@ -4417,7 +4417,9 @@ A job can be BOTH (audit now → growth later): attach the technical SEO audit s
   - Do NOT offer the 3-month SEO promotion plan — it is an ongoing-campaign document and will confuse a client who hired a developer, not an SEO agency.
   - Do NOT attach the SEO promotion plan sample.
   - If you want a closing deliverable offer, frame it as: "happy to put together a project scope with build timeline and tech stack before we start" — or simply close with the sign-off and your name.
-  - The key differentiator for webdev jobs: IT Force wires SEO architecture, schema, GA4 conversion tracking, and Core Web Vitals optimisation INTO the build itself — the client gets a site that ranks from launch, not one that needs a separate SEO contractor six months later. Lead with this as the technical USP, not as a service to sell separately.
+  - The differentiator DEPENDS ON SCOPE — match it, don't force the SEO angle:
+    • NEW BUILD / from-scratch / launch (signals: "build a website", "create our store", "develop our new site", "from scratch", "launch"): LEAD with "IT Force wires SEO architecture, schema, GA4 conversion tracking, and Core Web Vitals INTO the build itself — the site ranks from launch, not six months after a separate SEO contractor." Here the ranks-from-launch USP is on-target.
+    • MAINTENANCE / CHANGES / FIX / adjust-existing (signals: "changes", "adjust", "adjustments", "existing", "fix", "minor issues", "update sections", "tweaks", "ongoing changes", "improve the store", "modify", "theme customization on our store"): the store ALREADY EXISTS — there is no launch, so do NOT lead with "ranks from launch" (it's aimed at the wrong scenario and the client hired a DEVELOPER, not an SEO). LEAD instead with DEV RELIABILITY: careful theme/Liquid work, testing every change in a duplicate/preview before pushing live, clean scoped delivery, and NOT breaking existing functionality. Demote SEO/tracking to at most ONE reassurance line — "changes won't break your rankings, schema, or GA4 tracking" — never a ranking pitch. Pitching an SEO service they didn't ask for reads as not listening.
 
 CASE STUDY SELECTION — match the case study's domain to the job's domain (mandatory):
 
@@ -5041,6 +5043,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // plan requirement — that deliverable is wrong for a development scope.
             const WEBDEV_JOB_RE = /\b(shopify|woocommerce|opencart|magento|wordpress\s+(?:developer|development|website|site|theme|plugin|design)|ecommerce\s+(?:website|store|site|development)|online\s+store\s+(?:development|build|setup|creation)|website\s+(?:development|redesign|developer|builder|creation)|web\s+(?:developer|development|design)|build\s+(?:a|an|our|my|the)\s+(?:website|online\s+store|ecommerce\s+site))\b/i
             const jobIsWebdev = WEBDEV_JOB_RE.test(jobContextLower)
+            // Maintenance/changes web-dev job (existing store, not a from-scratch build).
+            // On these the SEO/ranks-from-launch pitch is off-target — the client hired a
+            // developer to make changes, not an SEO. Flag if the opener leads with SEO/rank.
+            const _WEBDEV_MAINT_RE = /\b(chang(?:es?|ing)|adjust(?:ments?|ing|\s+existing)?|fix(?:es|ing|\s+(?:minor\s+)?issues?)?|updat(?:e|ing)\s+(?:sections?|the\s+(?:site|store|theme))|tweaks?|ongoing\s+(?:changes|work|help|support|maintenance)|maintenance|modif(?:y|ications?)|improve\s+(?:the\s+)?(?:store|site|ux|user\s+experience)|existing\s+(?:store|site|theme|functionality)|theme\s+customi[sz]ation)\b/i
+            const _WEBDEV_NEWBUILD_RE = /\b(build\s+(?:a|an|our|my|the|from)|from\s+scratch|create\s+(?:a|an|our|my)\s+(?:new\s+)?(?:site|store|website)|develop\s+(?:a|an|our)\s+new|new\s+(?:site|store|website)|launch|redesign|rebuild)\b/i
+            const jobIsWebdevMaintenance = jobIsWebdev && _WEBDEV_MAINT_RE.test(jobContextLower) && !_WEBDEV_NEWBUILD_RE.test(jobContextLower)
+            // Opener (first ~350 chars) leads with an SEO/ranking pitch?
+            const _openerSeoPitch = /\b(rank(?:s|ing)?\s+(?:from\s+(?:day|launch)|higher|better|well)|so\s+the\s+site\s+ranks|technical\s+seo|seo\s+(?:architecture|team|person|contractor)|ranks\s+from\s+launch|six\s+months\s+(?:after|later)|hand\s+off\s+to\s+a\s+separate\s+seo)\b/i.test(text.slice(0, 350))
+            const seoLedOnMaintenanceWebdev = jobIsWebdevMaintenance && _openerSeoPitch
             const ppcCaseInDraft = PPC_ONLY_NAMES.some(re => re.test(text))
             const seoCaseInDraft = SEO_ONLY_NAMES.some(re => re.test(text))
             // Mismatch only fires when job is clearly ONE domain and a case
@@ -5232,7 +5243,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
-              && !openCartMislabeledAsPlatform
+              && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -5254,6 +5265,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               exactVerticalCaseNotLeading && 'exactVerticalCaseNotLeading',
               caseMislabeledAsSaas && 'caseMislabeledAsSaas',
               openCartMislabeledAsPlatform && 'openCartMislabeledAsPlatform',
+              seoLedOnMaintenanceWebdev && 'seoLedOnMaintenanceWebdev',
               timelineRequestedButMissing && 'timelineRequestedButMissing',
               hasEchoedQuestion && 'hasEchoedQuestion',
               fabricatedGeoExperience && 'fabricatedGeoExperience',
@@ -5346,6 +5358,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (openCartMislabeledAsPlatform) {
               console.log('[Falcon] Rule pre-check: an OpenCart case (SMASH/Game-X/GKit) is labeled as Shopify/Woo/WP work — platform fabrication, firing Claude enforcer.')
             }
+            if (seoLedOnMaintenanceWebdev) {
+              console.log('[Falcon] Rule pre-check: maintenance/changes web-dev job but opener leads with SEO/ranking pitch — off-target, firing Claude enforcer.')
+            }
             if (timelineRequestedButMissing) {
               console.log('[Falcon] Rule pre-check: posting asks for a timeline/duration but the draft gives no concrete estimate — firing Claude enforcer.')
             }
@@ -5404,6 +5419,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 'MISSING TIMELINE ANSWER (the client explicitly asked): The posting asks for a timeline / how long / turnaround / ETA, but the draft gives NO concrete duration — it describes the deliverable or steps instead. ' +
                 'ADD a concrete time estimate that directly answers the question (e.g. "I\'d complete the review in about 3–5 business days once I have staging access", "roughly a week end-to-end"). Keep it realistic and scope-appropriate. This is the ONE case where a timeline in the letter is REQUIRED — do not omit it, and do not answer a "how long" question with a description of what you\'ll deliver.'
+              )
+            }
+            if (seoLedOnMaintenanceWebdev) {
+              specificViolations.push(
+                'OFF-TARGET SEO PITCH ON A MAINTENANCE JOB: This is a web-dev MAINTENANCE / CHANGES / FIX job on an EXISTING store, but the opener leads with an SEO/ranking pitch ("ranks from launch", "technical SEO", "hand off to a separate SEO", "six months later"). The store already exists (no launch) and the client hired a DEVELOPER, not an SEO — this reads as pitching a service they didn\'t ask for. ' +
+                'REWRITE the opener to lead with DEV RELIABILITY: careful theme/Liquid work, testing every change in a duplicate/preview before pushing live, clean scoped delivery, and not breaking existing functionality. Keep SEO/tracking to AT MOST one reassurance line ("changes won\'t break your rankings, schema, or GA4 tracking") — never a ranking pitch. Do NOT claim the site will "rank from launch"; there is no launch.'
               )
             }
             if (openCartMislabeledAsPlatform) {
