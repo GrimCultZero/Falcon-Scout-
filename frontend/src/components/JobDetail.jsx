@@ -4423,7 +4423,8 @@ CRITICAL: NEVER cite a PPC-only case study (FridgeFix, House Painting, Nectar Fl
 
 CASE-STUDY BUSINESS-MODEL INTEGRITY (mandatory — credibility-critical): Each case study has a FIXED, REAL business model. NEVER relabel a case's industry or business model to force-fit the job's vertical. In particular:
 - Skin Reboot = health/wellness SKINCARE ECOMMERCE (DTC physical product). It is NOT SaaS, NOT software, NOT a subscription product. Never call it "a SaaS case", "B2B software", or similar.
-- Nectar Flowers = ecommerce FLORIST (physical product). FridgeFix = appliance REPAIR (local service). House Painting = painting CONTRACTOR (local service). Derma Solution = medical aesthetics CLINIC. Atlant = REAL ESTATE developer. Game-X / SMASH / GKit = ecommerce store builds. None of these is SaaS/software.
+- Nectar Flowers = ecommerce FLORIST (physical product). FridgeFix = appliance REPAIR (local service). House Painting = painting CONTRACTOR (local service). Derma Solution = medical aesthetics CLINIC. Atlant = REAL ESTATE developer. None of these is SaaS/software.
+- PLATFORM INTEGRITY (web-dev cases): Game-X, SMASH, and GKit are ALL built on OPENCART — they are NOT Shopify, NOT WooCommerce, NOT WordPress. NEVER describe them as "Shopify work/builds/stores" or under a "Recent Shopify work" heading. On a Shopify (or WooCommerce/WordPress) job, you have TWO honest options: (a) cite Artem's REAL Shopify stores — casaeleganza.com and paramusmegafurniture.com — as the direct platform proof; and/or (b) present Game-X/SMASH/GKit as OpenCart builds whose skills transfer ("same custom-theme + module + tracking work, built on OpenCart — the Liquid/theme layer is the same discipline"). Label the platform truthfully every time; calling an OpenCart build "Shopify" is a fabrication the client catches on the first click.
 - When the job is in a vertical we have NO case study for (e.g. SaaS / software / a subscription product), do NOT recategorize an ecommerce or local-service case to match. Either (a) cite the case HONESTLY by its real model and bridge the transferable MECHANIC ("same trial-vs-paid ROAS tracking problem, different business model"), or (b) skip the case and lean on the method + Premier Partner credential. A relabeled case is a fabrication the client catches the moment they open it.
 
 RESTRICTED/YMYL JOBS OVERRIDE (vertical beats channel for the supporting slots): when the job is in a restricted/regulated/YMYL vertical (peptides, skincare, medical aesthetics, supplements, CBD/vape, health/wellness), DO NOT use the generic consumer cases (FridgeFix, House Painting, Nectar Flowers, Golden State Trailers) EVEN ON A PPC JOB — they are off-vertical and signal weak relevance judgment. Use Skin Reboot (the restricted/YMYL paid hero) as the lead, and at most one more genuinely restricted/YMYL case. Fewer on-point cases beat more with a generic filler. If only Skin Reboot truly fits, cite only Skin Reboot and stop.
@@ -4811,6 +4812,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _SAAS_TERM = '(?:saas|software[- ]as[- ]a[- ]service|b2b\\s+software|software\\s+(?:platform|company|product|brand|business)|subscription\\s+(?:software|platform|saas))'
             const _MISLABEL_RE = new RegExp(`\\b${_NON_SAAS_CASE}\\b[^.!?\\n]{0,50}\\b${_SAAS_TERM}\\b|\\b${_SAAS_TERM}\\b[^.!?\\n]{0,50}\\b${_NON_SAAS_CASE}\\b`, 'i')
             const caseMislabeledAsSaas = _MISLABEL_RE.test(text)
+
+            // ── OpenCart case mislabeled as Shopify/WooCommerce/WordPress ────
+            // Game-X, SMASH and GKit are OpenCart builds. On a Shopify/Woo/WP job
+            // the generator sometimes files them under "Recent Shopify work" — a
+            // fabricated platform claim. Flag when an OpenCart case is present AND a
+            // wrong-platform "work/build/store" label appears in the draft.
+            const _OPENCART_CASE_RE = /\b(?:smash|game-?x|gkit)\b/i
+            const _WRONG_PLATFORM_LABEL_RE = /\b(?:recent\s+)?(?:shopify|woo\s?commerce|wordpress)(?:\s*[\/&,]\s*[a-z]+)?\s+(?:work|builds?|projects?|stores?|experience|results?|sites?)\b/i
+            const openCartMislabeledAsPlatform = _OPENCART_CASE_RE.test(text) && _WRONG_PLATFORM_LABEL_RE.test(text)
 
             // ── Echoed-question check (mechanical AI-form-fill tell) ─────────
             // The generator sometimes pastes the client's screening questions
@@ -5213,6 +5223,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
+              && !openCartMislabeledAsPlatform
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
@@ -5233,6 +5244,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasAssumedBrand && 'hasAssumedBrand',
               exactVerticalCaseNotLeading && 'exactVerticalCaseNotLeading',
               caseMislabeledAsSaas && 'caseMislabeledAsSaas',
+              openCartMislabeledAsPlatform && 'openCartMislabeledAsPlatform',
               timelineRequestedButMissing && 'timelineRequestedButMissing',
               hasEchoedQuestion && 'hasEchoedQuestion',
               fabricatedGeoExperience && 'fabricatedGeoExperience',
@@ -5322,6 +5334,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (caseMislabeledAsSaas) {
               console.log('[Falcon] Rule pre-check: a non-SaaS case study is described as SaaS/software (business-model fabrication) — firing Claude enforcer.')
             }
+            if (openCartMislabeledAsPlatform) {
+              console.log('[Falcon] Rule pre-check: an OpenCart case (SMASH/Game-X/GKit) is labeled as Shopify/Woo/WP work — platform fabrication, firing Claude enforcer.')
+            }
             if (timelineRequestedButMissing) {
               console.log('[Falcon] Rule pre-check: posting asks for a timeline/duration but the draft gives no concrete estimate — firing Claude enforcer.')
             }
@@ -5380,6 +5395,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 'MISSING TIMELINE ANSWER (the client explicitly asked): The posting asks for a timeline / how long / turnaround / ETA, but the draft gives NO concrete duration — it describes the deliverable or steps instead. ' +
                 'ADD a concrete time estimate that directly answers the question (e.g. "I\'d complete the review in about 3–5 business days once I have staging access", "roughly a week end-to-end"). Keep it realistic and scope-appropriate. This is the ONE case where a timeline in the letter is REQUIRED — do not omit it, and do not answer a "how long" question with a description of what you\'ll deliver.'
+              )
+            }
+            if (openCartMislabeledAsPlatform) {
+              specificViolations.push(
+                'PLATFORM FABRICATION — OpenCart case labeled as Shopify/Woo/WordPress (credibility-critical): Game-X, SMASH and GKit are all OPENCART builds, but the draft files them under a "Shopify/WooCommerce/WordPress work" heading — a false platform claim the client catches on the first click. ' +
+                'FIX: relabel the case intro so the platform is truthful — call it "Recent ecommerce work" or "OpenCart builds", NOT "Shopify work". If you want DIRECT proof on the job\'s platform, cite Artem\'s real Shopify stores instead: casaeleganza.com and paramusmegafurniture.com. When keeping the OpenCart cases, frame them as transferable ("built on OpenCart — same custom-theme + module + tracking discipline"). Never call an OpenCart build Shopify/Woo/WordPress.'
               )
             }
             if (caseMislabeledAsSaas) {

@@ -1048,3 +1048,25 @@ metrics. Compiles clean.
 
 Lesson: when adding a case study, grep the prompt/KB for "only"/"primary"/"the case"
 claims that pin the model to an older single example.
+
+---
+
+## 2026-07-02 — OpenCart cases mislabeled as "Shopify work" (platform fabrication)
+
+Owner: on a Shopify job the generator listed SMASH + Game-X under "Recent Shopify/
+ecommerce work" — but those are OPENCART builds, not Shopify. Side effect of the
+prior fix (taught the generator about SMASH/Game-X but didn't stress the platform).
+
+Fix:
+- Prompt: added PLATFORM INTEGRITY to the case-study business-model rule — Game-X /
+  SMASH / GKit are OpenCart, never Shopify/Woo/WP. On a Shopify job, cite Artem's real
+  Shopify stores (casaeleganza.com, paramusmegafurniture.com) and/or frame the OpenCart
+  cases as transferable.
+- KB rule #477: same platform note + Shopify-job routing.
+- Deterministic guard `openCartMislabeledAsPlatform`: fires when an OpenCart case
+  (SMASH/Game-X/GKit) is present AND a "Shopify/Woo/WordPress work/build/store" label
+  appears. Wired into draftCompliant + telemetry + log + specificViolations (which
+  tells the enforcer to relabel truthfully or swap in the real Shopify portfolio).
+
+Verified: "Recent Shopify work: SMASH" flags; "Recent ecommerce work: SMASH (OpenCart)"
+and a Shopify-portfolio-only mention pass. Compiles clean.
