@@ -1135,3 +1135,24 @@ the em-dashes and the listy structure, keep the tone. Implemented exactly that:
 
 DEFERRED (owner chose light touch, not now): hedging removal, buzzword strip,
 proof-of-fit opener rework, length caps. Revisit if the light touch isn't enough.
+
+---
+
+## 2026-07-03 — Feed: "Analysed" + "Starred" filters + green-tick mark
+
+Owner asked for: an "Analysed" filter (postings already run through the analyser), the
+ability to mark a posting with a big green tick to come back to later, and a "Starred"
+filter to show marked ones.
+
+Implemented:
+- db.py: new `starred_at` column on Job (NULL = not marked), indexed.
+- api/main.py: migration for starred_at; serializer adds `starred` + `starred_at`;
+  filter_type gains `analysed` (Job.last_analysis_at NOT NULL) and `starred`
+  (Job.starred_at NOT NULL); new POST /jobs/{id}/star and /unstar (mirror hide/unhide).
+- App.jsx: two new feed filter chips ("Analysed", "✓ Starred"); toggleStar callback
+  (optimistic flip + drop-on-unstar-in-starred-view + refetch); passed to JobList.
+- JobList.jsx: green ✓ button per card (filled green + glow when marked, outline
+  otherwise); starred cards get a green left-border + faint green tint so they stand out.
+
+Verified live: star sets starred=true; Starred filter returns the marked job; Analysed
+filter returns 178; unstar clears it. Backend auto-migrated, frontend compiles.

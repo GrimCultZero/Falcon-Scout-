@@ -35,6 +35,9 @@ def _ensure_job_columns():
         if "hidden_at" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN hidden_at DATETIME")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_jobs_hidden_at ON jobs(hidden_at)")
+        if "starred_at" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN starred_at DATETIME")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_jobs_starred_at ON jobs(starred_at)")
         if "client_already_hired" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN client_already_hired INTEGER")
         if "description_full" not in existing:
@@ -566,6 +569,8 @@ def _serialize(j: Job) -> dict:
         "screening_questions": j.screening_questions,
         "enriched_at": j.enriched_at.isoformat() if j.enriched_at else None,
         "hidden_at": j.hidden_at.isoformat() if j.hidden_at else None,
+        "starred": j.starred_at is not None,
+        "starred_at": j.starred_at.isoformat() if j.starred_at else None,
         "client_already_hired": j.client_already_hired,
         "description_full": j.description_full,
         "preferred_qualifications": j.preferred_qualifications,
@@ -673,6 +678,12 @@ def list_jobs(
                         )
                     )
                 )
+            elif filter_type == "analysed":
+                # Jobs Artem has already run the AI analyser on.
+                stmt = stmt.where(Job.last_analysis_at.isnot(None))
+            elif filter_type == "starred":
+                # Jobs Artem marked (green tick) to come back to later.
+                stmt = stmt.where(Job.starred_at.isnot(None))
 
         jobs = session.scalars(stmt).all()
         if not jobs:
@@ -1098,6 +1109,32 @@ def unhide_job(job_id: int):
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         job.hidden_at = None
+        session.commit()
+        session.refresh(job)
+        return _serialize(job)
+
+
+@app.post("/jobs/{job_id}/star")
+def star_job(job_id: int):
+    """Mark/star a job (green tick) so Artem can come back to it via the Starred filter."""
+    with Session(engine) as session:
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job.starred_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(job)
+        return _serialize(job)
+
+
+@app.post("/jobs/{job_id}/unstar")
+def unstar_job(job_id: int):
+    """Remove the mark/star from a job."""
+    with Session(engine) as session:
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job.starred_at = None
         session.commit()
         session.refresh(job)
         return _serialize(job)

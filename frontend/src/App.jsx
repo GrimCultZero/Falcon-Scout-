@@ -490,6 +490,8 @@ export default function App() {
     { key: 'high_budget', label: '>$30/hr' },
     { key: 'no_us_only',  label: 'No US-only' },
     { key: 'enriched',    label: 'Enriched' },
+    { key: 'analysed',    label: 'Analysed' },
+    { key: 'starred',     label: '✓ Starred' },
     { key: 'hidden',      label: 'Hidden' },
   ]
 
@@ -510,6 +512,22 @@ export default function App() {
       fetchJobs(query, filter)
     } catch {}
   }, [selectedId, query, filter, fetchJobs])
+
+  // Star / unstar a job (green tick) — used by the ✓ button on JobList cards.
+  const toggleStar = useCallback(async (jobId, currentlyStarred) => {
+    try {
+      const res = await fetch(`/jobs/${jobId}/${currentlyStarred ? 'unstar' : 'star'}`, { method: 'POST' })
+      if (!res.ok) return
+      // Optimistic: flip the flag in place; if we're in the Starred view and just
+      // unstarred, drop the card so the view stays accurate.
+      setJobs(prev => prev
+        .map(j => j.id === jobId ? { ...j, starred: !currentlyStarred } : j)
+        .filter(j => !(filter === 'starred' && currentlyStarred && j.id === jobId)))
+      setSelectedJob(s => (s && s.id === jobId ? { ...s, starred: !currentlyStarred } : s))
+      // Background reconcile
+      fetchJobs(query, filter)
+    } catch {}
+  }, [query, filter, fetchJobs])
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)', color:'var(--text)', fontFamily:'Inter, sans-serif', overflow:'hidden' }}>
@@ -867,6 +885,7 @@ export default function App() {
                 selectedId={selectedId}
                 onSelect={(id) => { setSelectedId(id); fetchSelectedJob(id) }}
                 onToggleHidden={toggleHidden}
+                onToggleStar={toggleStar}
                 showingHidden={filter === 'hidden'}
               />
             </div>

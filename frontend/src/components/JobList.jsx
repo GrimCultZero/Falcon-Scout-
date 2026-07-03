@@ -62,7 +62,7 @@ function timeAgo(isoString) {
   return `${Math.floor(h / 24)}d`
 }
 
-export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, showingHidden }) {
+export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, showingHidden }) {
   return (
     <div>
       {jobs.map((job, i) => {
@@ -81,6 +81,7 @@ export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, sh
         const verdictColor = analysis
           ? ({ APPLY: '#00c8d4', MAYBE: '#f59e0b', SKIP: '#ef4444' }[analysis.verdict] || '#888')
           : null
+        const isStarred = !!job.starred
 
         return (
           <div
@@ -91,9 +92,10 @@ export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, sh
               borderBottom: '1px solid var(--border)',
               // US-only = hard disqualifier for Artem (Ukraine). Flag the whole
               // card red + grayed-out so it's an obvious skip at a glance.
-              borderLeft: `2px solid ${isUsOnly ? '#ef4444' : isSelected ? '#00c8d4' : 'transparent'}`,
+              borderLeft: `2px solid ${isUsOnly ? '#ef4444' : isStarred ? '#00d070' : isSelected ? '#00c8d4' : 'transparent'}`,
               background: isUsOnly
                 ? 'rgba(239,68,68,0.09)'
+                : isStarred ? 'rgba(0,208,112,0.07)'
                 : isSelected ? 'rgba(0,200,212,0.08)' : 'transparent',
               opacity: isUsOnly ? 0.55 : 1,
               filter: isUsOnly ? 'grayscale(0.65)' : 'none',
@@ -146,6 +148,38 @@ export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, sh
                       flexShrink: 0,
                     }}
                   />
+                )}
+                {/* Star / mark button — big green tick to flag a job to come back to */}
+                {onToggleStar && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onToggleStar(job.id, isStarred) }}
+                    title={isStarred ? 'Unmark' : 'Mark to come back to'}
+                    style={{
+                      background: isStarred ? '#00d070' : 'transparent',
+                      border: `1px solid ${isStarred ? '#00d070' : 'var(--border)'}`,
+                      color: isStarred ? '#fff' : 'var(--text3)',
+                      width: 22, height: 22, borderRadius: 3,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 15, fontWeight: 800, lineHeight: 1, fontFamily: 'inherit',
+                      cursor: 'pointer', flexShrink: 0,
+                      boxShadow: isStarred ? '0 0 6px rgba(0,208,112,0.5)' : 'none',
+                      transition: 'color 0.12s, border-color 0.12s, background 0.12s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isStarred) return
+                      e.currentTarget.style.color = '#00d070'
+                      e.currentTarget.style.borderColor = 'rgba(0,208,112,0.5)'
+                      e.currentTarget.style.background = 'rgba(0,208,112,0.08)'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (isStarred) return
+                      e.currentTarget.style.color = 'var(--text3)'
+                      e.currentTarget.style.borderColor = 'var(--border)'
+                      e.currentTarget.style.background = 'transparent'
+                    }}
+                  >
+                    ✓
+                  </button>
                 )}
                 {onToggleHidden && (
                   <button

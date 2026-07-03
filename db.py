@@ -94,6 +94,10 @@ class Job(Base):
     # filter view in the dashboard).
     hidden_at = Column(DateTime, nullable=True, index=True)
 
+    # Timestamp when Artem marked/starred this job (green tick) to come back to it
+    # later. NULL = not marked. Surfaced via the "Starred" feed filter.
+    starred_at = Column(DateTime, nullable=True, index=True)
+
     # ── Auto-enrichment bookkeeping ───────────────────────────────────────
     # The extension's background auto-enricher opens unenriched jobs in a hidden
     # Upwork tab and scrapes them. We count attempts (so a dead/expired/geo-blocked
