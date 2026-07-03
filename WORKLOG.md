@@ -1156,3 +1156,41 @@ Implemented:
 
 Verified live: star sets starred=true; Starred filter returns the marked job; Analysed
 filter returns 178; unstar clears it. Backend auto-migrated, frontend compiles.
+
+---
+
+## 2026-07-03 — "Update bids" button: made self-verifying (was relying on a fragile notify round-trip)
+
+Owner: "check why Update bids button doesnt update them."
+
+Diagnosis (traced the whole chain, no logic bug found):
+- Frontend: button → dispatches `cockpit:update-bids`. bridge.js listens → sends
+  `UPDATE_BIDS` to background. App.jsx rapid-poll ALSO fires on `cockpit:update-bids`,
+  re-fetching the selected job every 1.5 s for 30 s.
+- Extension: `UPDATE_BIDS` opens `/nx/proposals/job/~{id}/apply/` (active:false) — the
+  EXACT same URL/mechanism the auto-bids alarm `_runBidsEnrich` uses, and that path works
+  (auto-bids get captured). apply.js scrapes → `BOOST_BIDS` → POST /jobs/{id}/boost-bids
+  (overwrites boost_bids_json + boost_bids_captured_at) → `BIDS_UPDATED` → bridge →
+  `cockpit:bids:complete`.
+- So the pipeline is correct. The button only CLEARED its "Updating bids…" state on the
+  `BIDS_UPDATED` message. That message can be lost two ways: (a) the running extension is
+  an OLDER build with no UPDATE_BIDS handler (frontend hot-reloads via Vite, but extension
+  changes need a manual chrome://extensions reload), or (b) MV3 kills the worker mid-scrape
+  so `_manualBidsTabs` (in-memory Map) is gone → `_isManual` false → no BIDS_UPDATED. In
+  both cases the DATA may still update (POST isn't gated on _isManual) but the button hangs
+  30 s → misleading "No response", so it LOOKS like nothing happened.
+
+Fix (frontend, robust + notify-independent) — JobDetail.jsx:
+- Snapshot `job.boost_bids_captured_at` on click (bidsCapturedAtRef).
+- New effect: while `updatingBids`, when the App rapid-poll advances
+  `job.boost_bids_captured_at`, treat that as success (clear spinner, show
+  "✓ bids updated (N)"). This confirms success from the DATA actually changing, not from
+  the fragile BIDS_UPDATED message. BIDS_UPDATED path kept as the fast path.
+- Reset in-flight bids state on `job.id` change (JobDetail has no React key, so state
+  persisted across job switches → a pending update on job A could resolve against job B).
+- Timeout copy now points at the real fixes: "reload the extension, or the apply page had
+  none" (job closed / already applied → no boost section → nothing to capture).
+
+ACTION FOR OWNER: reload the extension at chrome://extensions (Falcon Scout Enricher) and
+hard-refresh the dashboard tab (Ctrl+Shift+R). That's the #1 likely cause — the manual
+Update-bids handlers only exist in manifest v4.4+. After reload the button self-verifies.

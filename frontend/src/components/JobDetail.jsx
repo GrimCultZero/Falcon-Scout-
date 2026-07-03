@@ -731,6 +731,11 @@ export default function JobDetail({ job }) {
   const [bridgeReady, setBridgeReady] = useState(false)
   const [updatingBids, setUpdatingBids] = useState(false)
   const [bidsMsg, setBidsMsg] = useState('')
+  // Snapshot of job.boost_bids_captured_at taken when "Update bids" is clicked.
+  // Lets us confirm success by observing the timestamp advance (via the App-level
+  // rapid-poll re-fetch) even if the extension's BIDS_UPDATED notification never
+  // arrives — e.g. an older/unreloaded worker, or MV3 killing the worker mid-scrape.
+  const bidsCapturedAtRef = useRef(null)
   const leftColRef = useRef(null)
   const wrapperRef = useRef(null)
 
@@ -818,11 +823,36 @@ export default function JobDetail({ job }) {
     }
   }, [])
 
+  // Self-verifying completion: the App-level rapid-poll re-fetches this job every
+  // ~1.5 s after the button is clicked, so job.boost_bids_captured_at advances the
+  // moment the extension POSTs fresh bids. Treat that advance as success — this is
+  // the robust path that does NOT depend on the extension's BIDS_UPDATED message
+  // reaching the page (which can be dropped by an old build or a dead MV3 worker).
+  useEffect(() => {
+    if (!updatingBids) return
+    const cur = job.boost_bids_captured_at || null
+    const prev = bidsCapturedAtRef.current
+    if (cur && cur !== prev) {
+      setUpdatingBids(false)
+      const n = Array.isArray(job.boost_bids) ? job.boost_bids.length : null
+      setBidsMsg(typeof n === 'number' && n > 0 ? `✓ bids updated (${n})` : '✓ bids updated')
+    }
+  }, [job.boost_bids_captured_at, job.boost_bids, updatingBids])
+
   useEffect(() => {
     if (!bidsMsg) return
     const t = setTimeout(() => setBidsMsg(''), 4000)
     return () => clearTimeout(t)
   }, [bidsMsg])
+
+  // JobDetail is not remounted when the selected job changes (no React key), so
+  // clear any in-flight "Update bids" state when we switch jobs — otherwise a
+  // pending update on job A could resolve against job B's data.
+  useEffect(() => {
+    setUpdatingBids(false)
+    setBidsMsg('')
+    bidsCapturedAtRef.current = null
+  }, [job.id])
 
   // Clear the status message after 3 s
   useEffect(() => {
@@ -868,11 +898,17 @@ export default function JobDetail({ job }) {
     }
     try { if (event && event.currentTarget) { flashLogo(event.currentTarget) } } catch {}
     setBidsMsg('')
+    // Snapshot the current capture time so the self-verifying effect can tell
+    // when fresh bids actually land (see the effect above).
+    bidsCapturedAtRef.current = job.boost_bids_captured_at || null
     window.dispatchEvent(new CustomEvent('cockpit:update-bids', { detail: { job_id: rawId } }))
     setUpdatingBids(true)
-    // Safety timeout — the apply page load + scrape can take ~15-20s.
+    // Safety timeout — the apply page load + scrape can take ~15-20s. If we get
+    // here still "updating", neither fresh bids nor a BIDS_UPDATED signal arrived:
+    // usually the extension needs a reload (chrome://extensions → reload), or the
+    // apply page had no bids (job closed / already applied).
     setTimeout(() => {
-      setUpdatingBids(prev => { if (prev) setBidsMsg('✗ No response — the apply page may not have loaded'); return false })
+      setUpdatingBids(prev => { if (prev) setBidsMsg('✗ No new bids — reload the extension, or the apply page had none'); return false })
     }, 30000)
   }
 
