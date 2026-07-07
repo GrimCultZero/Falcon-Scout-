@@ -1235,3 +1235,45 @@ Net effect: explicit-agency web-dev/ecommerce/SEO jobs land at MAYBE/APPLY on sc
 instead of a categorical 2/10. Rate concerns (e.g. this job's $18.6 avg vs $40 web-dev floor)
 still apply as normal soft flags — they just no longer compound with a false "can't be an agency"
 rejection. Frontend compiles. Owner should re-run Analyse on job 5457 to see the new score.
+
+---
+
+## 2026-07-07 — Generator fabricated case studies on a web-dev job — ROOT-CAUSE fix
+
+Owner: "generator didn't include any case studies — we need a permanent fix for current and
+for the future." Case: job 5457 (white-label web-dev agency). The letter INVENTED examples to
+answer the "give three examples where you delivered white-label" screening question — "deliver
+white-label for 3 agencies, longest 18 months", a "bridal dress Webflow site", a "luxury
+skincare Shopify store" (Skin Reboot relabeled to Shopify). The REAL cases (SMASH +217%,
+Game-X +34%, GKit, Casa) were absent or mangled.
+
+ROOT CAUSE (structural, not a one-off): the generator's "APPROVED CASE STUDIES (the ONLY ones
+you may reference — do not invent)" block is built ONLY from KB `type=manual` entries whose
+title matches /case stud|portfolio|results|overview|client/ (JobDetail.jsx ~4234). The single
+matching entry was #1 "Artem PPC SEO Client Case Studies Results Overview" — 11 SEO/PPC cases,
+ZERO web-dev. The 95 `type=case_study` entries (incl. SMASH #487, Game-X #496, GKit #474) are
+NEVER read by that block. So on a web-dev job the model had no approved web-dev cases in its
+"only these" list and, pressured by the screening question, fabricated.
+
+FIX — two layers:
+1. DATA (the real fix): created curated KB entry #518, `type=manual`, `is_core=1`, title
+   "Artem Web Development Client Case Studies Portfolio (OpenCart / Shopify / WordPress builds)"
+   — matches the portfolio regex, so it now feeds the APPROVED CASE STUDIES block on every job
+   (full generate AND core rescan). Content = authoritative web-dev cases with correct platform
+   labels: SMASH (OpenCart, +217% rev / 3.4x conv / custom theme + Lucky Box), Game-X (OpenCart
+   3.x, +34% conv / -60% tickets / Configurator + Compatibility Engine + Smart Cart), GKit
+   (OpenCart + KeepinCRM sync, bilingual, SEO-at-launch), plus live proof sites — Shopify: Casa
+   Eleganza (casaeleganza.com), Paramus Mega Furniture; WordPress: tothebeauty.com, envieq.com,
+   redwallmural.com. Derived from KB #474/#487/#496 + the portfolio URLs the owner gave earlier.
+   (Seed markdown kept in scratchpad/webdev_portfolio.md; DB is gitignored so KB lives locally.)
+2. PROMPT (guardrail): new rule "SCREENING QUESTIONS THAT DEMAND EXAMPLES / TRACK RECORD" —
+   when a posting demands examples/case studies/client counts/relationship history, answer ONLY
+   from approved cases + real facts. Explicitly bans inventing a count/duration of relationships
+   ("deliver white-label for N agencies", "longest relationship N months"), inventing
+   client/vertical/platform examples, and relabeling a case's platform (OpenCart builds are never
+   "Shopify"/"Webflow"; Skin Reboot is never "Shopify"). Directs it to cite the real builds and
+   describe IT Force's honest hand-off model instead.
+
+Net: web-dev jobs now have real, correctly-labeled cases in the approved block, and the screening-
+question fabrication path is closed by an explicit rule. Frontend compiles. Owner should
+regenerate on job 5457 to confirm real cases now appear.
