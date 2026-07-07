@@ -1194,3 +1194,44 @@ Fix (frontend, robust + notify-independent) — JobDetail.jsx:
 ACTION FOR OWNER: reload the extension at chrome://extensions (Falcon Scout Enricher) and
 hard-refresh the dashboard tab (Ctrl+Shift+R). That's the #1 likely cause — the manual
 Update-bids handlers only exist in manifest v4.4+. After reload the button self-verifies.
+
+---
+
+## 2026-07-07 — Analyser: explicit "agency / white-label" ask is no longer an auto-SKIP
+
+Owner: "I don't like that analyser completely rejects white-label agency opportunity.
+Yes, we apply as Artem freelancer, but when it's explicitly stated they want an agency —
+we should always consider this and apply. Should already be in the rules."
+
+Case that triggered it: job 5457 "White-label Agency for Web Design & Development" (Ireland
+agency, wants a white-label partner for WP/WooCommerce/Shopify build, custom dev, UX, CRO, QA,
+technical SEO). Analyser scored it **2/10 SKIP** — reasoning: "Artem is an individual
+freelancer, not an agency", screening Qs (white-label client count, named account manager,
+capacity) "expose a structure gap", and it mis-fired the EXPLICIT PROOF REQUIREMENT rule on
+those agency-structure questions.
+
+Root cause: the analyser prompt mentioned IT Force only as a vague "credibility signal" — it had
+NO rule saying an explicit AGENCY / white-label requirement is *addressable* via IT Force (Artem's
+associated agency, 97% JSS, 3,102 hrs, ~20-person web-dev team). So the model defaulted to
+"solo → structure mismatch → 2/10" and bypassed the existing floor-at-5 preferred-qual rule.
+
+Fix (analyser prompt, JobDetail.jsx — LLM-scored, so a rule is the right lever):
+1. New mandatory block "AGENCY / WHITE-LABEL REQUIREMENT": an explicit agency / white-label /
+   "Talent Type: Agency" / named-account-owner / capacity ask is NOT a disqualifier and NOT a
+   structure mismatch — IT Force IS that agency. Judge on SCOPE + RATE like any job. When the
+   work is in the core lane (WP/WooCommerce/Shopify/OpenCart build & dev, ecommerce, tech SEO,
+   Google Ads) score 5-8 (MAYBE/APPLY), NOT 2 — the web-dev cases (SMASH, Game-X, GKit, Casa)
+   ARE the white-label proof these clients want. Bias toward applying when core scope matches.
+   Only down-score for real reasons that apply to any job (genuine rate problem, or a
+   scope-breadth gap where the PRIMARY need is outside the lane — native mobile, enterprise
+   API/ERP, React SPA/SaaS). Stay honest: IT Force is a real web-dev team, not a 7-service shop.
+2. Carve-out on EXPLICIT PROOF REQUIREMENT: it's about proof of SKILLS/VERTICALS Artem lacks —
+   NOT agency-structure / white-label / capacity / account-manager questions (answerable via
+   IT Force). An explicit agency ask is not a proof gap.
+3. Preferred-qualifications rule: "Talent Type: Agency" / "Agency" is now listed as NOT a
+   mismatch (like the Europe-location carve-out) — don't flag it as unmet.
+
+Net effect: explicit-agency web-dev/ecommerce/SEO jobs land at MAYBE/APPLY on scope+rate merit
+instead of a categorical 2/10. Rate concerns (e.g. this job's $18.6 avg vs $40 web-dev floor)
+still apply as normal soft flags — they just no longer compound with a false "can't be an agency"
+rejection. Frontend compiles. Owner should re-run Analyse on job 5457 to see the new score.
