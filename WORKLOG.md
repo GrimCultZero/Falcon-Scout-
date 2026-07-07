@@ -1277,3 +1277,38 @@ FIX — two layers:
 Net: web-dev jobs now have real, correctly-labeled cases in the approved block, and the screening-
 question fabrication path is closed by an explicit rule. Frontend compiles. Owner should
 regenerate on job 5457 to confirm real cases now appear.
+
+---
+
+## 2026-07-07 — Generator wording & flow cleanup (agency numbered-question letter)
+
+Owner on the regenerated job-5457 letter: "I don't like wording, and inconsistencies in the
+text flow." (The fabrication was already fixed — it now uses the real SMASH/Game-X/GKit cases.)
+The remaining tells were structural/wording:
+- Template SCAFFOLDING: a "Direct Answers to Your Application Questions" meta-header, a titled
+  "The Differentiator" section, and horizontal "---" divider rules — reads like a filled-in form.
+- REDUNDANT DOUBLE-INTRO: under "3. Three white-label examples (client names withheld):" the
+  deterministic highlights lead-in stacked a second "A few relevant results (attached in profile
+  highlights):" line right below it.
+- RATE UNDERSELL: spelled out "$20-25/hr effective rate" — below Artem's $40 web-dev floor,
+  contradicts the Top Rated positioning.
+
+Fixes (JobDetail.jsx):
+1. `_cleanPasteText` (runs in every post-process chain): strip standalone horizontal-rule lines
+   (---, ***, ___, ===); strip meta-scaffolding section headers ("Direct Answers…", "Application
+   Questions", "The/My Differentiator", "Why Me"); collapse the blank-line runs that leaves.
+   Verified on the real letter — dividers + both headers removed, content intact.
+2. `_ensureCaseStudyHighlightsLeadIn`: when the cases are already introduced by a short header
+   line ending in ":" (a screening-question header), FOLD "attached in profile highlights" into
+   that header instead of inserting a redundant second intro line. (new violation tag
+   foldedHighlightsIntoHeader.)
+3. Prompt rule 6b (NO META-SCAFFOLDING): when a posting asks numbered questions, answer them in
+   order (numbered) but no wrapper title, no titled closing section, no "---" dividers, no
+   double-intros — one continuous message: opener → numbered answers → plain closing paragraph →
+   "Artem".
+4. Prompt RATE WORDING rule: when a posting explicitly asks for a rate, quote a project price +
+   timeline or an hourly at/above floor — NEVER write out a sub-floor "effective hourly"
+   ("$20-25/hr") that anchors him as a budget contractor.
+
+Frontend compiles; fold + scaffold-strip logic unit-tested in scratch mjs. Owner should
+regenerate job 5457 to confirm the cleaner flow.

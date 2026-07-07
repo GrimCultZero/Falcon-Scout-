@@ -1534,6 +1534,16 @@ function _cleanPasteText(s) {
     .replace(/__(.+?)__/gs, '$1')
     .replace(/_([^_\n]+?)_/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
+    // Strip standalone horizontal-rule divider lines (---, ***, ___, ===). These
+    // are a template/AI tell — a cover letter is one flowing message, never a
+    // document carved into ruled sections.
+    .replace(/^[ \t]*[-*_=]{3,}[ \t]*$/gm, '')
+    // Strip meta-scaffolding SECTION HEADERS the model bolts on when a posting
+    // asks numbered questions — "Direct Answers to Your Application Questions",
+    // "The Differentiator", etc. Answering the questions in order is right; wrapping
+    // them in a titled section reads like a filled-in form, not a message. Only
+    // whole-line, header-shaped matches are removed (content is never touched).
+    .replace(/^[ \t]*(?:direct answers?(?:\s+to\s+your\s+application\s+questions?)?|answers?\s+to\s+your\s+(?:application\s+)?questions?|application\s+questions?|(?:the|my)\s+differentiator|why\s+(?:me|artem|work\s+with\s+me))[ \t]*:?[ \t]*$/gim, '')
     .replace(/\s*[—–]\s*/g, ' - ')   // em/en dash → plain hyphen, single-spaced
     // Strip stray CJK / non-Latin script glitches. The letter is English-only;
     // Sonnet occasionally emits a Chinese/Japanese/Korean token mid-word (e.g.
@@ -1545,6 +1555,8 @@ function _cleanPasteText(s) {
     // sitting just before closing punctuation.
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+([,.;:)\]])/g, '$1')
+    // Collapse the blank-line runs the divider/header removals leave behind.
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
@@ -1814,6 +1826,19 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   if (!hasNonPdf) return text  // only PDF cases → they carry their own label
   const firstCaseIdx = paras.findIndex(p => _ANY_CASE_NAME_RE.test(p.trim()))
   if (firstCaseIdx < 0) return text
+  // If the cases are ALREADY introduced by a short header line ending in ":" (e.g. a
+  // screening-question header like "Three white-label examples (client names withheld):"),
+  // don't stack a second intro on top — that reads as a redundant double-header. Instead
+  // fold the "attached in profile highlights" note into that existing header.
+  const prev = firstCaseIdx > 0 ? paras[firstCaseIdx - 1].trim() : ''
+  if (prev && prev.length <= 160 && /:$/.test(prev) && !/highlight/i.test(prev)) {
+    paras[firstCaseIdx - 1] = /\):$/.test(prev)
+      ? prev.replace(/\):$/, ', attached in profile highlights):')
+      : prev.replace(/:$/, ' (attached in profile highlights):')
+    console.log('[Falcon] Folded profile-highlights note into existing case-study header.')
+    _recordViolations('generator', null, ['foldedHighlightsIntoHeader'])
+    return paras.join('\n\n')
+  }
   const leadIn = _HIGHLIGHTS_LEADINS[Math.floor(Math.random() * _HIGHLIGHTS_LEADINS.length)]
   paras.splice(firstCaseIdx, 0, leadIn)
   console.log('[Falcon] Inserted missing case-study lead-in:', leadIn)
@@ -4391,9 +4416,12 @@ The goal is natural human inconsistency. Apply ALL of the following in every let
 
 6. NO OUTLINE / LABELED-SECTION STRUCTURE (biggest structural AI tell): do NOT write the body as a labeled outline. BANNED: "First thing I'd audit:", "First:", "Then [X] -", "Next:", "Step 1:", "On the site side:", "[X] side:", or any run of short label-then-colon mini-sections. Write the diagnosis and approach as FLOWING PROSE — 2-3 real paragraphs where ideas connect naturally, the way a person actually explains something out loud. It is fine to name what you'd check — just weave it into sentences ("I'd start by making sure the conversion tracking is even firing right, because when that's broken the algorithm optimises blind") instead of a colon-delimited checklist. The ONLY acceptable labeled block is the case-study section per its format rules.
 
+6b. NO META-SCAFFOLDING when a posting asks numbered questions (common tell on agency/application-form jobs): answer the questions directly, in the client's order, numbering them if they numbered them — that IS correct and expected. But do NOT wrap the answers in document scaffolding. BANNED: a title over the answer block ("Direct Answers to Your Application Questions", "My Answers", "Application Questions"), a titled closing section ("The Differentiator", "Why Me", "The Bottom Line"), and horizontal divider rules (lines of "---", "***", "___"). The letter is ONE continuous message: a short human opener, the numbered answers, then your closing point as a plain final paragraph (no header), then "Artem". A cover letter is never carved into ruled, titled sections like a filled-in form. Also: never stack two intros on the same block — if a question already introduces the examples ("Three examples below:"), go straight into them, don't add a second "Here are some relevant results:" line.
+
 The imperfections should feel like someone typed fast and didn't proofread, NOT like random errors inserted mechanically. Keep them OCCASIONAL — 1–2 per letter, spread far apart, never clustered. Casing is NOT one of these imperfections (see rule 1: "I" and "Artem" are always correct). The letter should read as a sharp professional who typed quickly, not as someone who can't capitalise.
 - Offer a quick audit/read as low-commitment entry point
 - Never quote a price upfront
+- RATE WORDING when the posting EXPLICITLY asks for a rate/day-rate/project quote (you must answer, but protect the positioning): quote a project price and timeline, or an hourly at or above Artem's floor ($40/hr web-dev, $30/hr PPC/SEO). NEVER write out an "effective hourly" that sits below that floor — spelling out "$20-25/hr" or "~$25/hr effective" anchors him as a budget contractor and contradicts his Top Rated positioning. If the client's range is below his floor, quote the fixed project price + timeline and let that stand; do not helpfully convert it into a sub-floor per-hour number in the letter.
 - Never use corporate signoffs like "Best regards", "Sincerely", "Looking forward"
 - Length: match the job's demands. HARD RULE: if the posting contains explicit signals that the client wants a SHORT answer — phrases like "just tell me X", "that's enough for me", "keep it brief", "don't send me an essay" — cap the letter at 200 words maximum. Do not elaborate on every point. The client tested you by asking for brevity; failing it disqualifies you immediately. If the posting asks specific questions (hour estimates, tool lists, rate, availability, experience breakdown) — answer all of them fully, even if that means 300–500 words. If the posting is short and open-ended, keep it tight (100–150 words). Never truncate answers to specific questions just to stay short.
   BUDGET-BASED LENGTH CAP (mandatory): For fixed-price jobs where the budget is under $1,000, cap the letter at 200 words. A low fixed-price client is evaluating proposals quickly — a long letter signals that you don't understand the scope, or that you're trying to compensate for weak fit with volume. Under $1,000 flat: make your point in 150-200 words, one case study max, clean close. Over $1,000 flat or any hourly job: normal length rules apply. If the budget is not specified or unclear, apply normal length rules.
