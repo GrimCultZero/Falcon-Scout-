@@ -1312,3 +1312,38 @@ Fixes (JobDetail.jsx):
 
 Frontend compiles; fold + scaffold-strip logic unit-tested in scratch mjs. Owner should
 regenerate job 5457 to confirm the cleaner flow.
+
+---
+
+## 2026-07-07 — New case study: Casa Eleganza (Shopify) wired into KB + analyser + generator
+
+Owner supplied a new web-dev case: Casa Eleganza Furniture & Mattress (casaeleganza.com) — USA
+premium furniture retailer, custom Shopify 2.0 build. Metrics: +41% conversion on filtered
+collection pages, +28% AOV, -45% PDP bounce, 3x special-order inquiries. Built: custom editorial
+theme, multi-axis filtering (material/style/room/availability), "Complete the Look" room bundler,
+inline Synchrony 0%-financing widget on PDPs, Giorgio special-order lead capture, per-location
+in-store availability. Stack: Shopify 2.0, Liquid, Metafields, Alpine.js, Swiper.js, Synchrony
+Finance API. Significance: Artem's FIRST full Shopify case study (SMASH/Game-X/GKit are OpenCart) —
+DIRECT Shopify proof for furniture/luxury/US-retail/financing jobs.
+
+KB (local DB, gitignored):
+- NEW case_study #521 "Casa Eleganza - Premium Furniture eCommerce (Shopify 2.0 ...)" (is_core).
+- #518 curated web-dev portfolio: added a "Shopify custom builds (full case study)" section for
+  Casa; removed it from the plain proof-URL line (promoted to full case). Now the approved-cases
+  block the generator injects covers OpenCart AND Shopify.
+- rule #477: "THREE OpenCart builds" -> "THREE OpenCart + ONE Shopify"; added Casa as item 4 and a
+  WHEN-TO-CITE line ("Shopify furniture/luxury/US retail/financing -> LEAD with Casa; never relabel
+  an OpenCart case as Shopify").
+
+Code (JobDetail.jsx):
+- Analyser: CORE EXPERTISE web-dev line now lists Casa (Shopify) alongside the OpenCart cases and
+  drops the "all OpenCart" phrasing; PROVEN RESULTS gains a Shopify-furniture line with Casa metrics.
+- Generator: added Casa to _CASE_META, _NON_PDF_CASE_NAME_RE, _ANY_CASE_NAME_RE (so the split /
+  highlights-lead-in logic treats it like the other cases); NO-FABRICATED-DIAGNOSIS build list now
+  groups by platform (OpenCart: SMASH/Game-X/GKit; Shopify: Casa) with "match the case's real
+  platform, never swap"; SCREENING-QUESTIONS rule cites Casa as the Shopify example; added casa to
+  the caseMislabeledAsSaas _NON_SAAS_CASE guard. The OpenCart-mislabel guard correctly does NOT
+  include Casa (it IS Shopify).
+
+Frontend compiles. Now a Shopify/furniture/US-retail job will surface Casa as direct proof instead
+of forcing an OpenCart case (or fabrication).
