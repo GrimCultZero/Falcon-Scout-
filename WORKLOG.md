@@ -1347,3 +1347,32 @@ Code (JobDetail.jsx):
 
 Frontend compiles. Now a Shopify/furniture/US-retail job will surface Casa as direct proof instead
 of forcing an OpenCart case (or fabrication).
+
+---
+
+## 2026-07-08 — Generator: "short note" length + SEO-differentiator-on-maintenance fixes
+
+Owner disliked the letter for job 5635 (Shopify Developer — Liquid/HTML/CSS, ongoing theme
+MAINTENANCE, "Send a short note ... plus links"). Three problems:
+1. IGNORED "send a short note" — produced ~320 words with a differentiator paragraph + case block.
+2. Dragged SEO into a pure maintenance job: "The differentiator: most Shopify devs build the store
+   and hand off. I wire the technical SEO ... GA4 ... into the build from day one." No build here.
+3. Casa Eleganza described TWICE (opener + case block); "Couple of relevant builds:" listed only one.
+
+Root causes + fixes (JobDetail.jsx):
+- LENGTH: "short note" (and "a short note / brief note / quick note / a few sentences / short
+  message / short intro / keep it short") were NOT in the brevity-trigger list, so no cap applied.
+  Added them; cap for these is now 150 words, and the rule spells out that "short note + links" =
+  2-4 tight sentences + the links, NO differentiator paragraph, NO multi-case block, NO separate
+  rate/availability section. (This also kills the Casa double-description for this job — there's no
+  case block to duplicate.)
+- SEO-ON-MAINTENANCE: the `seoLedOnMaintenanceWebdev` guard only checked the first 350 chars
+  (`_openerSeoPitch`), so an SEO-build "differentiator" placed in the BODY slipped through. Added
+  `_seoBuildDifferentiatorAnywhere` (matches "into the build from day one", "build the store and
+  hand off", "ranks from day one/launch", "six months later", "wire ... SEO ... build/launch",
+  "hand off to a separate SEO") scanning the WHOLE letter; guard now fires on opener OR body.
+  Updated the enforcer message to say REMOVE the SEO/"wired into the build" differentiator entirely
+  and differentiate on dev reliability (there is no launch to rank from). Verified both regexes fire
+  on the real job text + letter (jobIsWebdevMaintenance=true, seoBuildDiffAnywhere=true).
+
+Frontend compiles. Regenerate job 5635 to confirm a tight, dev-reliability-only short note.
