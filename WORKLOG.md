@@ -1404,3 +1404,36 @@ Fix (JobDetail.jsx analyser):
    Retitled the rule header to "RATE-FLOOR RISK OR UPSIDE (cuts either way)".
 
 Frontend compiles. Re-analyse job 5838 — the rate line should now read as an upside, not a cap.
+
+---
+
+## 2026-07-09 — Generator: self-echoed differentiator + volunteered timeline (Shopify build 5838)
+
+Owner: "I don't like generator work here. Dubbing himself, client didn't ask for timeline (why
+fabricating it?)". Job 5838 "Build a Shopify Store" (turnkey Shopify build; posting says nothing
+about timing). Two problems in the letter:
+1. SELF-ECHO ("dubbing himself"): the SEO/tracking-wired-into-the-build differentiator was stated
+   TWICE — para 2 ("I build production-ready ... GA4/GTM wired in at launch, schema markup") and
+   again para 4 ("The unique part: ... I wire the technical SEO and GA4 into the build itself, so
+   the site ranks from day one"). Same claim, twice = padding.
+2. VOLUNTEERED TIMELINE: closing line "Timeline for a full turnkey build: 4 - 6 weeks ..." — the
+   client never asked for a timeline.
+
+Root cause of #2: the `coverHasTimeline` guard (strips a timeline when the posting didn't ask)
+already existed, but COVER_TIMELINE_RE missed this phrasing — "Timeline for a full turnkey build:"
+evades the `^Timeline:` anchor (colon not adjacent), and "4 - 6 weeks" (number-first range) evades
+the "weeks N" and trigger-word patterns.
+
+Fixes (JobDetail.jsx generator):
+1. New differentiator rule "STATE THE DIFFERENTIATOR ONCE (no self-echo)": make the core point in
+   ONE place; do NOT establish it in the opener/body and then restate it in a "The unique part:" /
+   "The differentiator:" closing paragraph. If the tracking/SEO-into-build point is already made,
+   don't add a second paragraph repeating it.
+2. Two new COVER_TIMELINE_RE patterns: (a) a "Timeline <label…>: N-M weeks" line where the colon
+   isn't adjacent; (b) a forward-looking "build/store/site/turnkey … N-M weeks" estimate. Verified
+   they catch the offending line + "build in 4-6 weeks" while NOT hitting case metrics, single
+   case durations ("10 weeks"), or "12 years". So coverHasTimeline now fires → enforcer strips the
+   unasked timeline. (Note: this job is a NEW BUILD, so the SEO-into-build differentiator itself is
+   on-target — the issue was stating it twice, not the angle.)
+
+Frontend compiles. Regenerate 5838 → single differentiator, no volunteered timeline.

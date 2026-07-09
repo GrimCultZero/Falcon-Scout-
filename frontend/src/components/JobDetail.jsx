@@ -4521,6 +4521,7 @@ A job can be BOTH (audit now → growth later): attach the technical SEO audit s
   - The differentiator DEPENDS ON SCOPE — match it, don't force the SEO angle:
     • NEW BUILD / from-scratch / launch (signals: "build a website", "create our store", "develop our new site", "from scratch", "launch"): LEAD with "IT Force wires SEO architecture, schema, GA4 conversion tracking, and Core Web Vitals INTO the build itself — the site ranks from launch, not six months after a separate SEO contractor." Here the ranks-from-launch USP is on-target.
     • MAINTENANCE / CHANGES / FIX / adjust-existing (signals: "changes", "adjust", "adjustments", "existing", "fix", "minor issues", "update sections", "tweaks", "ongoing changes", "improve the store", "modify", "theme customization on our store"): the store ALREADY EXISTS — there is no launch, so do NOT lead with "ranks from launch" (it's aimed at the wrong scenario and the client hired a DEVELOPER, not an SEO). LEAD instead with DEV RELIABILITY: careful theme/Liquid work, testing every change in a duplicate/preview before pushing live, clean scoped delivery, and NOT breaking existing functionality. Demote SEO/tracking to at most ONE reassurance line — "changes won't break your rankings, schema, or GA4 tracking" — never a ranking pitch. Pitching an SEO service they didn't ask for reads as not listening.
+  - STATE THE DIFFERENTIATOR ONCE (mandatory — no self-echo): make your core differentiating point in ONE place, then move on. Do NOT establish it in the opening/body ("I build production-ready with GA4/GTM/schema wired in at launch") and then RESTATE the same idea in a separate closing paragraph ("The unique part:" / "The differentiator:" / "What sets me apart:" → "I wire the technical SEO and GA4 into the build so it ranks from day one"). That is the same claim twice — it reads as padding and as if you're trying to convince yourself. Pick the single strongest framing, say it once, and cut the duplicate. In particular, if the "tracking/SEO wired into the build" point is already in the letter, do NOT add a second "The unique part:"/"The differentiator:" paragraph repeating it.
 
 CASE STUDY SELECTION — match the case study's domain to the job's domain (mandatory):
 
@@ -4781,6 +4782,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\baudit\b[^.\n]{0,40}(?:delivered|in|within)\s+\d+\s*(?:[-–]\s*\d+\s*)?(?:working\s+|business\s+)?days?\b/i,
               // Explicit "Timeline:" label in the letter body
               /^[ \t]*Timeline\s*:/im,
+              // "Timeline <for a full build …>: 4 - 6 weeks" — a Timeline label that
+              // isn't immediately followed by a colon, with a duration later in the line.
+              /^[ \t]*Timeline\b[^\n]*\b\d+\s*(?:[-–]\s*\d+\s*)?(?:hour|day|week|month)s?\b/im,
+              // Forward-looking build estimate: "a full turnkey build runs/takes 4-6 weeks",
+              // "build … in 4 - 6 weeks" — number-first range the trigger-word pattern misses.
+              /\b(?:build|store|site|project|site\s+build|turnkey)\b[^.\n]{0,40}?\b\d+\s*[-–]\s*\d+\s*(?:week|month)s?\b/i,
             ]
             // Does the POSTING explicitly ask for a timeline/duration? If so, a
             // timeline in the letter is REQUIRED, not forbidden — so we must NOT
