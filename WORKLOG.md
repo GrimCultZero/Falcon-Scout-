@@ -1437,3 +1437,25 @@ Fixes (JobDetail.jsx generator):
    on-target — the issue was stating it twice, not the angle.)
 
 Frontend compiles. Regenerate 5838 → single differentiator, no volunteered timeline.
+
+---
+
+## 2026-07-09 — Self-echo differentiator: prompt rule failed → deterministic strip
+
+Re-check of job 5838: the analyser rate fix WORKED (now APPLY 8/10, explicitly "$77.9/hr is a
+POSITIVE signal, NOT a rate-floor risk"), and no volunteered timeline. BUT the self-echo the owner
+flagged was STILL present — the "SEO/tracking wired into the build, ranks from day one vs a
+separate SEO person months later" point appeared in the opener AND again in an explicit
+"The differentiator:" paragraph. The prompt rule "STATE THE DIFFERENTIATOR ONCE" (added last commit)
+did not hold — the LLM ignored it. Recurring lesson confirmed: for restructuring/dedup, use CODE.
+
+Fix (JobDetail.jsx): new deterministic `_stripDuplicateDifferentiator(text)` — splits into
+paragraphs, detects the build-SEO differentiator theme (`_DIFF_THEME_RE`: "into the build",
+"wire the technical seo", "ranks from day one", "seo architecture", "six months later",
+"separate seo person", "retrofit", "schema/ga4/tracking ... at launch/from day one"). If the theme
+appears in 2+ paragraphs AND one of them starts with an explicit differentiator label
+(`_DIFF_LABEL_RE`: "The differentiator:", "The unique part:", "What sets me apart:", "the edge:",
+etc.), it removes the LABELED paragraph and keeps the earlier organic mention. Guarded so it only
+fires when the point is genuinely made outside the labeled paragraph too (keeps one copy). Wired
+into both generate post-processor chains (enforcer path + main). Unit-tested on the real letter:
+themeIdx [0,4] → removes idx 4 (the "The differentiator:" para), opener retained; compiles.

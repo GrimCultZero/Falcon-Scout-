@@ -1847,6 +1847,29 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   return paras.join('\n\n')
 }
 
+// Deterministic removal of a DUPLICATED "SEO/tracking wired into the build" differentiator.
+// The model repeatedly makes this point in the opener AND again in an explicit
+// "The differentiator:" / "The unique part:" paragraph — the self-echo the owner flagged.
+// The prompt rule ("state it once") is unreliable, so enforce it in code: if the build-SEO
+// theme appears in 2+ paragraphs, drop the explicit-label paragraph and keep the earlier
+// organic mention. Only fires when the point is genuinely made in a NON-labeled paragraph too.
+const _DIFF_THEME_RE = /\b(?:into\s+the\s+build|wir(?:e|ed|ing)\s+(?:the\s+)?(?:technical\s+)?seo|ranks?\s+from\s+day\s+one|seo\s+architecture|(?:schema|ga4|tracking)[^.\n]*\b(?:at\s+launch|into\s+the\s+build|from\s+day\s+one)|six\s+months\s+(?:later|after)|separate\s+seo\s+(?:person|contractor)|patched\s+in\s+months|retrofit)\b/i
+const _DIFF_LABEL_RE = /^[ \t]*(?:the\s+differentiator|the\s+unique\s+(?:part|thing)|what\s+sets\s+(?:me|us)\s+apart|here'?s\s+the\s+difference|the\s+(?:real\s+)?edge|my\s+edge)\b\s*:?/i
+function _stripDuplicateDifferentiator(text) {
+  if (!text) return text
+  const paras = text.split(/\n{2,}/)
+  const themeIdx = paras.map((p, i) => (_DIFF_THEME_RE.test(p) ? i : -1)).filter(i => i >= 0)
+  if (themeIdx.length < 2) return text  // made at most once — nothing to dedupe
+  const labeledIdx = themeIdx.find(i => _DIFF_LABEL_RE.test(paras[i].trim()))
+  if (labeledIdx === undefined) return text  // no explicit-label paragraph to drop
+  // Require the theme to ALSO appear outside the labeled paragraph (so we keep one copy).
+  if (!themeIdx.some(i => i !== labeledIdx)) return text
+  paras.splice(labeledIdx, 1)
+  console.log('[Falcon] Removed duplicated "The differentiator:" paragraph (self-echo of the build-SEO point).')
+  _recordViolations('generator', null, ['duplicateDifferentiator'])
+  return paras.join('\n\n')
+}
+
 // Strips fabricated vertical-specific web dev experience in the opening sentence.
 // Pattern: "12 years in digital, building and ranking car rental sites on WordPress."
 // This claims a vertical build track record that doesn't exist in the approved case
@@ -5409,7 +5432,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text))))), jobIsRegulatedForStrip))))))).trim())
+              setProposal(_humanizeCasing(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text))))), jobIsRegulatedForStrip)))))))).trim())
               return
             }
 
@@ -5800,7 +5823,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text)))), jobIsRegulatedForStrip))))))).trim())
+      setProposal(_humanizeCasing(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text)))), jobIsRegulatedForStrip)))))))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
