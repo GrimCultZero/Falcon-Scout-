@@ -1870,6 +1870,32 @@ function _stripDuplicateDifferentiator(text) {
   return paras.join('\n\n')
 }
 
+// Deterministic removal of a VOLUNTEERED rate/price when the client did not ask.
+// Artem's rule is "never quote a price upfront" — the hourly bid is set in the Upwork
+// application form, not the cover letter. The prompt rule is unreliable, so strip a
+// standalone rate/pricing paragraph here. Gated on `asksRate` so a REQUESTED rate stays.
+const _RATE_PARA_RE = /^(?:my\s+)?rate\b/i
+const _RATE_DOLLAR_HR_RE = /\$\s?\d[\d,]*\s*(?:\/\s?|\s?per\s+)?(?:hr|hour)\b/i
+const _RATE_CONTEXT_RE = /\b(?:rate|charge|scope|project\s+cost|total\s+project|price|pricing|per\s+hour)\b/i
+function _stripUnaskedRate(text, asksRate) {
+  if (!text || asksRate) return text
+  const paras = text.split(/\n{2,}/)
+  const kept = paras.filter(p => {
+    const t = p.trim()
+    // A paragraph that is PRIMARILY a rate/price quote: it opens with "Rate …",
+    // or it states an hourly figure ("$40/hr") inside a pricing context.
+    const isRatePara = _RATE_PARA_RE.test(t) ||
+      (_RATE_DOLLAR_HR_RE.test(t) && _RATE_CONTEXT_RE.test(t)) ||
+      /\btotal\s+project\s+cost\b/i.test(t)
+    return !isRatePara
+  })
+  if (kept.length !== paras.length) {
+    console.log('[Falcon] Stripped a volunteered rate/pricing paragraph (client did not ask for a rate).')
+    _recordViolations('generator', null, ['unaskedRateStripped'])
+  }
+  return kept.join('\n\n')
+}
+
 // Strips fabricated vertical-specific web dev experience in the opening sentence.
 // Pattern: "12 years in digital, building and ranking car rental sites on WordPress."
 // This claims a vertical build track record that doesn't exist in the approved case
@@ -4332,6 +4358,12 @@ function ProposalColumn({ job, bridgeReady = false }) {
       // present, otherwise leaves a clearly-marked [[ ARTEM: … ]] placeholder.
       const applicationChecklist = extractApplicationChecklist(fullDescription)
 
+      // Does the POSTING explicitly ask for a rate / budget / quote / pricing? If not,
+      // a volunteered rate is stripped from the letter (Artem never quotes a price
+      // upfront — the hourly bid lives in the Upwork application form, not the body).
+      // Defined here in the outer generate scope so BOTH emit paths can see it.
+      const _postingAsksRate = /\b(?:your\s+(?:hourly\s+|desired\s+|expected\s+|proposed\s+)?rate|rate\s+expectation|expected\s+rate|what(?:'?s| is)\s+your\s+(?:rate|price|pricing|budget)|how\s+much\s+(?:do|would|will)\s+you\s+(?:charge|cost)|what\s+do\s+you\s+charge|(?:provide|share|include|state|send|give|quote|let\s+me\s+know)\s+(?:a\s+|an\s+|your\s+|us\s+|me\s+)?(?:rate|quote|pricing|price|estimate)|pricing\s+structure|monthly\s+(?:rate|retainer|fee)|management\s+fee|day\s+rate|project\s+(?:rate|price|quote))\b/i.test(`${job.title || ''} ${fullDescription}`)
+
       // Client-type guard. `isAgencyClient` is computed once near the top of
       // generate() (it also gates white-label few-shot filtering). The prompt
       // line below stops the model inventing a white-label/subcontractor framing
@@ -5432,7 +5464,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text))))), jobIsRegulatedForStrip)))))))).trim())
+              setProposal(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text))))), jobIsRegulatedForStrip))))))), _postingAsksRate)).trim())
               return
             }
 
@@ -5823,7 +5855,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text)))), jobIsRegulatedForStrip)))))))).trim())
+      setProposal(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text)))), jobIsRegulatedForStrip))))))), _postingAsksRate)).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {

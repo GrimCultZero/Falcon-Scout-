@@ -1459,3 +1459,29 @@ etc.), it removes the LABELED paragraph and keeps the earlier organic mention. G
 fires when the point is genuinely made outside the labeled paragraph too (keeps one copy). Wired
 into both generate post-processor chains (enforcer path + main). Unit-tested on the real letter:
 themeIdx [0,4] → removes idx 4 (the "The differentiator:" para), opener retained; compiles.
+
+---
+
+## 2026-07-09 — Generator: strip a volunteered rate when the client didn't ask
+
+Owner (re job 5838, "Build a Shopify Store" — posting has NO rate/budget/quote ask): "but what
+about the rate in the end? did the client ask for it?" No. The letter volunteered "Rate sits at
+$40/hr for this scope ... Total project cost depends on product count ...". This violates the
+existing "never quote a price upfront" rule (the hourly bid is set in the Upwork form, not the
+letter) — and it anchored at $40 when the client historically pays ~$78/hr.
+
+Prompt rules ("never quote a price upfront", "quote only when asked") were already present but the
+model ignored them — same reliability problem as timeline. Fixed deterministically, mirroring the
+timeline guard:
+- `_postingAsksRate` (outer generate scope): does the posting explicitly ask for a rate / budget /
+  quote / pricing / day rate / management fee? (inclusive, to avoid stripping a REQUESTED rate).
+- `_stripUnaskedRate(text, asksRate)`: when the client did NOT ask, removes a standalone
+  rate/pricing paragraph — one that opens with "Rate …", or states a "$N/hr" figure in a pricing
+  context, or contains "total project cost". Wired into BOTH generate emit chains (enforcer path +
+  main path); `_postingAsksRate` hoisted to the outer scope so both paths see it.
+Verified: posting 5838 → asksRate false → the rate paragraph is removed, case study + sign-off
+kept; a posting that says "share your hourly rate" → asksRate true → rate kept; a case line
+mentioning "$1,645 fixed-price audits" is NOT stripped (no false positive). Compiles.
+
+(This session also confirmed prior fixes live on 5838: analyser now reads the high client avg as a
+POSITIVE/APPLY-8, and the duplicated "The differentiator:" paragraph is now stripped.)
