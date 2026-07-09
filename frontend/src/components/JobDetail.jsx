@@ -3069,6 +3069,13 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         mandatoryFlags.push(`Client avg rate $${_avgRate}/hr is materially below Artem's ${_floorLabel} floor — posted ceiling unlikely to be realised, -2 points`)
       } else if (_avgRate > 0 && _avgRate < _rateFloor) {
         mandatoryFlags.push(`Client avg rate $${_avgRate}/hr is below Artem's ${_floorLabel} floor — expect rate pressure, -1 point`)
+      } else if (_avgRate > 0 && _avgRate >= _rateFloor) {
+        const _ceil = Number(job.hourly_rate_max) || 0
+        mandatoryFlags.push(
+          _ceil > 0 && _avgRate > _ceil
+            ? `POSITIVE rate signal (NOT a risk — do not invert this): client historical avg $${_avgRate}/hr is ABOVE the posted $${_ceil}/hr ceiling AND above Artem's ${_floorLabel} floor. The posted range is conservative/placeholder; this client actually pays premium, so there is clear room to negotiate UP toward their norm. Do NOT deduct points, do NOT cap the verdict, and NEVER call this client "rate-floor risk", "budget-tier", or a "rate rejection risk". A client bidding a $${_ceil} ceiling is well within what they pay.`
+            : `Client historical avg $${_avgRate}/hr meets or exceeds Artem's ${_floorLabel} floor — rate is a NON-issue (mild positive). No rate-floor deduction; do NOT flag any rate-floor risk.`
+        )
       }
       if (_interviewing >= 10) {
         mandatoryFlags.push(`Client already interviewing ${_interviewing} candidates — shortlist is closing, cap verdict at MAYBE, -3 points`)
@@ -3243,11 +3250,12 @@ A flat fixed-price budget is a DOLLAR AMOUNT, not a rate. NEVER directly compare
 - The flag MUST quote both numbers so the user can sanity-check: "$100 flat ÷ ~12h scope ≈ $8/hr effective, below $30/hr minimum"
 - Same hard-disqualifier thresholds apply to the EFFECTIVE rate as to hourly: < $15/hr → hard SKIP; $15-29 → soft flag + −1; ≥ $30 → acceptable.
 
-CLIENT AVG RATE SIGNAL — RATE-FLOOR RISK (mandatory; the posted ceiling is aspirational, the avg is what they actually pay):
+CLIENT AVG RATE SIGNAL — RATE-FLOOR RISK OR UPSIDE (mandatory; the avg is what they actually pay — it can cut EITHER way: below floor = risk, above ceiling = upside):
 The "Client avg hourly rate paid to freelancers" field is what this client HAS ACTUALLY PAID across their past contracts. Treat it as a stronger predictor than the posted rate range when the two disagree — clients consistently pay what their history shows, not what their job post advertises.
 - If avg_rate < $30/hr but ≥ $25/hr: subtract 1 point. Add a flag: "Client avg rate $X/hr is below Artem's $30/hr floor — posted ceiling may not be realised; expect rate pressure".
 - If avg_rate < $25/hr but ≥ $20/hr: subtract 2 points. Add a flag: "Client avg rate $X/hr is materially below Artem's $30/hr floor — posted ceiling unlikely to be realised; rate-floor risk is high".
 - If avg_rate < $20/hr: subtract 3 points AND cap verdict at MAYBE (never APPLY on rate-floor-risky clients no matter how strong the fit). Flag: "Client historical avg rate $X/hr is far below Artem's $30/hr floor — strong evidence Artem's bid will not clear; rate-floor risk dominates fit signals".
+- If avg_rate is AT or ABOVE Artem's applicable floor: this is NOT a risk. Do NOT deduct points and do NOT add any "rate-floor risk" flag. The direction matters — the below-floor logic above does NOT invert. A client who has historically paid MORE than the posted range is a POSITIVE signal: the posted ceiling is conservative/a placeholder, the client actually pays premium, and there is room to negotiate UP toward their historical rate. NEVER describe a client whose avg is at/above the posted ceiling as "budget-tier", "rate rejection risk", or "rate-floor risk", and never claim Artem's bid "may read as budget-tier" — bidding at or below what a client already pays is not a problem. A high client avg rate can only help the score, never hurt it.
 - If avg_rate ≥ $30/hr: no penalty.
 - If avg_rate is absent (not enriched yet): ignore this rule entirely — do not penalise for missing data.
 - Do NOT counter the avg-rate deduction with optimism like "can negotiate to upper range" — historical paying behaviour does not move with negotiation.

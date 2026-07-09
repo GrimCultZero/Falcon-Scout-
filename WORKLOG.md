@@ -1376,3 +1376,31 @@ Root causes + fixes (JobDetail.jsx):
   on the real job text + letter (jobIsWebdevMaintenance=true, seoBuildDiffAnywhere=true).
 
 Frontend compiles. Regenerate job 5635 to confirm a tight, dev-reliability-only short note.
+
+---
+
+## 2026-07-09 — Analyser: high client avg rate was inverted into "rate-floor risk"
+
+Job 5838 "Build a Shopify Store" ($20-40/hr posted, client historical avg **$77.9/hr**, US,
+5.0★/100% hire/$5.4K, <5 applicants). Analyser scored MAYBE 6/10 with "RATE-FLOOR RISK
+DOMINATES — client avg $77.9/hr is nearly 2x the posted $40 ceiling ... Artem's bid at ceiling
+may read as budget-tier ... high probability of rate rejection." That is backwards: a client who
+pays ~$78/hr on average, well ABOVE both the posted ceiling and Artem's $40 web-dev floor, is a
+STRONG POSITIVE (posted range is conservative, room to negotiate UP) — not a risk.
+
+Root cause: the CLIENT AVG RATE SIGNAL rule + the deterministic mandatoryFlags block only handled
+avg BELOW floor. The deterministic branch correctly stayed silent at $77.9 (no false flag), but
+there was no POSITIVE branch, so the LLM filled the vacuum and invented a rate-floor risk by
+misapplying "avg is what they actually pay".
+
+Fix (JobDetail.jsx analyser):
+1. Deterministic mandatoryFlags: added an `else if (_avgRate >= _rateFloor)` branch. When avg is
+   above the posted ceiling it forces a POSITIVE signal ("above ceiling AND floor — negotiate up,
+   do NOT deduct/cap, never call this rate-floor risk / budget-tier"); when merely at/above floor
+   it forces a "rate is a NON-issue" note. These are injected verbatim like the negative flags.
+2. Prompt rule: added an explicit above-floor / above-ceiling clause ("the below-floor logic does
+   NOT invert; a client paying above the posted range is a POSITIVE — room to negotiate up; never
+   describe them as budget-tier / rate rejection risk; high avg rate can only help the score").
+   Retitled the rule header to "RATE-FLOOR RISK OR UPSIDE (cuts either way)".
+
+Frontend compiles. Re-analyse job 5838 — the rate line should now read as an upside, not a cap.
