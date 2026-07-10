@@ -1508,3 +1508,18 @@ job through _serialize (/jobs and /jobs/{id}), so this one change fixes display 
 ALL existing + future API jobs, no migration. Verified: /jobs/5996 now returns avg_rate '7.56'
 (was null); the card's badge renders (amber, since 7.56 < 30) and the analyser now sees the rate.
 No frontend change needed — the card already had the badge, just no data.
+
+---
+
+## 2026-07-10 — API-feed country flags not rendering (alpha-3 vs alpha-2 codes)
+
+Owner: some flags in the API feed don't populate (card showed a broken/globe icon next to "SWE").
+Root cause: `getCountryCode` maps FULL country NAMES → ISO alpha-2 (for flagcdn.com), but Upwork's
+API returns a MIX — full names AND ISO 3166-1 alpha-3 codes. Names + "USA" mapped; but "GBR" (72),
+"AUS" (52), "CAN" (37), "ARE" (25), "NLD" (22), "IND" (12), "SWE", "DEU"… had no entry → null →
+the card rendered the 🌐 fallback (looks broken on Windows).
+
+Fix: added an alpha-3 → alpha-2 lookup (all ~110 countries already in the name map) as a fallback
+in `getCountryCode`. The function is DUPLICATED in JobList.jsx and JobDetail.jsx — fixed both
+identically. Verified: SWE→se, AUS→au, GBR→gb, ARE→ae, NLD→nl, CAN→ca, IND→in; full names still
+resolve; unknown → null (🌐). Both compile. Purely frontend (Vite HMR picks it up).

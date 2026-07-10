@@ -283,7 +283,23 @@ function getCountryCode(country) {
     'Uruguay': 'uy', 'Uzbekistan': 'uz', 'Venezuela': 've', 'Vietnam': 'vn',
     'Zimbabwe': 'zw',
   }
-  return codes[country] || null
+  if (codes[country]) return codes[country]
+  // Upwork's API returns ISO 3166-1 alpha-3 codes (GBR, AUS, DEU, SWE, ARE, NLD, CAN…)
+  // that the name map above doesn't cover — map alpha-3 → alpha-2 so their flags render.
+  const alpha3 = {
+    AFG:'af',ALB:'al',DZA:'dz',ARG:'ar',ARM:'am',AUS:'au',AUT:'at',AZE:'az',BHR:'bh',BGD:'bd',
+    BLR:'by',BEL:'be',BOL:'bo',BIH:'ba',BRA:'br',BGR:'bg',KHM:'kh',CAN:'ca',CHL:'cl',CHN:'cn',
+    COL:'co',CRI:'cr',HRV:'hr',CYP:'cy',CZE:'cz',DNK:'dk',DOM:'do',ECU:'ec',EGY:'eg',SLV:'sv',
+    EST:'ee',ETH:'et',FIN:'fi',FRA:'fr',GEO:'ge',DEU:'de',GHA:'gh',GRC:'gr',GTM:'gt',HND:'hn',
+    HKG:'hk',HUN:'hu',IND:'in',IDN:'id',IRN:'ir',IRQ:'iq',IRL:'ie',ISR:'il',ITA:'it',JAM:'jm',
+    JPN:'jp',JOR:'jo',KAZ:'kz',KEN:'ke',KWT:'kw',LVA:'lv',LBN:'lb',LTU:'lt',LUX:'lu',MYS:'my',
+    MEX:'mx',MDA:'md',MAR:'ma',MMR:'mm',NPL:'np',NLD:'nl',NZL:'nz',NIC:'ni',NGA:'ng',MKD:'mk',
+    NOR:'no',OMN:'om',PAK:'pk',PAN:'pa',PRY:'py',PER:'pe',PHL:'ph',POL:'pl',PRT:'pt',QAT:'qa',
+    ROU:'ro',RUS:'ru',SAU:'sa',SRB:'rs',SGP:'sg',SVK:'sk',SVN:'si',ZAF:'za',KOR:'kr',ESP:'es',
+    LKA:'lk',SWE:'se',CHE:'ch',TWN:'tw',TZA:'tz',THA:'th',TUN:'tn',TUR:'tr',UGA:'ug',UKR:'ua',
+    ARE:'ae',GBR:'gb',USA:'us',URY:'uy',UZB:'uz',VEN:'ve',VNM:'vn',ZWE:'zw',
+  }
+  return alpha3[String(country).trim().toUpperCase()] || null
 }
 
 function CountryFlag({ country, style = {} }) {
