@@ -1485,3 +1485,26 @@ mentioning "$1,645 fixed-price audits" is NOT stripped (no false positive). Comp
 
 (This session also confirmed prior fixes live on 5838: analyser now reads the high client avg as a
 POSITIVE/APPLY-8, and the duplicated "The differentiator:" paragraph is now stripped.)
+
+---
+
+## 2026-07-10 — API-feed jobs missing avg client rate (schema drift: avg_rate vs client_avg_hourly_rate)
+
+Owner: API feed card doesn't show avg client spend (rate). Job 5996 "Google Ads & PPC Specialist
+for Healthcare" (source=api) showed total spend $8,097 but no avg-rate badge.
+
+Root cause — TWO ingestion paths write the client's avg hourly rate under DIFFERENT columns:
+- Telegram parser (bot jobs) → `avg_rate` (string, e.g. "89.49").
+- Extension enrichment (all jobs, incl. auto-enriched API jobs) → `client_avg_hourly_rate` (float).
+upwork_api.py sets neither. Result: API jobs have `client_avg_hourly_rate` (897/2457) but
+`avg_rate` is NULL for ALL 2457 API jobs. Both consumers read `avg_rate` only:
+- Feed card (JobList.jsx ~249): `job.avg_rate && (💵 $X badge)` → hidden on API jobs.
+- Analyser (JobDetail.jsx ~3056): `Number(job.avg_rate)` → the whole rate-floor-risk / new upside
+  signal was INVISIBLE on every API job.
+
+Fix (single point): `_serialize` (api/main.py ~531) now returns
+`avg_rate = j.avg_rate or str(j.client_avg_hourly_rate)`. Both the card and the analyser get their
+job through _serialize (/jobs and /jobs/{id}), so this one change fixes display AND analysis for
+ALL existing + future API jobs, no migration. Verified: /jobs/5996 now returns avg_rate '7.56'
+(was null); the card's badge renders (amber, since 7.56 < 30) and the analyser now sees the rate.
+No frontend change needed — the card already had the badge, just no data.

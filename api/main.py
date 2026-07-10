@@ -528,7 +528,14 @@ def _serialize(j: Job) -> dict:
         "keywords": j.keywords,
         "raw_message": j.raw_message,
         "captured_at": j.captured_at.isoformat() if j.captured_at else None,
-        "avg_rate": j.avg_rate,
+        # avg_rate holds the client's avg hourly rate paid. Two ingestion paths write
+        # it under different columns: the Telegram parser fills `avg_rate` (string),
+        # while extension enrichment fills `client_avg_hourly_rate` (float) — API-sourced
+        # jobs only ever get the latter. Fall back so downstream consumers (feed card,
+        # analyser rate-signal) always see a value regardless of source.
+        "avg_rate": j.avg_rate or (
+            str(j.client_avg_hourly_rate) if j.client_avg_hourly_rate is not None else None
+        ),
         "fixed_budget": j.fixed_budget,
         "source": getattr(j, "source", None) or "bot",
         # ── Enrichment: job details ──────────────────────────────────────
