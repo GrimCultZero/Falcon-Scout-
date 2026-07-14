@@ -1735,14 +1735,28 @@ const _ANY_CASE_NAME_RE = /^(?:nectar\s*flowers|fridgefix|house\s+painting|golde
 // A few interchangeable lead-in phrasings so inserted transitions don't look
 // templated across letters. Each keeps the mandatory "(attached in profile
 // highlights):" attachment label — only the intro words vary.
+// PLAIN lead-ins — no attachment label. The "(attached in profile highlights)" note
+// belongs INLINE on each non-PDF case (so a mixed block of a profile-highlights case +
+// a separate PDF case is described correctly), NOT folded into a collective lead-in.
 const _HIGHLIGHTS_LEADINS = [
-  'Here are some relevant results (attached in profile highlights):',
-  'A few relevant results (attached in profile highlights):',
-  'Some comparable results (attached in profile highlights):',
-  'A few results from similar work (attached in profile highlights):',
-  'Proof this approach works (attached in profile highlights):',
-  'A couple of relevant wins (attached in profile highlights):',
+  'Here are some relevant results:',
+  'A few relevant results:',
+  'Some comparable results:',
+  'A few results from similar work:',
+  'Proof this approach works:',
+  'A couple of relevant wins:',
+  'Recent relevant work:',
 ]
+
+// Insert "(attached in profile highlights)" right after a non-PDF case's name (before its
+// ":" / "-" separator), unless the case already carries an attachment label.
+function _addProfileHighlightsLabel(para) {
+  const t = String(para).trim()
+  if (/attached\s+(?:in\s+profile\s+highlights|as\s+(?:a\s+)?pdf)/i.test(t)) return t
+  const m = t.match(_NON_PDF_CASE_NAME_RE)
+  if (!m) return t
+  return `${t.slice(0, m[0].length)} (attached in profile highlights)${t.slice(m[0].length)}`
+}
 
 // Known case studies: canonical name + whether it's a PDF (Derma / Skin Reboot).
 const _CASE_META = [
@@ -1796,6 +1810,7 @@ function _splitCrammedCaseStudies(text) {
     const prefix = para.slice(0, hits[0].idx).trim()
     if (prefix && prefix.length > 60 && !/[:—-]\s*$/.test(prefix)) result.push(prefix)
     let hasNonPdf = false
+    let labeledProfile = false
     const entries = []
     for (let i = 0; i < hits.length; i++) {
       const end = i + 1 < hits.length ? hits[i + 1].idx : para.length
@@ -1806,7 +1821,11 @@ function _splitCrammedCaseStudies(text) {
       if (lbl) { label = ' (attached as PDF)'; after = after.slice(lbl[0].length).replace(/^\s+/, '') }
       after = after.replace(/^[:\-–—]\s*/, '').replace(/[\s,;]+$/, '')
       if (after && !/[.!?]$/.test(after)) after += '.'
-      if (!hits[i].meta.pdf) hasNonPdf = true
+      if (!hits[i].meta.pdf) {
+        hasNonPdf = true
+        // Label the FIRST non-PDF case inline (profile highlights) — not the lead-in.
+        if (!label && !labeledProfile) { label = ' (attached in profile highlights)'; labeledProfile = true }
+      }
       entries.push(`${hits[i].meta.name}${label}: ${after}`.trim())
     }
     if (!alreadyHasPhrase) {
@@ -1843,23 +1862,25 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   if (!hasNonPdf) return text  // only PDF cases → they carry their own label
   const firstCaseIdx = paras.findIndex(p => _ANY_CASE_NAME_RE.test(p.trim()))
   if (firstCaseIdx < 0) return text
-  // If the cases are ALREADY introduced by a short header line ending in ":" (e.g. a
-  // screening-question header like "Three white-label examples (client names withheld):"),
-  // don't stack a second intro on top — that reads as a redundant double-header. Instead
-  // fold the "attached in profile highlights" note into that existing header.
+  // Label the FIRST non-PDF case INLINE ("attached in profile highlights") — the note
+  // belongs on the case, NOT folded into a collective lead-in. A shared lead-in can't
+  // correctly describe a block that mixes a profile-highlights case with a separate PDF
+  // case (e.g. Golden State Trailers in highlights + Derma attached as a PDF).
+  const firstNonPdfIdx = paras.findIndex(p => _NON_PDF_CASE_NAME_RE.test(p.trim()))
+  if (firstNonPdfIdx >= 0) paras[firstNonPdfIdx] = _addProfileHighlightsLabel(paras[firstNonPdfIdx])
+  // Ensure the block is introduced, but keep any lead-in PLAIN (no attachment label). If
+  // the cases are already introduced by a short colon-header (a real lead-in, not a case
+  // line), leave it as-is; otherwise insert a plain lead-in.
   const prev = firstCaseIdx > 0 ? paras[firstCaseIdx - 1].trim() : ''
-  if (prev && prev.length <= 160 && /:$/.test(prev) && !/highlight/i.test(prev)) {
-    paras[firstCaseIdx - 1] = /\):$/.test(prev)
-      ? prev.replace(/\):$/, ', attached in profile highlights):')
-      : prev.replace(/:$/, ' (attached in profile highlights):')
-    console.log('[Falcon] Folded profile-highlights note into existing case-study header.')
-    _recordViolations('generator', null, ['foldedHighlightsIntoHeader'])
-    return paras.join('\n\n')
+  const hasPlainLeadIn = firstCaseIdx > 0 && prev.length <= 160 && /:$/.test(prev) && !_ANY_CASE_NAME_RE.test(prev)
+  if (!hasPlainLeadIn) {
+    const leadIn = _HIGHLIGHTS_LEADINS[Math.floor(Math.random() * _HIGHLIGHTS_LEADINS.length)]
+    paras.splice(firstCaseIdx, 0, leadIn)
+    console.log('[Falcon] Inserted plain case-study lead-in + labeled case inline.')
+  } else {
+    console.log('[Falcon] Kept plain lead-in, labeled first non-PDF case inline.')
   }
-  const leadIn = _HIGHLIGHTS_LEADINS[Math.floor(Math.random() * _HIGHLIGHTS_LEADINS.length)]
-  paras.splice(firstCaseIdx, 0, leadIn)
-  console.log('[Falcon] Inserted missing case-study lead-in:', leadIn)
-  _recordViolations('generator', null, ['insertedHighlightsLeadIn'])
+  _recordViolations('generator', null, ['caseHighlightsInlineLabel'])
   return paras.join('\n\n')
 }
 

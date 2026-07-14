@@ -1523,3 +1523,33 @@ Fix: added an alpha-3 → alpha-2 lookup (all ~110 countries already in the name
 in `getCountryCode`. The function is DUPLICATED in JobList.jsx and JobDetail.jsx — fixed both
 identically. Verified: SWE→se, AUS→au, GBR→gb, ARE→ae, NLD→nl, CAN→ca, IND→in; full names still
 resolve; unknown → null (🌐). Both compile. Purely frontend (Vite HMR picks it up).
+
+---
+
+## 2026-07-14 — Case-study attachment label: put it on the CASE, not the lead-in
+
+Owner corrected the wording on job 6452 (German technical SEO). Generator produced:
+  Recent technical SEO work (attached in profile highlights):   <- label folded into lead-in
+  Golden State Trailers: ...                                     <- no label
+  Derma Solution (attached as PDF): ...
+Correct wording (owner):
+  Recent technical SEO work:                                     <- plain
+  Golden State Trailers (attached in profile highlights): ...    <- label on the case
+  Derma Solution (attached as PDF): ...
+
+Root cause: BOTH deterministic helpers labeled non-PDF cases via a COLLECTIVE lead-in and
+only PDF cases inline. That breaks on a MIXED block (a profile-highlights case + a separate
+PDF case) — one shared lead-in label can't describe both, and it was the wrong home for the
+label. The recent `foldedHighlightsIntoHeader` behavior made it worse (folded the label into
+the "Recent technical SEO work:" lead-in).
+
+Fix (JobDetail.jsx):
+- `_HIGHLIGHTS_LEADINS` are now PLAIN (no "(attached in profile highlights)").
+- New `_addProfileHighlightsLabel(para)`: inserts the label right after a non-PDF case's name.
+- `_splitCrammedCaseStudies`: labels the FIRST non-PDF case inline (was: only PDF cases inline,
+  non-PDF via lead-in).
+- `_ensureCaseStudyHighlightsLeadIn`: labels the first non-PDF case inline + keeps/inserts a
+  PLAIN lead-in (removed the fold-into-header path). Idempotent (early-return when "profile
+  highlights" already present).
+Verified on the owner's exact block → produces the corrected wording exactly; PDF label
+preserved; running twice is a no-op; compiles.
