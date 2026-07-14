@@ -1856,31 +1856,43 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   // Split a crammed one-paragraph case block into separate labelled entries (this
   // also adds the lead-in when it fires).
   text = _splitCrammedCaseStudies(text)
-  if (/profile\s+highlights?/i.test(text)) return text  // already announced/labelled
   const paras = text.split(/\n{2,}/)
   const hasNonPdf = paras.some(p => _NON_PDF_CASE_NAME_RE.test(p.trim()))
   if (!hasNonPdf) return text  // only PDF cases → they carry their own label
   const firstCaseIdx = paras.findIndex(p => _ANY_CASE_NAME_RE.test(p.trim()))
   if (firstCaseIdx < 0) return text
-  // Label the FIRST non-PDF case INLINE ("attached in profile highlights") — the note
-  // belongs on the case, NOT folded into a collective lead-in. A shared lead-in can't
-  // correctly describe a block that mixes a profile-highlights case with a separate PDF
-  // case (e.g. Golden State Trailers in highlights + Derma attached as a PDF).
-  const firstNonPdfIdx = paras.findIndex(p => _NON_PDF_CASE_NAME_RE.test(p.trim()))
-  if (firstNonPdfIdx >= 0) paras[firstNonPdfIdx] = _addProfileHighlightsLabel(paras[firstNonPdfIdx])
-  // Ensure the block is introduced, but keep any lead-in PLAIN (no attachment label). If
-  // the cases are already introduced by a short colon-header (a real lead-in, not a case
-  // line), leave it as-is; otherwise insert a plain lead-in.
+  // 1) The "(attached in profile highlights)" note belongs on each CASE, never folded into
+  //    a collective lead-in — a shared lead-in can't describe a block that mixes profile-
+  //    highlights cases with separate PDF cases. Strip the note from any LEAD-IN line (a
+  //    short colon-header before the cases that is NOT itself a case line).
+  for (let i = 0; i < firstCaseIdx; i++) {
+    const t = paras[i].trim()
+    if (/:$/.test(t) && !_ANY_CASE_NAME_RE.test(t) && /attached\s+in\s+profile\s+highlights/i.test(t)) {
+      paras[i] = t.replace(/\s*\(?\s*,?\s*attached\s+in\s+profile\s+highlights\s*\)?/i, '')
+    }
+  }
+  // 2) Label EVERY non-PDF case inline (no-op if it already carries an attachment label).
+  //    Handles blocks with multiple non-PDF cases (e.g. Multilingual Site + Casa Eleganza)
+  //    that would otherwise be left with no attachment notice.
+  let labeled = false
+  for (let i = firstCaseIdx; i < paras.length; i++) {
+    if (_NON_PDF_CASE_NAME_RE.test(paras[i].trim())) {
+      const before = paras[i]
+      paras[i] = _addProfileHighlightsLabel(paras[i])
+      if (paras[i] !== before) labeled = true
+    }
+  }
+  // 3) Ensure the block is introduced by a PLAIN lead-in (no attachment label on it).
   const prev = firstCaseIdx > 0 ? paras[firstCaseIdx - 1].trim() : ''
   const hasPlainLeadIn = firstCaseIdx > 0 && prev.length <= 160 && /:$/.test(prev) && !_ANY_CASE_NAME_RE.test(prev)
   if (!hasPlainLeadIn) {
     const leadIn = _HIGHLIGHTS_LEADINS[Math.floor(Math.random() * _HIGHLIGHTS_LEADINS.length)]
     paras.splice(firstCaseIdx, 0, leadIn)
-    console.log('[Falcon] Inserted plain case-study lead-in + labeled case inline.')
-  } else {
-    console.log('[Falcon] Kept plain lead-in, labeled first non-PDF case inline.')
   }
-  _recordViolations('generator', null, ['caseHighlightsInlineLabel'])
+  if (labeled) {
+    console.log('[Falcon] Labeled non-PDF case(s) inline (attached in profile highlights); lead-in kept plain.')
+    _recordViolations('generator', null, ['caseHighlightsInlineLabel'])
+  }
   return paras.join('\n\n')
 }
 

@@ -1553,3 +1553,29 @@ Fix (JobDetail.jsx):
   highlights" already present).
 Verified on the owner's exact block → produces the corrected wording exactly; PDF label
 preserved; running twice is a no-op; compiles.
+
+---
+
+## 2026-07-14 — Case study without attachment notice (multi-case block + lead-in-label blind spot)
+
+Owner (job 6449, Shopify SEO audit): a case study had no attachment notice. Block was:
+  Relevant projects (attached in profile highlights):   <- collective label on lead-in
+  Derma Solution (attached as PDF): ...
+  Skin Reboot (attached as PDF): ...
+  Multilingual Site: ...          <- NO notice
+  Casa Eleganza: ...              <- NO notice
+
+Root cause: the previous fix (f661d9e) only labeled the FIRST non-PDF case AND early-returned
+whenever "profile highlights" appeared anywhere — so when the MODEL itself put the label on the
+collective lead-in, the function bailed out and left every non-PDF case bare.
+
+Fix (JobDetail.jsx, `_ensureCaseStudyHighlightsLeadIn`):
+- Removed the blind `if (/profile highlights/) return` early-return.
+- Step 1: strip a collective "(attached in profile highlights)" from any LEAD-IN line (colon-header
+  before the cases that isn't itself a case) → lead-in becomes plain.
+- Step 2: label EVERY non-PDF case inline (no-op if already labeled) — handles multiple non-PDF
+  cases (Multilingual Site + Casa Eleganza), not just the first.
+- Step 3: ensure a plain lead-in exists.
+Verified: this block → lead-in "Relevant projects:", Derma/Skin keep "(attached as PDF)",
+Multilingual + Casa get "(attached in profile highlights)"; idempotent; the earlier Golden State +
+Derma correction still holds; compiles.
