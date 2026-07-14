@@ -1605,3 +1605,25 @@ Fixes (JobDetail.jsx generator):
   no-dollar "[[ ARTEM: fill in ]]" placeholders are left for Artem. Wired into both emit chains.
 Verified: anchor $10-60→$48-60, $30-100→$80-100, $20-40→$35-40, $10-25 webdev→floor/fixed;
 unwrap keeps "fill in your team size" but unwraps priced estimates; compiles.
+
+---
+
+## 2026-07-14 — Enforcer model Haiku→Sonnet + two hallucination guards (owner: quality issues in most letters)
+
+Owner asked which model runs the generator and reported inconsistencies/hallucinations/fabrications/
+rule violations "in almost every cover letter." Findings + actions:
+- Models: first-pass writer = claude-sonnet-4-5; rule-ENFORCEMENT pass = claude-haiku-4-5 (chosen
+  for ~7× cost). The enforcer (the pass meant to CATCH fabrications/violations) was on the WEAKEST
+  model — the likely systemic cause. The code comment already anticipated "swap back to sonnet if
+  reliability slips." Owner chose: enforcer → Sonnet 4.5. Done (line ~5906).
+- STALE-FRONTEND SIGNAL: the shared letter had "(attached as PDF) (case study attached as a PDF)"
+  — a double label that TODAY's `_stripDuplicateAttachmentLabel` already merges, and whose second
+  form an OLDER post-processor produced. So the letter was generated against an old JS bundle →
+  told owner to hard-refresh (Ctrl+Shift+R); most of today's ~10 guard fixes only apply once loaded.
+- Fixed two tells the owner flagged (in `_ensureCaseStudyHighlightsLeadIn`):
+  1. Duplicated same-% metric: "+693.8% revenue, +693.8% monthly" → drop the redundant copy
+     (regex backref on the number; distinct metrics untouched).
+  2. Case-study lead-in mislabel: "Recent audit work:" / "Recent audits:" typed the cases (Atlant,
+     Skin Reboot, FridgeFix — campaign/SEO RESULTS, not audits) as audit deliverables. Neutralize
+     any case lead-in matching /\baudits?\b/ to a plain lead-in.
+Verified both regexes + compile.

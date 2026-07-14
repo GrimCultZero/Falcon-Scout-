@@ -1862,6 +1862,14 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
     _recordViolations('generator', null, ['fabricatedSkinRebootRevenue'])
   }
   text = deFab
+  // Kill a DUPLICATED same-percentage metric — the model sometimes repeats a figure with
+  // a vague second unit ("+693.8% revenue, +693.8% monthly"). Drop the redundant copy.
+  const deDupPct = text.replace(/(\+\s?(\d[\d.]*)\s?%\s+[a-z]+)\s*,\s*\+\s?\2\s?%\s+[a-z]+/gi, '$1')
+  if (deDupPct !== text) {
+    console.log('[Falcon] Removed duplicated same-percentage metric.')
+    _recordViolations('generator', null, ['duplicateMetric'])
+  }
+  text = deDupPct
   // Split a crammed one-paragraph case block into separate labelled entries (this
   // also adds the lead-in when it fires).
   text = _splitCrammedCaseStudies(text)
@@ -1893,8 +1901,15 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   }
   // 3) Ensure the block is introduced by a PLAIN lead-in (no attachment label on it).
   const prev = firstCaseIdx > 0 ? paras[firstCaseIdx - 1].trim() : ''
-  const hasPlainLeadIn = firstCaseIdx > 0 && prev.length <= 160 && /:$/.test(prev) && !_ANY_CASE_NAME_RE.test(prev)
-  if (!hasPlainLeadIn) {
+  const hasLeadIn = firstCaseIdx > 0 && prev.length <= 160 && /:$/.test(prev) && !_ANY_CASE_NAME_RE.test(prev)
+  // The lead-in must NOT claim a deliverable TYPE the cases don't represent. The KB cases
+  // are campaign / SEO RESULTS, not audit deliverables, so a lead-in like "Recent audit
+  // work:" mislabels them. Neutralize any lead-in that types the cases as audits.
+  if (hasLeadIn && /\baudits?\b/i.test(prev)) {
+    paras[firstCaseIdx - 1] = _HIGHLIGHTS_LEADINS[Math.floor(Math.random() * _HIGHLIGHTS_LEADINS.length)]
+    console.log('[Falcon] Neutralized a case-study lead-in that mislabeled the cases as "audit work".')
+    _recordViolations('generator', null, ['caseLeadInMislabel'])
+  } else if (!hasLeadIn) {
     const leadIn = _HIGHLIGHTS_LEADINS[Math.floor(Math.random() * _HIGHLIGHTS_LEADINS.length)]
     paras.splice(firstCaseIdx, 0, leadIn)
   }
@@ -5898,12 +5913,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 _kind: 'proposal_rule_enforce',
-                // Haiku for the enforcement pass: the task is mechanical
-                // (regex-like rule-match → surgical phrasing edit), no
-                // creative reasoning needed. Cuts the per-generate cost
-                // from ~$0.011 (Sonnet) to ~$0.0015 (Haiku) — ~7× cheaper.
-                // If reliability ever slips, swap back to claude-sonnet-4-5.
-                model: 'claude-haiku-4-5-20251001',
+                // Sonnet for the enforcement pass. Haiku (~7× cheaper) proved
+                // unreliable at catching fabrications / rule violations and at
+                // clean surgical rewrites — the owner saw issues in most letters
+                // (2026-07-14), so we swapped back to Sonnet as the code always
+                // anticipated. Reliability of this pass matters more than its cost.
+                model: 'claude-sonnet-4-5',
                 max_tokens: 1500,
                 system: 'You are a precision rule-compliance editor for Upwork cover letters. You make minimal, surgical edits to enforce rules. You may add brief sentences only when a violation explicitly requires adding missing content.',
                 messages: [{ role: 'user', content: enforcePrompt }],
