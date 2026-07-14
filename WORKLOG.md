@@ -1579,3 +1579,29 @@ Fix (JobDetail.jsx, `_ensureCaseStudyHighlightsLeadIn`):
 Verified: this block → lead-in "Relevant projects:", Derma/Skin keep "(attached as PDF)",
 Multilingual + Casa get "(attached in profile highlights)"; idempotent; the earlier Golden State +
 Derma correction still holds; compiles.
+
+---
+
+## 2026-07-14 — Generator: rate undersell (quoted floor vs high ceiling) + unfinished $ placeholders
+
+Owner: "fix everything" (re job 6449 letter). Two issues:
+1. RATE UNDERSELL: letter quoted "$35/hr" on a client with a posted $10-$60/hr ceiling that
+   explicitly wants senior/expert talent — the analyser itself advised anchoring $50-55.
+   Root cause: the RATE DISCLOSURE RULE HARDCODED "Artem's typical ongoing management rate is
+   $30-35/hr", so the model parroted $35 regardless of the ceiling.
+2. UNFINISHED PLACEHOLDERS: phase cost estimates were wrapped in "[[ ARTEM: $1,200-1,800 ... ]]"
+   review brackets even though the model had computed real figures — reads as unfinished.
+
+Fixes (JobDetail.jsx generator):
+- Computed RATE ANCHOR injected into the job context: from the posted ceiling + a web-dev/SEO
+  floor heuristic, it tells the model to bid in the UPPER part of the range (~$48-60 for a $60
+  ceiling, floor 40) when asked for a rate, never default to $30-35, and never leave a
+  placeholder for a price the client asked for. (Filtered out when no ceiling / not asked.)
+- Rewrote RATE DISCLOSURE RULE + RATE WORDING to anchor to the posted ceiling (removed the
+  hardcoded $30-35 default), quote a senior rate on high-ceiling/premium clients, give concrete
+  per-phase estimates sized to scope, and never placeholder an asked-for price.
+- New deterministic `_unwrapFilledPlaceholders`: unwraps "[[ ARTEM: …$N… ]]" placeholders that
+  already contain a concrete $ figure (they're effectively filled) → plain text; genuine
+  no-dollar "[[ ARTEM: fill in ]]" placeholders are left for Artem. Wired into both emit chains.
+Verified: anchor $10-60→$48-60, $30-100→$80-100, $20-40→$35-40, $10-25 webdev→floor/fixed;
+unwrap keeps "fill in your team size" but unwraps priced estimates; compiles.

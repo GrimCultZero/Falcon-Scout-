@@ -1758,6 +1758,15 @@ function _addProfileHighlightsLabel(para) {
   return `${t.slice(0, m[0].length)} (attached in profile highlights)${t.slice(m[0].length)}`
 }
 
+// A "[[ ARTEM: … ]]" placeholder that already contains a concrete $ figure is effectively
+// filled — the model computed a real price/estimate but wrapped it in review brackets that
+// read as unfinished. Unwrap those to plain text. Placeholders with NO dollar amount (a
+// genuine "[[ ARTEM: fill in your team size ]]") are left intact for Artem to complete.
+function _unwrapFilledPlaceholders(text) {
+  if (!text) return text
+  return text.replace(/\[\[\s*ARTEM\s*:\s*([^\]]*?\$\s?\d[^\]]*?)\s*\]\]/gi, (_m, inner) => inner.trim())
+}
+
 // Known case studies: canonical name + whether it's a PDF (Derma / Skin Reboot).
 const _CASE_META = [
   { re: /\bnectar\s*flowers\b/i, name: 'Nectar Flowers', pdf: false },
@@ -4418,9 +4427,21 @@ function ProposalColumn({ job, bridgeReady = false }) {
       // line below stops the model inventing a white-label/subcontractor framing
       // on a direct end-client job that merely says "we already have a developer"
       // or "want an additional resource" (e.g. a school hiring ongoing WP help).
+      // Rate anchor — computed so a quoted rate tracks the POSTED CEILING, not a fixed
+      // default. The model kept quoting $30-35 even on high-ceiling premium clients.
+      const _hMax = Number(job.hourly_rate_max) || 0
+      const _genFloor = /\b(shopify|woocommerce|wordpress|opencart|magento|web\s*develop|website\s+develop|landing\s+page|\bliquid\b|theme\s+(?:dev|customi))\b/i.test(`${job.title || ''} ${fullDescription}`) ? 40 : 30
+      let _rateAnchorNote = ''
+      if (_hMax >= _genFloor) {
+        const _anchorLow = Math.max(_genFloor + 5, Math.round(_hMax * 0.8))
+        _rateAnchorNote = `RATE ANCHOR (apply ONLY if the posting asks for your rate/pricing/estimate — otherwise quote no rate): the posted ceiling is $${_hMax}/hr. Anchor your quote in the UPPER part of the range, roughly $${_anchorLow}-$${_hMax}/hr — NOT at your $${_genFloor}/hr floor. A client posting a $${_hMax} ceiling, or asking for senior / expert / "top-tier" talent, expects a senior rate; quoting $30-35 here reads as budget-tier and leaves money on the table. Give a concrete figure/range, never a [[ ARTEM: … ]] placeholder for a price the client explicitly asked for.`
+      } else if (_hMax > 0) {
+        _rateAnchorNote = `RATE ANCHOR (apply ONLY if the posting asks for your rate): the posted ceiling ($${_hMax}/hr) is at/below Artem's ~$${_genFloor}/hr floor. Quote at the floor or as a fixed project price sized to scope; never write a sub-floor effective hourly.`
+      }
       const jobContext = [
         `Job: ${job.title}`,
         `Rate: ${job.hourly_rate_min ? `$${job.hourly_rate_min}-$${job.hourly_rate_max}/hr` : job.fixed_budget || 'not specified'}`,
+        _rateAnchorNote,
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
         isAgencyClient
@@ -4535,7 +4556,7 @@ The goal is natural human inconsistency. Apply ALL of the following in every let
 The imperfections should feel like someone typed fast and didn't proofread, NOT like random errors inserted mechanically. Keep them OCCASIONAL — 1–2 per letter, spread far apart, never clustered. Casing is NOT one of these imperfections (see rule 1: "I" and "Artem" are always correct). The letter should read as a sharp professional who typed quickly, not as someone who can't capitalise.
 - Offer a quick audit/read as low-commitment entry point
 - Never quote a price upfront
-- RATE WORDING when the posting EXPLICITLY asks for a rate/day-rate/project quote (you must answer, but protect the positioning): quote a project price and timeline, or an hourly at or above Artem's floor ($40/hr web-dev, $30/hr PPC/SEO). NEVER write out an "effective hourly" that sits below that floor — spelling out "$20-25/hr" or "~$25/hr effective" anchors him as a budget contractor and contradicts his Top Rated positioning. If the client's range is below his floor, quote the fixed project price + timeline and let that stand; do not helpfully convert it into a sub-floor per-hour number in the letter.
+- RATE WORDING when the posting EXPLICITLY asks for a rate/day-rate/project quote (you must answer, but protect the positioning): quote a project price and timeline, or an hourly anchored to the POSTED CEILING per the RATE ANCHOR line — bid in the UPPER part of the posted range when the ceiling is at/above Artem's floor ($40/hr web-dev, $30/hr PPC/SEO), NOT at the floor. Do NOT default to $30-35 on a client whose ceiling is well above it. NEVER write out an "effective hourly" that sits below the floor — "$20-25/hr" or "~$25/hr effective" anchors him as a budget contractor and contradicts his Top Rated positioning. If the client's range is genuinely below his floor, quote a fixed project price + timeline and let that stand; do not convert it into a sub-floor per-hour number.
 - Never use corporate signoffs like "Best regards", "Sincerely", "Looking forward"
 - Length: match the job's demands. HARD RULE: if the posting contains explicit signals that the client wants a SHORT answer — phrases like "just tell me X", "that's enough for me", "keep it brief", "don't send me an essay", "send a short note", "a short note", "brief note", "quick note", "a few sentences", "short message", "short intro", "keep it short" — cap the letter at 150 words maximum. When they ask for "a short note plus links/examples", the whole proposal is: 2-4 tight sentences on the relevant experience, then the requested links — nothing else. NO differentiator paragraph, NO multi-case block, NO separate rate/availability section unless they asked. Do not elaborate on every point. The client tested you by asking for brevity; failing it disqualifies you immediately. If the posting asks specific questions (hour estimates, tool lists, rate, availability, experience breakdown) — answer all of them fully, even if that means 300–500 words. If the posting is short and open-ended, keep it tight (100–150 words). Never truncate answers to specific questions just to stay short.
   BUDGET-BASED LENGTH CAP (mandatory): For fixed-price jobs where the budget is under $1,000, cap the letter at 200 words. A low fixed-price client is evaluating proposals quickly — a long letter signals that you don't understand the scope, or that you're trying to compensate for weak fit with volume. Under $1,000 flat: make your point in 150-200 words, one case study max, clean close. Over $1,000 flat or any hourly job: normal length rules apply. If the budget is not specified or unclear, apply normal length rules.
@@ -4546,7 +4567,7 @@ The imperfections should feel like someone typed fast and didn't proofread, NOT 
 - THE ONLY VALID ENDING IS "Artem" (capital A) on its own line — nothing else. No CTA, no closing filler, no invitation, no question, no next-step prompt. Every one of these is banned as a closing line: "happy to answer questions", "feel free to reach out", "let me know if you have questions", "looking forward to hearing from you", "happy to discuss further", "happy to chat", "reach out anytime", "let's talk", "keen to hear more", "would love to connect", "open to a quick call", "communication will be efficient", or ANY variation. The letter ends with the last content sentence and then "Artem" on its own line. Period.
 - NEVER write "i work async" anywhere in the letter — not as a closing line, not as a mid-letter description of communication style. This phrase is banned entirely. If you need to explain communication cadence, describe it concretely ("weekly summary report covering spend, leads, CPL, and next actions") without the phrase "async".
 - CIRCUMVENTION SAFETY (Trust & Safety — absolute, zero exceptions): Upwork's automated scanners flag accounts over wording that even RESEMBLES moving work, payments, or communication off-platform. A real enforcement flag already hit Artem's account over the innocent line "managing through Upwork hits friction … we'll find workaround". Therefore NEVER write, in any context: "outside Upwork", "off Upwork", "around Upwork", "without Upwork", any sentence putting "Upwork" near "friction"/"workaround"/"limitations"; any payment method (PayPal, Wise, wire, crypto, "pay directly"); any contact channel (WhatsApp, Telegram, Skype, email addresses, phone numbers). If a platform-access difficulty is genuinely relevant (e.g. Meta Business Manager 2FA), describe the solution positively without mentioning Upwork at all: "i'll set up secure partner access through Meta Business Manager". When in doubt, omit the topic entirely.
-- RATE DISCLOSURE RULE: if the client's posting explicitly asks for a monthly rate, management fee, or pricing structure, you MUST include a concrete number or range in the letter. Do not ignore the ask. Artem's typical ongoing management rate is $30–35/hr or a flat monthly retainer discussed after audit (state whichever fits scope). Skipping the rate when the client asked for it signals you didn't read the posting.
+- RATE DISCLOSURE RULE: if the posting explicitly asks for your rate, pricing, or a cost/phase estimate, you MUST give a concrete number or range — never skip it, and NEVER leave a [[ ARTEM: … ]] placeholder for a price the client asked for (fill it with a real figure). ANCHOR TO THE POSTED CEILING per the RATE ANCHOR line in the job context — do NOT default to $30-35. On a client with a high posted ceiling, or one asking for senior / expert / "top-tier" talent, quote a SENIOR rate near the ceiling (e.g. $50-55/hr for a $60 ceiling), not your floor — quoting the floor on a premium client reads as budget-tier and leaves money on the table. Only quote toward $30-40 when the posted ceiling itself is near the floor or the client is clearly budget-tier. For fixed / per-phase estimates, give concrete ranges sized to the described scope (a full audit is typically $700-1,645+ depending on depth; ongoing retainer $800-2,500/mo). Both skipping the rate AND lowballing it against a high ceiling fail the client's ask.
 - NEVER run multiple case studies into a single paragraph. Each case study MUST be its own paragraph with a blank line above it. If you have two case studies back to back with no blank line between them, that is a formatting error — fix it before emitting.
 
 AUDIT OFFER RULES — context-dependent (read carefully before applying):
@@ -5513,7 +5534,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text))))), jobIsRegulatedForStrip))))))), _postingAsksRate)).trim())
+              setProposal(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim())
               return
             }
 
@@ -5904,7 +5925,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text)))), jobIsRegulatedForStrip))))))), _postingAsksRate)).trim())
+      setProposal(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
