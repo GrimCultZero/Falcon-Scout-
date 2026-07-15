@@ -10,6 +10,7 @@ frontend/frontend_env.txt
 .upwork_token.json
 
 # ── Local data / state ─────────────────────────────────────────────────────
+ai_provider.json
 upwork_jobs.db
 upwork_jobs.db-journal
 upwork_jobs.db-wal

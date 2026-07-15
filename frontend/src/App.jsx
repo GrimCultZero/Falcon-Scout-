@@ -712,6 +712,7 @@ export default function App() {
 
         {/* Right side: usage chip + live indicator + dark mode toggle */}
         <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:'auto' }}>
+          <AiProviderChip />
           <UsageChip />
           <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, color:'rgba(255,255,255,0.32)', textTransform:'uppercase', letterSpacing:'0.09em' }}>
             <div style={{
@@ -1196,5 +1197,68 @@ function UsageChip() {
         </div>
       )}
     </div>
+  )
+}
+
+// Shows current AI provider (API / CLI) and lets the user toggle.
+// In CLI mode: pings the bridge every 5s and shows online/offline status.
+function AiProviderChip() {
+  const [provider, setProvider] = useState(null)   // 'api' | 'cli' | null
+  const [bridgeOk, setBridgeOk] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Load current provider on mount
+  useEffect(() => {
+    fetch('/ai-provider').then(r => r.json()).then(d => setProvider(d.provider)).catch(() => setProvider('api'))
+  }, [])
+
+  // Ping bridge every 5s when in CLI mode
+  useEffect(() => {
+    if (provider !== 'cli') { setBridgeOk(false); return }
+    const ping = () => fetch('http://127.0.0.1:27182/ping', { signal: AbortSignal.timeout(2000) })
+      .then(r => r.ok).then(setBridgeOk).catch(() => setBridgeOk(false))
+    ping()
+    const id = setInterval(ping, 5000)
+    return () => clearInterval(id)
+  }, [provider])
+
+  if (provider === null) return null
+
+  const toggle = async () => {
+    setSaving(true)
+    const next = provider === 'api' ? 'cli' : 'api'
+    try {
+      await fetch('/ai-provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: next }) })
+      setProvider(next)
+    } catch {}
+    setSaving(false)
+  }
+
+  const isCli = provider === 'cli'
+  const dotColor = isCli ? (bridgeOk ? '#00e070' : '#ef4444') : 'rgba(255,255,255,0.30)'
+  const borderColor = isCli ? (bridgeOk ? 'rgba(0,224,112,0.35)' : 'rgba(239,68,68,0.35)') : 'rgba(255,255,255,0.15)'
+  const tip = isCli
+    ? (bridgeOk ? 'CLI Bridge online — using claude -p subscription (click to switch back to API)' : 'CLI Bridge OFFLINE — run: node cli-bridge.js  (click to switch back to API)')
+    : 'Using Anthropic API key (click to switch to CLI Bridge — uses your Claude subscription, no per-token cost)'
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={saving}
+      title={tip}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 5,
+        background: isCli ? (bridgeOk ? 'rgba(0,224,112,0.08)' : 'rgba(239,68,68,0.10)') : 'rgba(255,255,255,0.05)',
+        border: `1px solid ${borderColor}`,
+        borderRadius: 4, padding: '4px 8px',
+        fontSize: 10, fontFamily: 'Inter, sans-serif',
+        color: 'rgba(255,255,255,0.65)',
+        cursor: 'pointer', letterSpacing: '0.04em', lineHeight: 1.1,
+        transition: 'all 0.15s',
+      }}
+    >
+      <div style={{ width: 5, height: 5, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+      {isCli ? 'CLI' : 'API'}
+    </button>
   )
 }

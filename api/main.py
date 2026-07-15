@@ -94,6 +94,50 @@ def _ensure_job_columns():
 _ensure_job_columns()
 
 
+# ── AI provider (API vs CLI bridge) ─────────────────────────────────────────
+# Persisted in ai_provider.json at repo root (gitignored). Default is 'api'.
+_AI_PROVIDER_FILE = ROOT / "ai_provider.json"
+
+def _get_ai_provider() -> str:
+    try:
+        data = _json_mod.loads(_AI_PROVIDER_FILE.read_text())
+        return data.get("provider", "api")
+    except Exception:
+        return "api"
+
+def _set_ai_provider(provider: str) -> None:
+    _AI_PROVIDER_FILE.write_text(_json_mod.dumps({"provider": provider}))
+
+@app.get("/ai-provider")
+def get_ai_provider():
+    return {"provider": _get_ai_provider()}
+
+@app.post("/ai-provider")
+def set_ai_provider_endpoint(data: dict):
+    p = data.get("provider", "api")
+    if p not in ("api", "cli"):
+        raise HTTPException(status_code=400, detail="provider must be 'api' or 'cli'")
+    _set_ai_provider(p)
+    return {"provider": p}
+
+def _flatten_for_cli(request: dict) -> str:
+    """Convert an Anthropic Messages API request dict to a plain text prompt for claude -p."""
+    parts = []
+    system = request.get("system")
+    if system:
+        if isinstance(system, list):
+            system = "\n".join(b.get("text", "") for b in system if isinstance(b, dict))
+        parts.append(system)
+        parts.append("\n---\n")
+    for msg in (request.get("messages") or []):
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = "\n".join(c.get("text", "") for c in content if isinstance(c, dict))
+        parts.append(f"{'Human' if role == 'user' else 'Assistant'}: {content}")
+    return "\n".join(parts)
+
+
 # ── Token usage tracking ─────────────────────────────────────────────────────
 # Pricing per 1M tokens (USD). Numbers reflect Anthropic's published rates as
 # of writing; update here if rates change. Falls back to Sonnet rates for any
@@ -4707,6 +4751,36 @@ async def claude_proxy(request: dict):
             else:
                 # Helper returned empty — most likely <10 resolved outcomes yet.
                 print(f"[stats-inject] {kind}: SKIPPED (helper returned empty — need ≥10 resolved outcomes)")
+
+        # ── CLI bridge routing ──────────────────────────────────────────────
+        # When the user has switched to CLI mode, flatten the request into a
+        # plain text prompt and pipe it through the local cli-bridge.js server
+        # (port 27182) instead of calling api.anthropic.com.
+        if _get_ai_provider() == "cli":
+            import httpx as _httpx_cli
+            prompt_text = _flatten_for_cli(request)
+            print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27182/ai")
+            try:
+                async with _httpx_cli.AsyncClient(timeout=180.0) as br:
+                    br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text})
+                if br_resp.status_code != 200:
+                    raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")
+                text = br_resp.json().get("content", "")
+                print(f"[CLI bridge] {kind}: got {len(text)} chars back")
+                return {
+                    "id": "cli-bridge",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": model,
+                    "content": [{"type": "text", "text": text}],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                }
+            except _httpx_cli.ConnectError:
+                raise HTTPException(
+                    status_code=502,
+                    detail="CLI bridge offline — open a terminal and run: node cli-bridge.js"
+                )
 
         # ── Prompt caching ──────────────────────────────────────────────────
         # Convert a string system prompt into two content blocks so Anthropic
