@@ -3729,7 +3729,9 @@ function ProposalColumn({ job, bridgeReady = false }) {
   }, [job.id, job.upwork_job_id])
 
   const handleAhrefsEnrich = () => {
-    const raw = ahrefsDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+    // Normalise: strip protocol/path/trailing slash and LOWERCASE (domains are
+    // case-insensitive; a capitalised host like "Snugzy.co.uk" can miss in Ahrefs).
+    const raw = ahrefsDomain.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/\/+$/, '').toLowerCase()
     if (!raw) return
     if (!bridgeReady) { alert('Extension not connected — reload this tab (F5)'); return }
     setAhrefsLoading(true)

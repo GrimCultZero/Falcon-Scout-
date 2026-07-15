@@ -306,8 +306,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // ── Open Ahrefs Site Explorer for a domain (from dashboard bridge) ───────
   if (message.type === 'ENRICH_AHREFS' && message.job_id && message.domain) {
-    const domain = String(message.domain).replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-    const url = `https://app.ahrefs.com/site-explorer/overview/v2/subdomains/live?target=${encodeURIComponent(domain)}`;
+    const domain = String(message.domain).replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/\/+$/, '').toLowerCase();
+    // Ahrefs changed the Site Explorer overview URL — the old
+    // /site-explorer/overview/v2/subdomains/live?target=X 301s to a not-found page
+    // (verified 2026-07-15, even for valid domains). Current format is
+    // /site-explorer/overview?mode=subdomains&target=<domain>/ (trailing slash).
+    const url = `https://app.ahrefs.com/site-explorer/overview?mode=subdomains&target=${encodeURIComponent(domain + '/')}`;
     _ahrefsPending.set(domain, { job_id: message.job_id });
     chrome.tabs.create({ url, active: false }, (tab) => {
       if (chrome.runtime.lastError || !tab) {

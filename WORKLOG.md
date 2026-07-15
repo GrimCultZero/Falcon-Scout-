@@ -1658,3 +1658,25 @@ signal. Folded into `jobIsAuditOnly` so the promotion plan is suppressed on thes
 "sample SEO promotion plan" attachment with the technical SEO audit sample. Verified: this job →
 techFixOnly/auditOnly true; a "technical SEO + grow traffic + ongoing" job → false (plan kept);
 pure-growth → false; pure-audit → true. Compiles.
+
+---
+
+## 2026-07-15 — Ahrefs enrichment opened a dead URL (Ahrefs changed Site Explorer path)
+
+Owner: the Ahrefs function opened a "wrong page" (Ahrefs "page not found / 301") for a client site.
+Verified LIVE in the owner's logged-in Ahrefs: the old URL
+`https://app.ahrefs.com/site-explorer/overview/v2/subdomains/live?target=X` returns not-found even
+for a valid domain (tested ahrefs.com) — Ahrefs deprecated that path. Read the Site Explorer nav's
+"Overview" link to get the current format and confirmed it loads:
+`https://app.ahrefs.com/site-explorer/overview?mode=subdomains&target=<domain>%2F` (trailing slash).
+
+Fixes:
+- upwork-enricher/background.js (ENRICH_AHREFS): rebuilt the URL to the current format
+  (`/site-explorer/overview?mode=subdomains&target=<domain>/`). Manifest bumped 4.4 → 4.5.
+- Domain normalisation now also strips any path and LOWERCASES (the owner's field held
+  "Snugzy.co.uk" — capital host; also the snugzy site had no URL in the posting so the .co.uk TLD
+  was a manual guess). Applied in background.js AND the frontend handleAhrefsEnrich.
+node --check passes. OWNER MUST RELOAD the extension (chrome://extensions) to get v4.5.
+Note: separately, "snugzy.co.uk" may itself be the wrong domain (posting only said "snugzy", no
+TLD) — if Ahrefs still shows nothing after reload, verify the real client domain in the editable
+Ahrefs field.
