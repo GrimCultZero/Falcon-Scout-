@@ -1627,3 +1627,34 @@ rule violations "in almost every cover letter." Findings + actions:
      Skin Reboot, FridgeFix — campaign/SEO RESULTS, not audits) as audit deliverables. Neutralize
      any case lead-in matching /\baudits?\b/ to a plain lead-in.
 Verified both regexes + compile.
+
+---
+
+## 2026-07-15 — Generator offered the 3-month SEO promotion plan on a technical-FIX job
+
+Owner: "analyse generator work" (job 6594 "SEO Work on our website" — Shopify site snugzy, fix
+rich snippets/schema + "general seo work and amends"). Analysis:
+- GOOD (recent fixes holding): case block correct — plain "Relevant work:" lead-in, each case has
+  its own attachment notice (Skin Reboot / Derma "(attached as PDF)", Golden State "(attached in
+  profile highlights)"), real metrics, no fabrication, no dup-% . Solid technical diagnosis.
+- NOT a fabrication: "Snugzy is on Shopify" is grounded in the job's Shopify SKILL TAG
+  (keywords = "seo, technical seo, seo audit, shopify"), a reasonable inference — retracted that
+  concern after checking the DB (no site inspection, but the skill tag is real Upwork data).
+- BAD: closed by offering a "custom 3-month SEO promotion plan ... link building budget ...
+  competitor overview" + sample attachment — an ongoing-CAMPAIGN document, wrong for a
+  fix-our-technical-SEO job.
+
+Root cause: `jobIsAuditOnly` (which suppresses the promotion plan) only matched the literal word
+"audit". This posting says "technical seo work / rich snippets / amends", never "audit" (and the
+"seo audit" keyword tag isn't in the generator's job context), so it was treated as a growth job
+that REQUIRES the plan and no guard flagged it.
+
+Fix (JobDetail.jsx generator): added `jobIsTechFixOnly` — a job that mentions technical-fix work
+(technical seo, rich snippet, schema, structured data, core web vitals, indexation, canonical,
+hreflang, amend, "not/aren't showing", page speed) AND has NO growth language (grow, increase
+rankings, more traffic, link building, promotion, campaign, content strategy) AND no retainer
+signal. Folded into `jobIsAuditOnly` so the promotion plan is suppressed on these jobs
+(wrongPlanOnAuditJob fires → enforcer removes it). Also updated the enforcer message to REPLACE a
+"sample SEO promotion plan" attachment with the technical SEO audit sample. Verified: this job →
+techFixOnly/auditOnly true; a "technical SEO + grow traffic + ongoing" job → false (plan kept);
+pure-growth → false; pure-audit → true. Compiles.

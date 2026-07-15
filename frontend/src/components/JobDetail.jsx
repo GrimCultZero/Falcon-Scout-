@@ -5348,7 +5348,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // only counts when followed by an engagement word (partnership, work,
               // management, contract, retainer, support, collaboration, basis, …).
               const _RETAINER_SIGNAL_RE = /\b(retainer|ongoing\s+(?:seo|work|management|support|optimi|improvement|help|maintenance)|monthly\s+(?:seo|retainer|management|work|support|hours?)|recurring|continue\s+improving|long.?term\s+(?:engagement|partnership|work|management|contract|support|collaboration|retainer|relationship|role|help|assistance|basis|commitment|maintenance))\b/i
-              const jobIsAuditOnly = /\baudit\b/i.test(jobContextLower) &&
+              // Technical-FIX jobs (fix rich snippets / schema / indexation / "amends" on an
+              // existing site — NOT grow rankings) want implementation, not a 3-month
+              // promotion campaign. Treat them like audit-only so the promotion plan is
+              // suppressed. Guarded by "no growth language + no retainer" so genuine
+              // ongoing-SEO / growth jobs (which DO want the plan) are unaffected.
+              const _TECH_FIX_RE = /\b(technical\s+seo|rich\s+snippet|schema|structured\s+data|core\s+web\s+vitals|indexation|crawl(?:ability)?|canonical|hreflang|\bamend|(?:not|aren'?t|isn'?t)\s+showing|troubleshoot|page\s*speed)\b/i
+              const _GROWTH_RE = /\b(grow(?:th|ing)?|increase\s+(?:traffic|rankings?|leads|sales)|rank\s+(?:higher|better)|organic\s+growth|more\s+(?:traffic|leads|sales)|drive\s+(?:traffic|leads)|scale\s+(?:traffic|rankings)|link[\s-]?building|monthly\s+seo|content\s+strategy|promotion|campaign)\b/i
+              const jobIsTechFixOnly = _TECH_FIX_RE.test(jobContextLower) && !_GROWTH_RE.test(jobContextLower) && !_RETAINER_SIGNAL_RE.test(jobContextLower)
+              const jobIsAuditOnly = (/\baudit\b/i.test(jobContextLower) || jobIsTechFixOnly) &&
                 !_RETAINER_SIGNAL_RE.test(jobContextLower)
               const draftHasAuditSampleAttach = /\battach(?:ing|ed)?\b[^.]{0,60}\bsample\b[^.]{0,80}\baudit\b/i.test(text) ||
                 /\baudit\b[^.]{0,60}\bsample\b[^.]{0,60}\battach/i.test(text)
@@ -5820,7 +5828,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (wrongPlanOnAuditJob) {
               specificViolations.push(
                 'WRONG DELIVERABLE — SEO PROMOTION PLAN ON AN AUDIT-ONLY JOB: The client asked for a one-time SEO AUDIT / ranking analysis with a written report + prioritized recommendations — NOT ongoing SEO management. There is no retainer or continuing engagement in this posting (any "long-term strategy / recommendations" is a SECTION of the audit report, not ongoing work). The draft offers a "3-month SEO promotion plan", which is an ongoing-campaign document — the wrong deliverable, and it reads as an unwanted upsell. ' +
-                'DELETE the entire "i can prepare a custom 3-month SEO promotion plan…" sentence AND its "attaching a sample SEO promotion plan" clause. KEEP the technical SEO audit sample attachment ("i\'m attaching a sample technical SEO audit…") — that IS the correct proof for this job. The deliverable is the audit + prioritized findings doc, nothing more.'
+                'DELETE the entire "i can prepare a custom 3-month SEO promotion plan…" sentence. If the draft attaches "a sample SEO promotion plan", REPLACE that clause with the technical SEO audit sample instead: "i\'m attaching a sample technical SEO audit so you can see the format and depth." (If a technical SEO audit sample is already attached, just delete the promotion-plan sentence and keep it.) The deliverable here is the audit + prioritized fixes (e.g. the rich-snippets/schema fix), nothing more — never a promotion plan or link-building budget.'
               )
             }
             if (missingSeoPlanOffer) {
