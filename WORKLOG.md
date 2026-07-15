@@ -1680,3 +1680,33 @@ node --check passes. OWNER MUST RELOAD the extension (chrome://extensions) to ge
 Note: separately, "snugzy.co.uk" may itself be the wrong domain (posting only said "snugzy", no
 TLD) — if Ahrefs still shows nothing after reload, verify the real client domain in the editable
 Ahrefs field.
+
+---
+
+## 2026-07-15 — Ahrefs "scrape timed out": THREE compounding bugs (URL, MV3 durability, UI language)
+
+Owner: Ahrefs field showed "⚠ Ahrefs scrape timed out — try again". Investigated all the way down;
+three separate bugs were stacked:
+
+1. DEAD URL (fixed earlier today, 01ee221): old /site-explorer/overview/v2/subdomains/live?target=
+   404s even for ahrefs.com. Current: /site-explorer/overview?mode=subdomains&target=<domain>/.
+
+2. MV3 WORKER DEATH → the actual "timed out" cause. `_ahrefsPending` was an in-memory Map, but the
+   scrape waits up to 30 s for the SPA (waitForMetrics) — meeting/exceeding MV3's ~30 s idle
+   timeout. When the worker died the AHREFS_DATA handler hit `if (!pending) return` and BAILED:
+   no POST, no AHREFS_COMPLETE → dashboard sat until its 60 s timeout. Fixed by mirroring pending
+   entries into chrome.storage.session (`_persistAhrefsPending` / `_consumeAhrefsPending`), the
+   same durability pattern already used by `_syncTabs`. AHREFS_DATA handler is now async.
+
+3. UI LANGUAGE — the owner's Ahrefs workspace renders UKRAINIAN, but every scrape label was
+   English-only ("Organic keywords", "Backlinks", "Ref. domains"). waitForMetrics could never match
+   → burned the full 30 s → scraped nulls. Made waitForMetrics + scrape() bilingual (EN + UK:
+   Рейтинг домену / Органічні ключові слова / Органічний трафік / Беклінки / Реферальні домени).
+
+Also fixed while there:
+- PRE-EXISTING BUG: the DR/UR regexes used `[^0-9\n]{0,6}` which EXCLUDES newline, so the
+  documented "DR\n42" case never matched — DR/UR were ALWAYS null. Now `[^0-9]{0,6}`.
+- parseNum is now locale-aware: comma = THOUSANDS in EN ("1,234") but DECIMAL in UK ("2,3K" =
+  2300); spaces/nbsp/narrow-nbsp are always thousands separators; Cyrillic К/М → K/M.
+Verified EN and UK inputs now scrape identically (DR 42, UR 30, 1234 kw, 2300 traffic, 5600 bl,
+110 rd). Manifest 4.5 → 4.6. OWNER MUST RELOAD the extension.

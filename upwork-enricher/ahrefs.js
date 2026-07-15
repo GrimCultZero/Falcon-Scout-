@@ -11,41 +11,58 @@
     return (p.get('url') || p.get('target') || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   }
 
+  // Locale-aware. Ahrefs renders "1,234" / "2.3K" (EN) but "1 234" / "2,3K" (UK) — the
+  // comma means THOUSANDS in English and DECIMAL in Ukrainian, so it cannot be stripped
+  // blindly. Spaces (incl. non-breaking / narrow) are always thousands separators.
   function parseNum(str) {
     if (str == null) return null;
-    const s = String(str).trim().replace(/,/g, '');
-    if (/^\d+(\.\d+)?K$/i.test(s)) return Math.round(parseFloat(s) * 1000);
-    if (/^\d+(\.\d+)?M$/i.test(s)) return Math.round(parseFloat(s) * 1000000);
-    const n = parseFloat(s);
+    let s = String(str).trim().replace(/[\s  ]/g, '');
+    s = s.replace(/К/g, 'K').replace(/М/g, 'M');   // Cyrillic К/М -> Latin K/M
+    if (!s) return null;
+    const suf = /([KM])$/i.exec(s);
+    if (suf) {
+      // Before a K/M suffix a comma is a decimal point ("2,3K" = 2.3K = 2300).
+      const v = parseFloat(s.slice(0, -1).replace(/,/g, '.'));
+      if (isNaN(v)) return null;
+      return Math.round(v * (suf[1].toUpperCase() === 'K' ? 1000 : 1000000));
+    }
+    // No suffix -> a comma is a thousands separator ("1,234" = 1234).
+    const n = parseFloat(s.replace(/,/g, ''));
     return isNaN(n) ? null : n;
   }
 
   function scrape(text) {
-    // DR — "DR\n0.7" or "Domain Rating\n0.7" or inline "DR 12"
-    const drM = text.match(/\bDR\b[^0-9\n]{0,6}([\d.]+)/i)
-              || text.match(/[Dd]omain\s+[Rr]ating[^0-9\n]{0,12}([\d.]+)/i);
+    // DR — "DR\n0.7" / "Domain Rating\n0.7" / "Рейтинг домену\n0.7"
+    const drM = text.match(/\bDR\b[^0-9]{0,6}([\d.,]+)/i)
+              || text.match(/[Dd]omain\s+[Rr]ating[^0-9]{0,12}([\d.,]+)/i)
+              || text.match(/Рейтинг\s+домену[^0-9]{0,12}([\d.,]+)/i);
     const dr = drM ? parseFloat(drM[1]) : null;
 
     // UR
-    const urM = text.match(/\bUR\b[^0-9\n]{0,6}([\d.]+)/i)
-              || text.match(/[Uu][Rr][Ll]\s+[Rr]ating[^0-9\n]{0,12}([\d.]+)/i);
+    const urM = text.match(/\bUR\b[^0-9]{0,6}([\d.,]+)/i)
+              || text.match(/[Uu][Rr][Ll]\s+[Rr]ating[^0-9]{0,12}([\d.,]+)/i)
+              || text.match(/Рейтинг\s+URL[^0-9]{0,12}([\d.,]+)/i);
     const ur = urM ? parseFloat(urM[1]) : null;
 
-    // Organic keywords — appears as "Organic keywords\n1,234" or "Organic keywords 0"
-    const okM = text.match(/[Oo]rganic\s+keywords?\s*[\r\n\s↑↓]{0,4}([\d,K]+)/i);
+    // Organic keywords — "Organic keywords\n1,234" / "Органічні ключові слова\n1 234"
+    const okM = text.match(/[Oo]rganic\s+keywords?\s*[\r\n\s↑↓]{0,4}([\d.,   ]+[KКМM]?)/i)
+              || text.match(/Органічні?\s+ключов\S*\s+слов\S*\s*[\r\n\s↑↓]{0,4}([\d.,   ]+[KКМM]?)/i);
     const organic_keywords = okM ? parseNum(okM[1]) : null;
 
-    // Organic traffic — "Organic traffic\n↑\n2,300" or "Organic traffic 0"
-    const otM = text.match(/[Oo]rganic\s+traffic\s*[\r\n\s↑↓]{0,8}([\d,K]+)/i);
+    // Organic traffic — "Organic traffic\n↑\n2,300" / "Органічний трафік\n2 300"
+    const otM = text.match(/[Oo]rganic\s+traffic\s*[\r\n\s↑↓]{0,8}([\d.,   ]+[KКМM]?)/i)
+              || text.match(/Органічн\S*\s+трафік\s*[\r\n\s↑↓]{0,8}([\d.,   ]+[KКМM]?)/i);
     const organic_traffic = otM ? parseNum(otM[1]) : null;
 
-    // Backlinks count (first number after "Backlinks")
-    const blM = text.match(/[Bb]acklinks?\s*[\r\n\s↑↓]{0,6}([\d,K]+)/i);
+    // Backlinks — "Backlinks\n123" / "Беклінки\n123"
+    const blM = text.match(/[Bb]acklinks?\s*[\r\n\s↑↓]{0,6}([\d.,   ]+[KКМM]?)/i)
+              || text.match(/Беклінк\S*\s*[\r\n\s↑↓]{0,6}([\d.,   ]+[KКМM]?)/i);
     const backlinks = blM ? parseNum(blM[1]) : null;
 
-    // Ref. domains
-    const rdM = text.match(/[Rr]ef(?:erring)?\.\s*[Dd]omains?\s*[\r\n\s↑↓]{0,6}([\d,K]+)/i)
-              || text.match(/[Rr]eferring\s+[Dd]omains?\s*[\r\n\s↑↓]{0,6}([\d,K]+)/i);
+    // Ref. domains — "Ref. domains\n45" / "Реферальні домени\n45"
+    const rdM = text.match(/[Rr]ef(?:erring)?\.\s*[Dd]omains?\s*[\r\n\s↑↓]{0,6}([\d.,   ]+[KКМM]?)/i)
+              || text.match(/[Rr]eferring\s+[Dd]omains?\s*[\r\n\s↑↓]{0,6}([\d.,   ]+[KКМM]?)/i)
+              || text.match(/Реферальн\S*\s+домен\S*\s*[\r\n\s↑↓]{0,6}([\d.,   ]+[KКМM]?)/i);
     const ref_domains = rdM ? parseNum(rdM[1]) : null;
 
     return { dr, ur, organic_keywords, organic_traffic, backlinks, ref_domains };
@@ -79,8 +96,9 @@
       const t = document.body ? document.body.innerText : '';
       if (
         t.length > 600 &&
-        /\bDR\b/i.test(t) &&
-        (/[Oo]rganic\s+keywords?/i.test(t) || /[Oo]rganic\s+traffic/i.test(t))
+        (/\bDR\b/i.test(t) || /Рейтинг\s+домену/i.test(t)) &&
+        (/[Oo]rganic\s+keywords?/i.test(t) || /[Oo]rganic\s+traffic/i.test(t) ||
+         /Органічн\S*\s+(?:ключов\S*|трафік)/i.test(t))
       ) return t;
       await new Promise(r => setTimeout(r, 900));
     }

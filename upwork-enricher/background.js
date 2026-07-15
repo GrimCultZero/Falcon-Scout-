@@ -51,6 +51,41 @@ async function _consumeSyncTab(tabId) {
   } catch (e) { console.warn('[Cockpit BG] _consumeSyncTab failed:', e && e.message); }
   return hit;
 }
+// Ahrefs pending durability. The Ahrefs scrape waits up to 30 s for the SPA to render
+// metrics, which meets/exceeds MV3's ~30 s service-worker idle timeout — so the
+// in-memory `_ahrefsPending` Map is routinely WIPED before AHREFS_DATA arrives. When
+// that happened the handler bailed ("no_pending"): no POST, no AHREFS_COMPLETE, and the
+// dashboard sat until its 60 s timeout ("Ahrefs scrape timed out"). Mirror the pending
+// entry into chrome.storage.session (survives worker restarts, cleared on browser close).
+const _AHREFS_PENDING_KEY = 'falcon_ahrefs_pending';
+
+async function _persistAhrefsPending(domain, job_id) {
+  if (!domain) return;
+  _ahrefsPending.set(domain, { job_id });
+  try {
+    const cur = (await chrome.storage.session.get(_AHREFS_PENDING_KEY))[_AHREFS_PENDING_KEY] || {};
+    cur[domain] = { job_id };
+    await chrome.storage.session.set({ [_AHREFS_PENDING_KEY]: cur });
+  } catch (e) { console.warn('[Cockpit BG] _persistAhrefsPending failed:', e && e.message); }
+}
+
+// Returns { job_id } for a pending Ahrefs scrape and consumes it. Checks the fast
+// in-memory Map AND the durable storage.session copy.
+async function _consumeAhrefsPending(domain) {
+  if (!domain) return null;
+  let hit = _ahrefsPending.get(domain) || null;
+  _ahrefsPending.delete(domain);
+  try {
+    const cur = (await chrome.storage.session.get(_AHREFS_PENDING_KEY))[_AHREFS_PENDING_KEY] || {};
+    if (cur[domain]) {
+      hit = hit || cur[domain];
+      delete cur[domain];
+      await chrome.storage.session.set({ [_AHREFS_PENDING_KEY]: cur });
+    }
+  } catch (e) { console.warn('[Cockpit BG] _consumeAhrefsPending failed:', e && e.message); }
+  return hit;
+}
+
 // Track tabs opened by the popup's "Go to proposal & capture" jump button.
 // When proposal.js auto-fires PROPOSAL_ENRICHED on these tabs we route the
 // data to /capture-standalone-proposal (fresh KB entry) instead of the
@@ -312,7 +347,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // (verified 2026-07-15, even for valid domains). Current format is
     // /site-explorer/overview?mode=subdomains&target=<domain>/ (trailing slash).
     const url = `https://app.ahrefs.com/site-explorer/overview?mode=subdomains&target=${encodeURIComponent(domain + '/')}`;
-    _ahrefsPending.set(domain, { job_id: message.job_id });
+    _persistAhrefsPending(domain, message.job_id);
     chrome.tabs.create({ url, active: false }, (tab) => {
       if (chrome.runtime.lastError || !tab) {
         sendResponse({ ok: false, error: 'tab create failed' });
@@ -329,10 +364,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Receive scraped Ahrefs data (from ahrefs.js content script) ──────────
   if (message.type === 'AHREFS_DATA' && message.domain) {
     const { domain, summary, raw, scraped_at } = message;
-    const pending = _ahrefsPending.get(domain);
-    console.log('[Cockpit BG] AHREFS_DATA', domain,
-      '| DR:', raw?.dr, '| kws:', raw?.organic_keywords,
-      '| traffic:', raw?.organic_traffic, '| pending job:', pending?.job_id || 'none');
 
     // Always close the Ahrefs tab
     if (sender.tab && _bgTabs.has(sender.tab.id)) {
@@ -340,19 +371,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.tabs.remove(sender.tab.id).catch(() => {});
     }
 
-    if (!pending) {
-      sendResponse({ ok: false, reason: 'no_pending' });
-      return true;
-    }
-    _ahrefsPending.delete(domain);
-
-    fetch(`${API_BASE}/jobs/${pending.job_id}/ahrefs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain, summary, raw, scraped_at }),
-    })
-      .then(r => r.json())
-      .then(result => {
+    // Async: the pending entry may only exist in storage.session if MV3 killed the
+    // worker during the ~30 s scrape (see _persistAhrefsPending).
+    (async () => {
+      const pending = await _consumeAhrefsPending(domain);
+      console.log('[Cockpit BG] AHREFS_DATA', domain,
+        '| DR:', raw?.dr, '| kws:', raw?.organic_keywords,
+        '| traffic:', raw?.organic_traffic, '| pending job:', pending?.job_id || 'none');
+      if (!pending) {
+        sendResponse({ ok: false, reason: 'no_pending' });
+        return;
+      }
+      try {
+        const resp = await fetch(`${API_BASE}/jobs/${pending.job_id}/ahrefs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain, summary, raw, scraped_at }),
+        });
+        const result = await resp.json();
         sendResponse({ ok: true, result });
         notifyCockpit('AHREFS_COMPLETE', {
           job_id:  pending.job_id,
@@ -361,11 +397,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           raw,
         });
         console.log('[Cockpit BG] Ahrefs data saved for', domain, ':', summary);
-      })
-      .catch(err => {
+      } catch (err) {
         sendResponse({ ok: false, error: err.message });
         console.error('[Cockpit BG] Ahrefs save error:', err);
-      });
+      }
+    })();
     return true;
   }
 
