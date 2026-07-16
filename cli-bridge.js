@@ -42,10 +42,14 @@ const server = http.createServer((req, res) => {
 
       console.log(`→ ${prompt.length} chars`);
 
+      // On Windows `claude` is a .cmd shim — Node's spawn won't resolve it
+      // without shell:true. The prompt goes via stdin (not argv), so there's
+      // no shell-injection surface here.
+      const isWin = process.platform === 'win32';
       const child = spawn('claude', ['-p'], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        // Inherit PATH so `claude` is found regardless of how this script started
         env: { ...process.env },
+        shell: isWin,
       });
 
       let out = '';
