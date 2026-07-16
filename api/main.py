@@ -4713,7 +4713,9 @@ async def claude_proxy(request: dict):
     import json as json_lib
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
+    # In CLI mode the key is not needed — skip the guard so the request
+    # reaches the CLI routing branch even when the key is absent/expired.
+    if not api_key and _get_ai_provider() != "cli":
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set in .env")
 
     try:
