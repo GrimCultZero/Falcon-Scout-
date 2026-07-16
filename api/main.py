@@ -108,18 +108,6 @@ def _get_ai_provider() -> str:
 def _set_ai_provider(provider: str) -> None:
     _AI_PROVIDER_FILE.write_text(_json_mod.dumps({"provider": provider}))
 
-@app.get("/ai-provider")
-def get_ai_provider():
-    return {"provider": _get_ai_provider()}
-
-@app.post("/ai-provider")
-def set_ai_provider_endpoint(data: dict):
-    p = data.get("provider", "api")
-    if p not in ("api", "cli"):
-        raise HTTPException(status_code=400, detail="provider must be 'api' or 'cli'")
-    _set_ai_provider(p)
-    return {"provider": p}
-
 def _flatten_for_cli(request: dict) -> str:
     """Convert an Anthropic Messages API request dict to a plain text prompt for claude -p."""
     parts = []
@@ -648,6 +636,19 @@ def _serialize(j: Job) -> dict:
         "ahrefs_data":        (_json_mod.loads(j.ahrefs_data_json) if j.ahrefs_data_json else None),
         "ahrefs_captured_at": j.ahrefs_captured_at.isoformat() if j.ahrefs_captured_at else None,
     }
+
+
+@app.get("/ai-provider")
+def get_ai_provider():
+    return {"provider": _get_ai_provider()}
+
+@app.post("/ai-provider")
+def set_ai_provider_endpoint(data: dict):
+    p = data.get("provider", "api")
+    if p not in ("api", "cli"):
+        raise HTTPException(status_code=400, detail="provider must be 'api' or 'cli'")
+    _set_ai_provider(p)
+    return {"provider": p}
 
 
 @app.get("/jobs/latest-captured")
