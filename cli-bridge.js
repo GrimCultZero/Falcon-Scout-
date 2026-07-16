@@ -10,9 +10,19 @@
 
 const http = require('http');
 const { spawn } = require('child_process');
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
 
 const PORT = 27182;
 const HOST = '127.0.0.1';
+
+// Run `claude` from a neutral, empty directory so it does NOT auto-discover
+// and inject the project's large CLAUDE.md into every call's context (our
+// prompts already carry the KB — the dev CLAUDE.md is pure wasted tokens).
+// os.tmpdir()'s ancestors have no CLAUDE.md, so nothing is picked up.
+const NEUTRAL_CWD = path.join(os.tmpdir(), 'falcon-bridge-cwd');
+try { fs.mkdirSync(NEUTRAL_CWD, { recursive: true }); } catch (e) {}
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -46,10 +56,15 @@ const server = http.createServer((req, res) => {
       // without shell:true. The prompt goes via stdin (not argv), so there's
       // no shell-injection surface here.
       const isWin = process.platform === 'win32';
-      const child = spawn('claude', ['-p'], {
+      // --strict-mcp-config (no --mcp-config) → load zero MCP servers.
+      // --disable-slash-commands → skip skill discovery.
+      // cwd = neutral dir → skip project CLAUDE.md auto-injection.
+      // All pure text-in/text-out; no tools needed for analyse/generate.
+      const child = spawn('claude', ['-p', '--strict-mcp-config', '--disable-slash-commands'], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env },
         shell: isWin,
+        cwd: NEUTRAL_CWD,
       });
 
       let out = '';
@@ -90,8 +105,18 @@ const server = http.createServer((req, res) => {
   res.writeHead(404); res.end('Not found');
 });
 
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    console.error(`\nPort ${PORT} is already in use — a CLI bridge is probably already running.`);
+    console.error('This window can be closed; the existing bridge will keep serving.\n');
+  } else {
+    console.error('Bridge error:', e.message);
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`Falcon Scout CLI Bridge running at http://${HOST}:${PORT}`);
-  console.log('Routing /ai → claude -p stdin');
+  console.log(`Routing /ai → claude -p  (cwd: ${NEUTRAL_CWD})`);
   console.log('Test: echo "reply with just: ok" | claude -p');
 });
