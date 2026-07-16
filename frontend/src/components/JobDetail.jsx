@@ -3571,7 +3571,21 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
                     borderRadius: '0 0 6px 6px', padding: '8px 10px',
                     display: 'flex', flexDirection: 'column', gap: 6,
                   }}>
-                    {similar.results.filter(r => r.outcome_signal !== 'pending').slice(0, 5).map(r => (
+                    {[...similar.results]
+                      .filter(r => r.outcome_signal !== 'pending')
+                      // Surface the outcomes the header counts FIRST (positives
+                      // when green, cold when amber) so the number and the
+                      // visible rows line up — otherwise a higher-similarity
+                      // ghosted job hides the very jobs the count refers to.
+                      .sort((a, b) => {
+                        const rank = (x) => isGreen
+                          ? (x.outcome_signal === 'positive' ? 0 : 1)
+                          : (x.outcome_signal === 'cold' ? 0 : 1)
+                        if (rank(a) !== rank(b)) return rank(a) - rank(b)
+                        return (b.similarity_score || 0) - (a.similarity_score || 0)
+                      })
+                      .slice(0, Math.max(5, isGreen ? similar.positive_count : similar.cold_count))
+                      .map(r => (
                       <div key={r.proposal_id} style={{ fontSize: 11, color: 'var(--text2)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                         <span style={{
                           flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '1px 5px',
