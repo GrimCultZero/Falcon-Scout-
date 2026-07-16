@@ -1200,16 +1200,25 @@ function UsageChip() {
   )
 }
 
+const _AI_PROVIDER_LS = 'falcon_ai_provider'
+
 // Shows current AI provider (API / CLI) and lets the user toggle.
 // In CLI mode: pings the bridge every 5s and shows online/offline status.
 function AiProviderChip() {
-  const [provider, setProvider] = useState(null)   // 'api' | 'cli' | null
+  // Seed from localStorage for instant display (no flicker on reload)
+  const [provider, setProvider] = useState(() => localStorage.getItem(_AI_PROVIDER_LS) || 'api')
   const [bridgeOk, setBridgeOk] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Load current provider on mount
+  // Confirm/correct from backend on mount (backend is authoritative)
   useEffect(() => {
-    fetch('/ai-provider').then(r => r.json()).then(d => setProvider(d.provider)).catch(() => setProvider('api'))
+    fetch('/ai-provider')
+      .then(r => r.json())
+      .then(d => {
+        setProvider(d.provider)
+        localStorage.setItem(_AI_PROVIDER_LS, d.provider)
+      })
+      .catch(() => {})  // backend down — keep localStorage value
   }, [])
 
   // Ping bridge every 5s when in CLI mode
@@ -1222,14 +1231,14 @@ function AiProviderChip() {
     return () => clearInterval(id)
   }, [provider])
 
-  if (provider === null) return null
-
   const toggle = async () => {
     setSaving(true)
     const next = provider === 'api' ? 'cli' : 'api'
+    // Update locally first — persists even if backend call fails
+    setProvider(next)
+    localStorage.setItem(_AI_PROVIDER_LS, next)
     try {
       await fetch('/ai-provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: next }) })
-      setProvider(next)
     } catch {}
     setSaving(false)
   }
