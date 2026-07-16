@@ -208,6 +208,8 @@ async def _start_background_tasks():
     print(f"[Ghost Timer] Daily background sweep scheduled (every {_GHOST_SWEEP_INTERVAL_SEC // 3600}h)")
     asyncio.create_task(_api_feed_loop())
     print("[api-feed/auto] Background auto-fetch loop started (interval from feed_config.auto_fetch_minutes)")
+    asyncio.create_task(_prune_loop())
+    print(f"[Prune] Auto-prune loop started (every {_PRUNE_INTERVAL_SEC // 3600}h; keeps last {_JOB_RETAIN_RECENT} + responded/hired/starred)")
 
 
 # ── 10-day auto-ghost timer ──────────────────────────────────────────────────
@@ -235,6 +237,67 @@ def _auto_ghost_proposals():
         return len(ghosted)
 
 _auto_ghost_proposals()
+
+
+# ── Job-postings retention / auto-prune ──────────────────────────────────────
+# The jobs table is a live triage surface, not an archive. Left unbounded it
+# grows forever (the listener + API feed keep inserting). We keep it lean by
+# deleting old, untouched postings while PRESERVING everything that matters.
+#
+# A job is KEPT if ANY of these hold:
+#   • it's among the `keep_recent` most-recent non-hidden postings (the feed)
+#   • it has a proposal row (applied / viewed / replied / invited / hired) —
+#     this is the Outcomes/stats history, never deleted
+#   • it's starred (Artem flagged it to return to)
+# Everything else (old, never-actioned, dismissed) is removed.
+#
+# NOTE: this does NOT affect app responsiveness — that's already handled by the
+# 200-row feed cap + composite index. Pruning only keeps the .db file small.
+_JOB_RETAIN_RECENT = 200
+
+def _prune_jobs(keep_recent: int = _JOB_RETAIN_RECENT) -> int:
+    """Delete old job postings, preserving recent + responded/hired/starred.
+    Idempotent and safe to run repeatedly."""
+    n = int(keep_recent)
+    try:
+        with engine.begin() as conn:
+            result = conn.exec_driver_sql(
+                f"""
+                DELETE FROM jobs
+                WHERE id NOT IN (
+                    SELECT id FROM jobs
+                    WHERE hidden_at IS NULL
+                    ORDER BY captured_at DESC
+                    LIMIT {n}
+                )
+                AND id NOT IN (SELECT job_id FROM proposals WHERE job_id IS NOT NULL)
+                AND starred_at IS NULL
+                """
+            )
+            deleted = result.rowcount or 0
+        if deleted:
+            print(f"[Prune] Removed {deleted} old job postings "
+                  f"(kept last {n} + all responded/hired/starred)")
+        return deleted
+    except Exception as exc:
+        print(f"[Prune] error (skipped this run): {exc}")
+        return 0
+
+_prune_jobs()
+
+
+_PRUNE_INTERVAL_SEC = 6 * 60 * 60  # every 6h
+
+async def _prune_loop():
+    import asyncio
+    while True:
+        try:
+            await asyncio.sleep(_PRUNE_INTERVAL_SEC)
+            _prune_jobs()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            print(f"[Prune] loop error (will retry): {exc}")
 
 
 # Daily ghost sweep — runs every 24h while the backend is alive (DESIGN §13).
