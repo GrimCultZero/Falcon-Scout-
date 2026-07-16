@@ -513,6 +513,13 @@ export default function App() {
     } catch {}
   }, [selectedId, query, filter, fetchJobs])
 
+  // Stable select handler so JobList (React.memo) doesn't re-render on every
+  // unrelated App state change — an inline arrow here would defeat the memo.
+  const handleSelect = useCallback((id) => {
+    setSelectedId(id)
+    fetchSelectedJob(id)
+  }, [fetchSelectedJob])
+
   // Star / unstar a job (green tick) — used by the ✓ button on JobList cards.
   const toggleStar = useCallback(async (jobId, currentlyStarred) => {
     try {
@@ -884,7 +891,7 @@ export default function App() {
               <JobList
                 jobs={jobs}
                 selectedId={selectedId}
-                onSelect={(id) => { setSelectedId(id); fetchSelectedJob(id) }}
+                onSelect={handleSelect}
                 onToggleHidden={toggleHidden}
                 onToggleStar={toggleStar}
                 showingHidden={filter === 'hidden'}

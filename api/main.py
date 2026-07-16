@@ -687,6 +687,7 @@ def list_jobs(
     q: Optional[str] = Query(None),
     filter_type: Optional[str] = Query(None),
     source: Optional[str] = Query(None, description="Feed source filter: 'bot' | 'api' | None (all)"),
+    limit: int = Query(200, ge=1, le=2000, description="Max rows to return (most-recent first). Caps feed size so the UI stays responsive."),
 ):
     with Session(engine) as session:
         stmt = select(Job).order_by(Job.captured_at.desc())
@@ -752,6 +753,7 @@ def list_jobs(
                 # Jobs Artem marked (green tick) to come back to later.
                 stmt = stmt.where(Job.starred_at.isnot(None))
 
+        stmt = stmt.limit(limit)
         jobs = session.scalars(stmt).all()
         if not jobs:
             return []

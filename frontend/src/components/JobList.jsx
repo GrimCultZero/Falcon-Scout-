@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 function formatRate(min, max) {
   if (!min && !max) return null
   if (min === max || !max) return `$${min}/hr`
@@ -78,7 +80,7 @@ function timeAgo(isoString) {
   return `${Math.floor(h / 24)}d`
 }
 
-export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, showingHidden }) {
+function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, showingHidden }) {
   return (
     <div>
       {jobs.map((job, i) => {
@@ -310,3 +312,7 @@ export default function JobList({ jobs, selectedId, onSelect, onToggleHidden, on
     </div>
   )
 }
+
+// Memoized: with stable props (jobs ref changes only on fetch, handlers are
+// useCallback'd in App), JobList skips re-render on unrelated App state churn.
+export default memo(JobList)
