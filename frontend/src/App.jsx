@@ -1238,8 +1238,9 @@ function AiProviderChip() {
     setProvider(next)
     localStorage.setItem(_AI_PROVIDER_LS, next)
     try {
-      await fetch('/ai-provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: next }) })
-    } catch {}
+      const r = await fetch('/ai-provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: next }) })
+      if (!r.ok) console.warn('[AiProviderChip] backend save failed:', r.status)
+    } catch (e) { console.warn('[AiProviderChip] backend save failed:', e.message) }
     setSaving(false)
   }
 
