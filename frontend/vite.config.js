@@ -15,6 +15,7 @@ export default defineConfig({
       '/jobs': 'http://localhost:8000',
       '/enrich': 'http://localhost:8000',
       '/claude': 'http://localhost:8000',
+      '/ai-provider': 'http://localhost:8000',
       '/kb': 'http://localhost:8000',
       '/proposals': 'http://localhost:8000',
       '/chat': 'http://localhost:8000',
