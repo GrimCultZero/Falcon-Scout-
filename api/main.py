@@ -109,19 +109,34 @@ def _set_ai_provider(provider: str) -> None:
     _AI_PROVIDER_FILE.write_text(_json_mod.dumps({"provider": provider}))
 
 def _flatten_for_cli(request: dict) -> str:
-    """Convert an Anthropic Messages API request dict to a plain text prompt for claude -p."""
+    """Convert an Anthropic Messages API request dict to a plain text prompt for claude -p.
+
+    Defensive against multimodal payloads: content blocks that aren't text
+    (PDF document blocks, images) or that carry a null `text` are coerced to
+    a safe string so the join never throws (a bare TypeError here would bubble
+    up as an opaque 500)."""
+    def _block_text(b) -> str:
+        if not isinstance(b, dict):
+            return ""
+        t = b.get("text")
+        if isinstance(t, str):
+            return t
+        # Non-text block (document/image) or null text — note it, don't crash.
+        bt = b.get("type")
+        return f"[{bt} attachment omitted]" if bt and bt not in ("text",) else ""
+
     parts = []
     system = request.get("system")
     if system:
         if isinstance(system, list):
-            system = "\n".join(b.get("text", "") for b in system if isinstance(b, dict))
-        parts.append(system)
+            system = "\n".join(_block_text(b) for b in system)
+        parts.append(str(system))
         parts.append("\n---\n")
     for msg in (request.get("messages") or []):
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if isinstance(content, list):
-            content = "\n".join(c.get("text", "") for c in content if isinstance(c, dict))
+            content = "\n".join(_block_text(c) for c in content)
         parts.append(f"{'Human' if role == 'user' else 'Assistant'}: {content}")
     return "\n".join(parts)
 
@@ -4761,10 +4776,11 @@ async def claude_proxy(request: dict):
         # (port 27182) instead of calling api.anthropic.com.
         if _get_ai_provider() == "cli":
             import httpx as _httpx_cli
-            prompt_text = _flatten_for_cli(request)
-            print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27182/ai")
+            import traceback as _tb
             try:
-                async with _httpx_cli.AsyncClient(timeout=180.0) as br:
+                prompt_text = _flatten_for_cli(request)
+                print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27182/ai")
+                async with _httpx_cli.AsyncClient(timeout=300.0) as br:
                     br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text})
                 if br_resp.status_code != 200:
                     raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")
@@ -4779,11 +4795,23 @@ async def claude_proxy(request: dict):
                     "stop_reason": "end_turn",
                     "usage": {"input_tokens": 0, "output_tokens": 0},
                 }
+            except HTTPException:
+                raise
             except _httpx_cli.ConnectError:
                 raise HTTPException(
                     status_code=502,
                     detail="CLI bridge offline — open a terminal and run: node cli-bridge.js"
                 )
+            except _httpx_cli.TimeoutException:
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"CLI bridge timed out ({kind}) — the CLI is slow on large prompts; try again"
+                )
+            except Exception as _cli_e:
+                # Surface the REAL error instead of a bare 500 so it's diagnosable.
+                print(f"[CLI bridge] {kind}: EXCEPTION {type(_cli_e).__name__}: {_cli_e}")
+                _tb.print_exc()
+                raise HTTPException(status_code=500, detail=f"CLI bridge failed ({kind}): {type(_cli_e).__name__}: {_cli_e}")
 
         # ── Prompt caching ──────────────────────────────────────────────────
         # Convert a string system prompt into two content blocks so Anthropic
