@@ -1710,3 +1710,49 @@ Also fixed while there:
   2300); spaces/nbsp/narrow-nbsp are always thousands separators; Cyrillic К/М → K/M.
 Verified EN and UK inputs now scrape identically (DR 42, UR 30, 1234 kw, 2300 traffic, 5600 bl,
 110 rd). Manifest 4.5 → 4.6. OWNER MUST RELOAD the extension.
+
+---
+
+## 2026-07-16 — CLI Bridge: zero-cost Claude via `claude -p` subscription (with API/CLI switch)
+
+Owner asked to port DevScout's CLI bridge to Falcon Scout: a switch so when the Anthropic API
+credit balance runs out, all `/claude` calls route through the local `claude -p` CLI (which runs on
+the Claude Pro subscription — free relative to pay-per-token API).
+
+**What was built:**
+- `cli-bridge.js` — Node HTTP server on :27182. `GET /ping` health check; `POST /ai {prompt}` pipes
+  the prompt to `claude -p` via stdin and returns `{content}`. CORS open to localhost.
+- `api/main.py` — `/ai-provider` GET+POST (persisted to `ai_provider.json`, gitignored, default
+  'api'). Inside `/claude`: when provider=='cli', flatten the Anthropic messages request
+  (`_flatten_for_cli`) to a plain prompt, POST to the bridge, wrap the reply in a fake Messages
+  API response shape so the frontend parses it unchanged. usage recorded as 0 tokens (free).
+- `frontend/src/App.jsx` — `AiProviderChip` in the header (left of usage chip). Click toggles
+  API↔CLI. Seeds from localStorage instantly (no flicker), confirms from backend in background,
+  writes localStorage on toggle so choice survives reload/restart. In CLI mode pings bridge every
+  5s → green/red dot.
+- `falconscout.bat` — auto-starts the bridge in its own window.
+
+**Bugs hit & fixed (in order — each needed a backend restart to surface the next):**
+1. `NameError: app not defined` — the `@app.get/post("/ai-provider")` decorators were placed above
+   `app = FastAPI()` (line 173). Moved them below it.
+2. API 500 in CLI mode — the `ANTHROPIC_API_KEY` guard at the top of `claude_proxy` fired before the
+   CLI branch. Now skipped when provider=='cli'.
+3. API 500 (again) — the outer `except Exception` in `claude_proxy` swallowed the bridge's
+   `HTTPException(502)` and rewrapped it 500. Added `except HTTPException: raise` passthrough.
+4. Provider never persisted — the first toggle's backend POST failed silently (backend was down),
+   so `ai_provider.json` was never written and backend kept defaulting to 'api'. Frontend now logs
+   save failures; created the file. (localStorage seeding + write-first toggle prevents recurrence.)
+5. **API 502 → the real Windows blocker.** Node's `spawn('claude')` can't resolve the `.cmd` shim on
+   Windows without `shell:true` (`claude` on PATH is `C:\Users\syzov\AppData\Roaming\npm\claude.cmd`
+   / `.ps1`). Added `shell: process.platform==='win32'`. Prompt goes via stdin (not argv) so no
+   injection surface — the DEP0190 shell-args warning is harmless here.
+6. **Root cause of the last failure: expired CLI OAuth.** `claude -p` returned
+   `401 OAuth access token has expired`. Owner re-authenticated via `claude` → `/login` → browser
+   authorize → paste code. NOTE for owner: Windows Terminal paste is **right-click**, not Ctrl+V.
+   Now logged in as analytics.itforce@gmail.com's Claude Pro.
+
+**Verified end-to-end:** `echo ... | claude -p` → BRIDGE_OK; `POST :27182/ai` → FULL_PATH_OK.
+
+**Gotcha for next iteration:** the bridge sidesteps the *API credit balance* (pay-per-token), NOT
+subscription usage limits. If the Pro plan's usage is exhausted, `claude -p` fails too. Also the CLI
+OAuth token expires periodically — if CLI mode suddenly 401s, re-run `claude` → `/login`.
