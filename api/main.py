@@ -76,6 +76,13 @@ def _ensure_job_columns():
         if "ahrefs_captured_at" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN ahrefs_captured_at DATETIME")
 
+        # The feed filters `hidden_at IS NULL` and sorts by captured_at DESC
+        # with LIMIT 200. A COMPOSITE index on (hidden_at, captured_at) lets
+        # SQLite satisfy both the filter and the ordering from one index — no
+        # temp b-tree / filesort — so the feed query stays instant no matter
+        # how large the jobs table grows.
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_jobs_hidden_captured ON jobs(hidden_at, captured_at)")
+
         kb_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(kb_entries)").fetchall()}
         if "is_core" not in kb_cols:
             conn.exec_driver_sql("ALTER TABLE kb_entries ADD COLUMN is_core INTEGER NOT NULL DEFAULT 0")
