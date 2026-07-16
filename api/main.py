@@ -4873,5 +4873,7 @@ async def claude_proxy(request: dict):
             return parsed
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Claude API timed out")
+    except HTTPException:
+        raise  # let 502 (bridge offline) and other explicit codes pass through
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
