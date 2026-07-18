@@ -4515,6 +4515,52 @@ if they conflict on specifics like phrasing, timing, framing, or wording):
 ${kbRulesText.replace(/^\n+/, '')}
 ═══════════════════════════════════════════════════════════════════
 ` : ''}
+═══════════════════════════════════════════════════════════════════
+PRIMARY WRITING DIRECTIVE — HOW TO EARN A REPLY (this is the whole job):
+The client is skimming dozens of proposals in seconds. They reply to the ONE
+that makes them feel UNDERSTOOD — that names their specific problem and shows
+you can fix THEIR situation. Everything else below serves this. If a sentence
+doesn't reference their situation, your concrete action, or real proof, DELETE IT.
+(Evidence: generic/credential openers reply <15%; opening with the client's own
+pain/metrics measurably lifts replies, opening with "I have experience with..."
+measurably lowers them; short investigated proposals reply ~24-28% vs ~8-12% for
+long-form.)
+
+1. DIAGNOSE FIRST — DO NOT INTRODUCE YOURSELF. The first 1-2 lines must name the
+   client's specific problem/goal FROM THEIR POSTING, in their words, plus the
+   angle you'd take. NOT your credentials, years, partner status, or a pleasantry.
+   BANNED opening lines (they blend into the pile and lower reply rates):
+   "12 years running Google Ads...", "12 years across SEO and Google Ads...",
+   "As a Google Premier Partner...", "I'm a PPC/SEO specialist with...",
+   "Hi, I hope you're doing well", "I'm very interested in your project".
+   Credentials/partner status may appear ONCE, LATER, as brief support — never
+   as the opener.
+
+2. ABOUT THEM, NOT YOU. "you/your" should outnumber "I/my". The letter is about
+   their business and problem, not your resume.
+
+3. DO NOT TEACH — DO NOT EXPLAIN HOW THEIR OWN PROBLEM WORKS. The client lives
+   this problem daily; a mini-lecture on the mechanics insults them and reads as
+   filler. BANNED: encyclopedic / "wikipedia" explanations of how things work
+   ("when tracking logs every submission equally, the algorithm optimises blind...",
+   "SEO works by...", "the way Google Ads decides which ad to show..."), and any
+   sentence that could sit in a textbook. Instead of explaining the mechanism,
+   say what you'd DO about THEIR situation and the result you got doing it. Prove
+   expertise by the sharpness of the diagnosis and the next step, never by lecturing.
+
+4. NO FLUFF — EVERY SENTENCE ON POINT. No throat-clearing, no lines that could fit
+   any job, no restating their posting back to them, no "here's how I work"
+   filler. Short and specific beats long and thorough. When in doubt, cut.
+
+5. WRITE LIKE THE FIRST MESSAGE IN A CHAT. This IS the first message the client
+   replies to: conversational, direct, human — not a formal essay, not third
+   person. It's good to close with the concrete first step or one sharp question
+   that invites a reply.
+
+(The KB RULES block above still overrides these on any specific phrasing, timing,
+or framing conflict.)
+═══════════════════════════════════════════════════════════════════
+
 YOUR ROLE — read this first:
 Your ONLY job is to produce output for this job. You are NOT the Analyser.
 
@@ -4986,6 +5032,27 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /profile\s+highlights?[^.]*(?:schema|AI\s+visibility|entity|breakdown|audit\s+sample)/i,
             ]
             const hasForbiddenPhrase = FORBIDDEN_PHRASES.some(re => re.test(text))
+
+            // ── Banned OPENER check (PRIMARY WRITING DIRECTIVE #1) ───────────
+            // The model keeps opening with a credential/pleasantry line despite
+            // the prompt rule ("12 years running Google Ads...", "As a Premier
+            // Partner...", "I'm very interested..."). Research is unambiguous:
+            // credential/generic openers reply <15% and measurably lower reply
+            // rate; a client-problem-first opener lifts it. Deterministically
+            // detect a bad FIRST line so the enforcer rewrites it into a hook
+            // that names the client's problem. Only the opener is checked, so
+            // credentials cited LATER as support are untouched.
+            const _firstLine = (text.trim().split('\n').find(l => l.trim().length > 0) || '').trim()
+            const BANNED_OPENERS = [
+              /^\d+\+?\s*years?\b/i,                                        // "12 years running..."
+              /^(?:with\s+)?(?:over\s+)?\d+\+?\s*years?\s+(?:of\s+)?experience/i,
+              /^(?:as\s+)?a?\s*google\s+premier\s+partner/i,                // "As a Google Premier Partner..."
+              /^i['’]?m\s+(?:a\s+)?(?:google\s+)?(?:ads?|ppc|seo|paid|digital|marketing|premier)/i, // "I'm a PPC/SEO specialist"
+              /^i\s+(?:have|bring|speciali[sz]e)\b/i,                        // "I have X years", "I specialise in"
+              /^(?:hi|hello|hey|greetings)\b[^.\n]{0,45}(?:hope|doing\s+well|how\s+are\s+you)/i, // "Hi, I hope you're doing well"
+              /^i['’]?m\s+(?:very\s+|really\s+|super\s+)?(?:interested|excited|keen|thrilled)\b/i, // "I'm very interested in your project"
+            ]
+            const hasBannedOpener = BANNED_OPENERS.some(re => re.test(_firstLine))
 
             // ── Circumvention-risk check (Trust & Safety critical) ───────────
             // Upwork's automated scanners flag anything that pattern-matches
@@ -5534,9 +5601,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
+              && !hasBannedOpener
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
+              hasBannedOpener && 'hasBannedOpener',
               hasForbiddenPhrase && 'hasForbiddenPhrase',
               missingAuditSampleMention && 'missingAuditSampleMention',
               wrongAuditOfferOnLaunch && 'wrongAuditOfferOnLaunch',
@@ -5669,6 +5738,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // enforcer knows exactly what to fix (and is allowed to add content
             // where the draft is missing required elements).
             const specificViolations = []
+            if (hasBannedOpener) {
+              specificViolations.push(
+                'OPENER VIOLATION (PRIMARY WRITING DIRECTIVE #1): the letter opens with a ' +
+                `credential/pleasantry line — "${_firstLine.slice(0, 90)}". This is the single ` +
+                'biggest reply-rate killer: generic/credential openers get skimmed past. Rewrite ' +
+                'ONLY the opening (first 1-2 lines) so it LEADS with the client\'s specific problem ' +
+                'or goal taken from THEIR posting, in their words, plus the angle you\'d take — NOT ' +
+                'Artem\'s years, partner status, or a pleasantry. Move the credential (if kept at all) ' +
+                'to a brief later mention, never the first line. Do not touch the rest of the letter.'
+              )
+            }
             if (!timingCompliant) {
               const _offending = [...new Set(draftTimings.filter(t => !allowedTimings.has(t)))]
               const _allowed = [...allowedTimings]
