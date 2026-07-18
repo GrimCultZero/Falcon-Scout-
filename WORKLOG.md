@@ -1756,3 +1756,46 @@ the Claude Pro subscription — free relative to pay-per-token API).
 **Gotcha for next iteration:** the bridge sidesteps the *API credit balance* (pay-per-token), NOT
 subscription usage limits. If the Pro plan's usage is exhausted, `claude -p` fails too. Also the CLI
 OAuth token expires periodically — if CLI mode suddenly 401s, re-run `claude` → `/login`.
+
+---
+
+## 2026-07-18 — Reply-rate drop: generator reoriented to pain-resonance (research-grounded)
+
+Owner reported a sharp reply-rate drop over the prior ~2 weeks; letters had drifted to an
+explanatory "teaching/wikipedia" tone with fluff, opening with credentials.
+
+**Diagnosis (two compounding causes):**
+1. Commit 9cde775 (Jul 2, "ban listy outline structure") forced flowing prose — the model filled
+   the prose the easiest way it could: by EXPLAINING how the client's own problem works ("when
+   tracking logs every submission equally, the algorithm optimises blind..."). That's the lecture tone.
+2. The generator system prompt had grown to ~40K chars of almost entirely PROHIBITIONS + formatting
+   mechanics, with NO strong positive directive to resonate with the client's specific pain. Letters
+   opened with "12 years running Google Ads, Premier Partner" (a credential opener).
+
+**Deep research (deep-research workflow; 9 adversarially-verified claims, 3-0/2-0 votes):**
+- Diagnosis-first, NOT resume-first: open by naming the client's specific problem, not credentials.
+  Generic/credential openers reply <15%; opening with the client's own pain/metrics measurably lifts
+  reply (+3.43pp in one benchmark), "I have experience with..." lowers it (-3.67pp).
+- About them, not you: "you/your" should outnumber "I/my". Self-focused resume-style = the #1 mistake.
+- Short beats long: long-form proposals reply ~8-12%, short investigated ones ~24-28%. (A rigid
+  "150-250 words" ideal was REFUTED 0-3 — the rule is brevity+specificity, not a magic number.)
+- Write like the first message in a chat (suggest/ask something), not a third-person essay.
+- Hook = 1-3 lines referencing concrete details from THEIR brief.
+Sources: gigradar.io benchmark study, pitchfuel, giguphq, workpajama, aiproposer, fawadk, getsmartbid.
+(Research hit the session limit near the end so synthesis was skipped; 9 confirmed claims stand.)
+
+**Fix (commit f9a8491):**
+- Added a PRIMARY WRITING DIRECTIVE at the TOP of the generator system prompt (right after the KB
+  rules block): diagnose-first opener; about-them-not-you; NO teaching/mechanics lectures; no fluff
+  (every sentence references their situation / your action / real proof or gets cut); write like a
+  chat, not an essay. KB rules still override on specific phrasing.
+- Deterministic backstop `BANNED_OPENERS`: inspects the FIRST non-empty line; if it's a credential/
+  pleasantry opener ("12 years...", "As a Premier Partner...", "I'm a PPC specialist...", "Hi, hope
+  you're doing well", "I'm very interested...") it flags the draft non-compliant so the enforcer
+  rewrites JUST the opener into a client-problem hook. Only the opener is checked — credentials cited
+  later as support are untouched. Validated: all real failing openers fire, client-problem openers
+  stay clean (no false positives).
+
+**Next-iteration note:** watch the reply rate over the next 2-3 weeks of sends to confirm the
+reorientation works. If still weak, candidate levers: trim the ~40K-char prompt (prohibition bloat
+may be crowding the positive directive), and consider shortening default letter length further.
