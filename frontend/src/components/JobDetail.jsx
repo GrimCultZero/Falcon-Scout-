@@ -3251,7 +3251,21 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       if (_hasHourly) {
         rateLine = `Rate: HOURLY $${job.hourly_rate_min ?? '?'}-$${job.hourly_rate_max ?? '?'}/hr (this is an HOURLY rate — apply the RATE-RANGE rule, compare the CEILING to ${_floorDirective}).`
       } else if (_hasFixed) {
-        rateLine = `Rate: FIXED-PRICE budget $${job.fixed_budget} USD${job.project_type ? ` (${job.project_type})` : ''} — this is a FIXED budget, NOT hourly. Apply the FIXED/FLAT-PRICE rule: estimate effort in hours from the scope, then compute effective hourly = budget ÷ hours, and compare THAT to ${_floorDirective}. The budget is in USD as captured ("Budget: $X"); do NOT speculate about other currencies.`
+        // Anomalous-budget guard: a fixed figure that is implausibly large
+        // (>= $50k as a one-off SEO/PPC deliverable) OR a fixed sum attached to
+        // an "ongoing" role is almost always BAD/placeholder data — our capture
+        // occasionally mis-grabs a number, and Upwork ongoing work is billed
+        // hourly/monthly, never as a lump sum. This must NEVER drive a SKIP
+        // (it was: a bogus $200k budget produced SKIP/3 on a perfect-fit job).
+        // Reframe as "verify this" and tell the model to judge on scope + client.
+        const _budgetNum = parseFloat(String(job.fixed_budget).replace(/[^0-9.]/g, '')) || 0
+        const _ongoingLabel = /ongoing/i.test(String(job.project_type || ''))
+        const _budgetAnomalous = _budgetNum >= 50000 || (_ongoingLabel && _budgetNum > 0)
+        if (_budgetAnomalous) {
+          rateLine = `Rate: the fixed-budget field shows $${job.fixed_budget}${job.project_type ? ` (${job.project_type})` : ''}, but treat this number as SUSPECT / UNVERIFIED DATA — NOT a fact and NOT a reason to skip. ${_ongoingLabel ? 'It is labeled an ONGOING role, which is normally billed hourly or monthly, not as a single fixed sum. ' : ''}${_budgetNum >= 50000 ? `$${job.fixed_budget} as a one-off SEO/PPC engagement is implausible and is almost certainly a capture error or a placeholder ceiling. ` : ''}A large or incoherent budget figure is NEVER a disqualifier — if anything a big budget is a positive signal. Do NOT call this job "unbiddable" or "structurally incoherent", do NOT build the verdict around this number, and do NOT deduct points for it. Add exactly ONE flag: "Budget figure ($${job.fixed_budget}) looks anomalous — verify before bidding". Then score the job on SCOPE FIT, CLIENT QUALITY, and the client's historical hourly rate, treating the budget as effectively unspecified.`
+        } else {
+          rateLine = `Rate: FIXED-PRICE budget $${job.fixed_budget} USD${job.project_type ? ` (${job.project_type})` : ''} — this is a FIXED budget, NOT hourly. Apply the FIXED/FLAT-PRICE rule: estimate effort in hours from the scope, then compute effective hourly = budget ÷ hours, and compare THAT to ${_floorDirective}. The budget is in USD as captured ("Budget: $X"); do NOT speculate about other currencies.`
+        }
       } else {
         rateLine = `Rate: NOT SPECIFIED in the posting. Do NOT fabricate a rate, currency, or rate type. Treat the rate as genuinely unknown, add a flag "Rate not specified — cannot assess rate-floor risk", and do NOT let an invented rate drive the verdict up or down.`
       }
@@ -3371,6 +3385,8 @@ A flat fixed-price budget is a DOLLAR AMOUNT, not a rate. NEVER directly compare
     - "$200 flat" for "quick GA4 setup" (≈2h) → effective $100/hr → fine
 - The flag MUST quote both numbers so the user can sanity-check: "$100 flat ÷ ~12h scope ≈ $8/hr effective, below $30/hr minimum"
 - Same hard-disqualifier thresholds apply to the EFFECTIVE rate as to hourly: < $15/hr → hard SKIP; $15-29 → soft flag + −1; ≥ $30 → acceptable.
+
+ANOMALOUS / IMPLAUSIBLE BUDGET RULE (mandatory — data-quality, not disqualifier): A budget figure that is implausibly large for the scope (e.g. tens of thousands of dollars for an SEO/PPC engagement), or a fixed lump-sum attached to an "ongoing" role, is almost always a CAPTURE ERROR or a placeholder — not a real client term. NEVER treat such a number as a fact, and NEVER let it drive the verdict. Specifically: do NOT call the job "unbiddable", "structurally incoherent", or skip it because the budget "doesn't make sense"; do NOT compute an effective rate from a clearly-bogus number; do NOT deduct points for it. A large budget, if anything, is a POSITIVE signal (well-funded, serious client). When the budget looks anomalous, add exactly ONE flag ("Budget figure $X looks anomalous — verify before bidding") and then score the job on SCOPE FIT, CLIENT QUALITY, and the client's historical hourly rate, treating the budget as effectively unspecified. A weird budget number is a reason to VERIFY, never a reason to SKIP a job whose scope and client otherwise fit.
 
 CLIENT AVG RATE SIGNAL — RATE-FLOOR RISK OR UPSIDE (mandatory; the avg is what they actually pay — it can cut EITHER way: below floor = risk, above ceiling = upside):
 The "Client avg hourly rate paid to freelancers" field is what this client HAS ACTUALLY PAID across their past contracts. Treat it as a stronger predictor than the posted rate range when the two disagree — clients consistently pay what their history shows, not what their job post advertises.
