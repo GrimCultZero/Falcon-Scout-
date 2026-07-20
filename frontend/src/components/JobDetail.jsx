@@ -2109,6 +2109,21 @@ function _stripLeadingNarration(text) {
   return paras.join('\n\n')
 }
 
+// The signoff "Artem" sometimes leaks to the TOP of the letter (the model emits
+// the name before the body), so the letter opens by just saying "Artem". Strip a
+// signoff that stands alone as the opening line(s) — with or without a closer
+// ("Best,\nArtem", "Regards, Artem", bare "Artem"). Only fires when "Artem" is
+// the whole opening line (followed by a line break); never touches "Artem" used
+// inside the first sentence (e.g. "Artem here, I noticed…").
+function _stripLeadingSignoff(text) {
+  if (!text) return text
+  const cleaned = text.replace(
+    /^\s*(?:(?:best|kind)\s+regards?|regards|thanks|thank\s+you|cheers|sincerely|best)?\s*[,–-]?\s*artem\s*[.,!]?\s*\n+/i,
+    ''
+  )
+  return cleaned.replace(/^\s+/, '')
+}
+
 // Deterministic CASING normaliser. Philosophy: casing is NEVER where the
 // "human imperfection" lives — a real person capitalises "I" and their own name
 // automatically; uniform lowercase "i"/"artem" reads as an AI affectation, not a
@@ -4881,6 +4896,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       // Shared cleanup — markdown strip + em/en-dash → hyphen. Same helper the
       // chat answers use, so cover letter and chat output never drift.
       text = _cleanPasteText(text)
+      // Kill a signoff that leaked to the top (letter opening with just "Artem").
+      text = _stripLeadingSignoff(text)
 
       // KB Rule 416: strip any day-count turnaround promised on a technical SEO
       // audit ("audit in 2 working days"). That turnaround is the SEO PLAN only;
@@ -5229,7 +5246,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\b(?:on\s+the\s+)?(?:site|tracking|campaign|account|technical|analytics|creative|copy|landing[-\s]?page|paid|organic)\s+side\s*:/i,
               /\bstep\s+\d+\s*[-:–]/i,
             ]
+            // Also catch the "topic checklist" shape: multiple paragraphs each
+            // starting with a short Title-case label then a spaced dash then the
+            // body ("Schema/structured data - Product schema…", "GEO/AI visibility
+            // - LLMs rank…"). Case-study lead-ins use ": " (colon), not " - ", so
+            // they don't match. 2+ such label-blocks reads as an outline.
+            const _labelBlockRe = /(?:^|\n)[ \t]*[A-Z][\w/&]{1,25}(?:[ \t]+[\w/&()]+){0,4}[ \t]+[–-][ \t]+\S/g
+            const _labelBlockCount = (text.match(_labelBlockRe) || []).length
             const hasListyOutline = _OUTLINE_LABEL_RES.filter(re => re.test(text)).length >= 2
+              || _labelBlockCount >= 2
 
             // ── Fabricated GEOGRAPHIC experience (opener) ────────────────────
             // The opener sometimes claims Artem "works with sites in <the client's
@@ -6066,7 +6091,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             })
             if (enforceRes.ok) {
               const enforceData = await enforceRes.json()
-              const correctedText = (enforceData.content || []).map(b => b.text || '').join('').trim()
+              const correctedText = _stripLeadingSignoff((enforceData.content || []).map(b => b.text || '').join('').trim())
               if (correctedText && correctedText.length > 40) {
                 text = correctedText
               }
