@@ -44,19 +44,26 @@
            (/\d+\s+[Cc]onnects/.test(text) && /(?:1st|2nd|3rd|4th)\s+place/i.test(text));
   }
 
-  async function waitForContent(maxMs) {
+  // The auction/bid table populates a beat AFTER the rest of the apply form.
+  // We must NOT return as soon as any "N Connects" text appears — the balance
+  // line "457 Connects available." renders immediately and would make us scrape
+  // before the bid rows exist (the original bug: 0 bids detected on jobs that
+  // clearly had bids). Wait specifically for the bid-row markers ("1st place",
+  // "2nd place", …), then a short settle so all 4 rows are in.
+  const BID_ROW_RE = /(?:1st|2nd|3rd|4th)\s+place/i;
+
+  async function waitForBids(maxMs) {
     const deadline = Date.now() + maxMs;
     while (Date.now() < deadline) {
       const t = document.body ? document.body.innerText : '';
-      // Apply page has loaded enough content to be useful
-      if (t.length > 300 && (
-        /boost\s+your\s+proposal/i.test(t) ||
-        /\d+\s+[Cc]onnects/.test(t) ||
-        /submit\s+a\s+proposal/i.test(t) ||
-        /cover\s+letter/i.test(t)
-      )) return t;
-      await new Promise(r => setTimeout(r, 500));
+      if (BID_ROW_RE.test(t)) {
+        // Rows appeared — give the table one more tick to fully populate.
+        await new Promise(r => setTimeout(r, 900));
+        return document.body ? document.body.innerText : t;
+      }
+      await new Promise(r => setTimeout(r, 400));
     }
+    // Timed out — no bid rows (job may genuinely have no competing bids).
     return document.body ? document.body.innerText : '';
   }
 
@@ -65,8 +72,9 @@
     const jobId = jobIdFromUrl(startUrl);
     if (!jobId) return;
 
-    // Wait for page content
-    const bodyText = await waitForContent(12000);
+    // Wait for the bid rows specifically (see waitForBids) — 15s is plenty for
+    // the auction table to load; on a no-bids job it times out and returns [].
+    const bodyText = await waitForBids(15000);
     const finalUrl = window.location.href;
 
     // Detect redirects (SPA navigated away from apply page)
@@ -74,7 +82,8 @@
 
     console.log('[Falcon Apply] ~' + jobId, '| url:', finalUrl.slice(0, 80),
       '| onApplyPage:', onApplyPage, '| bodyLen:', bodyText.length,
-      '| boostSection:', detectBoostSection(bodyText));
+      '| boostSection:', detectBoostSection(bodyText),
+      '| bidRows:', BID_ROW_RE.test(bodyText));
 
     // Send diagnostic back to background regardless of bid result
     const bids = extractBids(bodyText);
