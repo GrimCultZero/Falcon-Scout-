@@ -4535,6 +4535,20 @@ long-form.)
    "Hi, I hope you're doing well", "I'm very interested in your project".
    Credentials/partner status may appear ONCE, LATER, as brief support — never
    as the opener.
+   GROUND THE OPENER — NEVER FABRICATE (this overrides "be specific"): "specific"
+   means specific to what the posting ACTUALLY says, never invented. You have NOT
+   seen their account, site, or metrics. NEVER state a concrete figure about their
+   business you were not given — no "you've got ~15% impression share", no "your
+   ROAS is X", no made-up CPA / conversion rate / CTR / traffic number / auction
+   share. If the posting is THIN or GENERIC (e.g. "manage and optimise our Google
+   Ads", "drive traffic") and names no concrete problem or number, DO NOT invent
+   one. Instead open with their GOAL in their words (e.g. "scaling Google Ads for
+   Scorehub") plus the most likely high-value lever framed EXPLICITLY AS A PATTERN,
+   not as a diagnosed fact: write "for a subscription product the usual budget-leak
+   is X" — NOT "you're leaking budget on X" or "your tracking is firing on the
+   wrong events". The real specifics come from the audit; it's fine to say so. A
+   confident diagnosis of an account you haven't seen reads as guessing and destroys
+   trust — the exact opposite of resonance.
 
 2. ABOUT THEM, NOT YOU. "you/your" should outnumber "I/my". The letter is about
    their business and problem, not your resume.
@@ -5089,6 +5103,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /your\s+(?:current\s+)?(?:technical\s+foundation|schema|tracking|setup|site|account|campaigns?|tags?|pixels?|conversions?)\s+(?:isn'?t|is\s+not|aren'?t|are\s+not|has(?:n'?t)?|lacks?|is\s+missing|needs?)\b/i,
               /google\s+(?:isn'?t|is\s+not|can'?t|cannot)\s+(?:connecting|showing|ranking|indexing|finding|crawling|reading)/i,
               /(?:right\s+now|currently),?\s+(?:your|the)\s+(?:site|account|setup|tracking|schema)/i,
+              // Fabricated METRIC about the client's account (a number Artem was
+              // never given). "You've got ~15% impression share", "you're at 2x
+              // ROAS", "your CPA is $40", "your impression share is 15%", etc.
+              // The posting almost never states these; asserting one = guessing.
+              /\b(?:you(?:'ve| have| are|'re)?|your)\b[^.\n]{0,40}\b\d[\d.,]*\s*[%xX]?\s*(?:impression\s+share|ROAS|CPA|CPC|CTR|conversion\s+rate|click-?through|quality\s+score)/i,
+              /\b(?:impression\s+share|ROAS|CPA|CPC|CTR|conversion\s+rate|quality\s+score)\b[^.\n]{0,25}\b(?:is|of|at|around|~|sits?\s+at)\b[^.\n]{0,10}\d/i,
             ]
             const hasFabricatedDiagnosis = FABRICATED_DIAGNOSIS.some(re => re.test(text))
 
