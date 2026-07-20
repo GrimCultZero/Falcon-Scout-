@@ -5498,7 +5498,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // suppressed. Guarded by "no growth language + no retainer" so genuine
               // ongoing-SEO / growth jobs (which DO want the plan) are unaffected.
               const _TECH_FIX_RE = /\b(technical\s+seo|rich\s+snippet|schema|structured\s+data|core\s+web\s+vitals|indexation|crawl(?:ability)?|canonical|hreflang|\bamend|(?:not|aren'?t|isn'?t)\s+showing|troubleshoot|page\s*speed)\b/i
-              const _GROWTH_RE = /\b(grow(?:th|ing)?|increase\s+(?:traffic|rankings?|leads|sales)|rank\s+(?:higher|better)|organic\s+growth|more\s+(?:traffic|leads|sales)|drive\s+(?:traffic|leads)|scale\s+(?:traffic|rankings)|link[\s-]?building|monthly\s+seo|content\s+strategy|promotion|campaign)\b/i
+              const _GROWTH_RE = /\b(grow(?:th|ing)?|increase\s+(?:traffic|rankings?|leads|sales)|rank\s+(?:higher|better)|pages?\s+that\s+rank|organic\s+growth|more\s+(?:traffic|leads|sales)|drive\s+(?:traffic|leads)|scale\s+(?:traffic|rankings)|link[\s-]?building|monthly\s+seo|content\s+(?:strategy|marketing)|build\s+content|promotion|campaign|own\s+(?:how|our|your|the)\b|discover(?:y|ed)?\b|ai\s+(?:answer|overview|tool)|get\s+picked\s+up)\b/i
               const jobIsTechFixOnly = _TECH_FIX_RE.test(jobContextLower) && !_GROWTH_RE.test(jobContextLower) && !_RETAINER_SIGNAL_RE.test(jobContextLower)
               const jobIsAuditOnly = (/\baudit\b/i.test(jobContextLower) || jobIsTechFixOnly) &&
                 !_RETAINER_SIGNAL_RE.test(jobContextLower)
@@ -5534,7 +5534,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               }
             }
 
-            const isAuditJob = /\baudit\b/i.test(jobContextLower)
+            // Audit-type jobs don't always use the literal word "audit" — a
+            // posting asking for technical SEO / crawl-indexation / faceted-nav /
+            // schema / site-speed / Search Console work is an audit-driven job and
+            // MUST still carry the audit-sample mention. (Gap that silently
+            // produced letters with no deliverable at all.)
+            const _AUDIT_SIGNAL_RE = /\b(technical\s+seo|crawl(?:ing|ability|\s+budget)?|index(?:ing|ation)|faceted\s+nav(?:igation)?|structured\s+data|schema(?:\s+markup)?|site\s+speed|core\s+web\s+vitals|site\s+review|search\s+console|\bgsc\b|canonical|redirect\s+chain|migration|traffic\s+drop|ranking\s+drop|diagnos)/i
+            const isAuditJob = /\baudit\b/i.test(jobContextLower) || _AUDIT_SIGNAL_RE.test(jobContextLower)
             let missingAuditSampleMention = false
             if (isAuditJob) {
               // Check that the draft contains both "attach" and "sample" (in any
