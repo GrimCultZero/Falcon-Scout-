@@ -2007,12 +2007,22 @@ const _SEO_AUDIT_TURNAROUND_RE =
 // Catches "Timeline: audit delivered within N days of ..." — strip the whole sentence
 const _AUDIT_TIMELINE_LABEL_RE =
   /^[ \t]*Timeline\s*:\s*audit\b[^\n.]*(?:in|within)\s+\d+[^\n.]*days?\b[^\n.]*[.\n]?/gim
+// A technical DIAGNOSTIC / crawl carries no day-count either (same rule as the
+// technical audit — the "2 working days" turnaround is the SEO PLAN only). The
+// model phrases it as "run a technical diagnostic in 2 working days", which the
+// audit regex above misses because there's no literal "audit". Strip the timing,
+// keep the diagnostic phrase. Does NOT touch "SEO promotion plan ... 2 working
+// days" (no "diagnostic") or the Google Ads audit (no "diagnostic").
+const _DIAGNOSTIC_TURNAROUND_RE =
+  /((?:technical\s+(?:seo\s+)?|seo\s+|crawl\s+|indexation\s+)?diagnostic(?:\s+crawl)?)\s+(?:in|within|delivered\s+(?:in|within)?|turned?\s+around\s+in)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?/gi
 function _stripSeoAuditTurnaround(text) {
   if (!text) return text
   // Strip "Timeline: audit ... N days" sentence first (whole sentence removal)
   text = text.replace(_AUDIT_TIMELINE_LABEL_RE, '')
   // Strip SEO-prefixed "... audit in/within N days" (keep audit phrase)
   text = text.replace(_SEO_AUDIT_TURNAROUND_RE, '$1')
+  // Strip "... diagnostic in/within N days" (keep the diagnostic phrase)
+  text = text.replace(_DIAGNOSTIC_TURNAROUND_RE, '$1')
   return text
 }
 
@@ -2122,6 +2132,17 @@ function _stripLeadingSignoff(text) {
     ''
   )
   return cleaned.replace(/^\s+/, '')
+}
+
+// Strip a redundant "Attachments: …" summary line. Each case-study paragraph
+// already carries its own "(attached …)" label, so a trailing list line is
+// duplicative machine-junk (e.g. "Attachments: derma solution (attached as PDF)
+// (PDF), skin reboot (attached as PDF) (PDF), …").
+function _stripAttachmentsSummaryLine(text) {
+  if (!text) return text
+  return text
+    .replace(/(?:^|\n)[ \t]*attachments?\s*:[^\n]*(?=\n|$)/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
 }
 
 // Deterministic CASING normaliser. Philosophy: casing is NEVER where the
@@ -4565,7 +4586,13 @@ long-form.)
    "As a Google Premier Partner...", "I'm a PPC/SEO specialist with...",
    "Hi, I hope you're doing well", "I'm very interested in your project".
    Credentials/partner status may appear ONCE, LATER, as brief support — never
-   as the opener.
+   as the opener. But DO include exactly one concise credibility line right after
+   the hook that makes Artem's relevant experience clear — years + the specific
+   relevant track record (e.g. "12 years in technical SEO, Google Premier Partner,
+   built the crawl/indexation architecture for catalog sites with 10k+ SKU
+   pages"). One sentence, concrete, tied to THIS job's need — not a resume, but it
+   must be there so the client knows who they're dealing with. A letter with no
+   clear statement of experience reads as anonymous.
    GROUND THE OPENER — NEVER FABRICATE (this overrides "be specific"): "specific"
    means specific to what the posting ACTUALLY says, never invented. You have NOT
    seen their account, site, or metrics. NEVER state a concrete figure about their
@@ -4596,6 +4623,11 @@ long-form.)
 4. NO FLUFF — EVERY SENTENCE ON POINT. No throat-clearing, no lines that could fit
    any job, no restating their posting back to them, no "here's how I work"
    filler. Short and specific beats long and thorough. When in doubt, cut.
+   KEEP IT TIGHT: lead with the 1-2 HIGHEST-VALUE levers for this job, not an
+   exhaustive checklist of everything you'd do. Two short diagnostic paragraphs
+   MAXIMUM — a long letter that lists every possible fix reads as a capabilities
+   dump and replies worse than a sharp, focused one. Pick the sharpest angles and
+   stop.
 
 5. WRITE LIKE THE FIRST MESSAGE IN A CHAT. This IS the first message the client
    replies to: conversational, direct, human — not a formal essay, not third
@@ -4898,6 +4930,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       text = _cleanPasteText(text)
       // Kill a signoff that leaked to the top (letter opening with just "Artem").
       text = _stripLeadingSignoff(text)
+      // Kill a redundant "Attachments: …" summary line (case studies self-label).
+      text = _stripAttachmentsSummaryLine(text)
 
       // KB Rule 416: strip any day-count turnaround promised on a technical SEO
       // audit ("audit in 2 working days"). That turnaround is the SEO PLAN only;
@@ -5480,8 +5514,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             let missingSeoPlanOffer = false
             let wrongSeoPlanTiming = false
             let wrongPlanOnAuditJob = false
+            // Hoisted so the audit-sample check below can enforce ONE deliverable
+            // per letter (never both a 3-month plan AND a technical audit offer).
+            let hasSeoPlanMention = false
+            let jobIsAuditOnly = false
             if (jobIsSeo && !jobIsPpc && !jobIsWebdev) {
-              const hasSeoPlanMention = /\b(?:seo\s+(?:promotion\s+)?plan|seo\s+roadmap|promotion\s+plan)\b/i.test(text)
+              hasSeoPlanMention = /\b(?:seo\s+(?:promotion\s+)?plan|seo\s+roadmap|promotion\s+plan)\b/i.test(text)
               // For a pure audit-only job with no retainer/ongoing component, the audit
               // sample attachment IS the CTA — suppress the plan check. But if the job
               // mentions a retainer or ongoing work, the plan is still required even when
@@ -5500,13 +5538,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               const _TECH_FIX_RE = /\b(technical\s+seo|rich\s+snippet|schema|structured\s+data|core\s+web\s+vitals|indexation|crawl(?:ability)?|canonical|hreflang|\bamend|(?:not|aren'?t|isn'?t)\s+showing|troubleshoot|page\s*speed)\b/i
               const _GROWTH_RE = /\b(grow(?:th|ing)?|increase\s+(?:traffic|rankings?|leads|sales)|rank\s+(?:higher|better)|pages?\s+that\s+rank|organic\s+growth|more\s+(?:traffic|leads|sales)|drive\s+(?:traffic|leads)|scale\s+(?:traffic|rankings)|link[\s-]?building|monthly\s+seo|content\s+(?:strategy|marketing)|build\s+content|promotion|campaign|own\s+(?:how|our|your|the)\b|discover(?:y|ed)?\b|ai\s+(?:answer|overview|tool)|get\s+picked\s+up)\b/i
               const jobIsTechFixOnly = _TECH_FIX_RE.test(jobContextLower) && !_GROWTH_RE.test(jobContextLower) && !_RETAINER_SIGNAL_RE.test(jobContextLower)
-              const jobIsAuditOnly = (/\baudit\b/i.test(jobContextLower) || jobIsTechFixOnly) &&
+              jobIsAuditOnly = (/\baudit\b/i.test(jobContextLower) || jobIsTechFixOnly) &&
                 !_RETAINER_SIGNAL_RE.test(jobContextLower)
               const draftHasAuditSampleAttach = /\battach(?:ing|ed)?\b[^.]{0,60}\bsample\b[^.]{0,80}\baudit\b/i.test(text) ||
                 /\baudit\b[^.]{0,60}\bsample\b[^.]{0,60}\battach/i.test(text)
-              // Suppress plan requirement ONLY for audit-only jobs where the draft already
-              // has the audit-sample attachment as its CTA.
-              const planSuppressedByAuditCTA = jobIsAuditOnly && draftHasAuditSampleAttach
+              // One deliverable per letter. Suppress the plan requirement when the
+              // job is audit-only (the audit sample IS the deliverable there) OR
+              // when the draft already offers an audit sample — never force BOTH.
+              const planSuppressedByAuditCTA = jobIsAuditOnly || draftHasAuditSampleAttach
               missingSeoPlanOffer = !hasSeoPlanMention && !planSuppressedByAuditCTA
               // Inverse: on a pure AUDIT-ONLY job, the 3-month SEO promotion plan is
               // the WRONG deliverable — it's an ongoing-campaign document. If the
@@ -5548,7 +5587,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // "i'm attaching a recent audit sample", etc.
               const hasAttach = /\battach/i.test(text)
               const hasSampleRef = /\bsample/i.test(text)
-              missingAuditSampleMention = !(hasAttach && hasSampleRef)
+              // Require the audit sample ONLY on audit-only (technical/diagnosis)
+              // jobs, and only when there's no other deliverable. Growth/ongoing
+              // SEO jobs get the 3-month plan instead (missingSeoPlanOffer) — never
+              // force BOTH the plan and the audit offer in the same letter.
+              missingAuditSampleMention = !(hasAttach && hasSampleRef) && !hasSeoPlanMention && jobIsAuditOnly
             }
 
             // ── Wrong audit offer on a LAUNCH / from-scratch job (KB Rule 450) ──
@@ -6097,7 +6140,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             })
             if (enforceRes.ok) {
               const enforceData = await enforceRes.json()
-              const correctedText = _stripLeadingSignoff((enforceData.content || []).map(b => b.text || '').join('').trim())
+              const correctedText = _stripAttachmentsSummaryLine(_stripLeadingSignoff((enforceData.content || []).map(b => b.text || '').join('').trim()))
               if (correctedText && correctedText.length > 40) {
                 text = correctedText
               }
