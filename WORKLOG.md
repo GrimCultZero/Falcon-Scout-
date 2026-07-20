@@ -1864,3 +1864,35 @@ generation can run free on the Claude Pro subscription via `claude -p` when API 
 capped at 200 + composite index `(hidden_at, captured_at)` + auto-prune keeping last 200 +
 responded/hired/starred (6695→291 rows). Bids updater: waitForBids now waits for actual bid rows,
 not any "Connects" text. Similar-jobs panel surfaces the outcomes it counts.
+
+---
+
+## 2026-07-20 (later) — Anti-fabrication rearchitecture, Phase 1: GROUNDING CONTRACT + fenced few-shot
+
+Root-cause review of "why does the generator still fabricate despite KB cases + rules + ~30 guards":
+the architecture was upside-down. Evidence: generator prompt ~40K chars, 576 prohibition markers,
+38 deterministic guard flags feeding a BEST-EFFORT enforcer. The clean KB cases are injected as
+FEW-SHOT to emulate ("EXAMPLES OF PROPOSALS ARTEM LIKED — study voice/structure", past winners
+labeled "REPLY-WINNER — emulate most heavily"). Those real letters are dense with specific client
+diagnoses + hard metrics, so imitation teaches "a good letter is confidently specific with numbers"
+— and on a thin posting the model INVENTS specifics to match the pattern. Imitation beats every
+"don't fabricate" rule; there was NO bound on the model's factual surface.
+
+Fix = invert it: bound the allowed facts instead of prohibiting fabrication after the fact.
+Phase 1 (this change, JobDetail.jsx, generator only):
+- GROUNDING CONTRACT block near the top of the generator system prompt (after the PRIMARY WRITING
+  DIRECTIVE): every specific must trace to ONE of two sources — (1) CLIENT FACTS = the posting only
+  (no invented metrics/diagnoses about the client); (2) APPROVED PROOF = the "ARTEM'S APPROVED CASE
+  STUDIES" + "VERTICAL REFERENCE TEMPLATES" sections only (verbatim numbers, no transferring/
+  inventing/retrofitting a metric onto a case). Before emitting any number/claim, confirm it traces;
+  else restate as a general pattern or drop it.
+- Fenced the few-shot: the "EXAMPLES OF PROPOSALS ARTEM LIKED" and "PAST COVER LETTERS ARTEM SENT"
+  headers now say STYLE/STRUCTURE ONLY, NOT A FACT SOURCE — their client details + numbers belong to
+  other jobs, off-limits to reuse or imitate-as-specifics. Winner weighting is now explicitly "for
+  STRUCTURE only".
+
+Remaining phases (agreed, not yet done): Phase 2 = replace the 38-regex whack-a-mole with ONE
+grounding verify pass ("does every claim trace to CLIENT FACTS / APPROVED PROOF? rewrite what
+doesn't"); Phase 3 = slim the 40K-char / 576-negative prompt to positive principles + a short hard
+list + job-matched rules only. Watch the next batch of generations to gauge Phase-1 impact before
+Phase 2.

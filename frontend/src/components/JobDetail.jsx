@@ -4345,7 +4345,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
           const examples = (await examplesRes.json())
             .filter(e => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(e.content || ''))
           if (examples.length > 0) {
-            examplesText = '\n\nEXAMPLES OF PROPOSALS ARTEM LIKED (study the voice, structure, length — compose fresh, do NOT copy phrases):\n' +
+            examplesText = '\n\nEXAMPLES OF PROPOSALS ARTEM LIKED — STYLE REFERENCE ONLY, NOT A FACT SOURCE. Study the voice, length, and structure. The client details, numbers, and case metrics inside these belong to OTHER jobs — do NOT copy phrases, do NOT reuse those specifics, and do NOT invent similar-looking specifics for the current job. Every specific in YOUR letter must come from CLIENT FACTS (the posting) or APPROVED PROOF (the case studies below), per the GROUNDING CONTRACT.\n' +
               examples.slice(0, 3).map((e, i) => `Example ${i+1}:\n${e.content}`).join('\n\n')
           }
         }
@@ -4445,11 +4445,11 @@ function ProposalColumn({ job, bridgeReady = false }) {
               }
               return `Past cover letter ${i+1}${label} — "${e.title}":\n${text.slice(0, 600)}${replyBlock}`
             })
-            pastProposalsText = '\n\nPAST COVER LETTERS ARTEM SENT (study tone, voice, structure — do NOT copy phrases, write fresh for this job). Weighting:\n' +
-              '  • [REPLY-WINNER] = strongest signal. Similar job AND the client actually wrote back (excerpt of the reply is included). These letters provably triggered a written response — model their structure, opening hooks, case-study placement, and closing patterns most heavily.\n' +
-              '  • [WINNER] = similar job with positive status (hired/interviewing/replied) but no reply text captured. Strong signal, but lighter than REPLY-WINNER.\n' +
-              '  • (unlabeled) = recent sent letters with no similarity match — use for general voice/style, not pattern weighting.\n' +
-              'When a [REPLY-WINNER] is present, prioritise emulating its approach over any [WINNER] entry.\n\n' +
+            pastProposalsText = '\n\nPAST COVER LETTERS ARTEM SENT — STYLE / STRUCTURE REFERENCE ONLY, NOT A FACT SOURCE. The client details, numbers, and case metrics inside these belong to OTHER jobs: do NOT copy phrases, do NOT reuse those specifics, and do NOT invent similar-looking specifics for the current job. Emulate ONLY tone, opening approach, case-study placement, length, and closing patterns. Every specific in YOUR letter must come from CLIENT FACTS (the posting) or APPROVED PROOF (the case studies below), per the GROUNDING CONTRACT. Weighting (for STRUCTURE only):\n' +
+              '  • [REPLY-WINNER] = strongest signal. Similar job AND the client actually wrote back (reply excerpt included). These provably triggered a response — model their structure, opening hooks, case-study placement, and closing patterns most heavily.\n' +
+              '  • [WINNER] = similar job with positive status (hired/interviewing/replied) but no reply text captured. Strong signal, lighter than REPLY-WINNER.\n' +
+              '  • (unlabeled) = recent sent letters with no similarity match — general voice/style only, not pattern weighting.\n' +
+              'When a [REPLY-WINNER] is present, prioritise emulating its STRUCTURE over any [WINNER] entry.\n\n' +
               proposalSnippets.join('\n\n')
           }
         }
@@ -4636,6 +4636,36 @@ long-form.)
 
 (The KB RULES block above still overrides these on any specific phrasing, timing,
 or framing conflict.)
+═══════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════
+GROUNDING CONTRACT — WHERE FACTS MAY COME FROM (this overrides everything below;
+a breach is the single worst failure this system can make):
+You have TWO — and only two — sources of facts. EVERY specific in the letter (every
+number, metric, client detail, diagnosis, claim of past work) MUST trace to one:
+
+ (1) CLIENT FACTS = the job posting (in the "Write a cover letter for this job"
+     message). This is your ONLY source of facts about the client. You have NOT
+     seen their site, account, analytics, or campaigns. NEVER state a number,
+     metric, percentage, or diagnosis about the client that the posting does not
+     literally contain — no "you've got ~15% impression share", no "your tracking
+     is firing on the wrong events", no invented traffic / ROAS / CPA / ranking
+     figures. If the posting doesn't give it, you don't have it: speak in general
+     PATTERN terms ("for a catalog this size the usual indexation trap is …"),
+     never as a diagnosed fact about THEM.
+
+ (2) APPROVED PROOF = the "ARTEM'S APPROVED CASE STUDIES" and "VERTICAL REFERENCE
+     TEMPLATES" sections further down. These are the ONLY results, client names,
+     and metrics you may cite for Artem. Use the numbers VERBATIM. NEVER invent a
+     metric, round it, transfer a metric to a different client, or attribute an
+     outcome to a case whose entry doesn't state it (e.g. do NOT claim an older
+     case "fed LLM citations" / "got cited by AI" unless its entry says exactly that).
+
+The EXAMPLE letters and PAST COVER LETTERS are NOT a fact source — they show voice
+and structure only; their specifics belong to other jobs and are off-limits.
+Before emitting any sentence with a number or a claim about the client or Artem's
+results, silently confirm it traces to CLIENT FACTS or APPROVED PROOF. If it does
+not, delete it or restate it as a general pattern. When in doubt, leave it out.
 ═══════════════════════════════════════════════════════════════════
 
 YOUR ROLE — read this first:
