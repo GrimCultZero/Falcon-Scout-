@@ -1799,3 +1799,68 @@ Sources: gigradar.io benchmark study, pitchfuel, giguphq, workpajama, aiproposer
 **Next-iteration note:** watch the reply rate over the next 2-3 weeks of sends to confirm the
 reorientation works. If still weak, candidate levers: trim the ~40K-char prompt (prohibition bloat
 may be crowding the positive directive), and consider shortening default letter length further.
+
+---
+
+## 2026-07-20 — Generator/analyser hardening batch (live letter-review loop with owner)
+
+Owner ran the generator on real jobs and flagged issues one by one; each was fixed permanently
+(prompt rule + deterministic guard/strip). This is the batch that followed the 2026-07-18 pain-
+resonance reorientation. All changes in `frontend/src/components/JobDetail.jsx`.
+
+**Analyser:**
+- ANOMALOUS BUDGET → verify-flag, never SKIP. A bogus `$200,000` fixed budget (a capture artifact —
+  never in the posting text; the `fixed_budget`/`Rate:200000` field is mis-populated upstream) made
+  the analyser call a perfect-fit job "structurally incoherent / unbiddable" → SKIP/3. Now: a fixed
+  budget ≥ $50k, or any lump sum on an "ongoing" role, is reframed in the rate line as SUSPECT DATA;
+  the analyser adds one "verify budget" flag and scores on scope + client + historical rate. Also a
+  durable ANOMALOUS/IMPLAUSIBLE BUDGET RULE in the prompt. Re-analysed → APPLY/8. (Upstream capture
+  bug that sets fixed_budget=200000 is still unfixed — worth chasing so the bad number stops showing.)
+
+**Generator — the recurring failure modes and their permanent fixes:**
+- FABRICATED DIAGNOSIS on thin postings: the diagnose-first directive, on a 3-sentence generic brief,
+  made the model INVENT specifics ("You've got ~15% impression share", free-trial-vs-paid diagnosis).
+  Added a GROUND-THE-OPENER/NEVER-FABRICATE clause (overrides "be specific") + extended
+  FABRICATED_DIAGNOSIS regex to catch invented client metrics (impression share/ROAS/CPA/…). On thin
+  postings: open with their GOAL + likely lever framed AS A PATTERN, never a diagnosed fact.
+- LEAKED TOP SIGNOFF: letters opened with a bare "Artem" line (signoff leaked to top). `_stripLeadingSignoff`
+  removes a signoff standing alone as the opening line(s); applied at source + enforcer output.
+- LABEL-BLOCK OUTLINE: `hasListyOutline` missed "Schema/structured data - …", "GEO/AI visibility - …"
+  (one repeated pattern, not 2 distinct). Added occurrence-counting `_labelBlockRe` (2+ line-initial
+  "Short Label - body" blocks → flag; case-study ": " lead-ins excluded).
+- ORPHAN AUDIT-SAMPLE LINE: prompt MANDATED a fixed boilerplate close ("ALWAYS close with: i'm
+  attaching a sample … format and depth"), so it landed as a bolted-on non-sequitur. Rules (Google
+  Ads audit + technical SEO audit) now require the (still-mandatory, named, recognizable) mention to
+  be WOVEN into the diagnosis / next step, never a lone trailing line.
+- MISSING DELIVERABLE ENTIRELY: on an SEO job with no literal word "audit" (tire retailer), neither
+  audit sample nor plan was enforced. Broadened `isAuditJob` with `_AUDIT_SIGNAL_RE` (technical seo,
+  crawl/index, faceted nav, schema, site speed, GSC, CWV, migration, ranking drop). Broadened
+  `_GROWTH_RE` (own/discover/pages-that-rank/build-content/ai-answer) so ongoing-ownership jobs aren't
+  misclassified audit-only.
+- THEN it forced BOTH deliverables (too long). Reworked to EXACTLY ONE per letter: growth job → 3-month
+  SEO plan; audit-only job → audit sample; never both, never zero. (Hoisted `hasSeoPlanMention` +
+  `jobIsAuditOnly`; `planSuppressedByAuditCTA = jobIsAuditOnly || draftHasAuditSampleAttach`;
+  `missingAuditSampleMention` requires `!hasSeoPlanMention && jobIsAuditOnly`.) Verified by simulation
+  across 5 cases → always exactly one.
+- WRONG AUDIT TIMING: "technical diagnostic in 2 working days" — a technical audit/diagnostic carries
+  NO day-count ("2 working days" is the SEO PLAN only; "1 working day" is the Google Ads audit only).
+  Added `_DIAGNOSTIC_TURNAROUND_RE` to strip the day-count off "…diagnostic … in N days" (leaves plan
+  + Google Ads audit untouched).
+- REDUNDANT "Attachments: …" summary line (case studies already self-label): `_stripAttachmentsSummaryLine`.
+- "DOESN'T STATE EXPERIENCE": anti-credential-opener had demoted it to a throwaway. Directive now
+  REQUIRES one concise credibility line after the hook (years + relevant track record), + a hard
+  "two diagnostic paragraphs MAX" brevity cap.
+
+**Method note for next iteration:** the generator prompt is ~40K chars and the deterministic guards
+now number ~30. They interact and can fight (forcing two deliverables, contradictory audit-only vs
+plan). When adding a guard, SIMULATE it against the real job context + draft (node one-liner on the
+regexes) before committing — several bugs this batch were guard-interaction, not model, problems.
+Also: the enforcer is best-effort (falls back to first-pass draft if it errors), so a guard only
+"sticks" if it reliably fires AND the enforcer runs — prefer source-level strips for formatting fixes.
+
+**Also this session (non-generator):** CLI Bridge (cli-bridge.js :27182) + API/CLI switch chip so
+generation can run free on the Claude Pro subscription via `claude -p` when API credits are out
+(Windows needs shell:true for the .cmd shim; OAuth token expires → re-`/login`). Feed perf: `/jobs`
+capped at 200 + composite index `(hidden_at, captured_at)` + auto-prune keeping last 200 +
+responded/hired/starred (6695→291 rows). Bids updater: waitForBids now waits for actual bid rows,
+not any "Connects" text. Similar-jobs panel surfaces the outcomes it counts.

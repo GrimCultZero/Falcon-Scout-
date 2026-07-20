@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1672px; height:941px; overflow:hidden; font-family:'Inter',sans-serif; background:#080D1A; }
+
+  .slide {
+    width:1672px; height:941px; position:relative;
+    background: radial-gradient(ellipse at 70% 50%, #0D1E3D 0%, #080D1A 60%);
+    display:flex; flex-direction:column;
+  }
+
+  /* subtle grid lines */
+  .slide::before {
+    content:''; position:absolute; inset:0;
+    background-image:
+      linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events:none;
+  }
+
+  /* blue glow top-right */
+  .glow {
+    position:absolute; right:-100px; top:-120px;
+    width:700px; height:600px;
+    background: radial-gradient(circle, rgba(59,130,246,0.18) 0%, transparent 65%);
+    pointer-events:none;
+  }
+
+  /* Header */
+  .header {
+    position:absolute; top:0; left:0; right:0; height:70px;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 52px; z-index:10;
+  }
+  .itforce-logo { display:flex; align-items:center; gap:8px; opacity:.85; }
+  .itforce-logo img { height:18px; width:auto; filter:brightness(0) invert(1); }
+  .itforce-logo span { font-size:11px; font-weight:700; letter-spacing:2.5px; color:rgba(255,255,255,0.55); text-transform:uppercase; }
+  .slide-pill {
+    background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.3);
+    color:#93C5FD; padding:5px 16px; border-radius:30px; font-size:11px; font-weight:600;
+  }
+
+  /* Body */
+  .body {
+    flex:1; display:grid; grid-template-columns:1fr 1fr;
+    padding:0 52px 40px; gap:48px; align-items:center; margin-top:70px;
+  }
+
+  /* LEFT */
+  .left { display:flex; flex-direction:column; gap:28px; }
+  .tags { display:flex; gap:10px; flex-wrap:wrap; }
+  .tag {
+    background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+    color:rgba(255,255,255,0.65); padding:6px 16px; border-radius:30px;
+    font-size:12px; font-weight:600;
+  }
+  .headline {
+    font-size:52px; font-weight:900; color:#fff;
+    line-height:1.0; letter-spacing:-2px;
+  }
+  .headline em { font-style:normal; color:#3B82F6; }
+  .sub {
+    font-size:16px; color:rgba(255,255,255,0.45); line-height:1.65; max-width:480px;
+  }
+  .stats { display:flex; gap:40px; margin-top:8px; }
+  .stat { display:flex; flex-direction:column; gap:5px; }
+  .stat-val { font-size:32px; font-weight:900; color:#3B82F6; letter-spacing:-1px; line-height:1; }
+  .stat-lbl { font-size:12px; color:rgba(255,255,255,0.38); font-weight:500; }
+
+  /* RIGHT — configurator mockup */
+  .right { display:flex; align-items:center; justify-content:center; height:100%; }
+
+  .configurator {
+    background:#0D1525; border:1px solid rgba(59,130,246,0.2);
+    border-radius:20px; width:100%; max-width:600px;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 60px rgba(59,130,246,0.08);
+    overflow:hidden;
+  }
+  .config-header {
+    background:rgba(59,130,246,0.1); border-bottom:1px solid rgba(59,130,246,0.2);
+    padding:18px 24px; display:flex; align-items:center; justify-content:space-between;
+  }
+  .config-title { color:#fff; font-size:14px; font-weight:700; letter-spacing:.5px; }
+  .config-badge {
+    background:#3B82F6; color:#fff; font-size:10px; font-weight:700;
+    padding:3px 10px; border-radius:20px; letter-spacing:.5px;
+  }
+
+  .config-rows { padding:8px 0; }
+  .config-row {
+    display:flex; align-items:center; gap:16px;
+    padding:14px 24px; border-bottom:1px solid rgba(255,255,255,0.04);
+    position:relative;
+  }
+  .config-row.selected { background:rgba(59,130,246,0.06); }
+  .config-row.locked { opacity:.35; }
+
+  .config-icon {
+    width:36px; height:36px; border-radius:10px; display:flex;
+    align-items:center; justify-content:center; font-size:18px; flex-shrink:0;
+  }
+  .config-icon.done { background:rgba(59,130,246,0.15); }
+  .config-icon.active { background:rgba(59,130,246,0.25); border:1px solid rgba(59,130,246,0.5); }
+  .config-icon.locked { background:rgba(255,255,255,0.04); }
+
+  .config-info { flex:1; }
+  .config-label { font-size:10px; color:rgba(255,255,255,0.35); font-weight:600; text-transform:uppercase; letter-spacing:.8px; }
+  .config-value { font-size:13px; color:#fff; font-weight:600; margin-top:2px; }
+  .config-price { font-size:12px; color:rgba(255,255,255,0.35); margin-top:1px; }
+
+  .config-check {
+    width:20px; height:20px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:10px; flex-shrink:0;
+  }
+  .config-check.done { background:#3B82F6; color:#fff; }
+  .config-check.active { background:rgba(59,130,246,0.2); border:1px solid #3B82F6; color:#3B82F6; }
+  .config-check.locked { background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.2); }
+
+  /* compatibility badge */
+  .compat {
+    position:absolute; right:64px; top:50%; transform:translateY(-50%);
+    font-size:9px; font-weight:700; padding:2px 8px; border-radius:10px;
+    letter-spacing:.5px; text-transform:uppercase;
+  }
+  .compat.ok { background:rgba(16,185,129,0.15); color:#34D399; border:1px solid rgba(16,185,129,0.3); }
+
+  .config-footer {
+    padding:16px 24px; border-top:1px solid rgba(255,255,255,0.06);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .config-total-label { font-size:11px; color:rgba(255,255,255,0.35); margin-bottom:4px; }
+  .config-total-val { font-size:22px; font-weight:900; color:#fff; }
+  .config-btn {
+    background:#3B82F6; color:#fff; font-size:13px; font-weight:700;
+    padding:10px 24px; border-radius:10px; letter-spacing:.3px;
+  }
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="glow"></div>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="itforce-logo">
+      <img src="file:///C:/Users/syzov/upwork-cockpit/Web Development addon/it_force_logo.png">
+      <span>ITForce</span>
+    </div>
+    <div class="slide-pill">Case Study</div>
+  </div>
+
+  <!-- Body -->
+  <div class="body">
+    <!-- LEFT -->
+    <div class="left">
+      <div class="tags">
+        <div class="tag">OpenCart</div>
+        <div class="tag">Custom Module</div>
+        <div class="tag">PC Configurator</div>
+        <div class="tag">B2C eCommerce</div>
+      </div>
+      <div class="headline">
+        From Browser<br>to <em>Build.</em>
+      </div>
+      <div class="sub">
+        Custom OpenCart development for a Ukrainian gaming hardware retailer — a real-time PC configurator, compatibility engine, and a checkout flow built for serious buyers.
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-val">5,200+</div>
+          <div class="stat-lbl">Active SKUs</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val">3</div>
+          <div class="stat-lbl">Custom Modules Built</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val">8wk</div>
+          <div class="stat-lbl">Delivery Timeline</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT — Configurator Mockup -->
+    <div class="right">
+      <div class="configurator">
+        <div class="config-header">
+          <div class="config-title">⚡ PC BUILD CONFIGURATOR</div>
+          <div class="config-badge">REAL-TIME</div>
+        </div>
+        <div class="config-rows">
+
+          <div class="config-row selected">
+            <div class="config-icon done">🖥</div>
+            <div class="config-info">
+              <div class="config-label">Processor (CPU)</div>
+              <div class="config-value">Intel Core i9-13900K — 3.0GHz 24-core</div>
+              <div class="config-price">14 500 ₴</div>
+            </div>
+            <div class="compat ok">✓ Compatible</div>
+            <div class="config-check done">✓</div>
+          </div>
+
+          <div class="config-row selected">
+            <div class="config-icon done">🔌</div>
+            <div class="config-info">
+              <div class="config-label">Motherboard</div>
+              <div class="config-value">ASUS ROG STRIX Z790-E — LGA1700</div>
+              <div class="config-price">9 800 ₴</div>
+            </div>
+            <div class="compat ok">✓ LGA1700</div>
+            <div class="config-check done">✓</div>
+          </div>
+
+          <div class="config-row selected">
+            <div class="config-icon done">💾</div>
+            <div class="config-info">
+              <div class="config-label">Memory (RAM)</div>
+              <div class="config-value">Corsair Vengeance 32GB DDR5-5600</div>
+              <div class="config-price">4 200 ₴</div>
+            </div>
+            <div class="compat ok">✓ DDR5</div>
+            <div class="config-check done">✓</div>
+          </div>
+
+          <div class="config-row active">
+            <div class="config-icon active">🎮</div>
+            <div class="config-info">
+              <div class="config-label">Graphics Card (GPU)</div>
+              <div class="config-value" style="color:#93C5FD;">Selecting compatible models…</div>
+              <div class="config-price" style="color:rgba(147,197,253,0.5);">Filtered by PSU &amp; slot</div>
+            </div>
+            <div class="config-check active">→</div>
+          </div>
+
+          <div class="config-row locked">
+            <div class="config-icon locked">🔋</div>
+            <div class="config-info">
+              <div class="config-label">Power Supply (PSU)</div>
+              <div class="config-value">Auto-calculated after GPU</div>
+            </div>
+            <div class="config-check locked">—</div>
+          </div>
+
+          <div class="config-row locked">
+            <div class="config-icon locked">📦</div>
+            <div class="config-info">
+              <div class="config-label">Case</div>
+              <div class="config-value">Filtered by form factor</div>
+            </div>
+            <div class="config-check locked">—</div>
+          </div>
+
+        </div>
+        <div class="config-footer">
+          <div>
+            <div class="config-total-label">Current total</div>
+            <div class="config-total-val">28 500 ₴</div>
+          </div>
+          <div class="config-btn">Complete Build →</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
