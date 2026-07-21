@@ -4607,6 +4607,15 @@ long-form.)
    wrong events". The real specifics come from the audit; it's fine to say so. A
    confident diagnosis of an account you haven't seen reads as guessing and destroys
    trust — the exact opposite of resonance.
+   VARY THE ANGLE — do NOT reach for the same hook every time. The default has become
+   "the real problem is conversion tracking / the algorithm optimising on the wrong
+   signal / your budget leaks on junk" — it now opens nearly every PPC letter and reads
+   as a canned AI formula. Use the conversion-tracking angle ONLY when the posting
+   actually points to it; otherwise lead with the sharpest angle for THIS job (geo /
+   service-area precision, buyer-intent segmentation, Local Services Ads / Map-pack
+   opportunity, offer or landing-page match, seasonality, competitor gap). And do NOT
+   open by restating the job title ("Setting up Google Ads for [X] -") — open on the
+   insight itself.
 
 2. ABOUT THEM, NOT YOU. "you/your" should outnumber "I/my". The letter is about
    their business and problem, not your resume.
@@ -4755,6 +4764,8 @@ The imperfections should feel like someone typed fast and didn't proofread, NOT 
 - NEVER run multiple case studies into a single paragraph. Each case study MUST be its own paragraph with a blank line above it. If you have two case studies back to back with no blank line between them, that is a formatting error — fix it before emitting.
 
 AUDIT OFFER RULES — context-dependent (read carefully before applying):
+
+DELIVERY-TIMING TRUTH (never violate — these are the ONLY three delivery timeframes, each tied to ONE deliverable): "1 working day" = the GOOGLE ADS AUDIT turnaround, and NOTHING else. "2 working days" = the SEO PROMOTION PLAN, and nothing else. "5 working days" = a from-scratch campaign SETUP + LAUNCH (Rule 450), and nothing else. A CAMPAIGN IS NEVER LIVE, LAUNCHED, OR RUNNING IN 1 WORKING DAY — never write "campaign live within 1 working day" or any claim that campaigns go live in a day. A from-scratch build+launch takes "5 working days" and even then the phrasing is "live and approved" (Google reviews ads). Do NOT invent other day-counts and do NOT attach the audit's 1-day figure to a build/launch/go-live.
 
 WHEN TO OFFER AN AUDIT (existing account):
 The client has a running Google Ads account with campaigns already live. Signals: "optimise", "fix", "our campaigns", "wasted spend", "not converting", "review my account", "audit". In these cases:
@@ -5644,6 +5655,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\bstarting\s+from\s+(?:zero|scratch)\b/i,
               /\b(?:new|brand[-\s]?new)\s+(?:ad\s+)?account\b/i,
               /\blaunch\s+(?:exclusively\s+)?(?:via|on|with)\s+google\s+ads\b/i,
+              // Plain "set up a Google Ads campaign" / "campaign setup" / "build a
+              // Google Ads setup" is ALSO a from-scratch build (there is no
+              // existing account to audit). These were missed, so Rule 450 never
+              // fired and the model invented a bogus "campaign live in 1 day".
+              /\bset\s*up\s+[^.]{0,40}\bgoogle\s+ads?\b[^.]{0,25}\bcampaign/i,
+              /\bcampaign\s+set[-\s]?up\b/i,
+              /\bbuild\s+[^.]{0,30}\bgoogle\s+ads?\b[^.]{0,15}\b(?:setup|campaign|account)\b/i,
+              /\bset\s*up\s+and\s+launch\b/i,
             ]
             const jobIsLaunchFromScratch = LAUNCH_FROM_SCRATCH_RE.some(re => re.test(jobContextLower))
             // Draft "offers an audit": attach+audit in proximity, "audit sample",
@@ -5672,6 +5691,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const draftHasLaunchCTA = /\b5\s+working\s+days\b/i.test(text) &&
               /\b(set\s*up|launch|build)\b/i.test(text)
             const launchJobMissingCTA = jobIsPaidLaunch && !draftHasLaunchCTA
+
+            // ── False "campaign live in 1 day" claim ─────────────────────────
+            // "1 working day" is the GOOGLE ADS AUDIT turnaround ONLY. A campaign
+            // is NOT live/launched/running in 1 day — a from-scratch build+launch
+            // is "5 working days" (Rule 450), and even then Google's ad review
+            // means it's "live and approved", not instant. The timing-compliance
+            // guard accepts "1 working day" as a valid token (it is, for audits),
+            // so this untrue claim slips through unless caught explicitly.
+            const campaignLiveTooFast =
+              /\bcampaigns?\b[^.\n]{0,45}\b(?:live|launch(?:ed|ing)?|running|ready|up\s+and\s+running)\b[^.\n]{0,30}\b(?:within|in)\s+(?:1|one|a|1\s*[-–]\s*2|two|2)\s*(?:working\s+|business\s+)?days?\b/i.test(text) ||
+              /\b(?:live|launch(?:ed|ing)?|running|ready)\b[^.\n]{0,30}\b(?:within|in)\s+(?:1|one|a)\s*(?:working\s+|business\s+)?day\b[^.\n]{0,45}\bcampaign/i.test(text)
 
             // ── Case-study presence check (KB Rule 407) ──────────────────────
             // Every proposal should include at least 1 case study reference.
@@ -5737,7 +5767,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !regulatedJobMissingVape && !vapeFabrication
               && !missingYearsExperience && !ppcMissingPremierPartner
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
-              && !launchJobMissingCTA && !vapeOnPpcOnlyJob
+              && !launchJobMissingCTA && !vapeOnPpcOnlyJob && !campaignLiveTooFast
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
@@ -5756,6 +5786,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingYearsExperience && 'missingYearsExperience',
               ppcMissingPremierPartner && 'ppcMissingPremierPartner',
               launchJobMissingCTA && 'launchJobMissingCTA',
+              campaignLiveTooFast && 'campaignLiveTooFast',
               coverHasTimeline && 'coverHasTimeline',
               hasFabricatedDiagnosis && 'hasFabricatedDiagnosis',
               hasUnsolicitedLogistics && 'hasUnsolicitedLogistics',
@@ -6051,6 +6082,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 'MISSING LAUNCH CTA (Rule 450): This is a from-scratch PPC launch job. The draft must close with the mandatory launch-delivery commitment — that Artem can SET UP AND LAUNCH the campaigns from scratch in "5 working days" (the launch-job equivalent of the 1-working-day audit offer / 2-working-day SEO plan). ' +
                 'Add a sentence near the end, e.g. "i can set up and launch your campaigns from scratch in 5 working days - technical foundation, merchant center feed, and the initial Search campaigns live and approved." ' +
                 'Use EXACTLY the phrase "5 working days" (not "5 business days", "a week", or any variation). Keep the lowercase conversational voice. Do NOT add any other timeline/turnaround language.'
+              )
+            }
+            if (campaignLiveTooFast) {
+              specificViolations.push(
+                'FALSE "CAMPAIGN LIVE IN 1 DAY" CLAIM (credibility-critical): the draft claims the campaign(s) go live / launch / are running within ~1 (or 1-2) working day(s). That is untrue — "1 working day" is the GOOGLE ADS AUDIT turnaround ONLY; it is NEVER a campaign build/launch/go-live timeframe. A from-scratch build+launch is "5 working days" (Rule 450), and even then Google\'s ad review means it is "live AND approved", not instant. ' +
+                'Fix: replace the false claim. If this is a from-scratch setup/launch job, use the Rule 450 line — "i can set up and launch your campaigns from scratch in 5 working days" (initial Search campaigns live and approved). If it is not a launch job, DELETE the go-live timeframe entirely rather than quote any day-count for a campaign. Never state or imply a campaign is live within 1 working day.'
               )
             }
             if (wrongAuditOfferOnLaunch) {
