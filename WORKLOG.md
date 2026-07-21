@@ -1896,3 +1896,42 @@ grounding verify pass ("does every claim trace to CLIENT FACTS / APPROVED PROOF?
 doesn't"); Phase 3 = slim the 40K-char / 576-negative prompt to positive principles + a short hard
 list + job-matched rules only. Watch the next batch of generations to gauge Phase-1 impact before
 Phase 2.
+
+---
+
+## 2026-07-21 — Agency/white-label letters: peer-level opener + fix the cold, domain-wrong ending
+
+Owner on job 7577 (UK SEO agency owner hiring an SEO contractor to expand): generic intro; wants to
+sound natural — "I know this business", white-label, boutique agency, experience to bring. Mid part
+okay. "Ending is horrible."
+
+ANALYSIS of the draft:
+- OPENER: "Scaling an agency with limited time breaks down to one question: can you hand off SEO to
+  someone who…?" — a consultant-cliché rhetorical formula that says nothing about who Artem is.
+  ROOT CAUSE: writing directive #1 is "DIAGNOSE FIRST — DO NOT INTRODUCE YOURSELF", which is right
+  for a DIRECT client with a broken account but wrong for an AGENCY owner whose constraint is
+  CAPACITY, not performance. No agency exception existed, so the model produced a fake diagnosis.
+- ENDING: "IT Force delivers behind agencies' brands: I work in staging, hand off for your QA…" —
+  three faults: (1) staging/QA is BUILD language pasted onto an SEO/reporting role (nonsense here),
+  (2) third-person "IT Force delivers" vs first-person elsewhere = boilerplate paste, (3) the
+  white-label positioning was tacked on LAST as a cold operational blurb.
+- ROOT CAUSE of both: the whole agency instruction was ONE thin line ("background/white-label
+  positioning … is appropriate") with no guidance on opener, placement, voice, or domain matching.
+
+CHANGES (prompt-level, as the owner asked):
+1. CLIENT TYPE: agency branch rewritten from one line into a full brief: buyer is a FELLOW AGENCY
+   OWNER (capacity problem, not a broken account); open showing Artem knows the business from the
+   inside (boutique agency IT Force, years delivering white-label behind other agencies); name the
+   agency-side realities (under their brand, zero end-client contact, client-ready deliverables they
+   can present as their own, predictable capacity, easy to brief); bring the experience he carries;
+   white-label positioning goes EARLY, never tacked on as the closing line; FIRST PERSON throughout
+   (never third-person "IT Force delivers"); and MATCH HANDOFF LANGUAGE TO DOMAIN — SEO/PPC/reporting
+   handoff = client-ready audits/decks/commentary under their brand, NEVER "staging/QA" (build-only).
+2. Writing directive #1 gains an AGENCY / WHITE-LABEL EXCEPTION to "diagnose first": no invented
+   diagnosis, no rhetorical question; open with peer-level agency context instead.
+3. Deterministic BANNED_OPENERS gains two patterns: the "X breaks/boils/comes down to one question"
+   cliché, and a first line that is purely a rhetorical question at the reader. Verified they catch
+   the real opener + variants while leaving good agency/direct openers untouched.
+4. The banned-opener ENFORCER message is now agency-aware — on an agency job it explicitly forbids
+   swapping in another diagnosis/rhetorical question and directs it to peer-level agency context.
+Compiles; opener patterns unit-tested.

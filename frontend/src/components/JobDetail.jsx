@@ -4528,7 +4528,13 @@ function ProposalColumn({ job, bridgeReady = false }) {
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
         isAgencyClient
-          ? `CLIENT TYPE: agency / white-label — they resell to their own end clients, so background/white-label positioning (work behind their brand, clean handoffs) is appropriate.`
+          ? `CLIENT TYPE: agency / white-label — the buyer is a FELLOW AGENCY OWNER hiring a delivery partner, NOT an end client with a broken account to diagnose. Their problem is capacity, not performance. Write agency-to-agency, peer to peer:
+- OPEN by showing Artem knows this business FROM THE INSIDE: he runs a small/boutique agency (IT Force) and has delivered white-label behind other agencies' brands for years. Lead with that shared context and what he takes off their plate. Do NOT open with a rhetorical question ("can you hand off X?"), and do NOT open by diagnosing their business — they didn't describe a broken account, they described being stretched.
+- Show the agency-side realities that prove he has actually done this: working under their brand, zero contact with their end clients, client-ready deliverables they can forward or present as their own, predictable capacity, easy to brief, no hand-holding.
+- Bring the EXPERIENCE he carries in: years in the agency world, the verticals and account types he's handled, so they can picture him on their accounts tomorrow.
+- PLACEMENT: the white-label / behind-your-brand positioning belongs EARLY (opener + positioning). NEVER tack it on as the closing line, and never end the letter on a bare operational blurb about handoffs — that lands cold.
+- FIRST PERSON throughout: "I run a small team", "my team at IT Force". Never switch to third-person "IT Force delivers …" mid-letter; it reads like pasted company boilerplate.
+- MATCH THE HANDOFF LANGUAGE TO THE DOMAIN (critical): for SEO / PPC / analytics / reporting work the handoff is client-ready audits, decks and commentary under their brand, plus a named point of contact. It is NOT "I work in staging and hand off for your QA" — that is BUILD-work language and reads as nonsense on an SEO or reporting retainer. Reserve staging/QA framing for actual web-development jobs.`
           : `CLIENT TYPE: DIRECT end client. Address them as the business that will actually use the work. Do NOT frame yourself as a white-label provider, subcontractor, or someone "working behind another agency/developer," and do NOT describe this as a white-label engagement — EVEN IF the posting says they already have a developer/team or want an "additional person/resource." That just means you would join their team directly. White-label framing is ONLY correct when the posting explicitly says white-label / reseller / "for our clients."`,
         applicationChecklist ? applicationChecklist.promptBlock : '',
         (applicationChecklist || _PROOF_REQUEST_RE.test(fullDescription))
@@ -4593,6 +4599,17 @@ long-form.)
    pages"). One sentence, concrete, tied to THIS job's need — not a resume, but it
    must be there so the client knows who they're dealing with. A letter with no
    clear statement of experience reads as anonymous.
+   AGENCY / WHITE-LABEL EXCEPTION to "diagnose first" (applies when the job context
+   says CLIENT TYPE: agency / white-label): an agency owner hiring a delivery partner
+   has NOT handed you a broken account to diagnose — their constraint is capacity, and
+   what they're judging is whether you can carry client work under their brand. So do
+   NOT open with a diagnosis of their business, and never with a rhetorical question
+   ("can you hand off X?" / "it breaks down to one question:") — that formula is a
+   consultant cliché and reads as generic. Open instead with PEER-LEVEL AGENCY CONTEXT:
+   that Artem runs a boutique agency, has worked white-label behind other agencies'
+   brands, and what that frees up for them. Still concrete and still about them
+   ("expanding without adding headcount", "taking the reporting off your plate") — just
+   grounded in shared agency reality rather than an invented diagnosis.
    GROUND THE OPENER — NEVER FABRICATE (this overrides "be specific"): "specific"
    means specific to what the posting ACTUALLY says, never invented. You have NOT
    seen their account, site, or metrics. NEVER state a concrete figure about their
@@ -5173,6 +5190,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /^i\s+(?:have|bring|speciali[sz]e)\b/i,                        // "I have X years", "I specialise in"
               /^(?:hi|hello|hey|greetings)\b[^.\n]{0,45}(?:hope|doing\s+well|how\s+are\s+you)/i, // "Hi, I hope you're doing well"
               /^i['’]?m\s+(?:very\s+|really\s+|super\s+)?(?:interested|excited|keen|thrilled)\b/i, // "I'm very interested in your project"
+              // Consultant-cliché rhetorical framing: "X comes down to one question: can you…?",
+              // "X boils down to a single question". Reads as generic copywriting, not a person.
+              /\b(?:breaks?|boils?|comes?)\s+down\s+to\s+(?:one|a\s+single|this)\s+(?:question|thing)\b/i,
+              // A first line that is purely a rhetorical question aimed at the reader.
+              /^(?:can|could|what\s+if|how\s+do|ever\s+wonder|are)\s+you\b[^?\n]{0,160}\?\s*$/i,
             ]
             const hasBannedOpener = BANNED_OPENERS.some(re => re.test(_firstLine))
 
@@ -5917,7 +5939,10 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 'ONLY the opening (first 1-2 lines) so it LEADS with the client\'s specific problem ' +
                 'or goal taken from THEIR posting, in their words, plus the angle you\'d take — NOT ' +
                 'Artem\'s years, partner status, or a pleasantry. Move the credential (if kept at all) ' +
-                'to a brief later mention, never the first line. Do not touch the rest of the letter.'
+                'to a brief later mention, never the first line. Do not touch the rest of the letter.' +
+                (isAgencyClient
+                  ? ' AGENCY/WHITE-LABEL JOB — do NOT replace it with a diagnosis of their business or another rhetorical question ("can you…?", "it comes down to one question"). The buyer is a fellow agency owner whose constraint is CAPACITY, not a broken account. Open instead with peer-level agency context: Artem runs a boutique agency (IT Force) and has delivered white-label behind other agencies\' brands, and what that takes off their plate. First person, no company boilerplate.'
+                  : '')
               )
             }
             if (!timingCompliant) {
