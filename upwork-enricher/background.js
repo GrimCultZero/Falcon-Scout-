@@ -613,6 +613,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
     handleProposalEnriched(tabId, message.data, message.url)
+      .then(async result => {
+        // AUTO-CAPTURE ON SUBMIT. handleProposalEnriched only knows how to UPDATE an
+        // existing KB entry via the `proposal_tab_<id>` room mapping that messages.js
+        // sets when IT opens a background tab. When Artem submits a proposal himself and
+        // Upwork redirects him to /nx/proposals/<id>, there is no mapping, so this used
+        // to return {skipped:true} and the proposal was silently dropped. Fall back to
+        // saving it as a standalone entry so a submitted proposal always lands in
+        // Outcomes with zero manual steps. Gated to the SUBMITTED-proposal detail URL
+        // (/nx/proposals/<numeric id>) so we never capture the /job/~id/apply/ FORM
+        // (an unsent draft) or the proposals LIST.
+        const _url = message.url || (sender.tab && sender.tab.url) || '';
+        const _isSubmittedProposalPage = /\/(?:nx|ab)\/proposals\/\d{6,}(?:[/?#]|$)/i.test(_url);
+        if (result && result.skipped && _isSubmittedProposalPage) {
+          const saved = await saveStandaloneProposal(message.data, _url);
+          console.log('[Cockpit BG] Auto-captured submitted proposal:', saved.title || saved.id);
+          notifyCockpit('PROPOSAL_CAPTURED', { title: saved.title, auto: true });
+          chrome.storage.local.set({ last_captured: { ...message.data, _result: saved } });
+          return saved;
+        }
+        return result;
+      })
       .then(result => {
         sendResponse({ ok: true, result });
         // Close the background proposal tab when done

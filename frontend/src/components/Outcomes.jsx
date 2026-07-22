@@ -154,6 +154,26 @@ export default function Outcomes({ active = false }) {
     return () => window.removeEventListener('cockpit:status:synced', onPassiveSync)
   }, [])
 
+  // A proposal was just captured — either auto-captured the moment Artem submitted it
+  // (Upwork redirects to /nx/proposals/<id> and the extension grabs it) or via the
+  // popup's jump button. Glow the "sent" chip so he can see it landed without
+  // switching tabs, and surface a short-lived banner naming the job.
+  const [captureNotice, setCaptureNotice] = useState(null)
+  useEffect(() => {
+    const onCaptured = (e) => {
+      const d = e.detail || {}
+      addNewActivity('sent')
+      setCaptureNotice(d.title ? `✓ Proposal captured — ${d.title}` : '✓ Proposal captured')
+    }
+    window.addEventListener('cockpit:proposal:captured', onCaptured)
+    return () => window.removeEventListener('cockpit:proposal:captured', onCaptured)
+  }, [])
+  useEffect(() => {
+    if (!captureNotice) return
+    const t = setTimeout(() => setCaptureNotice(null), 6000)
+    return () => clearTimeout(t)
+  }, [captureNotice])
+
   // Trigger the proposals-list scrape via the extension bridge.
   // The frontend can't touch chrome.storage directly (only extension
   // contexts can), so we dispatch a custom event that bridge.js picks up.
@@ -745,6 +765,11 @@ export default function Outcomes({ active = false }) {
 
       {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
+        {captureNotice && (
+          <div style={{ margin: 20, padding: 12, fontSize: 11, fontWeight: 600, color: '#00e070', background: 'rgba(0,224,112,0.10)', border: '1px solid rgba(0,224,112,0.28)', borderRadius: 4 }}>
+            {captureNotice}
+          </div>
+        )}
         {loading && proposals.length === 0 && (
           <div style={{ padding: 48, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>Loading…</div>
         )}

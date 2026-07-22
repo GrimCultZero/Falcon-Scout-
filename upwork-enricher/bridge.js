@@ -172,6 +172,18 @@
         detail: { title: message.title }
       }));
     }
+    // Extension → Page: a PROPOSAL was captured (auto-captured right after Artem
+    // submitted it, or via the popup's jump button). This was never bridged, so
+    // Outcomes never refreshed and nothing told him it landed.
+    if (message.type === 'PROPOSAL_CAPTURED') {
+      window.dispatchEvent(new CustomEvent('cockpit:proposal:captured', {
+        detail: { title: message.title, auto: !!message.auto }
+      }));
+      // Also fire the generic outcome refresh so the Outcomes tab refetches.
+      window.dispatchEvent(new CustomEvent('cockpit:outcome:saved', {
+        detail: { title: message.title, source: 'proposal_captured' }
+      }));
+    }
     // Extension → Page: proposal-list status sync just completed → refresh
     // the Outcomes tab so newly-viewed proposals show up immediately.
     if (message.type === 'WEBSITE_INSPECT_COMPLETE') {

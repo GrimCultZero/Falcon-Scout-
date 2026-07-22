@@ -2013,3 +2013,35 @@ CHANGES:
 - The banned-opener ENFORCER message now also tells it to strip nationality-as-hook and re-anchor
   on account type / business model / their goal.
 Compiles; both regex sets unit-tested.
+
+---
+
+## 2026-07-22 — Automated proposal capture on submit (Outcomes)
+
+Owner: "when I'm redirected to https://www.upwork.com/nx/proposals/<id> after applying, the
+extension should capture it and notify me." Investigated before building — most of the plumbing
+already existed, but TWO gaps made it a no-op:
+
+1. proposal.js ALREADY matches `/nx/proposals/*` and already auto-calls `run()` on any non-list
+   proposal page (line ~1455), so PROPOSAL_ENRICHED was already firing on the submitted-proposal
+   page. BUT background.js routed it to `handleProposalEnriched`, which only knows how to UPDATE an
+   existing KB entry via the `proposal_tab_<tabId>` room mapping that messages.js sets when IT opens
+   a background tab. Landing there naturally after hitting Submit = no mapping = `return
+   {skipped:true}` → the proposal was SILENTLY DROPPED. (The popup's "Go to proposal & capture"
+   jump button worked only because it pre-registers the tab in `_jumpCaptureTabs`.)
+2. `PROPOSAL_CAPTURED` was NEVER mapped in bridge.js — only CONVERSATION_SAVED and
+   PROPOSAL_STATUS_SYNCED were. So even a successful capture never reached the dashboard: Outcomes
+   didn't refresh and nothing told the owner it landed.
+
+IMPLEMENTED:
+- background.js: when `handleProposalEnriched` returns {skipped:true} AND the URL is a SUBMITTED
+  proposal detail page, fall back to `saveStandaloneProposal` (fresh entry) + fire
+  `PROPOSAL_CAPTURED` + stash `last_captured`. Gated by
+  `/\/(?:nx|ab)\/proposals\/\d{6,}(?:[/?#]|$)/i` so it can NEVER capture the
+  `/nx/proposals/job/~id/apply/` FORM (an unsent draft) or the proposals LIST — verified.
+- bridge.js: map PROPOSAL_CAPTURED → new `cockpit:proposal:captured` event AND the generic
+  `cockpit:outcome:saved` (so Outcomes refetches).
+- Outcomes.jsx: listen for `cockpit:proposal:captured` → glow the "sent" filter chip via the
+  existing newActivityFilters mechanism + show a 6 s green banner naming the job.
+Manifest 4.6 → 4.7. OWNER MUST RELOAD the extension. Flow is then: submit on Upwork → Upwork
+redirects to /nx/proposals/<id> → auto-captured → Outcomes refreshes, SENT chip glows, banner shows.
