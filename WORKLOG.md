@@ -2045,3 +2045,39 @@ IMPLEMENTED:
   existing newActivityFilters mechanism + show a 6 s green banner naming the job.
 Manifest 4.6 → 4.7. OWNER MUST RELOAD the extension. Flow is then: submit on Upwork → Upwork
 redirects to /nx/proposals/<id> → auto-captured → Outcomes refreshes, SENT chip glows, banner shows.
+
+---
+
+## 2026-07-22 — Kill the "wikipedia" / explainer opener (deterministic)
+
+Owner (job 7713, Google Ads management): "let's get rid of these generic AI-ish wikipedia style
+intros." The draft opened:
+  "Scaling google ads when the tracking logs the wrong events is like turning up the volume on
+   static - more spend, same noise. The algorithm can't optimise toward revenue if it's firing on
+   page views or form impressions instead of actual purchases."
+
+Two AI tells, and BOTH were already banned in the prompt yet produced anyway:
+- Writing rule 3 (DO NOT TEACH) already bans "encyclopedic / wikipedia explanations" — violated by
+  the platform-as-subject mechanism lecture (and again in paragraphs 2 and 3).
+- VARY THE ANGLE already says the conversion-tracking hook "opens nearly every PPC letter and reads
+  as a canned AI formula" and to use it ONLY when the posting points at it. The posting says nothing
+  about tracking — yet the ENTIRE letter is conversion tracking.
+Prompt-only enforcement has failed repeatedly here, so this is now enforced in CODE.
+
+IMPLEMENTED:
+- New deterministic `hasExplainerOpener`, checked on the OPENING PARAGRAPH only (later mentions are
+  fine). Two detectors: (a) simile/analogy garnish — "is like", "is the equivalent of", "think of
+  it as", "akin to", "imagine a/you/if"; (b) PLATFORM-AS-SUBJECT abstract mechanics — "the
+  algorithm can't/won't/optimises", "the system learns", "the auction rewards". Wired into
+  draftCompliant + violation telemetry.
+- Enforcer message: strip the simile and the mechanism lecture, rewrite the opening to be about
+  THEIR account and what Artem would DO (plain first person, no metaphors, no universal truths),
+  and VARY THE ANGLE away from conversion tracking unless the posting actually points at it.
+- Writing rule 3 extended to name similes/analogies and platform-as-subject sentences explicitly,
+  with the test: "if a sentence would still be true and publishable for any other advertiser on
+  earth, it does not belong in Artem's letter — cut it."
+- BUG fix spotted in the same letter: "+693.8% (+693.8%)" — a parenthetical echo of the same
+  figure. The dedupe only handled the comma form ("+X% a, +X% b"); added the parenthetical form.
+Verified: flags the real opener + all explainer variants; does NOT fire on specific/action-led
+openers or on "accounts like yours" (preposition, not simile). Distinct metrics in parentheses are
+preserved. Compiles.

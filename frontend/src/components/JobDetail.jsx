@@ -1864,7 +1864,11 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   text = deFab
   // Kill a DUPLICATED same-percentage metric — the model sometimes repeats a figure with
   // a vague second unit ("+693.8% revenue, +693.8% monthly"). Drop the redundant copy.
-  const deDupPct = text.replace(/(\+\s?(\d[\d.]*)\s?%\s+[a-z]+)\s*,\s*\+\s?\2\s?%\s+[a-z]+/gi, '$1')
+  const deDupPct = text
+    // "+693.8% revenue, +693.8% monthly" → keep the first
+    .replace(/(\+\s?(\d[\d.]*)\s?%\s+[a-z]+)\s*,\s*\+\s?\2\s?%\s+[a-z]+/gi, '$1')
+    // "+693.8% (+693.8%)" → drop the redundant parenthetical echo of the SAME number
+    .replace(/(\+\s?(\d[\d.]*)\s?%)\s*\(\s*\+\s?\2\s?%\s*\)/gi, '$1')
   if (deDupPct !== text) {
     console.log('[Falcon] Removed duplicated same-percentage metric.')
     _recordViolations('generator', null, ['duplicateMetric'])
@@ -4677,6 +4681,15 @@ long-form.)
    sentence that could sit in a textbook. Instead of explaining the mechanism,
    say what you'd DO about THEIR situation and the result you got doing it. Prove
    expertise by the sharpness of the diagnosis and the next step, never by lecturing.
+   ALSO BANNED — SIMILES / ANALOGIES AND PLATFORM-AS-SUBJECT SENTENCES. No "…is like
+   turning up the volume on static", "think of it as…", "it's the equivalent of…",
+   "imagine a…". These are copywriting garnish, not observations about this client, and
+   they are the clearest AI tell in an opener. Equally banned: making the PLATFORM the
+   subject of an abstract explanation — "the algorithm can't optimise toward revenue
+   if…", "the system learns from…", "the auction rewards…". Write about THEIR account
+   and what YOU would do to it, in plain first-person terms. If a sentence would still
+   be true and publishable for any other advertiser on earth, it does not belong in
+   Artem's letter — cut it.
 
 4. NO FLUFF — EVERY SENTENCE ON POINT. No throat-clearing, no lines that could fit
    any job, no restating their posting back to them, no "here's how I work"
@@ -5234,6 +5247,22 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\bfor\s+(?:an?|your|their)\s+(?:australian|aussie|american|british|english|scottish|irish|canadian|german|french|dutch|spanish|italian|swedish|norwegian|danish|polish|indian|singaporean|japanese|chinese|brazilian|mexican|european|kiwi|new\s+zealand|u\.?k\.?|u\.?s\.?a?\.?)\s+(?:business|company|brand|client|store|shop|site|firm|startup)\b/i,
             ]
             const hasBannedOpener = BANNED_OPENERS.some(re => re.test(_firstLine))
+
+            // ── "Wikipedia" / explainer opener ───────────────────────────────
+            // Owner: "get rid of these generic AI-ish wikipedia style intros."
+            // Writing rule 3 (DO NOT TEACH) already bans encyclopedic explanations
+            // and VARY THE ANGLE bans the canned conversion-tracking hook, but the
+            // model keeps producing them — so detect them in code. Two tells, checked
+            // on the OPENING PARAGRAPH only (later mentions are fine):
+            //   (a) a simile/analogy flourish — "…is like turning up the volume on
+            //       static". Pure copywriting garnish, never a real observation.
+            //   (b) the PLATFORM as the sentence subject — "The algorithm can't
+            //       optimise toward revenue if…". That is textbook voice: explaining
+            //       mechanics in the abstract instead of talking about THIS client.
+            const _openingPara = (text.trim().split(/\n{2,}/)[0] || '')
+            const _SIMILE_RE = /\bis\s+(?:a\s+bit\s+|basically\s+|essentially\s+)?like\b|\bis\s+the\s+equivalent\s+of\b|\bthink\s+of\s+it\s+as\b|\bakin\s+to\b|\bimagine\s+(?:a|an|you|your|if|what)\b/i
+            const _MECHANISM_SUBJECT_RE = /\bthe\s+(?:algorithm|platform|system|auction|machine)\s+(?:can'?t|cannot|won'?t|will\s+not|doesn'?t|does\s+not|has\s+no|needs|learns|optimi[sz]es?|bids)\b/i
+            const hasExplainerOpener = _SIMILE_RE.test(_openingPara) || _MECHANISM_SUBJECT_RE.test(_openingPara)
 
             // ── Circumvention-risk check (Trust & Safety critical) ───────────
             // Upwork's automated scanners flag anything that pattern-matches
@@ -5830,11 +5859,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
-              && !hasBannedOpener
+              && !hasBannedOpener && !hasExplainerOpener
 
             // Telemetry (Phase C): record every guard that fired this run.
             _recordViolations('generator', job?.id, [
               hasBannedOpener && 'hasBannedOpener',
+              hasExplainerOpener && 'hasExplainerOpener',
               hasForbiddenPhrase && 'hasForbiddenPhrase',
               missingAuditSampleMention && 'missingAuditSampleMention',
               wrongAuditOfferOnLaunch && 'wrongAuditOfferOnLaunch',
@@ -5981,6 +6011,23 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 (isAgencyClient
                   ? ' AGENCY/WHITE-LABEL JOB — do NOT replace it with a diagnosis of their business or another rhetorical question ("can you…?", "it comes down to one question"). The buyer is a fellow agency owner whose constraint is CAPACITY, not a broken account. Open instead with peer-level agency context: Artem runs a boutique agency (IT Force) and has delivered white-label behind other agencies\' brands, and what that takes off their plate. First person, no company boilerplate.'
                   : '')
+              )
+            }
+            if (hasExplainerOpener) {
+              specificViolations.push(
+                'WIKIPEDIA / EXPLAINER OPENER (writing rule 3 — DO NOT TEACH): the opening paragraph ' +
+                `reads like a textbook entry rather than a message to this client — "${_openingPara.slice(0, 120)}". ` +
+                'Two things to strip: (a) the SIMILE/ANALOGY garnish ("…is like turning up the volume on static", ' +
+                '"think of it as…") — it is copywriting filler, not an observation about them; and (b) any sentence ' +
+                'where THE PLATFORM is the subject explaining mechanics in the abstract ("the algorithm can\'t ' +
+                'optimise toward revenue if it\'s firing on page views…"). The client already knows how Google Ads ' +
+                'works; explaining it to them reads as padding and as AI-generated. ' +
+                'REWRITE the opening paragraph so it is about THEIR account and what you would DO: name the ' +
+                'specific thing you\'d look at first and the action you\'d take, in plain first-person terms. ' +
+                'No metaphors, no universal truths, no mechanism lectures. Also VARY THE ANGLE — if the posting ' +
+                'does not actually point at conversion tracking, do not lead with it; pick the sharpest angle for ' +
+                'THIS posting (buyer-intent segmentation, budget allocation across campaign types, geo/service-area ' +
+                'precision, offer/landing-page match, seasonality, competitor gap). Keep the rest of the letter intact.'
               )
             }
             if (!timingCompliant) {
