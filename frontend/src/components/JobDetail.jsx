@@ -1955,6 +1955,10 @@ function _stripUnaskedRate(text, asksRate) {
   const paras = text.split(/\n{2,}/)
   const kept = paras.filter(p => {
     const t = p.trim()
+    // CARVE-OUT: the productised AUDIT offer ($300 flat, 1 working day) is Artem's
+    // standard deliverable and IS the pitch — it must survive even when the posting
+    // never asked for a rate. Never strip a paragraph that mentions an audit.
+    if (/\baudits?\b/i.test(t)) return true
     // A paragraph that is PRIMARILY a rate/price quote: it opens with "Rate …",
     // or it states an hourly figure ("$40/hr") inside a pricing context.
     const isRatePara = _RATE_PARA_RE.test(t) ||
@@ -3220,8 +3224,17 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       const _isWebDevJob = _WEBDEV_RATE_RE.test(`${job.title || ''} ${job.category || ''} ${job.keywords || ''} ${fullDescription}`)
       const _rateFloor = _isWebDevJob ? 40 : 30
       const _floorLabel = _isWebDevJob ? `$${_rateFloor}/hr developer` : `$${_rateFloor}/hr`
+      // PPC / GOOGLE ADS ACCOUNT AUDIT jobs are sold as a FIXED $300 / 1-working-day
+      // deliverable — NOT an hourly engagement. So the hourly floor is irrelevant here and
+      // a low posted ceiling or low client avg must NOT count against the job, and
+      // "short-term / part-time / one-off" is the NATURE of an audit, not a risk.
+      // (Owner instruction 2026-07-22: always apply to these, don't care about the rate.)
+      const _PPC_AUDIT_JOB_RE = /\b(?:google\s*ads?|adwords|ppc|paid\s+search|\bsem\b)\b[^.\n]{0,80}\b(?:audit|review|assessment|health\s*check|analys[ei]s|analyse|analyze)\b|\b(?:audit|review|assessment|health\s*check)\b[^.\n]{0,80}\b(?:google\s*ads?|adwords|ppc|paid\s+search|\bsem\b)\b/i
+      const _isPpcAuditJob = _PPC_AUDIT_JOB_RE.test(`${job.title || ''} ${job.category || ''} ${job.keywords || ''} ${fullDescription}`)
       const mandatoryFlags = []
-      if (_avgRate > 0 && _avgRate < _rateFloor - 10) {
+      if (_isPpcAuditJob) {
+        mandatoryFlags.push(`PPC / GOOGLE ADS ACCOUNT AUDIT — this is Artem's STANDARD productised deliverable: FIXED $300, delivered in 1 working day, with his Google Ads audit samples attached. Because it is a FIXED-FEE deliverable and NOT an hourly engagement, the hourly rate floor DOES NOT APPLY: do NOT deduct points for a low posted hourly ceiling or a low client historical avg rate, and do NOT raise any rate-floor-risk flag. "Short-term", "part-time", "small project" and "one-off" describe the NATURE of an audit — treat them as EXPECTED and NEUTRAL, never as negatives or scope-creep risk. This job type is always worth applying to: verdict APPLY and score 7-9 unless one of the four HARD disqualifiers genuinely applies.`)
+      } else if (_avgRate > 0 && _avgRate < _rateFloor - 10) {
         mandatoryFlags.push(`Client historical avg rate $${_avgRate}/hr is FAR below Artem's ${_floorLabel} floor — strong rate-floor risk, cap verdict at MAYBE, -3 points`)
       } else if (_avgRate > 0 && _avgRate < _rateFloor - 5) {
         mandatoryFlags.push(`Client avg rate $${_avgRate}/hr is materially below Artem's ${_floorLabel} floor — posted ceiling unlikely to be realised, -2 points`)
@@ -3371,7 +3384,14 @@ WEAK FIT / SCORE LOWER for:
 
 COMPETITIVE POSITIONING:
 - In pools of 20-50 applicants for generic SEO/PPC work, Artem's Top Rated + Premier Partner + $100K+ profile stands out — don't over-penalise for applicant count unless the scope is clearly misaligned.
-- For audit-first or one-off deliverable jobs, his $700 fixed SEO audit and $160-200 PPC audit price points are competitive and proven.
+- For audit-first or one-off deliverable jobs, his $700 fixed SEO audit and $300 fixed Google Ads / PPC account audit (1 working day) price points are competitive and proven.
+
+PPC / GOOGLE ADS ACCOUNT AUDIT JOBS — ALWAYS APPLICABLE (mandatory; overrides the rate rules):
+When the core ask is a Google Ads / PPC account AUDIT, REVIEW, assessment, health check or "analyse our campaigns", this is Artem's productised flagship deliverable: a FIXED $300 audit delivered in 1 working day, with real Google Ads audit samples attached. Treat it as follows:
+- THE HOURLY RATE FLOOR DOES NOT APPLY. It is a fixed-fee deliverable, not an hourly engagement. A low posted hourly range (even $10-25/hr) and a low client historical avg rate are NOT reasons to deduct points, cap the verdict, or raise rate-floor risk. Do not compute an effective hourly against the posted range — the price is $300 flat regardless of what the posting advertises hourly.
+- "SHORT-TERM" / "PART-TIME" / "ONE-OFF" / "SMALL PROJECT" IS THE NATURE OF AN AUDIT — it is exactly what Artem wants here. Never treat those words as a negative, as "scope-creep risk", or as evidence the client wants cheap ongoing hourly support. An audit IS a short, bounded, one-off deliverable.
+- These jobs are cheap to win, fast to deliver, and frequently convert into ongoing management afterwards — the audit is the door-opener. Applying is nearly always correct.
+- VERDICT: APPLY, score 7-9. Only a genuine HARD disqualifier (US-only geo lock, already-hired, unverified payment with under 5 reviews) may pull it below that. Client quality concerns (few reviews, modest spend) are a flag at most, never a SKIP on their own — the downside is capped at one small fixed fee.
 - For web development BUILD jobs (Shopify/WordPress/OpenCart, from-scratch/new site), the differentiator is full-scope delivery: most web devs hand off to a separate SEO person; IT Force delivers build + SEO architecture + analytics in one engagement — cite this as the edge. BUT for MAINTENANCE / CHANGES / FIX jobs on an EXISTING store (theme tweaks, adjustments, fixing issues), the client hired a developer, not an SEO — the edge is dev RELIABILITY (careful theme work, test-before-deploy, doesn't break existing functionality/tracking), NOT an SEO/ranking pitch. Don't force the SEO angle where it wasn't asked for.
 
 AGENCY / WHITE-LABEL REQUIREMENT (mandatory — an explicit "agency" ask is NOT a disqualifier):
@@ -3384,7 +3404,7 @@ Artem is a Top Rated individual freelancer BUT delivers through his associated a
 HARD DISQUALIFIERS — if any apply, score MUST be 0 and verdict MUST be SKIP, no exceptions:
 1. "Freelancer geo restriction" field contains "United States only", "US only", or any similar restriction (Artem cannot legally apply)
 2. Rate ceiling is below $15/hr. For HOURLY RANGE jobs (e.g. "$15-$45/hr"), use the CEILING ($45 in this example), NOT the floor — the ceiling is what the client is willing to pay up to, and Artem can negotiate to that. Only disqualify when the CEILING (or the single rate, for non-range jobs) is below $15/hr. Below-$30 ceilings should be a soft negative signal / flag, not a hard skip.
-3. Payment NOT verified AND client has under 5 reviews
+3. Payment NOT verified AND client has under 5 reviews. READ THE CLIENT LINE LITERALLY — this fires ONLY when the client line above literally says "payment NOT verified". If it says "payment verified", the client IS verified: you may NOT write "payment not verified", "unverified payment", or "high non-payment risk" anywhere in your output. NEVER CONTRADICT THE CLIENT DATA YOU WERE GIVEN — do not call spend "unknown" when a spend figure is provided, and do not invent a client-quality red flag that the data disproves. Fabricating this disqualifier has caused wrong SKIPs.
 4. "ALREADY HIRED" count ≥ 1 — the client has already hired someone for this role and is unlikely to hire again. Verdict MUST be SKIP and the "flags" array MUST include a flag noting "Client already hired N freelancer(s)".
 
 SCORE CALIBRATION — what the 0-10 number means (mandatory):
@@ -4787,6 +4807,7 @@ DELIVERY-TIMING TRUTH (never violate — these are the ONLY three delivery timef
 WHEN TO OFFER AN AUDIT (existing account):
 The client has a running Google Ads account with campaigns already live. Signals: "optimise", "fix", "our campaigns", "wasted spend", "not converting", "review my account", "audit". In these cases:
 - ALWAYS state the timeline: "audit delivered within 1 working day."
+- ALWAYS quote the FIXED PRICE: the Google Ads / PPC account audit is a productised deliverable at a flat $300. State it plainly and confidently ("$300 flat, delivered within 1 working day") EVEN IF the posting never asked for a rate — this is the standard offer, not an unsolicited quote, and it is the whole pitch. This OVERRIDES "never quote a price upfront" and overrides the RATE ANCHOR (do NOT bid the posted hourly ceiling on an audit job — the deliverable is fixed-fee, so a low posted hourly range is irrelevant and must never be mirrored back as an hourly rate). Never write an hourly figure for the audit.
 - ALWAYS mention the audit sample, but WEAVE IT INTO THE LETTER — do NOT drop it as an isolated boilerplate sentence floating right before the signoff (that reads pasted-in and out of context, which is exactly how it currently fails). Connect it to what you just said — tie it to the specific issue you diagnosed or make it the natural next step. Example: instead of a lone trailing "I'm attaching a sample of a recent Google Ads audit so you can see the format and depth.", write something like "That wasted-spend question is the first thing my audit pins down — I've attached a recent Google Ads audit sample so you can see the format and depth." You MUST still (a) name the audit type explicitly ("Google Ads audit" / "technical SEO audit", never a bare "sample") and (b) keep it recognizable with "sample … audit … see the format and depth", but it has to connect to a sentence around it, not stand alone.
 
 WHEN NOT TO OFFER AN AUDIT (zero-pixel / launch from scratch):

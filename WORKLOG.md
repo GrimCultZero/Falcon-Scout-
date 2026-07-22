@@ -1935,3 +1935,43 @@ CHANGES (prompt-level, as the owner asked):
 4. The banned-opener ENFORCER message is now agency-aware — on an agency job it explicitly forbids
    swapping in another diagnosis/rhetorical question and directs it to peer-level agency context.
 Compiles; opener patterns unit-tested.
+
+---
+
+## 2026-07-22 — PPC/Google Ads AUDIT jobs: always apply, fixed $300 / 1 working day, rate ignored
+
+Owner (job 7726 "Google Ads Campaign Review", $10-25/hr, client avg $25, "part-time … short-term"):
+we can and SHOULD apply to PPC account-audit postings, shouldn't care about a low rate, must exclude
+these from the short-term penalty, and should pitch a FIXED $300 / 1 working day with audit samples.
+
+The analyser had scored it SKIP 3/10 on: rate ceiling below the $30 floor + client avg $25;
+"part-time + short-term = scope-creep risk"; and a client-quality red flag. Two of those are
+structurally wrong for an audit (it is a fixed-fee, inherently short one-off), and the third was a
+HALLUCINATION — it wrote "Payment NOT verified … unknown spend" while its own client line said
+"payment verified" and "$3.6K total spent".
+
+CHANGES:
+- ANALYSER, deterministic: new `_isPpcAuditJob` (Google Ads/AdWords/PPC/paid search/SEM within ~80
+  chars of audit/review/assessment/health check/analysis, either order, over title+category+
+  keywords+description). When it fires, ALL rate-floor mandatoryFlags are suppressed and replaced
+  with a forced note: fixed $300 / 1 working day / samples attached; hourly floor DOES NOT APPLY;
+  short-term/part-time/one-off is the NATURE of an audit, never a negative; verdict APPLY 7-9
+  unless a genuine hard disqualifier applies.
+- ANALYSER, prompt: new "PPC / GOOGLE ADS ACCOUNT AUDIT JOBS — ALWAYS APPLICABLE" block (overrides
+  the rate rules; don't compute an effective hourly; audits are door-openers into management).
+  Updated the stale price: "$160-200 PPC audit" → "$300 fixed Google Ads / PPC account audit
+  (1 working day)".
+- ANALYSER, correctness: hard-disqualifier #3 now says to read the client line LITERALLY — it fires
+  only when the data literally says "payment NOT verified", and the model may never contradict the
+  client data it was given (no "unknown spend" when spend is provided). This fabricated flag caused
+  a wrong SKIP.
+- GENERATOR: the audit offer must now ALWAYS quote the fixed price — "$300 flat, delivered within
+  1 working day" — even when the posting never asked for a rate. Explicitly overrides "never quote
+  a price upfront" AND the RATE ANCHOR (never mirror the posted hourly ceiling on an audit job,
+  never give an hourly figure for the audit).
+- `_stripUnaskedRate` carve-out: never strip a paragraph mentioning an audit, so the $300 offer
+  survives on postings that didn't ask for a rate.
+Verified: detection fires on this job's title AND description, plus "ppc audit" / "adwords health
+check" / "audit our paid search"; correctly does NOT fire on ongoing Ads management, SEO-only
+audits, or web-dev (their separate pricing/timelines untouched). $300 offer survives the stripper
+while a plain "$40/hr" quote is still stripped. Compiles.
