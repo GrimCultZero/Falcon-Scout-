@@ -1975,3 +1975,41 @@ Verified: detection fires on this job's title AND description, plus "ppc audit" 
 check" / "audit our paid search"; correctly does NOT fire on ongoing Ads management, SEO-only
 audits, or web-dev (their separate pricing/timelines untouched). $300 offer survives the stripper
 while a plain "$40/hr" quote is still stripped. Compiles.
+
+---
+
+## 2026-07-22 — Screening answers need the case-study format; geography is not personalisation
+
+Owner (job 7726, after the PPC-audit fixes landed — analyser now correctly APPLY 8/10):
+1. The answer to an additional/screening question should be formatted like the cover letter's case
+   block — 1-3 relevant case studies WITH FIGURES and the attachment notice.
+2. Dislikes the opener "scaling google ads for an australian business" — a nationality says nothing
+   about business model or account type, so it is meaningless personalisation.
+
+ROOT CAUSES:
+1. ADDITIONAL / SCREENING QUESTIONS MODE only specified "clean, paste-ready, conversational,
+   self-contained, plain text". It said NOTHING about case studies, figures, or attachment
+   notices — so experience questions got answered with vague prose.
+2. Nothing forbade using the client's COUNTRY as the personalising hook. On a thin posting
+   ("review our Google Ads campaigns…") the model reached for `Country: Australia` from the job
+   context as a specificity crutch.
+
+CHANGES:
+- Screening-answer spec: new mandatory clause — EXPERIENCE / PAST-WORK QUESTIONS USE THE COVER
+  LETTER'S CASE-STUDY FORMAT. 1-3 cases written exactly as in the letter (name + inline attachment
+  notice + REAL figures), one per line; match the case DOMAIN to the question (PPC cases for an Ads
+  question, SEO for SEO, web-dev for builds); always concrete numbers, never "extensive experience
+  with similar projects"; approved cases only, never invented; still self-contained (say what the
+  work WAS, not just the result).
+- Opener rules: new GEOGRAPHY IS NOT PERSONALISATION block — never open with "for your
+  australian/UK/US business"; geography only when materially relevant (local service-area / map
+  pack, multi-market or multi-currency, language, stated timezone overlap); otherwise anchor on
+  ACCOUNT TYPE or BUSINESS MODEL (ecommerce vs lead-gen, existing account vs from scratch,
+  search vs PMax) or the goal in their words.
+- Deterministic BANNED_OPENERS gains a geo-filler pattern ("for a/your/their <nationality>
+  business/company/brand/store/…"). Verified: catches the real opener plus "for your UK company"
+  and "for a US brand", while leaving material-geo ("across three Australian service areas"),
+  account-type anchors, and geo-free openers untouched.
+- The banned-opener ENFORCER message now also tells it to strip nationality-as-hook and re-anchor
+  on account type / business model / their goal.
+Compiles; both regex sets unit-tested.

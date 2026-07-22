@@ -2426,6 +2426,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
           'the clean, paste-ready answer in Artem\'s conversational voice — correct casing (always capital "I", capitalised sentence starts), with at most 1 minor non-casing typo or punctuation quirk to sound human. Self-contained, complete on its own, NO "see above", NO "as mentioned", NO reference to the proposal or other answers. Plain text only, no markdown.',
           '</answer>',
           'Emit exactly one <answer> block per question. The text inside each <answer> is what Artem copies straight into Upwork, so it must be clean and need zero editing. Any commentary you have goes in <remarks>, never inside <answer>.',
+          'EXPERIENCE / PAST-WORK QUESTIONS — USE THE COVER LETTER\'S CASE-STUDY FORMAT (mandatory): when a question asks about recent or similar projects, relevant experience, past results, examples, or client references, the answer MUST carry 1-3 relevant case studies written EXACTLY as they are in the cover letter — the case name, its inline attachment notice, and its REAL figures. Format each on its own line, e.g. "FridgeFix (attached in profile highlights): local appliance repair in California, -92% cost per conversion and +1,405% conversions after purging wasted spend and tightening intent targeting." PDF cases keep "(attached as PDF)". Rules: (a) match the case DOMAIN to the question — PPC/Google Ads cases for an Ads question, SEO cases for an SEO question, web-dev cases for a build question; (b) always include the concrete numbers, never a vague "extensive experience with similar projects"; (c) use ONLY approved case studies and their real figures — never invent a client, a metric, or a vertical; (d) the answer must still stand alone, so briefly say what the work WAS, not just the result.',
           '',
           'If neither rewrite nor chat-deliverable applies (pure discussion, clarification, "what do you think of X" without producing copy), emit only <remarks> and skip both <proposal> and <chat_reply>.',
         ].join('\n')
@@ -4644,6 +4645,17 @@ long-form.)
    wrong events". The real specifics come from the audit; it's fine to say so. A
    confident diagnosis of an account you haven't seen reads as guessing and destroys
    trust — the exact opposite of resonance.
+   GEOGRAPHY IS NOT PERSONALISATION (mandatory): never use the client's country or
+   nationality as the personalising detail — "for your australian business", "for a UK
+   company", "scaling google ads for a US brand". A country says NOTHING about their
+   business model, account type, vertical, or problem, so it reads as filler dressed up
+   as specificity, and the client notices. Mention geography ONLY where the posting makes
+   it materially relevant: local service-area / map-pack targeting, multi-market or
+   multi-currency expansion, language requirements, or a stated timezone overlap. When
+   the posting is thin and you have no real specific to grab, anchor on the ACCOUNT TYPE
+   or BUSINESS MODEL instead (ecommerce vs lead-gen, search vs PMax vs shopping, existing
+   account vs from scratch) or simply on their goal in their own words — never on a
+   nationality adjective.
    VARY THE ANGLE — do NOT reach for the same hook every time. The default has become
    "the real problem is conversion tracking / the algorithm optimising on the wrong
    signal / your budget leaks on junk" — it now opens nearly every PPC letter and reads
@@ -5216,6 +5228,10 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\b(?:breaks?|boils?|comes?)\s+down\s+to\s+(?:one|a\s+single|this)\s+(?:question|thing)\b/i,
               // A first line that is purely a rhetorical question aimed at the reader.
               /^(?:can|could|what\s+if|how\s+do|ever\s+wonder|are)\s+you\b[^?\n]{0,160}\?\s*$/i,
+              // Geography-as-personalisation: "for an australian business", "for your UK
+              // company". A nationality says nothing about business model or account type —
+              // it's filler dressed up as specificity. (See GEOGRAPHY IS NOT PERSONALISATION.)
+              /\bfor\s+(?:an?|your|their)\s+(?:australian|aussie|american|british|english|scottish|irish|canadian|german|french|dutch|spanish|italian|swedish|norwegian|danish|polish|indian|singaporean|japanese|chinese|brazilian|mexican|european|kiwi|new\s+zealand|u\.?k\.?|u\.?s\.?a?\.?)\s+(?:business|company|brand|client|store|shop|site|firm|startup)\b/i,
             ]
             const hasBannedOpener = BANNED_OPENERS.some(re => re.test(_firstLine))
 
@@ -5960,7 +5976,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 'ONLY the opening (first 1-2 lines) so it LEADS with the client\'s specific problem ' +
                 'or goal taken from THEIR posting, in their words, plus the angle you\'d take — NOT ' +
                 'Artem\'s years, partner status, or a pleasantry. Move the credential (if kept at all) ' +
-                'to a brief later mention, never the first line. Do not touch the rest of the letter.' +
+                'to a brief later mention, never the first line. Do not touch the rest of the letter. ' +
+                'If the opener leans on the client\'s COUNTRY or nationality as the personalising detail ("for an australian business", "for your UK company"), remove that — a nationality says nothing about their business model or account type and reads as filler. Anchor on the account type / business model (ecommerce vs lead-gen, existing account vs from scratch, search vs PMax) or their goal in their own words instead. Keep geography only if the posting makes it material (local service-area targeting, multi-market expansion, timezone requirement).' +
                 (isAgencyClient
                   ? ' AGENCY/WHITE-LABEL JOB — do NOT replace it with a diagnosis of their business or another rhetorical question ("can you…?", "it comes down to one question"). The buyer is a fellow agency owner whose constraint is CAPACITY, not a broken account. Open instead with peer-level agency context: Artem runs a boutique agency (IT Force) and has delivered white-label behind other agencies\' brands, and what that takes off their plate. First person, no company boilerplate.'
                   : '')
