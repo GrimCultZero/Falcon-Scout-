@@ -4829,6 +4829,7 @@ The imperfections should feel like someone typed fast and didn't proofread, NOT 
 - Sound like a human, not AI
 - PLAIN TEXT ONLY — absolutely no markdown: no **bold**, no *italic*, no ## headings, no asterisks of any kind. Use plain dashes or line breaks for lists.
 - NEVER offer to walk through, demo, or show anything — no "happy to walk through", "walk you through", "hop on a call", "schedule a demo", "book a call", or any similar phrase that implies initiating a synchronous session. If the client wants a call they will ask.
+- IF THE POSTING EXPLICITLY ASKS ABOUT A LIVE CALL/SCREEN-SHARE (e.g. "can you join a live screen share?"), answer it directly — that is required, not optional. But answering means confirming AVAILABILITY to join and explain findings, NEVER committing to EXECUTE the fix during or because of that call. Banned regardless of phrasing: "we diagnose/fix/troubleshoot/resolve in real time", "execute fixes together", "work directly in the account with you on the call", "implement the fixes during the screen share". These describe joint synchronous execution — Rule 2 territory — even when reworded to avoid an obvious banned phrase. The call is for EXPLAINING what was found; the fix itself is delivered as async written work (findings doc + implementation on Artem's own time), same as the audit itself.
 - NEVER mention Loom in ANY context in a cover letter — not as a deliverable, not as a comms tool, not as "recorded Loom messages", not as "Loom updates". Loom is a screen-recording tool and its mention implies a Rule 2 deliverable. If you need to describe async communication cadence, describe the OUTPUT ("weekly written summary", "same-day Slack reply", "priority doc before each sprint") — never name a recording tool.
 - THE ONLY VALID ENDING IS "Artem" (capital A) on its own line — nothing else. No CTA, no closing filler, no invitation, no question, no next-step prompt. Every one of these is banned as a closing line: "happy to answer questions", "feel free to reach out", "let me know if you have questions", "looking forward to hearing from you", "happy to discuss further", "happy to chat", "reach out anytime", "let's talk", "keen to hear more", "would love to connect", "open to a quick call", "communication will be efficient", or ANY variation. The letter ends with the last content sentence and then "Artem" on its own line. Period.
 - NEVER write "i work async" anywhere in the letter — not as a closing line, not as a mid-letter description of communication style. This phrase is banned entirely. If you need to explain communication cadence, describe it concretely ("weekly summary report covering spend, leads, CPL, and next actions") without the phrase "async".
@@ -5239,6 +5240,16 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // the required "yes I can join a screen share" screening answer.
               /\btogether\b[^.\n]{0,50}\b(?:real[\s-]?time|live)\b/i,
               /\b(?:real[\s-]?time|live)\b[^.\n]{0,50}\btogether\b/i,
+              // Same violation, rephrased without the word "together" (the
+              // model dodges narrow regexes by rewording) — catch the
+              // underlying meaning: a diagnostic/fix verb landing "in real
+              // time", working "in the account with you" on the call, or
+              // fixes implemented "during" the call/screen-share. All three
+              // describe joint synchronous execution, not just explaining
+              // findings on a call.
+              /\b(?:diagnose|fix|troubleshoot|resolve|implement|execute)\w*\b[^.\n]{0,30}\bin\s+real[\s-]?time\b/i,
+              /\bwork(?:ing)?\s+directly\s+in\s+the\s+account\s+with\s+you\b/i,
+              /\b(?:fix(?:es|ing)?|implement(?:ation|ing)?|resolv\w+|troubleshoot\w*)\b[^.\n]{0,70}\bduring\b[^.\n]{0,25}\b(?:the\s+)?(?:screen\s*share|call|session)\b/i,
             ]
             const hasForbiddenPhrase = FORBIDDEN_PHRASES.some(re => re.test(text))
 
