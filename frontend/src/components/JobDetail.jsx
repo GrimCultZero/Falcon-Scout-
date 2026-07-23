@@ -1642,9 +1642,20 @@ function _stripDuplicateCaseBlockLabel(text) {
 //   "Skin Reboot (health/wellness ecommerce, attached as PDF):"
 // Also handles the same phrase appearing twice inside ONE parenthetical.
 const _ATTACH_PHRASE_RE = /\battached\s+(?:as\s+(?:a\s+)?pdf|in\s+(?:the\s+)?profile\s+highlights)\b/i
+// A new duplicate-label variant: the attachment phrase appears once inside a
+// parenthetical AND immediately again as bare text right before the colon,
+// e.g. "Skin Reboot (attached as PDF), attached as PDF: fixed event mapping…"
+// — reads as a garbled half-formed template. Keep the parenthetical, drop the
+// repeated bare phrase.
+const _DUPLICATE_LABEL_BEFORE_COLON_RE = new RegExp(
+  `(\\([^()]*${_ATTACH_PHRASE_RE.source}[^()]*\\))\\s*,\\s*(?:also\\s+)?${_ATTACH_PHRASE_RE.source}\\s*:`,
+  'gi'
+)
 function _stripDuplicateAttachmentLabel(text) {
   if (!text) return text
   let out = text
+  // 0) "(attached as PDF), attached as PDF:" → "(attached as PDF):"
+  out = out.replace(_DUPLICATE_LABEL_BEFORE_COLON_RE, '$1:')
   // 1) Two adjacent parentheticals that BOTH carry an attachment phrase → merge.
   out = out.replace(/\(([^()]*)\)\s*\(([^()]*)\)/g, (full, a, b) => {
     if (!_ATTACH_PHRASE_RE.test(a) || !_ATTACH_PHRASE_RE.test(b)) return full
@@ -5217,6 +5228,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /entity\s+(?:mapping\s+)?(?:samples?|examples?|breakdowns?)/i,
               /(?:technical\s+)?SEO\s+(?:audit\s+)?(?:samples?|examples?|breakdowns?)\s+(?:attached|in\s+(?:my\s+)?profile)/i,
               /profile\s+highlights?[^.]*(?:schema|AI\s+visibility|entity|breakdown|audit\s+sample)/i,
+              // Synchronous-execution overcommit: answering "can you join a
+              // screen share" is fine (required when the posting explicitly
+              // asks) — but committing to work/fix things "together" AND
+              // "live"/"in real time" goes beyond a call to explain findings
+              // and into ongoing synchronous collaboration (Rule 2 territory).
+              // Bidirectional (either word can come first) and NOT gated on a
+              // specific verb — "together" co-occurring near "live"/"real time"
+              // is already a narrow, rare combination that doesn't collide with
+              // the required "yes I can join a screen share" screening answer.
+              /\btogether\b[^.\n]{0,50}\b(?:real[\s-]?time|live)\b/i,
+              /\b(?:real[\s-]?time|live)\b[^.\n]{0,50}\btogether\b/i,
             ]
             const hasForbiddenPhrase = FORBIDDEN_PHRASES.some(re => re.test(text))
 
