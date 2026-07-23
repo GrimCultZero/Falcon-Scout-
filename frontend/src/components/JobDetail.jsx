@@ -4854,6 +4854,8 @@ LEAD WITH THE EXACT-VERTICAL CASE (mandatory — overrides default ordering): if
 NEVER use a consumer appliance repair or painting contractor case study for a B2B or automotive brief without explicitly bridging the analogy. If no close match exists, say so and lean on the Premier Partner credential and process description instead of a weak case study.
 EXPERIENCE-GAP EXCEPTION (critical — prevents self-disqualification): If the analyser flags an experience gap OR the posting explicitly asks for proof/examples/portfolio of work Artem hasn't done, do NOT cite a case study from a completely different service type as a substitute. An off-target case study (e.g. owned-domain SEO results on a parasite SEO / third-party platform job; Google Ads case studies on a social media management job) actively signals that you didn't read the brief and don't have the specific experience. In these situations: skip the case study section entirely and lean on process depth, credentials (Top Rated, Premier Partner, 12 years), and the audit/discovery offer. Zero case studies is better than the wrong case study.
 
+DIAGNOSIS-ONLY EXAMPLE REQUEST (critical — screening-question compliance): if the posting explicitly asks for an example where Artem DIAGNOSED/ANALYSED a performance issue using data, and explicitly excludes an example where he SET UP or MANAGED the campaign himself, tell the SAME real case study but frame it ENTIRELY as diagnosis: what the data showed, what pattern/discrepancy that revealed, what root cause it pointed to. Do NOT narrate the fix in first person ("I rewired conversion tracking", "I rebuilt Search", "I segmented the feed", "the fix: I ...") — that is exactly the framing the client asked you not to send, and will read as ignoring their explicit instruction. If you mention the resolution at all, attribute it to what the diagnosis pointed to, not to Artem personally executing it. Never invent a different case just to dodge this — reframe the telling, keep the facts.
+
 SCREENING QUESTIONS THAT DEMAND EXAMPLES / TRACK RECORD (mandatory — the #1 fabrication trap):
 When a posting's application questions explicitly demand examples, case studies, a client/agency count, or a relationship history ("give three examples where you…", "how many agencies do you deliver white-label for and for how long", "share past projects"), answer using ONLY the approved case studies and real facts above. You may NOT:
 - Invent client examples, projects, platforms, or verticals that are not in the approved case studies. NO "bridal dress Webflow site", NO "luxury skincare Shopify store" — if it is not an approved case with that exact platform/vertical, it does not exist.
@@ -5814,6 +5816,28 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingCaseStudy = !hasResultSignal
             }
 
+            // ── Diagnosis-only case study, wrongly told as remediation ───────
+            // Some postings explicitly ask for an ANALYSIS/DIAGNOSIS example and
+            // explicitly EXCLUDE examples where Artem set up / managed / fixed the
+            // campaign himself ("share an example where you diagnosed an issue
+            // using data, NOT one where you set up or managed the campaign").
+            // Artem's real case studies are audit+fix engagements, so the
+            // generator's case-study retelling naturally narrates the FIX in
+            // first-person management verbs ("I rewired conversion tracking,
+            // rebuilt Search, segmented the feed") — which directly contradicts
+            // what the client asked NOT to see. This must be caught: the facts
+            // can stay, but the case study must be told as DIAGNOSIS (what the
+            // data showed, what that revealed) not REMEDIATION (what Artem did
+            // to fix it).
+            const _DIAGNOSIS_ONLY_REQUEST_RE =
+              /\b(?:an?\s+example|instance|case)\b[^.\n]{0,60}\bdiagnos\w*\b[^.\n]{0,120}\bnot\b[^.\n]{0,60}\b(?:set\s*up|manag(?:e|ed|ing)|ran|running|built|build)\b|\bnot\s+(?:one|an?\s+example)\b[^.\n]{0,60}\b(?:you\s+)?(?:set\s*up|manag(?:e|ed|ing))\b[^.\n]{0,40}\byourself\b/i
+            const jobWantsDiagnosisOnlyExample = _DIAGNOSIS_ONLY_REQUEST_RE.test(fullDescription)
+            // First-person management/build verbs applied to Artem's own action
+            // in the case-study retelling — the exact framing the client banned.
+            const _REMEDIATION_VERB_RE =
+              /\b(?:i|we)\s+(?:rewired|rebuilt|rebuild|segmented|restructured|relaunched|launched|implemented|migrated|redesigned|overhauled)\b|\bthe\s+fix\s*:\s*(?:i|we)?\s*(?:rewired|rebuilt|segmented|restructured)/i
+            const caseStudyToldAsRemediation = jobWantsDiagnosisOnlyExample && _REMEDIATION_VERB_RE.test(text)
+
             // ── Profile-highlights + paragraph-format check ──────────────────
             // When non-PDF case studies are referenced the draft must:
             //   (a) contain "profile highlights" in a lead-in sentence, AND
@@ -5855,7 +5879,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !regulatedJobMissingVape && !vapeFabrication
               && !missingYearsExperience && !ppcMissingPremierPartner
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
-              && !launchJobMissingCTA && !vapeOnPpcOnlyJob && !campaignLiveTooFast
+              && !launchJobMissingCTA && !vapeOnPpcOnlyJob && !campaignLiveTooFast && !caseStudyToldAsRemediation
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
@@ -5876,6 +5900,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               ppcMissingPremierPartner && 'ppcMissingPremierPartner',
               launchJobMissingCTA && 'launchJobMissingCTA',
               campaignLiveTooFast && 'campaignLiveTooFast',
+              caseStudyToldAsRemediation && 'caseStudyToldAsRemediation',
               coverHasTimeline && 'coverHasTimeline',
               hasFabricatedDiagnosis && 'hasFabricatedDiagnosis',
               hasUnsolicitedLogistics && 'hasUnsolicitedLogistics',
@@ -6198,6 +6223,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 'FALSE "CAMPAIGN LIVE IN 1 DAY" CLAIM (credibility-critical): the draft claims the campaign(s) go live / launch / are running within ~1 (or 1-2) working day(s). That is untrue — "1 working day" is the GOOGLE ADS AUDIT turnaround ONLY; it is NEVER a campaign build/launch/go-live timeframe. A from-scratch build+launch is "5 working days" (Rule 450), and even then Google\'s ad review means it is "live AND approved", not instant. ' +
                 'Fix: replace the false claim. If this is a from-scratch setup/launch job, use the Rule 450 line — "i can set up and launch your campaigns from scratch in 5 working days" (initial Search campaigns live and approved). If it is not a launch job, DELETE the go-live timeframe entirely rather than quote any day-count for a campaign. Never state or imply a campaign is live within 1 working day.'
+              )
+            }
+            if (caseStudyToldAsRemediation) {
+              specificViolations.push(
+                'CASE STUDY VIOLATES THE CLIENT\'S EXPLICIT SCREENING INSTRUCTION (critical — this can get the proposal auto-rejected): the posting explicitly asks for an example where Artem DIAGNOSED a performance issue using data, and explicitly says NOT an example where he set up or managed the campaign himself. The draft\'s case study is narrated in first-person REMEDIATION verbs ("I rewired conversion tracking", "rebuilt Search", "segmented the feed", "the fix: ...") — this is exactly the framing the client said not to send. ' +
+                'Fix: keep the SAME case study and the SAME real metrics/facts, but retell it as DIAGNOSIS ONLY. Describe what the DATA SHOWED and what that REVEALED as the root cause (e.g. "the data showed collapsing ROAS despite high click volume, and cross-referencing Ads conversions against GA4 revenue showed the gap traced to the conversion goal firing on the wrong event") — do NOT narrate what Artem personally did to fix it ("I rewired / rebuilt / segmented / implemented"). If a fix must be mentioned at all, attribute it neutrally to what the diagnosis pointed to, not to Artem\'s own remediation action. The point of the story is the DIAGNOSTIC PROCESS (what was tracked, what pattern emerged, what it revealed), not the repair.'
               )
             }
             if (wrongAuditOfferOnLaunch) {
