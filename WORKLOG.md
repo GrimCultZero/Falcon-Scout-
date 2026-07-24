@@ -2081,3 +2081,29 @@ IMPLEMENTED:
 Verified: flags the real opener + all explainer variants; does NOT fire on specific/action-led
 openers or on "accounts like yours" (preposition, not simile). Distinct metrics in parentheses are
 preserved. Compiles.
+
+## 2026-07-24 — Scoped the anti-fabrication rearchitecture (DESIGN.md §21)
+
+Owner asked, after another letter shipped with a fabrication + a structural bug: "why do we still
+have so many bugs and fabrications despite the KB / saved winners?" Ran a root-cause analysis on the
+actual generator (`JobDetail.jsx`, 6,955 lines, 312 prohibition phrases, ~40 regex post-processors,
+an unreliable Haiku enforcer the code itself says "repeatedly IGNORED" rules). Diagnosis: the
+architecture is **"generate freely, then police with regex"** — which structurally can't converge
+(per-instance guards, self-diluting prompt, KB used as STYLE not a CHECKED fact source, cases stored
+as prose so they recombine/duplicate).
+
+Owner chose "scope it properly." Wrote **DESIGN.md §21** as the canonical plan — the inversion to
+**"constrain → generate → verify"**: (A) a **structured case ledger** (cases become data w/ fixed
+approved metrics + attachment type; model emits `{{case:id}}` placeholders the app expands — kills
+metric-drift / vertical-relabel / duplicate-case by construction; seed from `_CASE_META` + verified
+`CASES.md` figures); (B) a **deterministic grounding checker** (the unbuilt "Phase 2" / §16's
+claim-grounding check — pass/fail per claim class: metrics-in-ledger, case-known/once,
+**geo/market-in-posting** (client account country ≠ licence), attachment-backed, turnaround-map;
+a checker, NOT another LLM); (C) **prompt slim-down** to ~10 positive rules once A+B hold.
+
+Build order with acceptance criteria + **shadow-mode rollout** (B ships record-only first, flips to
+enforce once telemetry matches hand-review; no big-bang rewrite of the 6,955-line file; regex net
+stays live underneath until 21-C). Explicitly supersedes §16's deferred Phase B (stop waiting on
+telemetry to add more regex — change the architecture). Success metric = fabrication/structural-bug
+rate per letter (30d `⚠ Top rule violations` telemetry) trends down and stays down WITHOUT a new
+bespoke regex per failure shape. NOT STARTED — this is the scope, not the build.

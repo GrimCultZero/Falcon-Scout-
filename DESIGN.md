@@ -1281,3 +1281,105 @@ mis-borrowed the **"2 working days"** turnaround that belongs ONLY to the **SEO 
    `_recordViolations('generator', …, ['seoAuditTurnaround'])` for telemetry.
 
 The deterministic strip is the guarantee; the prompt edit just reduces how often Claude emits it.
+
+---
+
+## 21. Anti-fabrication rearchitecture — the grounding rework (scoped 2026-07-24)
+
+**Status: SCOPED, not started. This is the canonical plan for the work §16 called "the highest-leverage remaining work — dissolves the whole class instead of whack-a-mole" (line ~1003). It supersedes the deferred §16 Phase B: we are no longer waiting on telemetry to add more speculative regex — we are changing the architecture.**
+
+### 21.1 Why we keep shipping fixes forever (the diagnosis)
+
+The generator (`JobDetail.jsx`, ~6,955 lines) runs a **"generate freely, then police"** pipeline: a ~40K-char system prompt with **312** prohibition phrases → the LLM writes whatever → **~40 regex post-processors** rewrite the output → an unreliable second Haiku "enforcer" (the code itself says it *"has repeatedly IGNORED"* rules, `JobDetail.jsx:1580`; *"the prompt rule … is unreliable, so enforce it in code"*, `:1941`). This structurally **cannot converge**:
+
+1. **Guards are per-instance, not structural.** Each bug spawns a regex matching *that exact wording*; the model rephrases and the next failure is a new shape no regex anticipated. Enumerating all bad outputs is infinite.
+2. **The prompt defeats itself.** Past a few dozen rules, per-rule compliance drops; rule #313 dilutes #1–312. This is why killed fabrications (e.g. Skin Reboot "$12k→$95k", killed 3+ times per WORKLOG) keep resurging — the ban is in there but drowned.
+3. **Three sources of truth drift** — generator LLM, Haiku enforcer, regex layer — each with different gaps, contradicting each other.
+4. **The KB/winners are used as STYLE, not as a CHECKED fact source.** The model imitates the *shape* of good letters, including confidently inventing plausible specifics. Nothing asks *"does every factual claim trace to an allowed fact?"* Phase-1 (the grounding *contract* in the prompt + fenced few-shot, done earlier) is persuasion, not enforcement — the model is free to decline it.
+5. **Cases live as prose, so they recombine freely** — wrong metric, relabeled vertical, or (observed 2026-07-24) the *same case emitted twice* in one letter. `_CASE_META` (`JobDetail.jsx:1782`) identifies 16 cases **by name-regex only** and carries **zero structured facts** (name + a `pdf` boolean). The real figures live scattered as prose in the prompt/KB/`CASES.md`.
+
+Evidence this is the right diagnosis, not pessimism: the 2026-07-24 letter that triggered this had **zero fabricated metrics** (the Phase-1 grounding held on numbers) — the two failures were exactly the classes regex can't catch: a **novel-shape fabrication** ("Danish brand launching in Israel" — inferred the target market from the client's *account country*) and a **structural bug** (case block emitted twice).
+
+### 21.2 The inversion — "constrain, then generate, then verify"
+
+Stop policing outputs; constrain inputs and verify claims. Three components, each independently valuable:
+
+- **A. Structured case ledger** — cases become data, not prose. Kills metric-drift, vertical-relabeling, and duplicate-case bugs *by construction*.
+- **B. Deterministic grounding checker** (the unbuilt "Phase 2" / §16's claim-grounding check) — after generation, every *deterministically-checkable* factual claim must trace to an allowed source or it is stripped/flagged. A **checker** (pass/fail per claim), not an LLM rephraser — so it cannot "ignore" rules the way Haiku does.
+- **C. Prompt slim-down** (the unbuilt "Phase 3") — replace 312 prohibitions with ~10 positive rules + the structured inputs. Fewer rules → higher compliance. Regex demotes from primary mechanism to thin safety net.
+
+### 21.3 Component A — Structured case ledger
+
+Single source of truth for every case study, replacing the scattered prose + `_CASE_META` + the hardcoded attachables inventory (§16 line 1002 flagged that hardcoded inventory as a design break).
+
+**Storage:** a `cases` table (or a dedicated `kb_entries` sub-type with a structured JSON body — decide at build time; a table is cleaner). One row per case:
+
+| column | type | notes |
+|---|---|---|
+| `id` | TEXT PK | stable slug, e.g. `skin-reboot` |
+| `name` | TEXT | display name, e.g. "Skin Reboot" |
+| `vertical` | TEXT | canonical, e.g. `ecom-health`, `local-service`, `web-dev` — never relabeled by the model |
+| `service` | TEXT | `ppc` / `seo` / `web-dev` — used to match case to job/question domain |
+| `attachment` | TEXT | `pdf` / `profile-highlights` / `none` — drives the inline label deterministically |
+| `metrics` | JSON | array of **fixed, approved strings**, e.g. `["+693.8% revenue", "17.51 PMax ROAS"]` — the ONLY figures allowed for this case |
+| `one_liner` | TEXT | what the work WAS (approved description, no metrics) |
+| `is_real` | BOOL | guards against a fabricated case ever being added |
+
+Seed from the real data already in the repo: `_CASE_META`'s 16 names + the verified figures in `CASES.md` (e.g. `CASES.md:138` — Skin Reboot: +693.8% revenue, 17.51 PMax ROAS, overall 15.04). **This is a data-entry task, not a guess — every metric must be copied from an existing verified record; anything without one gets `metrics: []` and Artem fills it.**
+
+**How the generator uses it:** the model may only **reference case IDs** (e.g. emit a placeholder `{{case:skin-reboot}}`); the app expands each placeholder into the canonical case line from the ledger (name + inline attachment label + approved one-liner + approved metrics). Consequences, all structural:
+- Metrics can't drift (rendered from `metrics`, not typed by the model).
+- Verticals can't be relabeled (never model-authored).
+- **A case cannot appear twice** — the expander dedups by ID and emits one results block. (Directly kills the 2026-07-24 duplicate-block bug.)
+- The "attachables inventory" stops being a hardcoded prompt block that drifts from the KB — the ledger *is* the inventory.
+
+### 21.4 Component B — Deterministic grounding checker
+
+Runs on the generated draft *before* it reaches the textarea. For each **deterministically-checkable claim class**, extract the claims and verify against an allowed source; strip or hard-flag anything untraceable. Scope is deliberately limited to claim classes that are (a) high-frequency failures and (b) mechanically decidable — we do **not** rebuild a semantic LLM judge.
+
+| Claim class | Extractor | Allowed source | Action if untraceable |
+|---|---|---|---|
+| **Metrics / numbers** (`+X%`, `N ROAS`, `$N`, `-N% CPA`) | numeric+unit regex, scoped to case lines | the referenced case's `metrics` in the ledger | strip the number / revert to ledger value; flag `metricNotInLedger` |
+| **Case references** | case-name / `{{case:…}}` match | ledger `id`s; each may appear **once** | drop unknown case; dedup repeats; flag `caseUnknown` / `caseDuplicated` |
+| **Geo / market nouns** (country, region, city, "launching in X") | gazetteer + `\b(launching\|expanding\|targeting) in <Place>\b` | **must appear in the job posting text** — the client's *account country* does NOT count | strip the market claim; flag `marketNotInPosting` |
+| **Attachment claims** ("attached as PDF", "in profile highlights", "i'm attaching X") | phrase match | must map to a real ledger `attachment` for a cited case | strip claim; flag `attachmentUnbacked` (this is §16 line 1005's check) |
+| **Deliverable / turnaround** | reuse existing `_stripSeoAuditTurnaround` family | KB turnaround map (§20) | already deterministic — fold under this checker |
+
+**Design rules:**
+- **Checker, not rewriter.** It removes or reverts specific spans and records a violation code; it never paraphrases. Deterministic and idempotent.
+- **Two outcomes per claim:** trace → keep; no-trace → strip + record. No "maybe."
+- **Telemetry:** every strip fires `_recordViolations('generator', …, [code])` (the §16 `⚠ Top rule violations (30d)` panel), so we *measure* the fabrication rate dropping instead of guessing.
+- **The client-account-country rule is explicit:** `marketNotInPosting` must treat the enriched `client.country` as NOT a licence to name a target market. Only the posting body authorizes a geo/market claim.
+
+### 21.5 Component C — Prompt slim-down
+
+Only after A + B are live and shadow-verified (below). Replace the 312-prohibition wall with:
+- ~10 **positive** high-signal rules (voice, diagnose-first, one results block, no market you can't cite, use `{{case:…}}` placeholders).
+- The structured inputs (ledger case list for this job's domain, job facts, outcome stats).
+- The regex guards stay as a **safety net** but are no longer the primary mechanism.
+
+Measure per-rule compliance before/after via the violation telemetry — the hypothesis is that fewer, clearer rules *raise* compliance. If a specific removed prohibition regresses, it goes back as a checker claim-class (B), not as prompt text.
+
+### 21.6 Build sequence & acceptance
+
+Each step ships independently and is strictly better than before. Do them in order — B depends on A's IDs; C depends on B's telemetry.
+
+- **Step 21-A (ledger):** create the `cases` store + seed from `_CASE_META` + `CASES.md`; add the placeholder-expansion render step; leave the prompt otherwise unchanged (model can emit either prose *or* `{{case:…}}` during transition). **Acceptance:** a letter using `{{case:skin-reboot}}` renders the canonical line with correct attachment label and real metrics; emitting the same ID twice yields one block.
+- **Step 21-B (checker) — SHADOW FIRST:** build the checker to *record* violations without stripping, run it on every generation for ~1 week. **Acceptance:** the `⚠ Top rule violations` panel shows `metricNotInLedger` / `marketNotInPosting` / `caseDuplicated` / `attachmentUnbacked` counts on real letters, matching hand-review. **Then flip to enforce** (strip/revert). **Acceptance:** the 2026-07-24 letter's two failures (Israel market, duplicate case block) are both caught and corrected automatically.
+- **Step 21-C (slim prompt):** only after B enforces cleanly. **Acceptance:** prohibition count down to ≤ ~40; violation rate per letter (30d telemetry) is **flat or lower** than pre-slim. If it rises, revert the specific rule as a checker class.
+
+### 21.7 Shadow-mode rollout (don't regress)
+
+The generator is load-bearing — Artem sends these daily. So: **A ships behind acceptance of both prose and placeholders** (no hard cutover); **B ships in record-only shadow mode first**, flips to enforce only once telemetry confirms it matches hand-review; **C ships last, gated on B's numbers.** At no point is there a big-bang rewrite of the 6,955-line file — the existing regex net stays live underneath the whole migration and is only thinned in 21-C.
+
+### 21.8 Negative space (scope discipline — do NOT do these)
+
+- **No semantic LLM judge / third Claude call.** B is deterministic claim-classes only. Fuzzy "is this sentence on-strategy?" checks are explicitly out — that's how we got the unreliable Haiku enforcer.
+- **No rewrite of `JobDetail.jsx` in one pass.** Incremental, behind the shadow flags above.
+- **No new fabricated headroom.** The ledger only holds `is_real` cases with verified metrics; a case with no verified figure gets `metrics: []`, not an invented number.
+- **No embeddings / RAG** for case selection — domain/vertical tag match is enough at this scale (consistent with §9).
+- **No deleting the regex guards up front.** They're the safety net during migration; only 21-C thins them, and only where telemetry shows the checker + slim prompt cover the case.
+
+### 21.9 Success metric
+
+Not "zero bugs" — the honest target is: **the fabrication/structural-bug rate per letter (from the `⚠ Top rule violations` 30d telemetry) trends down and stays down after 21-C, without a new regex being added for each new failure shape.** The tell that it worked: new failure *shapes* get absorbed by an existing checker class (or the ledger) instead of requiring a bespoke fix. That is the difference between a treadmill and a wall.
