@@ -2182,3 +2182,49 @@ coverage). Dual-service cases (skin-reboot/derma are seo+ppc) store one primary 
 QUESTIONS FOR ARTEM:
 1. Storage: happy with the ledger as a data-as-code module, or want the DB `cases` table now?
 2. GKit metrics are weak (first-month impressions only) — supply stronger figures if you have them.
+
+---
+
+## 2026-07-27 — Anti-fabrication rework: Step 21-B (grounding checker) DONE in SHADOW
+
+Built the deterministic grounding checker and wired it in shadow / record-only mode.
+Did NOT flip to enforce and did NOT start 21-C (both gated on the shadow soak + owner
+check-in, per the owner's rule and §21.6).
+
+WHAT SHIPPED:
+- New `frontend/src/lib/groundingCheck.js` — pure, deterministic, no LLM. Five §21.4 claim
+  classes: metricNotInLedger, caseDuplicated, attachmentUnbacked, marketNotInPosting,
+  seoAuditTurnaround. `groundingCheck(text, {postingText, enforce}) -> {text, violations}`.
+- Wired into BOTH generate emit points in JobDetail.jsx via `_gcShadow()` behind a single
+  `GC_ENFORCE` constant (default false = shadow: records violation codes to the
+  `⚠ Top rule violations` telemetry, returns the letter UNCHANGED). Flipping to enforce is a
+  one-line change AFTER the soak + check-in.
+
+DESIGN CHOICES (false-positive discipline):
+- Metric + attachment checks scoped to PARAGRAPHS THAT NAME A LEDGER CASE — pattern
+  statements ("most accounts leak 30-40% of budget") are never touched.
+- metricNotInLedger is NUMBER-BASED against the cited case's ledger figures.
+- marketNotInPosting reads ONLY the posting body (gazetteer of countries/demonyms/codes);
+  client account country is never a licence (explicit §21.4 rule).
+- seoAuditTurnaround gated so the PPC/Google Ads audit's required 1-working-day turnaround
+  is preserved; removal still handled by the existing _stripSeoAuditTurnaround in the pile.
+
+WHICH DEFECTS: the checker owns the NAMED-case classes (job-8484 #4/#5/#6, 2026-07-24
+Israel/Danish + duplicate block). The anonymized/relabeled forms (#1 unnamed story, #2
+relabel, #3 anon half) are killed by the LEDGER at 21-C (once the prompt emits {{case:id}}).
+"Catch all six" is a property of the combined ledger + checker system.
+
+VERIFIED (bundled Node test, 12/12): 8484 fixture fires metricNotInLedger + caseDuplicated
++ attachmentUnbacked + seoAuditTurnaround; skin-reboot ledger line has no Shopify/fab
+numbers and dedups to one block; 2026-07-24 fires marketNotInPosting (and NOT when the
+posting authorises it); CLEAN letter → ZERO flags (incl. the 30-40% pattern line + PPC
+1-working-day audit); shadow returns text unchanged; enforce strips fab number / collapses
+dup label. Frontend compiles.
+
+NEXT (owner-gated):
+1. Let shadow run ~1 week; watch the `⚠ Top rule violations` panel for the five new codes
+   and confirm counts match hand-review (esp. that marketNotInPosting / metricNotInLedger
+   have no false positives on real letters).
+2. THEN flip `GC_ENFORCE = true` (one line) — CHECK IN FIRST.
+3. Only after enforce runs cleanly, start 21-C (slim the 312-prohibition prompt; teach it to
+   emit {{case:id}}; demote regex to a safety net).

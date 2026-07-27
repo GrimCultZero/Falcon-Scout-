@@ -4,6 +4,10 @@ import * as XLSX from 'xlsx'
 // Runs as the FIRST output step (before _cleanPasteText + the _strip* pile) so a case
 // placeholder becomes its canonical, deduped line before any prose processing.
 import { expandCasePlaceholders } from '../lib/caseLedger'
+// Step 21-B: deterministic grounding checker. Wired in SHADOW / record-only mode
+// (enforce:false) — it reports violation codes to telemetry without altering the
+// letter. Do NOT flip to enforce without checking in (ANTIFAB_HANDOFF.md §0/§8).
+import { groundingCheck } from '../lib/groundingCheck'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -2141,6 +2145,22 @@ function _recordViolations(surface, jobId, checks) {
       body: JSON.stringify({ surface, job_id: jobId ?? null, checks: list }),
     }).catch(() => {})
   } catch (_) {}
+}
+
+// Step 21-B — grounding checker on the finished letter.
+// GC_ENFORCE is the single flip: false = SHADOW (record violations to the
+// `⚠ Top rule violations` panel, return the letter UNCHANGED); true = ENFORCE
+// (also strip/revert untraceable claims). SHIP AS SHADOW. Flip to true ONLY after
+// the ~1-week shadow soak confirms the telemetry matches hand-review AND after
+// checking in with the owner (ANTIFAB_HANDOFF.md §0/§8, DESIGN.md §21.6).
+const GC_ENFORCE = false
+function _gcShadow(finalText, jobObj) {
+  try {
+    const posting = (jobObj && (jobObj.description_full || jobObj.description_snippet || jobObj.raw_message)) || ''
+    const gc = groundingCheck(finalText, { postingText: posting, enforce: GC_ENFORCE })
+    if (gc.violations.length) _recordViolations('generator', jobObj && jobObj.id, gc.violations)
+    return GC_ENFORCE ? gc.text : finalText
+  } catch (_) { return finalText }
 }
 
 // Safety net for chat-reworked letters: the model sometimes leaks its
@@ -5980,7 +6000,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim())
+              setProposal(_gcShadow(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim(), job))
               return
             }
 
@@ -6415,7 +6435,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim())
+      setProposal(_gcShadow(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim(), job))
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
