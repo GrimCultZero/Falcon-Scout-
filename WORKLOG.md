@@ -2134,3 +2134,51 @@ patch is a stopgap on the treadmill (one more regex); #1–#5 still ship until t
 checker (Steps 21-A/B) land. This letter is the strongest single piece of evidence for why §21 is
 needed — nearly every defect is a fabricated-metric / relabeled-vertical / duplicate-case /
 unbacked-claim / turnaround class the deterministic checker + case ledger kill by construction.
+
+---
+
+## 2026-07-27 — Anti-fabrication rework: Step 21-A (case ledger + {{case:id}} expansion) DONE
+
+Picked up the ANTIFAB_HANDOFF.md work. Did the §0 bootstrap (git pull; read DESIGN.md §21 + §16;
+CASES.md; the two handoff docs). Built ONLY Step 21-A per §8, stopped at its acceptance criteria —
+did NOT start 21-B (per the handoff's shadow-first discipline).
+
+WHAT SHIPPED:
+- New `frontend/src/lib/caseLedger.js`: the structured ledger (16 cases) + `renderCaseLine(id)` +
+  `expandCasePlaceholders(text)` (pure, dedups by id, drops unknown ids, idempotent).
+- Wired `expandCasePlaceholders(text).text` as the INNERMOST step of both generate emit chains in
+  JobDetail.jsx (before _cleanPasteText + the _strip* pile). Accepts BOTH prose and placeholders —
+  no cutover; existing prose flow is byte-identical (the expander is a no-op when there are no
+  `{{case:…}}` tokens).
+
+STORAGE DECISION (§21.3 leaned "table"; the handoff allowed "decide at build"): implemented as a
+FRONTEND DATA MODULE, not a DB table. Both the expander (21-A) and the planned grounding checker
+(21-B) run client-side before the textarea, so a JS module is the single source of truth for both
+with zero DB/API surface and zero regression risk to the load-bearing generator. DB table + CRUD is
+deferred to when there's an editing UI or backend consumer. Recorded in DESIGN.md §21.10 with an
+explicit "owner: confirm data-as-code or ask for the table."
+
+SEED — every figure copied from a VERIFIED record, none invented:
+- KB #1 (PPC/SEO overview) → Skin Reboot, Golden State Trailers, Vape Shop, Luxury Parfums, Derma
+  Solution, Multilingual Site, FridgeFix, Nectar Flowers, House Painting, Atlant(=Real Estate
+  Complex), ChronoCash.
+- CASES.md → SMASH, Game-X (+ cross-checks).
+- KB #518 (web-dev portfolio) → SMASH, Game-X, GKit, Casa Eleganza.
+- KB #32 (Ukrainian source) → Oxytec: "6× organic traffic / +76% Mar–Nov 2020".
+- No case needed metrics:[]. GKit has only weak first-month figures (2,600 impressions / 42 clicks)
+  — flagged: ARTEM, do you have stronger GKit metrics?
+
+ACCEPTANCE (Node unit test, 15/15 pass):
+1. {{case:skin-reboot}} → "Skin Reboot (attached as PDF): … +693.8% revenue, 17.51 PMax ROAS, …"
+   — correct label, real metrics, NO fabricated $12k→$95k.
+2. Same id twice → ONE block (expander dedups by id).
+Plus: prose passes unchanged; unknown id dropped + reported; idempotent; 16 unique ids; service ∈
+{ppc,seo,web-dev}; attachment ∈ {pdf,profile-highlights,none}. Frontend compiles.
+
+NOT DONE (deliberately, per plan): 21-B checker (ships shadow-first later; fixture = job-8484's six
+defects), and removing _CASE_META / the old prose menus (that's 21-C, only after the checker proves
+coverage). Dual-service cases (skin-reboot/derma are seo+ppc) store one primary service for now.
+
+QUESTIONS FOR ARTEM:
+1. Storage: happy with the ledger as a data-as-code module, or want the DB `cases` table now?
+2. GKit metrics are weak (first-month impressions only) — supply stronger figures if you have them.

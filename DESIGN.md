@@ -1383,3 +1383,13 @@ The generator is load-bearing — Artem sends these daily. So: **A ships behind 
 ### 21.9 Success metric
 
 Not "zero bugs" — the honest target is: **the fabrication/structural-bug rate per letter (from the `⚠ Top rule violations` 30d telemetry) trends down and stays down after 21-C, without a new regex being added for each new failure shape.** The tell that it worked: new failure *shapes* get absorbed by an existing checker class (or the ledger) instead of requiring a bespoke fix. That is the difference between a treadmill and a wall.
+
+### 21.10 Build status
+
+- **Step 21-A — DONE (2026-07-27).** Case ledger + `{{case:id}}` placeholder expansion shipped.
+  - **STORAGE DECISION (deviation from §21.3's "a table is cleaner", made per its own "decide at build" clause):** the ledger is a **frontend data module** `frontend/src/lib/caseLedger.js`, not a DB table. Rationale: both the expander (21-A) and the grounding checker (21-B, planned at `frontend/src/lib/groundingCheck.js`) run **client-side before the textarea**, so a JS module is the source of truth for both with zero DB/API surface and **zero regression risk** to the load-bearing generator. A `cases` DB table + CRUD is deferred until there is an **editing UI** or a **backend consumer** — neither exists in 21-A/21-B scope. **Owner: confirm you're happy with data-as-code, or ask for the table.**
+  - Seeded all 16 `_CASE_META` cases with **verified** figures only (sources: KB #1 overview, `CASES.md`, KB #518 web-dev portfolio, KB #32 Oxytec). No invented numbers; no case needed `metrics: []`. **GKit** carries only weak first-month figures (2,600 impressions / 42 clicks) — flagged for Artem to supply stronger metrics.
+  - Wiring: `expandCasePlaceholders(text).text` is the **innermost** step of both generate emit chains (`JobDetail.jsx` ~5983 / ~6418), running before `_cleanPasteText` + the `_strip*` pile. Accepts **both** prose and placeholders (no cutover) — prose passes through untouched.
+  - Acceptance verified (Node unit test): `{{case:skin-reboot}}` → canonical line with `(attached as PDF)` + real metrics (no `$12k→$95k`); the same id twice → **one** block; unknown id dropped; idempotent.
+  - `_CASE_META` and the old prose menus are **NOT yet removed** — that's part of 21-C (only after the checker proves coverage). The ledger is additive for now.
+- **Step 21-B — NOT STARTED.** When built, ships **shadow / record-only first** (never flip to enforce without checking in). Regression fixture = the job-8484 letter (§ handoff §9): all six defects must be caught. The dual-`service` limitation (skin-reboot/derma are seo+ppc; ledger stores one primary) is a 21-B/C concern, not 21-A.

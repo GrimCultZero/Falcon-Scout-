@@ -1,5 +1,9 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
+// Step 21-A: structured case ledger + {{case:id}} placeholder expansion (DESIGN.md §21.3).
+// Runs as the FIRST output step (before _cleanPasteText + the _strip* pile) so a case
+// placeholder becomes its canonical, deduped line before any prose processing.
+import { expandCasePlaceholders } from '../lib/caseLedger'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -5976,7 +5980,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim())
+              setProposal(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim())
               return
             }
 
@@ -6411,7 +6415,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim())
+      setProposal(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim())
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
