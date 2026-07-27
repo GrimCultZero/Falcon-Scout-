@@ -2252,3 +2252,26 @@ Verified: the real 230w job-8551 paragraph → 4 balanced beats (56/48/62/34w); 
 untouched; zero words lost; `vite build` clean. NOTE: the splitter makes letters SCANNABLE
 immediately; true brevity (word count) still leans on the prompt cap (the unreliable lever) until
 21-C tightens it. Splitter stays as the safety net; fold the cap into the 21-C slim prompt later.
+
+## 2026-07-27 — Kill the "restate the posting" opener (parroting the client's own ask)
+
+Owner flagged a letter that opened "The job posting asks for Google Ads setup + weekly management
+with CallRail and GoHighLevel tracking." — the #1 AI-form-fill tell: restating the posting the
+client wrote, burning the hook line. (Rest of that letter was strong + fully grounded — right
+local-service cases FridgeFix/House Painting/Atlant with ledger-exact metrics, correct $300/1-day
+PPC audit turnaround.)
+
+Fix (deterministic-first + prompt nudge, same pattern as _stripFabricatedOpener):
+- `_stripPostingRestateOpener()` (JobDetail.jsx, sibling of `_stripFabricatedOpener`): if the FIRST
+  sentence is a posting-restatement ("The job posting asks for…", "You're looking for…", "This role
+  is about…", "Based on your posting…", "Looking at your job post…", "From your description…",
+  "I see you need…") AND real content follows, drop that sentence so the letter opens on the actual
+  hook. Non-empty guard: can only ever REMOVE the parrot, never empty the letter. Deliberately does
+  NOT touch bare "You need…/You want…" (legit diagnostic hooks). Wired by calling it at the top of
+  `_stripFabricatedOpener` (before that fn's early return), so every emit path (initial generate +
+  chat-rewrite) gets it with no paren surgery.
+- Prompt: added the restatement phrasings to the BANNED opening lines list (~line 4703).
+
+Verified (standalone Node, 9/9): the real letter → opens on "First thing I'd do…"; 4 restate
+variants stripped; 4 legit hooks ("Most accounts…", "Your Merchant…", "You're bleeding…", "First
+thing I'd do:") untouched. `vite build` clean.

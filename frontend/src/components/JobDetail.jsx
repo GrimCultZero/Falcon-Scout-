@@ -1612,6 +1612,11 @@ const _FABRICATED_OPENER_RE =
   /^\s*(?:i\s+(?:took\s+a\s+look\s+at|had\s+a\s+look\s+(?:at|through)|checked\s+(?:out|over)|looked\s+(?:at|over|into|through)|reviewed|visited|explored|dug\s+into|went\s+through|pulled\s+up|browsed|poked\s+around)|after\s+(?:looking\s+at|reviewing|checking)|having\s+(?:looked\s+at|reviewed|checked)|looking\s+(?:at|over)\s+your)\b/i
 function _stripFabricatedOpener(text) {
   if (!text) return text
+  // Also kill a posting-restatement opener ("The job posting asks for…"). Done
+  // here so every emit path that already calls _stripFabricatedOpener gets it
+  // too, and BEFORE the early return below (a restate opener is not a
+  // fabricated-inspection opener, so the test below would otherwise skip it).
+  text = _stripPostingRestateOpener(text)
   const paras = text.split(/\n\s*\n/)
   if (!paras.length) return text
   const first = paras[0]
@@ -1626,6 +1631,36 @@ function _stripFabricatedOpener(text) {
   if (remainder) paras[0] = remainder
   else paras.shift()
   return paras.join('\n\n').trim()
+}
+
+// Deterministic removal of an opener that RESTATES the job posting back to the
+// client ("The job posting asks for X...", "You're looking for X...", "This role
+// is about X..."). The client wrote the posting — echoing it wastes the hook
+// and reads as a template form-fill (the #1 reason a diagnostic letter opens
+// weak). The prompt bans it but the model still emits it, so strip it in code:
+// if the FIRST sentence is a posting-restatement AND real content follows, drop
+// that sentence so the letter opens on the actual hook. Deliberately scoped to
+// clear restatement phrasings — bare "You need…/You want…" is left alone (those
+// can be legitimate diagnostic hooks). Sibling of _stripFabricatedOpener.
+const _POSTING_RESTATE_OPENER_RE =
+  /^\s*(?:the\s+(?:job\s+)?(?:posting|post|listing|ad|brief|description|role)\s+(?:asks?|is\s+asking|says?|mentions?|wants?|requires?|calls?\s+for|is\s+(?:for|about|looking))|you'?re\s+(?:looking\s+for|after|seeking|asking\s+for)|this\s+(?:role|project|job|position|gig)\s+is\s+(?:about|for|looking)|looking\s+at\s+your\s+(?:posting|job\s*post|listing|brief|ad|description)|based\s+on\s+(?:your|the)\s+(?:posting|job\s*post|listing|brief|description|ad)|from\s+(?:your|the)\s+(?:posting|job\s*post|listing|description|brief)|i\s+see\s+(?:you'?re|that\s+you|you\s+need|you\s+want))\b/i
+function _stripPostingRestateOpener(text) {
+  if (!text) return text
+  const paras = text.split(/\n\s*\n/)
+  if (!paras.length) return text
+  const first = paras[0]
+  if (!_POSTING_RESTATE_OPENER_RE.test(first)) return text
+  // Drop the leading restatement sentence (up to the first . ! or ?) — but only
+  // if real content survives; never empty the letter.
+  const m = first.match(/^[\s\S]*?[.!?](?:\s+|$)/)
+  if (!m) {
+    const rest = paras.slice(1).join('\n\n').trim()
+    return rest ? rest : text
+  }
+  const remainder = first.slice(m[0].length).trim()
+  if (remainder) { paras[0] = remainder; return paras.join('\n\n').trim() }
+  const rest = paras.slice(1).join('\n\n').trim()
+  return rest ? rest : text
 }
 
 // Strip "Relevant case studies:" block header — not an approved format (PATTERN A/B/C
@@ -4704,6 +4739,12 @@ long-form.)
    "12 years running Google Ads...", "12 years across SEO and Google Ads...",
    "As a Google Premier Partner...", "I'm a PPC/SEO specialist with...",
    "Hi, I hope you're doing well", "I'm very interested in your project".
+   ALSO BANNED — restating the posting back to the client (they wrote it; echoing
+   it wastes the hook and screams template): "The job posting asks for...",
+   "You're looking for...", "This role is about...", "Based on your posting...",
+   "Looking at your job post...", "From your description...", "I see you need...".
+   Open with a diagnostic observation about THEIR account/site, not a summary of
+   their request.
    Credentials/partner status may appear ONCE, LATER, as brief support — never
    as the opener. But DO include exactly one concise credibility line right after
    the hook that makes Artem's relevant experience clear — years + the specific
