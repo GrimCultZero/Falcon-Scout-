@@ -157,3 +157,15 @@ The letter's defects (all verified against the KB at analysis time):
 6. **Technical SEO audit promised in "2 working days"** — Rule-416 violation + implausible overcommit; `_stripSeoAuditTurnaround` missed the "Timeline:\n\nFull audit delivered in 2 working days" phrasing (no SEO noun before "audit"). → checker turnaround class.
 
 **Tactical patch already shipped for #6** (2026-07-27): widened `_stripSeoAuditTurnaround` with `_AUDIT_TIMELINE_BLOCK_RE` (`JobDetail.jsx:~2036`) to catch the own-line "Timeline:" + "Full audit … N days" block, gated to preserve the PPC audit's required 1-day turnaround. This is a stopgap — #1–#5 still ship until Steps 21-A/B land. Do NOT treat #6's patch as "the audit-timeline problem solved"; it's one more regex on the treadmill, kept only to stop the worst claim reaching a client meanwhile.
+
+---
+
+## 10. Copy-paste kickoff message (start a build session with this)
+
+> Read `CLAUDE.md`, then `ANTIFAB_HANDOFF.md` in `C:\Users\syzov\upwork-cockpit`. Do the §0 bootstrap (`git pull`; read `DESIGN.md` §21 + §16; skim `CASES.md`). Then start **Step 21-A** (the structured case ledger) per the §8 checklist: first inventory all 16 `_CASE_META` cases against their verified figures in `CASES.md`/KB and produce a seed list — for any case with no verified metric, set `metrics: []` and ask me, do NOT invent numbers. Build the ledger store + seed + the `{{case:id}}` placeholder-expansion render step, accepting BOTH prose and placeholders (no cutover). Stop at 21-A's acceptance criteria and report back — do NOT start 21-B, and when you do, it ships **shadow / record-only** first (never flip to enforce without checking in).
+>
+> Context: a tactical patch already shipped for one defect class (the "Timeline: Full audit in 2 working days" turnaround, §9 item #6) — treat that as a stopgap, not a fix. The job-8484 letter in §9 is your regression fixture: the finished checker (Step 21-B) must catch all six of its defects. Append to `WORKLOG.md` and commit+push after each chunk (standing protocol in `CLAUDE.md`).
+
+Shorter, single-deliverable variant:
+
+> Read `ANTIFAB_HANDOFF.md` in `C:\Users\syzov\upwork-cockpit` and build ONLY Step 21-A (case ledger + `{{case:id}}` expansion), seeding metrics only from verified `CASES.md`/KB records (ask me for any missing figure — never invent). Stop at 21-A's acceptance criteria and report back.
