@@ -99,9 +99,12 @@ function ViolationsPanel() {
   useEffect(() => {
     if (!open || data) return
     fetch('/rule-violations/stats?days=30')
-      .then(r => r.ok ? r.json() : null)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
       .then(setData)
-      .catch(() => {})
+      // Don't leave the panel stuck on "loading…" forever when the request
+      // fails (e.g. dev proxy missing the route, backend restarting) — surface
+      // a distinct error state so it's obvious the panel didn't just find zero.
+      .catch(() => setData({ _error: true }))
   }, [open, data])
   const Row = ({ label, items }) => (
     <div style={{ marginTop: 6 }}>
@@ -127,7 +130,9 @@ function ViolationsPanel() {
       </button>
       {open && (
         <div style={{ padding: '0 10px 8px' }}>
-          {!data ? <div style={{ fontSize: 10, color: 'var(--text3)' }}>loading…</div> : (
+          {!data ? <div style={{ fontSize: 10, color: 'var(--text3)' }}>loading…</div> : data._error ? (
+            <div style={{ fontSize: 10, color: '#f59e0b' }}>unavailable — backend not reachable</div>
+          ) : (
             <>
               <div style={{ fontSize: 9, color: 'var(--text3)', marginBottom: 2 }}>{data.approx_runs || 0} runs · {data.total_events || 0} guard fires</div>
               <Row label="Generator" items={data.generator_top} />

@@ -21,6 +21,7 @@ export default defineConfig({
       '/chat': 'http://localhost:8000',
       '/share-with-claude': 'http://localhost:8000',
       '/usage-stats': 'http://localhost:8000',
+      '/rule-violations': 'http://localhost:8000',
       '/capture-conversation': 'http://localhost:8000',
       '/capture-proposal-update': 'http://localhost:8000',
       '/capture-standalone-proposal': 'http://localhost:8000',
