@@ -2228,3 +2228,27 @@ NEXT (owner-gated):
 2. THEN flip `GC_ENFORCE = true` (one line) — CHECK IN FIRST.
 3. Only after enforce runs cleanly, start 21-C (slim the 312-prohibition prompt; teach it to
    emit {{case:id}}; demote regex to a safety net).
+
+## 2026-07-27 — Kill the wall-of-text: deterministic paragraph-splitter + Rule 6 size cap
+
+Recent letters (incl. a clean, fabrication-free one) kept producing one ~200-230-word run-on
+"audit walkthrough" paragraph — exhausting to read, clients skim past it. The prompt ALREADY said
+"FLOWING PROSE — 2-3 real paragraphs" (Rule 6) and "two short diagnostic paragraphs" (line ~487),
+yet the model still emitted one block — textbook §21 "the prompt rule is present but not obeyed."
+So the fix is deterministic, with the prompt sharpened as a secondary nudge.
+
+1. **`_splitLongBodyParagraphs()`** (JobDetail.jsx, near `_gcShadow`): breaks any BODY paragraph
+   over ~70 words into sentence-boundary beats of ≤~70 words. ONLY inserts paragraph breaks — never
+   changes/adds/drops words (verified 246 in = 246 out). Skips case-study lines (`_ANY_CASE_NAME_RE`),
+   attachment lines, short label lines ("Relevant experience:"), and existing bullets. Wired as the
+   outermost formatting step inside both `setProposal` chains: `_gcShadow(_splitLongBodyParagraphs(…))`
+   — initial generate AND chat-rewrite paths.
+2. **Rule 6 prompt cap** (JobDetail.jsx ~line 4895): added a HARD PARAGRAPH CAP to the existing
+   flowing-prose rule — no paragraph >~4 sentences / ~70 words; a multi-step diagnosis is SEVERAL
+   short paragraphs; "one 200-word wall is an automatic readability failure." Sharpens the existing
+   rule rather than adding a competing one.
+
+Verified: the real 230w job-8551 paragraph → 4 balanced beats (56/48/62/34w); case/label/short paras
+untouched; zero words lost; `vite build` clean. NOTE: the splitter makes letters SCANNABLE
+immediately; true brevity (word count) still leans on the prompt cap (the unreliable lever) until
+21-C tightens it. Splitter stays as the safety net; fold the cap into the 21-C slim prompt later.

@@ -2163,6 +2163,43 @@ function _gcShadow(finalText, jobObj) {
   } catch (_) { return finalText }
 }
 
+// Break an over-long BODY paragraph into scannable beats. The generator dumps
+// multi-step reasoning (audit walkthroughs especially) into one ~200-word block
+// — content is fine, but the wall reads as exhausting and clients skim it. This
+// ONLY inserts paragraph breaks between existing sentences: it never changes,
+// adds, or drops words, so it can't fabricate or lose substance. Splits at
+// sentence boundaries, grouping sentences into beats of up to ~70 words.
+// Skips paragraphs that are already short, a case-study line (its own block),
+// a short label line ("Relevant experience:"), or an existing bullet.
+const _BODY_PARA_WORD_CAP = 70
+function _splitLongBodyParagraphs(text) {
+  if (!text) return text
+  const wc = (s) => s.trim().split(/\s+/).filter(Boolean).length
+  const paras = text.split(/\n\s*\n/)
+  const out = paras.map(para => {
+    const t = para.trim()
+    if (wc(t) <= _BODY_PARA_WORD_CAP) return para
+    if (_ANY_CASE_NAME_RE.test(t)) return para              // case-study entry — leave intact
+    if (/attached\s+(?:as\s+(?:a\s+)?pdf|in\s+profile\s+highlights)/i.test(t)) return para
+    if (/:\s*$/.test(t)) return para                        // a short self-authored label line
+    if (/^\s*[-*•\d]/.test(t)) return para                  // already a list/bullet
+    // Sentence split (keeps terminal punctuation). Falls back to the whole
+    // paragraph if we can't find sentence boundaries.
+    const sentences = t.match(/[^.!?]+[.!?]+(?:\s+|$)/g)
+    if (!sentences || sentences.length < 2) return para
+    const beats = []
+    let cur = [], curW = 0
+    for (const s of sentences) {
+      const w = wc(s)
+      if (curW > 0 && curW + w > _BODY_PARA_WORD_CAP) { beats.push(cur.join(' ').trim()); cur = []; curW = 0 }
+      cur.push(s.trim()); curW += w
+    }
+    if (cur.length) beats.push(cur.join(' ').trim())
+    return beats.join('\n\n')
+  })
+  return out.join('\n\n')
+}
+
 // Safety net for chat-reworked letters: the model sometimes leaks its
 // "what I changed" narration INTO the <proposal> block (e.g. "Stripped the
 // week-by-week plan… kept only the hook…"). Drop leading paragraphs that are
@@ -4855,7 +4892,7 @@ The goal is natural human inconsistency. Apply ALL of the following in every let
 
 5. MINIMAL DASHES (the #1 AI punctuation tell): the em-dash / spaced-hyphen connector ("... blind - fix that", "structure - keyword types") is the single most recognizable ChatGPT fingerprint. Use AT MOST ONE spaced dash in the whole letter; everywhere else use a comma or start a new sentence. Do NOT pepper the letter with " - " connectors.
 
-6. NO OUTLINE / LABELED-SECTION STRUCTURE (biggest structural AI tell): do NOT write the body as a labeled outline. BANNED: "First thing I'd audit:", "First:", "Then [X] -", "Next:", "Step 1:", "On the site side:", "[X] side:", or any run of short label-then-colon mini-sections. Write the diagnosis and approach as FLOWING PROSE — 2-3 real paragraphs where ideas connect naturally, the way a person actually explains something out loud. It is fine to name what you'd check — just weave it into sentences ("I'd start by making sure the conversion tracking is even firing right, because when that's broken the algorithm optimises blind") instead of a colon-delimited checklist. The ONLY acceptable labeled block is the case-study section per its format rules.
+6. NO OUTLINE / LABELED-SECTION STRUCTURE (biggest structural AI tell): do NOT write the body as a labeled outline. BANNED: "First thing I'd audit:", "First:", "Then [X] -", "Next:", "Step 1:", "On the site side:", "[X] side:", or any run of short label-then-colon mini-sections. Write the diagnosis and approach as FLOWING PROSE — 2-3 real paragraphs where ideas connect naturally, the way a person actually explains something out loud. It is fine to name what you'd check — just weave it into sentences ("I'd start by making sure the conversion tracking is even firing right, because when that's broken the algorithm optimises blind") instead of a colon-delimited checklist. The ONLY acceptable labeled block is the case-study section per its format rules. HARD PARAGRAPH CAP: no single paragraph may exceed ~4 sentences or ~70 words. A multi-step diagnosis (tracking, then feed, then campaign structure, then bidding, then budget) is SEVERAL short paragraphs with a blank line between each — never one long run-on block. If a paragraph is growing past ~4 sentences, break it at the next idea boundary. One 200-word wall of text is an automatic readability failure even when every sentence is correct.
 
 6b. NO META-SCAFFOLDING when a posting asks numbered questions (common tell on agency/application-form jobs): answer the questions directly, in the client's order, numbering them if they numbered them — that IS correct and expected. But do NOT wrap the answers in document scaffolding. BANNED: a title over the answer block ("Direct Answers to Your Application Questions", "My Answers", "Application Questions"), a titled closing section ("The Differentiator", "Why Me", "The Bottom Line"), and horizontal divider rules (lines of "---", "***", "___"). The letter is ONE continuous message: a short human opener, the numbered answers, then your closing point as a plain final paragraph (no header), then "Artem". A cover letter is never carved into ruled, titled sections like a filled-in form. Also: never stack two intros on the same block — if a question already introduces the examples ("Three examples below:"), go straight into them, don't add a second "Here are some relevant results:" line.
 
@@ -6000,7 +6037,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_gcShadow(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim(), job))
+              setProposal(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job))
               return
             }
 
@@ -6435,7 +6472,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_gcShadow(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim(), job))
+      setProposal(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job))
     } catch (e) {
       setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
