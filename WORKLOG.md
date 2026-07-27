@@ -2107,3 +2107,30 @@ stays live underneath until 21-C). Explicitly supersedes §16's deferred Phase B
 telemetry to add more regex — change the architecture). Success metric = fabrication/structural-bug
 rate per letter (30d `⚠ Top rule violations` telemetry) trends down and stays down WITHOUT a new
 bespoke regex per failure shape. NOT STARTED — this is the scope, not the build.
+
+## 2026-07-27 — Job 8484 (Shopify SEO audit) letter: 6 fabrications; tactical audit-timeline fix + logged as 21-B fixture
+
+Analysed a shared generator output (job 8484, "Shopify SEO Audit & Organic Growth Strategy"). It
+packed SIX distinct defects, ~all in the claim-classes DESIGN.md §21 targets:
+1. Fabricated Skin Reboot story numbers (2,400+ SKUs / 18% rev / 6 discontinued pages / 12–20
+   referring domains / ~$47K/yr preserved) — none in KB (real: `CASES.md:138`).
+2. Skin Reboot relabeled "Shopify" — a previously-fixed fabrication resurging (it's not Shopify).
+3. Skin Reboot presented twice (anonymized w/ fake numbers + named w/ real numbers).
+4. Casa Eleganza given two contradictory conversion figures (+41% vs +28%/6wks) + invented
+   "40% of traffic on collection pages" — none verified.
+5. Duplicate "attached as PDF" label in one nested Skin Reboot line (guard missed the parenthetical).
+6. Technical SEO audit promised "in 2 working days" (Rule-416 violation + overcommit).
+
+TACTICAL FIX shipped for #6: widened `_stripSeoAuditTurnaround` (JobDetail.jsx) with a new
+`_AUDIT_TIMELINE_BLOCK_RE` that catches the own-line "Timeline:\n\nFull audit delivered in 2 working
+days …" form the (A)/(B) patterns missed (no SEO noun adjacent to "audit"). Gated so a Google Ads /
+PPC / paid audit's required 1-working-day turnaround (Rule 402) and the SEO-plan's 2-day line are
+preserved. Existing before/after telemetry (JobDetail.jsx:5059-5064) fires `seoAuditTurnaround`
+automatically. Verified 7 cases (standalone Node) + `vite build` clean.
+
+Logged the full letter as the **canonical Step 21-B regression fixture** in ANTIFAB_HANDOFF.md §9 —
+if a future checker build catches all six here, the rework is on track. Explicitly flagged that #6's
+patch is a stopgap on the treadmill (one more regex); #1–#5 still ship until the ledger + grounding
+checker (Steps 21-A/B) land. This letter is the strongest single piece of evidence for why §21 is
+needed — nearly every defect is a fabricated-metric / relabeled-vertical / duplicate-case /
+unbacked-claim / turnaround class the deterministic checker + case ledger kill by construction.

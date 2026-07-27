@@ -2034,10 +2034,26 @@ const _AUDIT_TIMELINE_LABEL_RE =
 // days" (no "diagnostic") or the Google Ads audit (no "diagnostic").
 const _DIAGNOSTIC_TURNAROUND_RE =
   /((?:technical\s+(?:seo\s+)?|seo\s+|crawl\s+|indexation\s+)?diagnostic(?:\s+crawl)?)\s+(?:in|within|delivered\s+(?:in|within)?|turned?\s+around\s+in)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?/gi
+// (C) The "Timeline:" label form the earlier patterns MISS (2026-07-27):
+//   "Timeline:\n\nFull audit delivered in 2 working days from GSC/GA4 access."
+// (A) misses it because there's no SEO noun directly before "audit" ("Full
+// audit"); (B)'s _AUDIT_TIMELINE_LABEL_RE misses it because it required
+// "Timeline: audit" on one line (here "Timeline:" sits on its own line and the
+// sentence starts with "Full"). For a comprehensive/technical/SEO/store audit
+// that day-count is both a Rule-416 violation and an implausible overcommit,
+// so strip the whole Timeline block. GATE: a Google Ads / PPC / paid-media
+// audit's "1 working day" turnaround IS required (Rule 402) — the replacer
+// leaves the block untouched when the matched text names ads/ppc/paid.
+const _AUDIT_TIMELINE_BLOCK_RE =
+  /^[ \t]*Timeline\s*:[ \t]*\n*[ \t]*(?:(?:full|comprehensive|complete|the)\s+)*(?:technical\s+|seo\s+|site\s+|store\s+|shopify\s+|e-?commerce\s+)?audit\b[^\n]*?\b(?:in|within)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b[^\n]*\n?/gim
 function _stripSeoAuditTurnaround(text) {
   if (!text) return text
   // Strip "Timeline: audit ... N days" sentence first (whole sentence removal)
   text = text.replace(_AUDIT_TIMELINE_LABEL_RE, '')
+  // Strip the "Timeline:" block form (label + "Full audit ... N days"), unless
+  // it's a PPC/Google Ads audit whose 1-day turnaround is required.
+  text = text.replace(_AUDIT_TIMELINE_BLOCK_RE, (m) =>
+    /\b(?:google\s+ads|ppc|paid\s+(?:search|media|ads)|adwords)\b/i.test(m) ? m : '')
   // Strip SEO-prefixed "... audit in/within N days" (keep audit phrase)
   text = text.replace(_SEO_AUDIT_TURNAROUND_RE, '$1')
   // Strip "... diagnostic in/within N days" (keep the diagnostic phrase)

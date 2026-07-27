@@ -140,3 +140,20 @@ Only after A+B are live and shadow-verified. Replace 312 prohibitions with ~10 p
 5. Only then start **21-B in shadow mode.** Do NOT flip to enforce until the telemetry matches hand-review.
 
 **Success metric (§21.9):** the fabrication/structural-bug rate per letter (30d telemetry) trends down and stays down **without a new bespoke regex per failure shape** — new failure *shapes* get absorbed by an existing checker class or the ledger. Treadmill → wall.
+
+---
+
+## 9. Canonical validation example — use this letter as the Step 21-B regression test
+
+**Job 8484** "Shopify SEO Audit & Organic Growth Strategy" (2026-07-27). A real generator output that packed **six** distinct failures, almost all in the exact claim-classes A+B target. Use it as the fixture the checker must clean; if a future build catches all six here, it's on track.
+
+The letter's defects (all verified against the KB at analysis time):
+
+1. **Fabricated metrics in an anonymized Skin Reboot story** — "health/wellness restricted-niche **Shopify, 2,400+ SKUs** … **18% of revenue** from **6 discontinued** pages … **12–20 referring domains** … preserved **~$47K/year**." None in the KB. Real Skin Reboot record (`CASES.md:138`): +91.58% traffic, +134.12% conv, +693.8% revenue, 17.51 ROAS — nothing else. → checker `metricNotInLedger`.
+2. **Skin Reboot relabeled as "Shopify"** — a *previously-fixed* fabrication (it is NOT a Shopify store) resurging through the 312-rule prompt. → ledger `vertical`/attributes authoritative.
+3. **Same case (Skin Reboot) presented twice** — once anonymized w/ fabricated numbers (para 2), once named w/ real numbers (experience block). → ledger expander dedups by ID.
+4. **Casa Eleganza given two contradictory conversion numbers** — "+41% conversion on filtered pages" vs "conversions jumped 28% in 6 weeks", plus an invented "40% of organic traffic on collection pages." Real record has none of these. → `metricNotInLedger`.
+5. **Duplicate "attached as PDF" label** in one Skin Reboot line (nested in a parenthetical, so `_stripDuplicateAttachmentLabel` missed it). → ledger renders the label once.
+6. **Technical SEO audit promised in "2 working days"** — Rule-416 violation + implausible overcommit; `_stripSeoAuditTurnaround` missed the "Timeline:\n\nFull audit delivered in 2 working days" phrasing (no SEO noun before "audit"). → checker turnaround class.
+
+**Tactical patch already shipped for #6** (2026-07-27): widened `_stripSeoAuditTurnaround` with `_AUDIT_TIMELINE_BLOCK_RE` (`JobDetail.jsx:~2036`) to catch the own-line "Timeline:" + "Full audit … N days" block, gated to preserve the PPC audit's required 1-day turnaround. This is a stopgap — #1–#5 still ship until Steps 21-A/B land. Do NOT treat #6's patch as "the audit-timeline problem solved"; it's one more regex on the treadmill, kept only to stop the worst claim reaching a client meanwhile.
