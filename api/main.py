@@ -4853,7 +4853,9 @@ async def claude_proxy(request: dict):
                 prompt_text = _flatten_for_cli(request)
                 print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27182/ai")
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-                    br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text})
+                    # Pass the requested model so the bridge forces it via --model
+                    # (else the CLI uses its default — often Opus, the slowest).
+                    br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text, "model": model})
                 if br_resp.status_code != 200:
                     raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")
                 text = br_resp.json().get("content", "")

@@ -2331,3 +2331,23 @@ Fix (JobDetail.jsx):
 Verified (standalone Node) against the EXACT proxy detail shape ("Claude API error: {json}"):
 credit-balance → CLI hint; rate_limit → friendly; null detail → safe fallback. vite build clean.
 NET: a credit-exhausted 400 now tells the user precisely what happened and how to keep working.
+
+---
+
+## 2026-07-27 — CLI-bridge speed: force the intended model (was defaulting to Opus)
+
+Owner (out of API credits, on the CLI fallback): app generations "super slow." Root cause:
+`cli-bridge.js` spawned `claude -p --strict-mcp-config --disable-slash-commands` with NO
+`--model`, so every call used the CLI's DEFAULT model — Opus 4.8 (the slowest) — even though
+the API path deliberately uses Sonnet for generate/analyse and Haiku for the cheap passes.
+Each call also cold-spawns a fresh CLI process and can't use prompt caching (API-only), but
+Opus-vs-Sonnet was the dominant cost.
+
+Fix: the /claude proxy now sends the requested `model` to the bridge (api/main.py ~4856);
+the bridge maps it to a `--model` alias (haiku|opus|sonnet, default sonnet, NEVER the Opus
+default) and adds `--model <alias>` to the spawn. Net: generate/analyse → sonnet, enforcer/
+shrink → haiku — both far faster than Opus. node --check + ast.parse clean.
+
+REQUIRES bridge restart: the running `node cli-bridge.js` must be restarted to pick this up.
+Reminder: this whole path is the credit-exhaustion fallback — switching the provider back to
+"api" (ai_provider.json) when credits return restores prompt caching + full speed.

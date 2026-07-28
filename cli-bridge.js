@@ -41,8 +41,8 @@ const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
-      let prompt;
-      try { prompt = JSON.parse(body).prompt; } catch { prompt = body; }
+      let prompt, reqModel;
+      try { const b = JSON.parse(body); prompt = b.prompt; reqModel = b.model; } catch { prompt = body; }
 
       if (!prompt || typeof prompt !== 'string') {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -50,7 +50,14 @@ const server = http.createServer((req, res) => {
         return;
       }
 
-      console.log(`→ ${prompt.length} chars`);
+      // SPEED: force the model the caller intended instead of the CLI's default
+      // (which is whatever Claude Code is set to — often Opus, the slowest). The
+      // app asks for Sonnet on generate/analyse and Haiku on the cheap passes;
+      // map to a CLI alias so those run fast. Never fall back to the Opus default.
+      const modelAlias = /haiku/i.test(reqModel || '') ? 'haiku'
+                       : /opus/i.test(reqModel || '') ? 'opus'
+                       : 'sonnet';
+      console.log(`→ ${prompt.length} chars  model=${modelAlias}${reqModel ? ` (req ${reqModel})` : ''}`);
 
       // On Windows `claude` is a .cmd shim — Node's spawn won't resolve it
       // without shell:true. The prompt goes via stdin (not argv), so there's
@@ -60,7 +67,7 @@ const server = http.createServer((req, res) => {
       // --disable-slash-commands → skip skill discovery.
       // cwd = neutral dir → skip project CLAUDE.md auto-injection.
       // All pure text-in/text-out; no tools needed for analyse/generate.
-      const child = spawn('claude', ['-p', '--strict-mcp-config', '--disable-slash-commands'], {
+      const child = spawn('claude', ['-p', '--model', modelAlias, '--strict-mcp-config', '--disable-slash-commands'], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env },
         shell: isWin,
