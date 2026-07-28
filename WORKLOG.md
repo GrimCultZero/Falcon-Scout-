@@ -2307,3 +2307,27 @@ Changes (JobDetail.jsx):
 Verified (standalone Node): backstop fires on 6 accept-call phrasings, does NOT fire on 8 PPC
 call-vocab lines; `vite build` clean. NET: job-8626-shaped jobs (mandatory live walkthrough) now
 SKIP; a written-explanation ask stays biddable.
+
+## 2026-07-28 — Surface the real Claude API error (esp. "out of credits") instead of bare "API 400"
+
+Owner hit "Error: API 400" on Analyse. Root cause: Anthropic returns "Your credit balance is too
+low to access the Anthropic API" as an HTTP 400 (verified by calling the API directly with the .env
+key — 400 on every model id). NOT an app bug — the account is out of API credits (exactly what the
+CLI bridge exists for; app was already set to provider=cli and a CLI call returns 200).
+
+The reason it showed as a cryptic "API 400": the analyser + generator error handlers read
+`data.error?.message` (which the FastAPI proxy never sends — it sends the reason in `data.detail`)
+and fell back to `API ${status}`. Other buttons already used `_friendlyApiError(data.detail,...)`.
+
+Fix (JobDetail.jsx):
+- `_friendlyApiError()`: added a special case — if the inner message matches "credit balance is too
+  low", return a clear, actionable string: "Anthropic API credits exhausted. Switch to CLI mode
+  (the API/CLI toggle, top-right) … or top up at console.anthropic.com → Plans & Billing." Bumped
+  the generic-message truncation 120→160 chars.
+- Routed all three generic error sites (analyser line ~3641, generator ~5160, and the secondary
+  ~4221 call) through `_friendlyApiError(data.detail, status)` instead of
+  `data.error?.message || \`API ${status}\``.
+
+Verified (standalone Node) against the EXACT proxy detail shape ("Claude API error: {json}"):
+credit-balance → CLI hint; rate_limit → friendly; null detail → safe fallback. vite build clean.
+NET: a credit-exhausted 400 now tells the user precisely what happened and how to keep working.

@@ -1537,7 +1537,12 @@ function _friendlyApiError(detail, status) {
       if (type === 'rate_limit_error') return 'Rate limit reached — wait a few seconds and try again.'
       if (type === 'overloaded_error') return 'Claude is overloaded — try again in a moment.'
       if (type === 'authentication_error') return 'API key error — check ANTHROPIC_API_KEY in .env.'
-      if (msg) return msg.length > 120 ? msg.slice(0, 120) + '…' : msg
+      // Anthropic returns "out of credits" as an invalid_request 400 — the most
+      // common real cause of a bare "API 400". Point straight at the fix (the
+      // CLI bridge exists for exactly this) instead of a cryptic message.
+      if (/credit balance is too low/i.test(msg))
+        return 'Anthropic API credits exhausted. Switch to CLI mode (the API/CLI toggle, top-right) to keep working off your Claude subscription — or top up at console.anthropic.com → Plans & Billing.'
+      if (msg) return msg.length > 160 ? msg.slice(0, 160) + '…' : msg
     }
   } catch {}
   return detail.length > 120 ? detail.slice(0, 120) + '…' : detail
@@ -3638,7 +3643,7 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
         }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error?.message || `API ${response.status}`)
+      if (!response.ok) throw new Error(_friendlyApiError(data.detail, response.status))
       if (!data.content) throw new Error('No content in response: ' + JSON.stringify(data))
       const text = data.content.map(b => b.text || '').join('')
       const clean = text.replace(/```json|```/g, '').trim()
@@ -4213,7 +4218,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error?.message || `API ${res.status}`)
+      if (!res.ok) throw new Error(_friendlyApiError(data.detail, res.status))
       const rule = data.content.map(b => b.text || '').join('').trim()
       setDistilledRule({ text: rule, saving: false, saved: false })
     } catch (e) {
@@ -5152,7 +5157,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error?.message || `API ${response.status}`)
+      if (!response.ok) throw new Error(_friendlyApiError(data.detail, response.status))
       let text = data.content.map(b => b.text || '').join('')
 
       // ── Deterministic markdown strip (KB Rule: no asterisks/markdown) ────
