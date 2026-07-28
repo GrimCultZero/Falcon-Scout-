@@ -2351,3 +2351,28 @@ shrink → haiku — both far faster than Opus. node --check + ast.parse clean.
 REQUIRES bridge restart: the running `node cli-bridge.js` must be restarted to pick this up.
 Reminder: this whole path is the credit-exhaustion fallback — switching the provider back to
 "api" (ai_provider.json) when credits return restores prompt caching + full speed.
+
+---
+
+## 2026-07-28 — CLI toggle bypassed: /chat, /chat/distill, /kb/shrink never checked provider
+
+Owner, on CLI mode (credits exhausted), still hit "Anthropic API credits exhausted" on a Cover
+Letter chat/rework message ("you were suppose to add case studies for open cart"). Confusing
+because the toggle WAS on CLI — but the toggle only gated the main `/claude` proxy (analyse/
+generate). Three other endpoints called `https://api.anthropic.com/v1/messages` directly with
+no `_get_ai_provider()` check at all: `/chat` (the Cover Letter chat panel, JobDetail.jsx ~2625/
+~2725), `/chat/distill` (conversation → KB candidates), and `/kb/shrink` (KB entry compression).
+Each just checked `ANTHROPIC_API_KEY` and called the API unconditionally — CLI mode was a no-op
+for all three.
+
+Fix (api/main.py): added a shared `_call_via_cli_bridge(request, model, kind)` helper (mirrors
+the /claude proxy's existing CLI branch — flattens {system, messages} via `_flatten_for_cli`,
+posts to the local bridge on :27182, returns an Anthropic-shaped response dict). Wired it into
+all three endpoints: guard changed from `if not api_key:` to `if not api_key and
+_get_ai_provider() != "cli":`, and each now branches to the bridge before the direct-API call
+when provider is "cli". `/kb/parse-file` (native PDF document API) intentionally NOT touched —
+CLI bridge is plain-text stdin only, can't carry a PDF attachment; still API-only, left as a
+known gap.
+
+py_compile clean. Backend runs with --reload so this hot-reloads; if the chat panel still
+errors, restart uvicorn.

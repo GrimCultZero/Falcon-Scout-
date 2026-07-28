@@ -148,6 +148,45 @@ def _flatten_for_cli(request: dict) -> str:
     return "\n".join(parts)
 
 
+async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
+    """Route a Messages-API-shaped {system?, messages} request through the local
+    CLI bridge (cli-bridge.js, port 27182) instead of api.anthropic.com.
+
+    Mirrors the CLI branch in /claude (below) so every Claude-calling endpoint
+    honors the API/CLI provider toggle — not just the main analyse/generate proxy.
+    Returns a dict shaped like the real Anthropic response so callers can treat
+    it identically (parsed["content"][0]["text"], etc)."""
+    import httpx as _httpx_cli
+    prompt_text = _flatten_for_cli(request)
+    print(f"[CLI bridge] {kind}: {len(prompt_text)} chars -> http://127.0.0.1:27182/ai")
+    try:
+        async with _httpx_cli.AsyncClient(timeout=300.0) as br:
+            br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text, "model": model})
+    except _httpx_cli.ConnectError:
+        raise HTTPException(
+            status_code=502,
+            detail="CLI bridge offline — open a terminal and run: node cli-bridge.js"
+        )
+    except _httpx_cli.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail=f"CLI bridge timed out ({kind}) — the CLI is slow on large prompts; try again"
+        )
+    if br_resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")
+    text = br_resp.json().get("content", "")
+    print(f"[CLI bridge] {kind}: got {len(text)} chars back")
+    return {
+        "id": "cli-bridge",
+        "type": "message",
+        "role": "assistant",
+        "model": model,
+        "content": [{"type": "text", "text": text}],
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 0, "output_tokens": 0},
+    }
+
+
 # ── Token usage tracking ─────────────────────────────────────────────────────
 # Pricing per 1M tokens (USD). Numbers reflect Anthropic's published rates as
 # of writing; update here if rates change. Falls back to Sonnet rates for any
@@ -1941,7 +1980,7 @@ async def shrink_kb_entry(data: dict):
     target_chars = max(300, min(8000, target_chars))  # sane bounds
 
     api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
-    if not api_key:
+    if not api_key and _get_ai_provider() != "cli":
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set in .env")
 
     # Per-type guidance — preserves the right "shape" for each kind of entry.
@@ -1988,6 +2027,21 @@ Original length: {len(content):,} characters
 
 ORIGINAL CONTENT:
 {content}"""
+
+    if _get_ai_provider() == "cli":
+        result = await _call_via_cli_bridge(
+            {"messages": [{"role": "user", "content": prompt}]}, "claude-haiku-4-5-20251001", "kb_shrink"
+        )
+        _record_usage("kb_shrink", "claude-haiku-4-5-20251001", result)
+        shrunk = "".join(b.get("text", "") for b in result.get("content", []) if b.get("type") == "text").strip()
+        if not shrunk:
+            raise HTTPException(status_code=502, detail="Claude returned empty content")
+        return {
+            "content": shrunk,
+            "original_chars": len(content),
+            "shrunk_chars": len(shrunk),
+            "ratio": round(len(shrunk) / len(content), 3) if content else 0,
+        }
 
     try:
         async with _httpx.AsyncClient(timeout=90.0) as client:
@@ -2058,7 +2112,9 @@ async def chat(request: dict):
     core_only = bool(request.get("core_only"))
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
+    # In CLI mode the key is not needed — skip the guard so the request
+    # reaches the CLI routing branch even when the key is absent/expired.
+    if not api_key and _get_ai_provider() != "cli":
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set in .env")
 
     # ── Build KB bundle ────────────────────────────────────────────────────
@@ -2320,6 +2376,15 @@ async def chat(request: dict):
 
     system = "\n".join(parts)
 
+    # ── CLI bridge routing ────────────────────────────────────────────────
+    # Same toggle as /claude — when the user has switched to CLI mode, route
+    # through cli-bridge.js instead of api.anthropic.com. Without this branch
+    # /chat ignored the toggle entirely and kept hitting the exhausted API.
+    if _get_ai_provider() == "cli":
+        parsed = await _call_via_cli_bridge({"system": system, "messages": messages}, "claude-sonnet-4-5", "chat")
+        _record_usage("chat", "claude-sonnet-4-5", parsed)
+        return parsed
+
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
@@ -2367,7 +2432,7 @@ async def chat_distill(request: dict):
         raise HTTPException(status_code=400, detail="messages required")
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
+    if not api_key and _get_ai_provider() != "cli":
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set in .env")
 
     conversation_text = "\n\n".join([
@@ -2390,6 +2455,19 @@ Return [] if nothing meaningful is worth capturing.
 ---
 Conversation:
 {conversation_text}"""
+
+    if _get_ai_provider() == "cli":
+        import json as _json
+        data = await _call_via_cli_bridge(
+            {"messages": [{"role": "user", "content": distill_prompt}]}, "claude-sonnet-4-5", "distill"
+        )
+        _record_usage("distill", "claude-sonnet-4-5", data)
+        text = data["content"][0]["text"]
+        json_match = _re.search(r'\[[\s\S]*\]', text)
+        if not json_match:
+            return {"candidates": []}
+        candidates = _json.loads(json_match.group())
+        return {"candidates": candidates}
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
