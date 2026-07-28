@@ -2275,3 +2275,35 @@ Fix (deterministic-first + prompt nudge, same pattern as _stripFabricatedOpener)
 Verified (standalone Node, 9/9): the real letter → opens on "First thing I'd do…"; 4 restate
 variants stripped; 4 legit hooks ("Most accounts…", "Your Merchant…", "You're bleeding…", "First
 thing I'd do:") untouched. `vite build` clean.
+
+## 2026-07-28 — Live walkthrough / screen-share / review-call = HARD SKIP (owner policy tightened)
+
+Owner feedback on job 8626 (Singapore coding-school Google Ads audit): the posting's item (d)
+"Review calls, screen shared, walking through what changed and why" was scored APPLY 8/10 — the
+analyser treated a one-time post-audit walkthrough call as compliant. Owner: he will NOT do ANY
+live walkthrough, even a short one-time call just to explain. Chosen severity: **Hard SKIP**;
+generator: **stop offering / redirect to written**.
+
+Changes (JobDetail.jsx):
+1. **Analyser** — replaced the old "advise compliantly / a single short wrap-up call is fine"
+   carve-out with **LIVE WALKTHROUGH / SCREEN-SHARE / REVIEW-CALL = HARD SKIP**: any posting that
+   requires/expects a live call, screen-share, video meeting, or "review call / walk me through on
+   a call / screen shared" → score 2-4, verdict SKIP, flag quoting the exact phrase — even when the
+   live bit is secondary to an otherwise-perfect audit job. Kept the critical false-positive guard:
+   a WRITTEN findings doc / change log / Looker before-after report is NOT a live session and is
+   fine; only SYNCHRONOUS live/screen-share/video/call interaction disqualifies. Also added the
+   review-call / screen-share-walkthrough phrasings to the "quote the exact phrase" example set so
+   the detector recognises them (it previously only knew Zoom/Loom/live-training/video-tutorial).
+2. **Generator** — replaced "confirm AVAILABILITY to join and explain findings" with: NEVER offer
+   or accept any live call/screen-share/walkthrough; if the posting asks, REDIRECT to the written
+   deliverable (findings-and-recommendations doc + before/after Looker report), framed as a strength
+   (a written record they can re-read/share), not an apology. Never refuse rudely.
+3. **Deterministic backstop** — added a FORBIDDEN_PHRASES pattern catching call/session ACCEPTANCE
+   ("can join a screen share", "available for a review call", "open to a video call", "join a
+   walkthrough"), gated to screen-share/review-call/video-call/walkthrough/zoom — deliberately NOT
+   bare "call" to avoid colliding with the heavy PPC vocab (CallRail, call tracking, call
+   conversions, "phone call is the conversion event"). Fires the enforcer rewrite on match.
+
+Verified (standalone Node): backstop fires on 6 accept-call phrasings, does NOT fire on 8 PPC
+call-vocab lines; `vite build` clean. NET: job-8626-shaped jobs (mandatory live walkthrough) now
+SKIP; a written-explanation ask stays biddable.
