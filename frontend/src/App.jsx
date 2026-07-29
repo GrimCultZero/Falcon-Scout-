@@ -295,20 +295,35 @@ export default function App() {
     }
   }, [jobs, startFlash])
 
-  // Desktop notifications — pop a silent OS notification when a job that arrived
-  // AFTER app-open first shows up ENRICHED (so the essential info is populated).
-  // Backlog jobs (present at first load) never notify; each job notifies once.
+  // Desktop notifications — pop a silent OS notification when a genuinely NEW
+  // job (captured after app-open, so it sits at the TOP of the captured_at-
+  // sorted feed) first shows up ENRICHED (essential info populated).
+  // Two guards keep backlog enrichment from popping:
+  //   1. seenAtStartRef seeds on the first NON-EMPTY load (the real backlog);
+  //      those ids never notify even when the enricher enriches them later.
+  //   2. TOP-OF-FEED gate: only notify jobs within the top N of the feed. The
+  //      feed is captured_at DESC, so a new capture is near index 0 while a
+  //      backlog job being enriched sits far down — this is what the user saw
+  //      ("popups for jobs not at the top"). Timezone-proof (uses feed order,
+  //      not a captured_at clock compare).
+  const NOTIFY_TOP_N = 25
   const _isEnriched = (j) => j.source === 'api'
     ? !!j.enriched_at
     : !!(j.enriched_at || j.connects_required || j.proposals || j.hire_rate)
   useEffect(() => {
+    // Seed on the FIRST NON-EMPTY feed (the initial jobs state is [] before the
+    // first fetch resolves — seeding on that empty set would mark the whole
+    // backlog as "new" and pop it as it enriches).
     if (seenAtStartRef.current === null) {
-      seenAtStartRef.current = new Set(jobs.map(j => j.id))   // seed backlog, never notify it
+      if (jobs.length === 0) return
+      seenAtStartRef.current = new Set(jobs.map(j => j.id))
       return
     }
     const settings = getNotifySettings()
     if (!settings.enabled || notifyPermission() !== 'granted') return
+    const topIds = new Set(jobs.slice(0, NOTIFY_TOP_N).map(j => j.id))
     const fresh = jobs.filter(j =>
+      topIds.has(j.id) &&                         // near the top of the feed = a real new capture
       !seenAtStartRef.current.has(j.id) &&
       !notifiedJobIdsRef.current.has(j.id) &&
       _isEnriched(j) &&

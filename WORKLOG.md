@@ -2403,3 +2403,23 @@ renders both sections, permission status reflects correctly, feed filters load. 
 Notification FIRING couldn't be exercised here (the automation browser blocks notifications), but the
 settings/permission UI works and the fire logic is unit-clear. Default OFF — owner enables it in
 Settings and grants the one-time browser permission.
+
+## 2026-07-29 — Fix: notifications popped for backlog-enriched jobs, not new ones
+
+Owner: feed set to "All", getting popups for jobs that are NOT at the top of the feed. Cause: the
+feed sorts by captured_at DESC, but the notify trigger fired on "first seen ENRICHED" — and the
+background auto-enricher works through a BACKLOG of older jobs, so those popped even though they sit
+far down the feed. Compounded by a seed bug: seenAtStartRef seeded on the initial EMPTY jobs state
+(useState([])), so the real backlog was never excluded → every enriched job looked "new".
+
+Fix (App.jsx notify effect):
+1. Seed seenAtStartRef on the FIRST NON-EMPTY feed load (skip the initial []), so the actual backlog
+   is captured and never notifies even as the enricher enriches it later.
+2. TOP-OF-FEED gate: only notify jobs within the top NOTIFY_TOP_N=25 of the captured_at-sorted feed.
+   A genuine new capture is near index 0; a backlog job being enriched is far down. Timezone-proof
+   (uses feed order, not a captured_at clock compare — captured_at tz-naivety on old rows made a
+   direct time comparison risky).
+
+Verified: vite build clean; app mounts clean (accessibility tree shows full nav incl. Settings; 1830
+buttons rendered — the earlier innerText "not mounted" readings were a headless-pane compositing
+artifact, not a crash). NET: popups now fire only for genuinely new top-of-feed jobs once enriched.
