@@ -5,6 +5,8 @@ import JobList from './components/JobList'
 import KnowledgeBase from './components/KnowledgeBase'
 import Outcomes from './components/Outcomes'
 import FeedSettings from './components/FeedSettings'
+import SettingsTab from './components/SettingsTab'
+import { getNotifySettings, notifyPermission, passesNotifyFilter, notifyNewJobs } from './lib/notifications'
 
 // ── Build-time debug: ring buffer of console errors/warnings + uncaught errors.
 // The "🐛 Debug" button ships this to share-with-claude.md so Claude Code can
@@ -198,6 +200,9 @@ export default function App() {
   // Both revert immediately when the user switches back to the tab.
   const prevJobIdsRef    = useRef(null)   // null = first load, skip notification
   const newJobCountRef   = useRef(0)
+  // Desktop-notification bookkeeping (separate from the tab-flash above).
+  const seenAtStartRef   = useRef(null)         // backlog job ids at app open — never notify these
+  const notifiedJobIdsRef = useRef(new Set())   // ids already popped, so we notify each job once
   const flashIntervalRef = useRef(null)
   const origTitleRef     = useRef(document.title)
 
@@ -289,6 +294,35 @@ export default function App() {
       startFlash(newJobCountRef.current)
     }
   }, [jobs, startFlash])
+
+  // Desktop notifications — pop a silent OS notification when a job that arrived
+  // AFTER app-open first shows up ENRICHED (so the essential info is populated).
+  // Backlog jobs (present at first load) never notify; each job notifies once.
+  const _isEnriched = (j) => j.source === 'api'
+    ? !!j.enriched_at
+    : !!(j.enriched_at || j.connects_required || j.proposals || j.hire_rate)
+  useEffect(() => {
+    if (seenAtStartRef.current === null) {
+      seenAtStartRef.current = new Set(jobs.map(j => j.id))   // seed backlog, never notify it
+      return
+    }
+    const settings = getNotifySettings()
+    if (!settings.enabled || notifyPermission() !== 'granted') return
+    const fresh = jobs.filter(j =>
+      !seenAtStartRef.current.has(j.id) &&
+      !notifiedJobIdsRef.current.has(j.id) &&
+      _isEnriched(j) &&
+      passesNotifyFilter(j, settings)
+    )
+    if (!fresh.length) return
+    fresh.forEach(j => notifiedJobIdsRef.current.add(j.id))
+    notifyNewJobs(fresh, (id) => { setView('jobs'); setSelectedId(id); fetchSelectedJob(id) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // NOTE: deps are [jobs] only — fetchSelectedJob is a useCallback defined
+    // later in this component, so putting it in the deps array would reference
+    // it in the temporal dead zone (ReferenceError at render). The effect body
+    // captures it lazily and only runs after mount, which is safe.
+  }, [jobs])
 
   // Mirror filter / query / selectedId back to localStorage on every change
   useEffect(() => {
@@ -688,6 +722,7 @@ export default function App() {
             { key:'outcomes',  label:'Outcomes' },
             { key:'kb',        label:'Knowledge Base' },
             { key:'dashboard', label:'Dashboard' },
+            { key:'settings',  label:'Settings' },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -814,8 +849,8 @@ export default function App() {
                 >{apiFetching ? '⏳ pulling…' : '⤓ Fetch API'}</button>
                 {/* Settings — solid deep-teal, clearly visible */}
                 <button
-                  onClick={() => setFeedSettingsOpen(true)}
-                  title="API feed filter settings (keywords, stop words, rate floors)"
+                  onClick={() => setView('settings')}
+                  title="Settings — notifications + API feed filters"
                   style={{
                     width:28, height:26, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
                     cursor:'pointer', borderRadius:7, fontSize:13, lineHeight:1,
@@ -941,6 +976,10 @@ export default function App() {
         {/* DASHBOARD VIEW — always mounted */}
         <div style={{ display: view === 'dashboard' ? 'flex' : 'none', flex:1, overflow:'hidden' }}>
           <Dashboard active={view === 'dashboard'} />
+        </div>
+
+        <div style={{ display: view === 'settings' ? 'flex' : 'none', flex:1, overflow:'hidden' }}>
+          {view === 'settings' && <SettingsTab />}
         </div>
 
       </div>

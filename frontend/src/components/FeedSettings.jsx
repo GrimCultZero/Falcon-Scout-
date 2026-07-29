@@ -47,18 +47,18 @@ function ChipEditor({ label, hint, items, onChange, accent = '#00c8d4' }) {
   )
 }
 
-export default function FeedSettings({ open, onClose, onSaved }) {
+export default function FeedSettings({ open, onClose, onSaved, embedded = false }) {
   const [cfg, setCfg] = useState(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    if (!open) return
+    if (!embedded && !open) return
     setMsg('')
     fetch('/feed-config').then(r => r.json()).then(setCfg).catch(() => setMsg('✗ could not load config'))
-  }, [open])
+  }, [open, embedded])
 
-  if (!open) return null
+  if (!embedded && !open) return null
   const set = (k, v) => setCfg(c => ({ ...c, [k]: v }))
 
   const save = async () => {
@@ -71,23 +71,23 @@ export default function FeedSettings({ open, onClose, onSaved }) {
       setCfg(await res.json())
       setMsg('✓ saved')
       if (onSaved) onSaved()
-      setTimeout(() => { setMsg(''); onClose() }, 700)
+      // Modal auto-closes after save; embedded panel stays put (just clears the msg).
+      setTimeout(() => { setMsg(''); if (!embedded && onClose) onClose() }, 700)
     } catch { setMsg('✗ save failed') } finally { setSaving(false) }
   }
 
-  return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
+  // Shared inner card — rendered directly when embedded, or inside a modal overlay otherwise.
+  const card = (
+      <div onClick={e => e.stopPropagation()} style={embedded ? {
+        background: 'transparent', width: '100%', maxWidth: 720,
+      } : {
         background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 10,
         width: 'min(560px, 92vw)', maxHeight: '88vh', overflowY: 'auto',
         padding: '20px 22px', boxShadow: '0 12px 48px rgba(0,0,0,0.35)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', margin: 0 }}>API Feed Settings</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
+          {!embedded && <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>}
         </div>
         <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>
           Controls the <b>API</b> feed only (the bot feed is unaffected). Each keyword runs its own
@@ -176,6 +176,18 @@ export default function FeedSettings({ open, onClose, onSaved }) {
           </>
         )}
       </div>
+  )
+
+  // Embedded (Settings tab): render the card inline, no overlay.
+  if (embedded) return card
+
+  // Modal (legacy gear-button usage): dim the page and center the card.
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {card}
     </div>
   )
 }

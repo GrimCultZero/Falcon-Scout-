@@ -2376,3 +2376,30 @@ known gap.
 
 py_compile clean. Backend runs with --reload so this hot-reloads; if the chat panel still
 errors, restart uvicorn.
+
+## 2026-07-29 — Desktop notifications for new enriched jobs + Settings promoted to a top tab
+
+Owner asked for a silent pop-up when a new job arrives (after auto-enrichment) with title + essential
+info; chose Desktop/OS notification delivery, BOTH noise-control modes selectable in Settings, and
+asked to make Settings a real top-level tab (not just the gear-button modal).
+
+- **`src/lib/notifications.js`** (new): localStorage settings ({enabled, mode:'all'|'worthy', minRate:30},
+  default OFF), permission helpers, `passesNotifyFilter` (worthy = payment-verified AND rate ≥ minRate
+  OR fixed/unspecified — never blocks fixed-price), `notifyBody` (compact "rate · country · N reviews,
+  X★, $spend, verified · N applicants · AI verdict-if-present"), and `notifyNewJobs` (silent, 1–3 →
+  individual pop-ups, 4+ → one summary; click focuses window + opens the job).
+- **`App.jsx`**: notify effect keyed on `jobs` — seeds the backlog at app-open (never notifies it),
+  then fires once per job when it first appears ENRICHED and passes the filter, when enabled +
+  permission granted. Click → setView('jobs') + select the job. (Deps are `[jobs]` only — fetchSelectedJob
+  is defined later in the component; putting it in the deps array crashed render via TDZ. Fixed.)
+- **Settings tab**: added `{key:'settings'}` to the top nav + a render block; new **`SettingsTab.jsx`**
+  hosts the Notifications controls (enable + permission flow + mode radios + minRate + test button) and
+  the embedded feed filters. **`FeedSettings.jsx`** refactored with an `embedded` prop (renders inline,
+  no overlay/×, save doesn't auto-close). The ⚙ gear now opens the Settings tab instead of the modal
+  (the old modal render stays but is inert at open=false).
+
+Verified live in the browser: app mounts clean (no console errors after the TDZ fix), Settings tab
+renders both sections, permission status reflects correctly, feed filters load. `vite build` clean.
+Notification FIRING couldn't be exercised here (the automation browser blocks notifications), but the
+settings/permission UI works and the fire logic is unit-clear. Default OFF — owner enables it in
+Settings and grants the one-time browser permission.
