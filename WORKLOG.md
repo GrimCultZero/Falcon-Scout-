@@ -2450,3 +2450,38 @@ Asked the owner directly: flip GC_ENFORCE now / hand-review the 8 flagged jobs f
 shadow running longer. **Decision: keep shadow mode running longer** — not enough volume/time
 yet for the owner's confidence. No code change made. Revisit `/rule-violations/stats` (KB tab,
 "Top rule violations" panel) again in another week or two before re-raising the flip question.
+
+---
+
+## 2026-08-01 — Analyser bug found via share-with-claude: audit-job override was prompt-only
+
+Owner shared job 9522 ("Google Ads Account Audit Specialist", $150 fixed / AU client / $15/hr
+avg) via the "share with claude" button. Analyser returned SKIP, score 3/10, reasoning built
+entirely around client rate-floor risk — despite the analyser's OWN mandatory-flag injection
+telling the model, verbatim, that PPC/Google Ads audit jobs are Artem's fixed-$300 flagship
+product and "THE HOURLY RATE FLOOR DOES NOT APPLY... VERDICT: APPLY, score 7-9" (owner policy,
+2026-07-22). The model ignored its own injected override and skipped anyway.
+
+This is a different failure class from the antifab-checker discussion earlier today: the
+grounding checker only watches the GENERATOR's letter for fabrication; nothing checks whether
+the ANALYSER's verdict is consistent with its own mandatory flags. So this bug would recur
+silently on every PPC-audit job and never show up in `rule_violations` telemetry — "just keep
+collecting data" does not cover it. Given audit jobs are meant to be near-automatic applies, a
+silent wrong-SKIP has real cost (the job is never even applied to).
+
+Fix (JobDetail.jsx, analyser response handling, ~3664): added a deterministic post-parse
+override — same "prompt rules don't hold, enforce in code" lesson as every prior antifab fix.
+When `_isPpcAuditJob` is true and the model's verdict/score contradicts the mandatory-apply
+policy, the code strips rate-floor-flavored reasons/flags (regex-matched), force-sets
+verdict=APPLY and score=max(score,7), and appends an "auto-corrected" flag. The override is
+independently gated on the THREE real hard disqualifiers (US-only geo, unverified+<5 reviews,
+already-hired ≥1) computed straight from job data — never from the model's own claims — so a
+genuine disqualifier still blocks the override. Also records `auditJobVerdictOverridden` to
+`rule_violations` (analyser surface) so future frequency is now actually visible in telemetry.
+
+Verified two ways: `npm run build` clean; a standalone Node harness fed the exact job-9522
+model output through the override logic — confirms SKIP/3 → APPLY/7, rate-floor lines stripped,
+other reasoning preserved, override flag appended; a second harness with a real US-only-geo
+disqualifier confirms the override correctly does NOT fire and the genuine SKIP survives. Could
+not drive a live click-through in the Browser pane this session (compositing wasn't available),
+so this was verified at the logic level rather than an on-screen re-analyse.

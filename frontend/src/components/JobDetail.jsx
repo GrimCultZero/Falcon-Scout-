@@ -3661,6 +3661,31 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
       } else {
         throw new Error('No JSON found in: ' + clean.slice(0, 100))
       }
+      // Deterministic verdict override for PPC/Google Ads audit jobs (§ MANDATORY
+      // FLAGS above already tells the model "rate-floor DOES NOT APPLY, verdict
+      // APPLY 7-9" — but that's a prompt instruction, and prompt instructions get
+      // ignored (confirmed: model built a full rate-floor-risk SKIP on job 9522
+      // despite the injected override). Owner policy (2026-07-22): these are
+      // Artem's flagship fixed-fee product and are always worth applying to.
+      // Enforce it in code, not prose — only a REAL hard disqualifier (checked
+      // independently from the raw job data, not from the model's own claims)
+      // is allowed to block the override.
+      if (_isPpcAuditJob) {
+        const _hasRealDisqualifier =
+          /\b(?:united states only|us only|usa only)\b/i.test(String(job.geo_restriction || '')) ||
+          (!job.payment_verified && (Number(job.client_review_count) || 0) < 5) ||
+          (Number(job.client_already_hired) || 0) >= 1
+        if (!_hasRealDisqualifier && (parsed.verdict !== 'APPLY' || (Number(parsed.score) || 0) < 7)) {
+          const _rateNoiseRe = /rate.?floor|budget.?tier|rate.?reject|rate.?pressure|historical avg rate|client'?s? avg(?:erage)? (?:hourly )?rate|avg rate \$?\d/i
+          parsed.reasons = (Array.isArray(parsed.reasons) ? parsed.reasons : []).filter(r => !_rateNoiseRe.test(String(r)))
+          parsed.flags = (Array.isArray(parsed.flags) ? parsed.flags : []).filter(f => !_rateNoiseRe.test(String(f)))
+          parsed.reasons.unshift("PPC/Google Ads account audit — Artem's fixed $300/1-working-day flagship deliverable; the hourly rate floor does not apply, and this job type is always worth applying to per standing policy.")
+          parsed.flags.push('Verdict auto-corrected: analyser produced a rate-floor-based SKIP on a PPC/Google Ads audit job, which policy exempts from the rate floor entirely — overridden to APPLY.')
+          parsed.verdict = 'APPLY'
+          parsed.score = Math.max(Number(parsed.score) || 0, 7)
+          _recordViolations('analyser', job?.id, ['auditJobVerdictOverridden'])
+        }
+      }
       setAnalysis(parsed)
       // Fire similarity lookup — fire-and-forget, never blocks the analysis UX
       if (job?.id) {
