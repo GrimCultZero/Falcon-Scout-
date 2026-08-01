@@ -2423,3 +2423,30 @@ Fix (App.jsx notify effect):
 Verified: vite build clean; app mounts clean (accessibility tree shows full nav incl. Settings; 1830
 buttons rendered — the earlier innerText "not mounted" readings were a headless-pane compositing
 artifact, not a crash). NET: popups now fire only for genuinely new top-of-feed jobs once enriched.
+
+---
+
+## 2026-08-01 — Antifab shadow-mode check-in: telemetry reviewed, soak continues
+
+Owner: "our new fixes... running for some time and frankly I don't see any improvements really."
+Pulled `rule_violations` directly (185 events since 2026-07-27, the day 21-A/21-B shipped).
+Finding: **not a bug — GC_ENFORCE is still `false` (shadow), so the checker only logs, never
+edits the letter.** No visible change is expected until it's flipped.
+
+Evidence the checker itself is working: its 5 violation codes fired 12 times across 8 distinct
+jobs in 5 days — `caseDuplicated` 6× (8626, 8665, 8651, 9165×2, 9419), `metricNotInLedger` 4×
+(8640, 8855, 9225, 9419), `attachmentUnbacked` 1× (9165), `marketNotInPosting` 1× (9068),
+`seoAuditTurnaround` 0× (the earlier tactical patch appears to be holding). Zero false-positive
+reports from the owner in that window.
+
+Separately noted: the OLDER, already-enforcing deterministic guards are still firing at high
+volume in the same window (`caseHighlightsInlineLabel` 24×, `coverHasTimeline` 17×,
+`missingHighlightsPhrase`/`missingPdfLabel` 15× each, `hasCircumventionRisk`/`hasExplainerOpener`
+11× each, `fabricatedSkinRebootRevenue` 6×) — these already strip/fix before the letter reaches
+the owner, so they don't explain "no improvement," but the raw generation habit clearly hasn't
+gotten any cleaner; only the after-the-fact patch layer keeps growing to cover it.
+
+Asked the owner directly: flip GC_ENFORCE now / hand-review the 8 flagged jobs first / keep
+shadow running longer. **Decision: keep shadow mode running longer** — not enough volume/time
+yet for the owner's confidence. No code change made. Revisit `/rule-violations/stats` (KB tab,
+"Top rule violations" panel) again in another week or two before re-raising the flip question.
