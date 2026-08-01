@@ -2485,3 +2485,32 @@ other reasoning preserved, override flag appended; a second harness with a real 
 disqualifier confirms the override correctly does NOT fire and the genuine SKIP survives. Could
 not drive a live click-through in the Browser pane this session (compositing wasn't available),
 so this was verified at the logic level rather than an on-screen re-analyse.
+
+---
+
+## 2026-08-01 — AI Analysis cache showed stale verdicts after re-enrichment
+
+Owner: enriched a job with the extension, then clicking to AI-analyse it "all data immediately
+populated... looks like it was no enrichment but rather some cache pop up." Correct diagnosis.
+
+Root cause: the AI Analysis cache (`cacheRef` + localStorage, JobDetail.jsx ~3192-3220) is keyed
+only by `job.id`, with no timestamp. `job.enriched_at` is bumped server-side on every enrichment
+call, including re-enrichment (api/main.py:1441) — but the cache never compared against it. So:
+analyse a job once, re-enrich it later with the extension (fresh scrape), reopen/revisit the job
+→ the mount-time `useLayoutEffect` instantly hydrated the OLD cached verdict from before the
+re-enrichment, with no indication it was stale. It looked like enrichment did nothing because no
+real analysis ever ran — a genuine cache-serving-stale-data bug, not user error.
+
+Fix: cache entries now also store `enriched_at` (the job's enrichment timestamp at the moment the
+analysis was cached). On hydrate, if `job.enriched_at` is newer than the cached `enriched_at`,
+the cache is treated as stale and dropped (memory + localStorage) — analysis resets to the empty
+"not yet analysed" state instead of silently showing outdated output, so the owner is prompted to
+run a fresh Analyse. Old cache entries written before this fix have no `enriched_at` and are left
+alone (can't tell staleness either way — avoids mass-invalidating everything on deploy). Also
+added `job?.enriched_at` to the hydration effect's dependency array so a live re-enrich while the
+job panel is already open proactively invalidates too, not just on job switch.
+
+Verified: `npm run build` clean; standalone Node harness covering all 4 cases (re-enriched later
+→ invalidated; unchanged timestamp → kept; legacy entry with no timestamp → kept; job missing
+enriched_at → kept); confirmed the live dev server (:5180) hot-reloaded without errors (only a
+pre-existing, unrelated React "key" warning in the job list, not from this change).

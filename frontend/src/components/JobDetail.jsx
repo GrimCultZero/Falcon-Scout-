@@ -3199,6 +3199,21 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         cacheRef.current[job.id] = stored
       }
     }
+    // Staleness check: if the job has been RE-enriched (extension pulled fresh
+    // data) since this analysis was cached, the cached verdict was computed
+    // against old data and would silently "pop up" as if it were a live
+    // result. `cached.enriched_at` is only present on entries written after
+    // this check was added — older entries have no timestamp to compare, so
+    // they're trusted (can't tell either way; don't mass-invalidate on deploy).
+    if (cached && cached.enriched_at && job?.enriched_at) {
+      const _cachedAt = new Date(cached.enriched_at).getTime()
+      const _jobAt = new Date(job.enriched_at).getTime()
+      if (Number.isFinite(_cachedAt) && Number.isFinite(_jobAt) && _jobAt > _cachedAt) {
+        cached = null
+        delete cacheRef.current[job.id]
+        _lsRemove('analysis', job.id)
+      }
+    }
     if (cached) {
       setAnalysis(cached.analysis)
       setFeedback(cached.feedback)
@@ -3208,12 +3223,12 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
     }
     setError(null)
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [job?.id])
+  }, [job?.id, job?.enriched_at])
 
   // Persist to memory + localStorage whenever analysis/feedback changes
   useEffect(() => {
     if (job?.id != null && analysis) {
-      const value = { analysis, feedback }
+      const value = { analysis, feedback, enriched_at: job?.enriched_at || null }
       cacheRef.current[job.id] = value
       _lsSave('analysis', job.id, value)
     }
