@@ -115,22 +115,55 @@ def _get_ai_provider() -> str:
 def _set_ai_provider(provider: str) -> None:
     _AI_PROVIDER_FILE.write_text(_json_mod.dumps({"provider": provider}))
 
+def _extract_pdf_text_local(raw_pdf_bytes: bytes) -> str:
+    """Extract text from a PDF locally via PyMuPDF — no Claude call needed.
+    Works for text-based PDFs (the common case: specs, briefs, case studies).
+    Scanned/image-only PDFs have no text layer and this returns an empty
+    string — callers must treat that as "needs Vision/API mode", never
+    silently proceed as if the PDF had been read."""
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=raw_pdf_bytes, filetype="pdf")
+    try:
+        text = "\n".join(page.get_text() for page in doc)
+    finally:
+        doc.close()
+    return text.strip()
+
+
 def _flatten_for_cli(request: dict) -> str:
     """Convert an Anthropic Messages API request dict to a plain text prompt for claude -p.
 
-    Defensive against multimodal payloads: content blocks that aren't text
-    (PDF document blocks, images) or that carry a null `text` are coerced to
-    a safe string so the join never throws (a bare TypeError here would bubble
-    up as an opaque 500)."""
+    PDF document blocks are extracted to real text locally (via PyMuPDF) so
+    CLI mode can actually use dropped PDF attachments instead of silently
+    losing them — a prior version just stubbed them out as
+    "[document attachment omitted]", which is worse than an error: the
+    surrounding prompt still told the model to "read the attached file
+    carefully", so the model had no way to know it never saw the content.
+    Images have no deterministic text equivalent (that's a genuine Vision
+    need) and get an explicit "can't be read in CLI mode" note instead of
+    vanishing silently, for the same reason."""
     def _block_text(b) -> str:
         if not isinstance(b, dict):
             return ""
         t = b.get("text")
         if isinstance(t, str):
             return t
-        # Non-text block (document/image) or null text — note it, don't crash.
         bt = b.get("type")
-        return f"[{bt} attachment omitted]" if bt and bt not in ("text",) else ""
+        if bt == "document":
+            src = b.get("source") or {}
+            if src.get("type") == "base64" and src.get("media_type") == "application/pdf" and src.get("data"):
+                try:
+                    import base64
+                    text = _extract_pdf_text_local(base64.standard_b64decode(src["data"]))
+                except Exception as exc:
+                    return f"[Could not read attached PDF: {exc}]"
+                if not text:
+                    return "[Attached PDF appears to be scanned/image-only — no extractable text. CLI mode can't read it (that needs Vision/API mode) — ignore this attachment.]"
+                return f"[Extracted text from attached PDF]\n{text}"
+            return "[document attachment omitted]"
+        if bt == "image":
+            return "[Attached image can't be read in CLI mode (that needs Vision/API mode) — ignore this attachment.]"
+        return f"[{bt} attachment omitted]" if bt else ""
 
     parts = []
     system = request.get("system")
@@ -1687,6 +1720,20 @@ async def parse_kb_file(file: UploadFile = File(...)):
             text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"Could not parse .docx: {exc}")
+    elif ext == "pdf" and _get_ai_provider() == "cli":
+        # CLI mode: no native document API available, so extract locally
+        # (PyMuPDF) instead of calling Claude at all. Covers text-based PDFs
+        # (the common case for KB uploads — briefs, case studies, specs).
+        try:
+            text = _extract_pdf_text_local(raw)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Could not parse PDF: {exc}")
+        if not text.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="This PDF appears to be scanned/image-only — CLI mode can't extract text from it "
+                       "(that needs Vision/API mode). Switch to API mode for this file, or paste the text manually.",
+            )
     elif ext == "pdf":
         # Use Claude's native PDF document API — works for both text-based and image-based PDFs
         api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()

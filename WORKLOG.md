@@ -2514,3 +2514,42 @@ Verified: `npm run build` clean; standalone Node harness covering all 4 cases (r
 → invalidated; unchanged timestamp → kept; legacy entry with no timestamp → kept; job missing
 enriched_at → kept); confirmed the live dev server (:5180) hot-reloaded without errors (only a
 pre-existing, unrelated React "key" warning in the job list, not from this change).
+
+---
+
+## 2026-08-01 — CLI mode now handles PDF attachments (was silently dropping them)
+
+Owner: "I want to be able to complete everything using CLI, don't have money to top up API now,
+maybe in a month." Went looking for remaining CLI gaps beyond today's earlier /chat fix and found
+a worse one: dropping a PDF or image into the cover-letter generator's file box built an
+Anthropic `document`/`image` content block, and `_flatten_for_cli()` silently stubbed those out
+as the literal string "[document attachment omitted]" before piping to the CLI bridge — while the
+surrounding prompt still said "ATTACHED FILES... read them carefully." The letter would come back
+looking normal, having never actually seen the attachment. Same root issue in `/kb/parse-file`
+(KB PDF upload), which unconditionally required `ANTHROPIC_API_KEY` for its native-PDF-API call
+regardless of the provider toggle.
+
+Fix (api/main.py): added `_extract_pdf_text_local()` (PyMuPDF/`fitz`, already available, added to
+requirements.txt and installed into `.venv` — it wasn't there, would have broken on next real
+launch via falconscout.bat). `_flatten_for_cli()` now extracts real text from PDF document blocks
+instead of stubbing them, so any `/claude` caller (generator file-drop, and anything else routed
+through the CLI bridge) gets actual content. Image blocks still can't be read in CLI mode (no
+deterministic text equivalent for vision) — those now get an explicit honest note instead of
+silently vanishing, so the model doesn't try to act on content it never received. `/kb/parse-file`
+gained a CLI-mode branch using the same local extractor instead of calling Claude at all.
+Scanned/image-only PDFs (no text layer) surface a clear "needs Vision/API mode" message rather
+than crashing or pretending to have read something.
+
+Verified end-to-end against the live app (provider switched to "cli" per the owner's stated
+intent): (1) uploaded a real generated PDF to `/kb/parse-file` — extracted correctly, no Anthropic
+call, confirmed via response body; (2) sent a PDF containing a screening-question answer through
+`/claude` as a document block exactly like the generator does — the CLI-routed model correctly
+answered from the PDF's actual content ("OpenCart experience: yes"), proving the content now
+reaches it; (3) sent a text-layer-free (scanned-style) PDF the same way — model correctly reported
+no readable content, confirming the honest-degradation path works rather than crashing or
+hallucinating. `python -m py_compile` clean under both the global interpreter and `.venv`.
+
+Net: CLI mode now covers analyse, generate, chat, chat/distill, kb/shrink, AND PDF attachments
+(both KB upload and generator file-drop) — everything except genuine image/photo attachments,
+which need real Vision and have no code-only substitute; those now fail honestly instead of
+silently no-op'ing.
