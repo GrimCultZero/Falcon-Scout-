@@ -67,11 +67,18 @@ function getCountryCode(country) {
   return alpha3[String(country).trim().toUpperCase()] || null
 }
 
-function timeAgo(isoString) {
-  if (!isoString) return ''
+function _parseDate(isoString) {
+  if (!isoString) return null
   // Append Z if no timezone info so JS treats it as UTC
   const normalized = isoString.endsWith('Z') || isoString.includes('+') ? isoString : isoString + 'Z'
-  const diff = Date.now() - new Date(normalized).getTime()
+  const d = new Date(normalized)
+  return isNaN(d.getTime()) ? null : d
+}
+
+function timeAgo(isoString) {
+  const d = _parseDate(isoString)
+  if (!d) return ''
+  const diff = Date.now() - d.getTime()
   const m = Math.floor(diff / 60000)
   if (m < 1) return 'just now'
   if (m < 60) return `${m}m`
@@ -301,10 +308,28 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
                   {job.proposal_status === 'sent' || job.proposal_status === 'viewed' ? 'applied' : job.proposal_status}
                 </span>
               )}
-              {/* Relative capture time — e.g. "3h ago" */}
-              <span style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>
-                {timeAgo(job.captured_at)}
-              </span>
+              {/* Relative time — prefer the REAL Upwork posting date. API-sourced
+                  jobs carry a clean ISO `posted_date` (Upwork's publishedDateTime);
+                  without this, the badge showed time-since-Falcon-Scout-ingested-
+                  the-row instead of time-since-posted, so an API pull could surface
+                  a job posted 2 days ago and label it "41m" — backwards for judging
+                  competition/urgency. Bot-sourced jobs often store posted_date as
+                  free text ("Posted 2 days ago") that can't be re-parsed, so those
+                  fall back to capture time, same as before. */}
+              {(() => {
+                const postedDate = _parseDate(job.posted_date)
+                const label = postedDate ? timeAgo(job.posted_date) : timeAgo(job.captured_at)
+                const title = postedDate
+                  ? `Posted ${postedDate.toLocaleString()}`
+                  : job.posted_date
+                    ? `Posted: ${job.posted_date} — captured ${label} ago`
+                    : `Posting date unknown — captured ${label} ago`
+                return (
+                  <span title={title} style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>
+                    {label}
+                  </span>
+                )
+              })()}
             </div>
           </div>
         )

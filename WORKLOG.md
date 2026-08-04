@@ -2553,3 +2553,35 @@ Net: CLI mode now covers analyse, generate, chat, chat/distill, kb/shrink, AND P
 (both KB upload and generator file-drop) — everything except genuine image/photo attachments,
 which need real Vision and have no code-only substitute; those now fail honestly instead of
 silently no-op'ing.
+
+---
+
+## 2026-08-04 — Feed badge showed capture time, not real Upwork posting time
+
+Owner spotted it directly: a job showing "42m" in the feed was actually "Posted 2 days ago" on
+Upwork itself (screenshot: "Google Ads Specialist for Ecommerce", Hong Kong client, $8.62/hr avg,
+155c boost — feed badge said "41m").
+
+Root cause: JobList.jsx's feed-card time badge rendered `timeAgo(job.captured_at)` — time since
+Falcon Scout's own DB row was created — not the job's actual Upwork posting time. The real
+posting timestamp WAS already being captured correctly: `upwork_api.py` pulls
+`publishedDateTime`/`createdDateTime` from Upwork's GraphQL response into `posted_date`, it's a
+real DB column (db.py), and the Job Detail panel already displays it correctly as "POSTED". The
+bug was scoped to this one small badge in the feed list. For API-sourced jobs the API poll can
+surface a listing that's been live for days, so `captured_at` (when the poll happened to catch
+it) and the real posting date can diverge by a lot — the badge made an already-2-day-old,
+likely-proposal-saturated job look brand new, which is exactly backwards for judging real
+competition/urgency.
+
+Fix: badge now prefers `job.posted_date` when it parses as a valid date (true for API-sourced
+jobs — clean ISO timestamps) and falls back to `job.captured_at` only when it doesn't (bot-sourced
+jobs often store posted_date as unparseable free text like "Posted 2 days ago" from the Telegram
+message, which can't be re-parsed into a fresh relative time). Added a title tooltip showing the
+exact resolved timestamp (or "Posting date unknown — captured Xh ago" for the fallback case) so
+it's never ambiguous which one is being shown.
+
+Verified live in the running dev server: the exact reported job now shows "1d" / "Posted
+8/2/2026, 6:02:51 PM" (was "41m"); confirmed the fallback path fires correctly elsewhere in the
+feed ("Posting date unknown — captured 18h ago"); confirmed old bot-sourced jobs with real dates
+still resolve correctly (an 88-day-old job renders "88d"). `npm run build` clean, no new console
+errors (only the pre-existing unrelated JobDetail key-prop warning).
