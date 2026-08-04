@@ -18,6 +18,7 @@ Nothing here writes to Upwork.
 import os
 import time
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -392,6 +393,15 @@ DEFAULT_FEED_CONFIG = {
     "exclude_countries": [],
     # Keep only payment-verified clients when true.
     "payment_verified_only": False,
+    # Drop a job if Upwork's own posted timestamp is older than this. The
+    # search API returns whatever matches the keyword/relevance query, not
+    # just brand-new postings — a broad keyword can surface a listing that's
+    # been open for weeks, which lands in the DB with a FRESH captured_at (we
+    # only just discovered it) and floats to the top of the captured_at-sorted
+    # feed looking like new activity even though it's stale. 72h matches the
+    # existing auto_enrich_max_age_hours precedent ("older = probably expired
+    # or already triaged, not worth it"). 0 = disabled (keep any age).
+    "max_posting_age_hours": 72,
     # Per-keyword page size and an overall cap to bound API calls per fetch.
     "per_keyword_limit": 20,
     # Background auto-fetch cadence in minutes (0 = off / manual only). The
@@ -470,6 +480,18 @@ def _row_passes(row: dict, cfg: dict) -> "str | None":
 
     if cfg.get("payment_verified_only") and row.get("payment_verified") is not True:
         return "unverified-payment"
+
+    max_age_h = cfg.get("max_posting_age_hours") or 0
+    posted = row.get("posted_date")
+    if max_age_h and posted:
+        try:
+            normalized = posted if (posted.endswith("Z") or "+" in posted) else posted + "Z"
+            posted_dt = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+            age_h = (datetime.now(timezone.utc) - posted_dt).total_seconds() / 3600
+            if age_h > max_age_h:
+                return f"posted>{max_age_h}h"
+        except (ValueError, TypeError):
+            pass  # unparseable date — don't drop over a data-quality issue
 
     return None
 

@@ -119,6 +119,11 @@ export default function FeedSettings({ open, onClose, onSaved, embedded = false 
                 <input type="number" value={cfg.per_keyword_limit ?? 20} onChange={e => set('per_keyword_limit', Number(e.target.value))}
                   style={{ width: 80, marginTop: 3, background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 4, padding: '5px 8px', fontSize: 12, color: 'var(--text)' }} />
               </label>
+              <label style={{ fontSize: 11, color: 'var(--text2)' }} title="Drop a job if Upwork's own posted date is older than this. The search API can surface listings open for weeks, which otherwise land at the top of the feed looking brand new just because we discovered them recently. 0 = keep any age.">
+                Max posting age (hrs)<br/>
+                <input type="number" min={0} value={cfg.max_posting_age_hours ?? 72} onChange={e => set('max_posting_age_hours', Number(e.target.value))}
+                  style={{ width: 80, marginTop: 3, background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 4, padding: '5px 8px', fontSize: 12, color: 'var(--text)' }} />
+              </label>
               <label style={{ fontSize: 11, color: 'var(--text2)' }} title="0 = manual only. Otherwise the backend pulls fresh jobs on this interval, even with the dashboard closed.">
                 Auto-fetch (min)<br/>
                 <input type="number" value={cfg.auto_fetch_minutes ?? 0} onChange={e => set('auto_fetch_minutes', Number(e.target.value))}

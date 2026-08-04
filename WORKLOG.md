@@ -2624,3 +2624,35 @@ Fixes (JobDetail.jsx):
 Verified: standalone Node harness reproducing the exact job-9995 text confirms both fixes (lead-in
 duplicate resolved, domain string kept intact); `npm run build` clean; live dev server shows no
 new console errors (only the pre-existing unrelated key-prop warning).
+
+---
+
+## 2026-08-04 — API feed had no age filter: weeks-old postings floated to the top
+
+Owner spotted it via screenshot: jobs #001-#003 in the feed showed 33d/14d/7d old (real Upwork
+posted dates, now visible thanks to the earlier badge fix) sitting at the TOP of a feed sorted
+`captured_at DESC`. Root cause: `upwork_api.fetch_and_filter()` / `_row_passes()` filters by
+stop-words, keyword match, rate floors, excluded countries, and payment-verified — but had ZERO
+concept of posting age. The Upwork search API returns whatever matches the keyword/relevance
+query, not just brand-new listings, so a broad keyword can surface a job that's been open for
+weeks. First time OUR system discovers it, it's a genuinely new DB row with `captured_at = now()`
+— which floats it straight to the top of the feed looking like fresh activity even though it's
+stale. Most visible right after a Falcon Scout restart (first pull of the session naturally
+surfaces the largest batch of previously-unseen-but-not-actually-new listings at once).
+
+Fix: new `max_posting_age_hours` feed-config field (default 72h, matching the existing
+`auto_enrich_max_age_hours` precedent — "older = probably expired/already triaged"). Added as a
+drop condition in `_row_passes()`, comparing the row's real `posted_date` (Upwork's
+publishedDateTime/createdDateTime) against now(); unparseable/missing dates fail safe (kept, not
+dropped, so a data-quality issue never silently hides a job). Applies to BOTH the manual "Pull
+fresh jobs" button and the background auto-fetch loop — they share the same `fetch_and_filter()`
+call. Exposed in the Feed Settings panel (Settings tab) alongside the other numeric filters.
+
+Verified: `curl /feed-config` on the live backend confirms the new field serves correctly
+(72, picked up via uvicorn --reload with no restart needed); isolated Python test of the exact
+filter logic against the real 33d/14d/7d ages from the screenshot confirms all three now drop,
+while fresh/missing/malformed dates all correctly pass through. `npm run build` clean. Could not
+get a full click-through browser confirmation of the Settings tab UI this session (synthetic
+clicks toggled the nav button's active class but the panel didn't mount) — verified the new field
+at the code level (build-clean, matches the pattern of 3 working sibling fields) instead of a
+live screenshot.
