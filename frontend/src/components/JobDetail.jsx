@@ -1814,7 +1814,13 @@ function _addProfileHighlightsLabel(para) {
   if (/attached\s+(?:in\s+profile\s+highlights|as\s+(?:a\s+)?pdf)/i.test(t)) return t
   const m = t.match(_NON_PDF_CASE_NAME_RE)
   if (!m) return t
-  return `${t.slice(0, m[0].length)} (attached in profile highlights)${t.slice(m[0].length)}`
+  // If the case name is immediately glued to a domain suffix ("Casaeleganza.com"
+  // with no space), extend past it before inserting — otherwise the label lands
+  // mid-domain: "Casaeleganza (attached in profile highlights).com".
+  let end = m[0].length
+  const domain = t.slice(end).match(/^\.[a-z]{2,6}\b/i)
+  if (domain) end += domain[0].length
+  return `${t.slice(0, end)} (attached in profile highlights)${t.slice(end)}`
 }
 
 // A "[[ ARTEM: … ]]" placeholder that already contains a concrete $ figure is effectively
@@ -1944,12 +1950,23 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   // 1) The "(attached in profile highlights)" note belongs on each CASE, never folded into
   //    a collective lead-in — a shared lead-in can't describe a block that mixes profile-
   //    highlights cases with separate PDF cases. Strip the note from any LEAD-IN line (a
-  //    short colon-header before the cases that is NOT itself a case line).
-  for (let i = 0; i < firstCaseIdx; i++) {
+  //    short colon-header that is NOT itself a case line) ANYWHERE in the letter — not just
+  //    before the FIRST case name. A letter can have more than one case-study block (e.g.
+  //    a Shopify block followed by a separate "Recent ecommerce work:" block), and scoping
+  //    this to `i < firstCaseIdx` let a second block's mislabeled lead-in through untouched
+  //    (confirmed on job 9995: "Recent ecommerce work (attached in profile highlights):"
+  //    followed by "SMASH (attached in profile highlights)" — duplicated across two lines).
+  let strippedLeadIn = false
+  for (let i = 0; i < paras.length; i++) {
     const t = paras[i].trim()
     if (/:$/.test(t) && !_ANY_CASE_NAME_RE.test(t) && /attached\s+in\s+profile\s+highlights/i.test(t)) {
       paras[i] = t.replace(/\s*\(?\s*,?\s*attached\s+in\s+profile\s+highlights\s*\)?/i, '')
+      strippedLeadIn = true
     }
+  }
+  if (strippedLeadIn) {
+    console.log('[Falcon] Stripped attachment label off a collective lead-in (belongs on the case, not the lead-in).')
+    _recordViolations('generator', null, ['caseLeadInHadAttachmentLabel'])
   }
   // 2) Label EVERY non-PDF case inline (no-op if it already carries an attachment label).
   //    Handles blocks with multiple non-PDF cases (e.g. Multilingual Site + Casa Eleganza)
@@ -4048,6 +4065,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
   const [copied, setCopied] = useState(false)
   const [showRules, setShowRules] = useState(false)
   const [feedback, setFeedback] = useState(null) // 'liked' | 'disliked'
+  const [flagged, setFlagged] = useState(false) // brief confirmation after manual violation flag
   const scrollRef = useRef(null)
   const proposalCacheRef = useRef({}) // { [jobId]: { proposal, feedback } } for unsaved drafts
   const prevProposalJobIdRef = useRef(null) // tracks previous job id for save-before-reset
@@ -4350,6 +4368,31 @@ function ProposalColumn({ job, bridgeReady = false }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'feedback', title: `${kind === 'liked' ? '👍' : '👎'} Cover Letter: ${job.title}`, content, tags: tag }),
     })
+  }
+
+  // Manual violation flag — for defects the deterministic checks didn't catch
+  // (the whole point: those checks only cover known patterns; something new
+  // slips through, and this is how it gets into the SAME `/rule-violations`
+  // telemetry the "Top rule violations" panel reads, instead of just being
+  // noticed and forgotten). One click; the optional tag lets it bucket
+  // meaningfully instead of piling up as one undifferentiated count.
+  const flagViolation = async () => {
+    const note = window.prompt(
+      'Short tag for this violation (e.g. "duplicate label", "fabricated stat"). Leave blank for a generic flag.',
+      ''
+    )
+    if (note === null) return // cancelled
+    const slug = note.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60)
+    const tag = slug ? `manual:${slug}` : 'manual_flag'
+    try {
+      await fetch('/rule-violations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ surface: 'generator', job_id: job?.id ?? null, checks: [tag] }),
+      })
+      setFlagged(true)
+      setTimeout(() => setFlagged(false), 2500)
+    } catch (_) {}
   }
 
   // ── File drop handlers ────────────────────────────────────────────────────
@@ -7059,6 +7102,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               borderColor: feedback === 'disliked' ? '#ef4444' : 'var(--border)',
             }}
           >👎</button>
+          <button
+            onClick={flagViolation}
+            title="Flag a violation the automated checks missed — records it into the same Top Rule Violations stats (Knowledge Base tab)"
+            style={{ padding: '8px 12px', fontSize: 14, borderRadius: 4, border: '1px solid', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+              background: flagged ? 'rgba(255,159,10,0.14)' : 'var(--bg2)',
+              borderColor: flagged ? '#ff9f0a' : 'var(--border)',
+            }}
+          >{flagged ? '✓ 🚩' : '🚩'}</button>
         </div>
       )}
 

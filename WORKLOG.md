@@ -2585,3 +2585,42 @@ Verified live in the running dev server: the exact reported job now shows "1d" /
 feed ("Posting date unknown — captured 18h ago"); confirmed old bot-sourced jobs with real dates
 still resolve correctly (an 88-day-old job renders "88d"). `npm run build` clean, no new console
 errors (only the pre-existing unrelated JobDetail key-prop warning).
+
+---
+
+## 2026-08-04 — Duplicate case-attachment label slipped past the dedup checks (multi-block gap)
+
+Owner shared a real letter (job 9995) with a visible duplicate: "Recent ecommerce work (attached
+in profile highlights): / SMASH (attached in profile highlights)" — asked whether this is
+automatically caught, and suggested a manual "flag it into the stats" button for cases the
+automated checks miss.
+
+Traced it: NOT caught. Root cause in `_ensureCaseStudyHighlightsLeadIn` (JobDetail.jsx) — the
+step that strips a stray attachment label off a collective lead-in only scanned paragraphs
+`i < firstCaseIdx`, where `firstCaseIdx` is the index of the FIRST case-name paragraph in the
+WHOLE letter. This letter had TWO separate case blocks (a Shopify block with Casa Eleganza, then
+a second "Recent ecommerce work:" block with SMASH) — the second block's own mislabeled lead-in
+sits AFTER firstCaseIdx, so the single-pass, first-block-only scan never reached it. Same root
+class as the earlier-fixed "second gap" bug, just a different trigger (multi-block letters instead
+of a blind early-return).
+
+Also found, same letter: "Casaeleganza (attached in profile highlights).com" — the label-insertion
+helper (`_addProfileHighlightsLabel`) inserts right after the matched case-name text with no check
+for a glued domain suffix, so "Casaeleganza.com" got split apart mid-string.
+
+Fixes (JobDetail.jsx):
+- Lead-in label strip now scans ALL paragraphs, not just those before the first case name —
+  handles any number of case blocks per letter.
+- `_addProfileHighlightsLabel` now extends past an immediately-glued ".tld" suffix before
+  inserting, so "Name.com" keeps the domain intact and the label lands after it.
+- Step 1 (lead-in strip) previously never called `_recordViolations` at all, even in the original
+  single-block case — added `caseLeadInHadAttachmentLabel` telemetry so this failure mode is now
+  visible in the Top Rule Violations panel going forward, not just silently patched.
+- Added a manual flag button (🚩) next to the letter's 👍/👎 in the action row — one click, records
+  a `manual:<tag>`/`manual_flag` entry to the SAME `/rule-violations` telemetry the automated
+  checks use, so anything the deterministic checks miss (like this one, before the fix) still
+  shows up in the stats instead of being noticed once and forgotten.
+
+Verified: standalone Node harness reproducing the exact job-9995 text confirms both fixes (lead-in
+duplicate resolved, domain string kept intact); `npm run build` clean; live dev server shows no
+new console errors (only the pre-existing unrelated key-prop warning).
