@@ -2656,3 +2656,25 @@ get a full click-through browser confirmation of the Settings tab UI this sessio
 clicks toggled the nav button's active class but the panel didn't mount) — verified the new field
 at the code level (build-clean, matches the pattern of 3 working sibling fields) instead of a
 live screenshot.
+
+---
+
+## 2026-08-04 — Follow-up: the age-filter fix didn't retroactively clean existing stale rows
+
+Owner reloaded after the `max_posting_age_hours` fix and still saw the same 33d/14d/7d jobs at
+the top. Traced precisely: those specific rows (10056/10057/10058) were captured at 15:24:28 UTC
+— the fix's commit (f7e5205) landed at 15:30:57 UTC, ~6 minutes LATER. The fix only gates future
+ingestion; it does nothing to rows already sitting in the DB from before it existed. Not a
+regression in the fix — just an incomplete one, and reloading obviously can't fix data that's
+already there.
+
+Ran a one-time cleanup: found all non-hidden, API-sourced jobs with `posted_date` older than 72h,
+explicitly EXCLUDING anything starred or with a proposal row (never touch actioned jobs — same
+retention principle `_prune_jobs` already follows). 14 unactioned stale jobs matched (including
+all 3 from the original screenshot); 25 similarly-old jobs were correctly left alone because
+they're starred or already have a proposal. Hid the 14 via `hidden_at` (soft, reversible via the
+existing "Hidden" filter — not a hard delete). Verified via a live `/jobs` query: top of feed is
+now genuinely recent postings only.
+
+No code change in this entry — the ingestion fix from the previous entry already covers
+prevention going forward; this was purely a one-time backfill cleanup for rows that predated it.
