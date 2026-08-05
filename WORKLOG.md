@@ -2678,3 +2678,39 @@ now genuinely recent postings only.
 
 No code change in this entry — the ingestion fix from the previous entry already covers
 prevention going forward; this was purely a one-time backfill cleanup for rows that predated it.
+
+---
+
+## 2026-08-05 — "Generator cannot find local SEO case" — real gap, fixed with a KB rule
+
+Owner shared job 10199 ("Local SEO & Ads Expert Needed") — the cover letter cited FridgeFix +
+House Painting (local Google Ads/PPC) but no local-SEO case, and the in-app chat, asked directly
+"we have a local seo case, check the database", answered that Golden State Trailers is "B2B geo
+expansion, not multi-location consumer services with GBP profiles" and effectively said no
+qualifying case exists.
+
+That answer contradicted the KB's own history: pulled 4 real past sent proposals (#421, #469,
+#520, and the job postings #456/#467 this pattern targets) — every one of them confidently and
+correctly cited Golden State Trailers (72 localized city/state landing pages, +350% organic
+traffic, 67 keywords Top 3, 110 referring domains) as local-SEO proof, B2B vertical and all. The
+model's fresh in-context judgment this time was simply wrong — same "unreliable to leave as
+inference, must be an explicit rule" lesson as every other fix this session, just showing up on
+the chat feature instead of analyser/generator. Checked existing rule #407 (general case-selection/
+channel-matching) — it says nothing local-SEO-specific, so there was genuinely no rule anchoring
+this the way rule #437 anchors Vape Shop.
+
+Fix: added KB rule #583 (mirrors #437's pattern) — explicitly states Golden State Trailers is
+valid proof for local/multi-location SEO jobs regardless of B2B/B2C vertical (the case proves the
+GEO-SEO METHOD, not the industry), while explicitly forbidding overclaiming GBP/Map-Pack-specific
+results from it (position tracking, suspension recovery, NAP/citation cleanup) since it only
+proves organic landing-page ranking. Pure KB/data change, no code touched.
+
+Verified live: re-ran the exact same chat question ("we have a local seo case, check the
+database") with the new rule in the context. New answer correctly leads with Golden State
+Trailers as the primary local-SEO case, quotes the rule's own GBP/Map-Pack carve-out verbatim,
+also surfaced a second valid case (Multilingual Local SEO, South Tyrol — 18 keywords Top 1, 47
+Top 3, +17.1K monthly visits) that the original answer had missed entirely, and correctly
+separates FridgeFix as PPC-not-organic. One minor slip: the chat referred to the rule as "Rule 34"
+by number, despite rule #407 itself instructing never to cite rules by number (paraphrase
+instead) — a conversational-chat nit, not the formal analysis/generator output the rule was
+written for; not chasing it further right now.
