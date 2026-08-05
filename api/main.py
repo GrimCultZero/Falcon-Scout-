@@ -824,6 +824,35 @@ def latest_captured():
         return {"captured_at": job.captured_at.isoformat()}
 
 
+def _effective_posted_dt(job: Job) -> datetime:
+    """Best-effort REAL posting time for feed ordering — prefer the job's
+    actual Upwork posted_date (parsed), fall back to captured_at when it's
+    missing or unparseable (bot-sourced jobs sometimes store free text like
+    "2 days ago" instead of a real timestamp). Everything normalized to naive
+    UTC because SQLite/SQLAlchemy round-trips `captured_at` as naive — mixing
+    naive and timezone-aware datetimes in one sort raises TypeError.
+
+    Why this exists: the feed was sorted by captured_at (when Falcon Scout
+    discovered the row), not posted_date (when Upwork actually published it).
+    A batch API pull captures several jobs at once whose real ages differ —
+    e.g. one posted 25 minutes ago, another 3 days ago — so captured_at order
+    interleaved them out of true recency order. The owner's ask was specific:
+    "when I open the feed, I want to see only new job postings on top... the
+    sequence of what's being shown" — a display-order problem, not a
+    filtering problem (max_posting_age_hours already handles filtering)."""
+    raw = job.posted_date
+    if raw:
+        try:
+            s = raw if ("+" in raw or raw.endswith("Z")) else raw + "Z"
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+        except (ValueError, TypeError):
+            pass
+    return job.captured_at or datetime.min
+
+
 @app.get("/jobs")
 def list_jobs(
     q: Optional[str] = Query(None),
@@ -899,6 +928,12 @@ def list_jobs(
         jobs = session.scalars(stmt).all()
         if not jobs:
             return []
+        # Candidate pool = most-recently-CAPTURED `limit` rows (SQL, above) —
+        # keeps the existing "how many rows enter the feed at all" semantics
+        # unchanged. Display ORDER within that pool is by real posting
+        # recency instead, so newest actual postings surface first regardless
+        # of which order the ingestion pipeline happened to capture them in.
+        jobs = sorted(jobs, key=_effective_posted_dt, reverse=True)
         # Batch-fetch proposal status for all returned jobs in one query
         job_ids = [j.id for j in jobs]
         proposal_rows = session.query(Proposal.job_id, Proposal.status).filter(

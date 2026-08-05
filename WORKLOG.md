@@ -2789,3 +2789,31 @@ real title+description, the code follows the exact same pattern as `_rateAnchorN
 already-proven-working mechanism), and the underlying KB rule content was already validated via a
 real live call earlier today. Owner should regenerate this letter for a live confirmation when
 convenient; the `mixedJobMissingSeoCase` telemetry will also surface it if it's still missed.
+
+---
+
+## 2026-08-05 — Feed ordering fix: sort by real posting date, not capture order
+
+Owner clarified the actual ask after the age-filter fix: "the max posting age doesn't really
+resolve it. It's the sequence of what's being shown." Correct distinction — max_posting_age_hours
+controls what's ADMITTED into the feed at all (still working as intended, 72h cutoff); it never
+controlled DISPLAY ORDER. The feed's `/jobs` GET was sorted `ORDER BY captured_at DESC` — a batch
+API pull captures several jobs in one moment whose real ages differ (one posted 25 minutes ago,
+another 3 days ago), so newest-by-discovery and newest-by-actual-posting are different orderings,
+and the feed showed the former when the owner wanted the latter.
+
+Fix (api/main.py): added `_effective_posted_dt(job)` — parses the job's real `posted_date`
+(handles both formats: API-sourced ISO with offset like "...+0000", and bot-sourced space-
+separated "YYYY-MM-DD HH:MM:SS" with no offset), normalizes to naive UTC (SQLite/SQLAlchemy
+round-trips `captured_at` as naive, so comparing against a timezone-aware parsed date would raise
+TypeError), and falls back to `captured_at` when `posted_date` is missing or genuinely unparseable
+(free-text bot captures like "2 days ago"). The `/jobs` endpoint still uses SQL `ORDER BY
+captured_at DESC LIMIT N` to pick WHICH rows enter the candidate pool (unchanged retention/paging
+semantics — "most recently discovered N jobs"), then re-sorts that pool in Python by
+`_effective_posted_dt` descending before serializing, so DISPLAY order reflects true posting
+recency regardless of capture-batch timing.
+
+Verified against the live backend (hot-reloaded via uvicorn --reload, no restart needed): pulled
+the first 8 feed rows post-fix — posted_date descends monotonically (16:07 → 15:52 → 15:33 →
+15:33 → Aug4 → Aug3 → Aug2 → Aug2), correctly interleaving bot-sourced and API-sourced timestamp
+formats in one consistent order. `python -m py_compile` clean.
