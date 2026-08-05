@@ -2749,3 +2749,43 @@ absent from every other ledger entry too, so leaving them out keeps the standard
 
 Verified: `renderCaseLine()` output checked for all 4 updated cases (Node, ESM import) — correct
 rendering, all new figures present, count still 16/16. `npm run build` clean.
+
+---
+
+## 2026-08-05 — Generator kept citing PPC-only cases on a mixed SEO+Ads job
+
+Owner, re-generating job 10199 after the Golden State Trailers KB rule fix, still got a letter
+citing only FridgeFix + House Painting (both PPC) — zero SEO cases — on a job literally titled
+"Local SEO & Ads Expert Needed". Traced it past the KB rule this time: the generator's system
+prompt already HAS the correct instruction (line ~5136, "CASE STUDY SELECTION": "mixed-discipline
+jobs: pick one from each domain"), and even names the exact scenario at line ~5150 ("a local SEO
+case when the first two are national" as the textbook reason to add a 3rd case). The rule was
+already right — the model just didn't follow its own instruction, buried as one line inside a
+100+ line block.
+
+Fix (JobDetail.jsx, generate()): added `_caseDomainNote`, a job-specific computed directive
+injected directly into `jobContext` (same established pattern as the existing `_rateAnchorNote` —
+a prominent, hard-to-skim-past instruction placed with the actual job data, not just one more line
+in the giant static system prompt). Fires when the posting matches BOTH an SEO signal (seo, local
+seo, map pack, GBP, listings, schema...) and a PPC signal (google ads, ppc, ad campaigns, cpc,
+roas...) via regex against title+description — confirmed both fire correctly for job 10199's real
+text. States explicitly: cite ONE case from each domain, naming the SEO options (Golden State
+Trailers, Multilingual Site, Derma Solution, Luxury Parfums, Skin Reboot's SEO angle) and PPC
+options, and calls out that two-PPC-zero-SEO fails the job's actual scope.
+
+Also added `mixedJobMissingSeoCase` telemetry (post-generation, read-only — does not rewrite the
+letter, since auto-generating a missing case paragraph isn't a safe deterministic fix the way
+stripping/relabeling existing text is): when a mixed-signal job's finished letter cites none of
+the SEO-vertical case names, it's now logged to rule_violations, so if the model still ignores the
+directive sometimes, that's visible in the Top Rule Violations panel rather than silent.
+
+Verification note: attempted a full live regeneration through the browser to confirm end-to-end,
+but couldn't reliably drive job selection via synthetic clicks this session (third time today —
+seems to be a browser-automation friction issue in this environment, not an app bug), and a
+from-scratch replication of the ~65K-char generator system prompt (to test via direct API call
+instead) hit a template-substitution bug not worth chasing further for a verification step.
+Confirmed instead: `npm run build` clean, the mixed-signal regex correctly matches job 10199's
+real title+description, the code follows the exact same pattern as `_rateAnchorNote` (an
+already-proven-working mechanism), and the underlying KB rule content was already validated via a
+real live call earlier today. Owner should regenerate this letter for a live confirmation when
+convenient; the `mixedJobMissingSeoCase` telemetry will also surface it if it's still missed.

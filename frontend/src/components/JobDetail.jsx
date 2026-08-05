@@ -4757,10 +4757,23 @@ function ProposalColumn({ job, bridgeReady = false }) {
       } else if (_hMax > 0) {
         _rateAnchorNote = `RATE ANCHOR (apply ONLY if the posting asks for your rate): the posted ceiling ($${_hMax}/hr) is at/below Artem's ~$${_genFloor}/hr floor. Quote at the floor or as a fixed project price sized to scope; never write a sub-floor effective hourly.`
       }
+      // Mixed SEO+PPC case-domain note — the system prompt's "CASE STUDY
+      // SELECTION" section already says "mixed-discipline jobs: pick one from
+      // each domain", but that's one line buried in a 100+ line block and the
+      // model has repeatedly ignored it (confirmed on job 10199: two PPC-only
+      // cases cited, zero SEO cases, on a job literally titled "Local SEO &
+      // Ads Expert"). Restated here as a job-specific, hard-to-skim-past
+      // directive, same pattern as the RATE ANCHOR note above.
+      const _caseSeoSignal = /\b(seo|organic\s+(?:search|traffic)|rankings?|serp|local\s+seo|map\s+pack|google\s+business\s+profile|listings?|schema|technical\s+seo)\b/i.test(`${job.title || ''} ${fullDescription}`)
+      const _casePpcSignal = /\b(google\s+ads?|adwords|ppc|paid\s+search|paid\s+media|paid\s+advertising|pmax|performance\s+max|shopping\s+ads?|ad\s+campaigns?|ad\s+spend|\bcpc\b|\bcpa\b|\broas\b)\b/i.test(`${job.title || ''} ${fullDescription}`)
+      const _caseDomainNote = (_caseSeoSignal && _casePpcSignal)
+        ? `MIXED SEO + PPC JOB (mandatory): this posting needs BOTH SEO and paid-ads proof — do not treat it as PPC-only. You MUST cite ONE case study from each domain: an SEO case (Golden State Trailers, Multilingual Site, Derma Solution, Luxury Parfums, or Skin Reboot's SEO angle) AND a PPC case (FridgeFix, House Painting, Nectar Flowers, or Skin Reboot's PPC angle). Citing two PPC-only cases with zero SEO cases (or vice versa) fails this job's actual scope.`
+        : ''
       const jobContext = [
         `Job: ${job.title}`,
         `Rate: ${job.hourly_rate_min ? `$${job.hourly_rate_min}-$${job.hourly_rate_max}/hr` : job.fixed_budget || 'not specified'}`,
         _rateAnchorNote,
+        _caseDomainNote,
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
         isAgencyClient
@@ -5286,6 +5299,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       if (text !== _preAttachFix) {
         console.log('[Falcon] Rule pre-check: fixed unnamed attachment reference → "sample SEO promotion plan".')
         _recordViolations('generator', job?.id, ['unnamedAttachment'])
+      }
+
+      // Mixed SEO+PPC case-domain compliance check (telemetry only — does NOT
+      // rewrite the letter; auto-generating a missing case paragraph isn't a
+      // safe deterministic fix the way stripping/relabeling text is). Confirms
+      // whether the _caseDomainNote directive above actually held. If a mixed
+      // job's letter cites zero SEO-vertical cases, that's exactly the failure
+      // mode reported on job 10199.
+      if (_caseSeoSignal && _casePpcSignal) {
+        const _seoCaseCited = /\b(golden state trailers|multilingual site|derma solution|luxury parfums)\b/i.test(text)
+        if (!_seoCaseCited) {
+          console.log('[Falcon] Mixed SEO+PPC job cited no SEO-vertical case study.')
+          _recordViolations('generator', job?.id, ['mixedJobMissingSeoCase'])
+        }
       }
 
       // ── Normalize "(attached in profile highlights)" phrasing ──────────────
