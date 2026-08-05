@@ -2714,3 +2714,38 @@ separates FridgeFix as PPC-not-organic. One minor slip: the chat referred to the
 by number, despite rule #407 itself instructing never to cite rules by number (paraphrase
 instead) — a conversational-chat nit, not the formal analysis/generator output the rule was
 written for; not chasing it further right now.
+
+---
+
+## 2026-08-05 — Case ledger audit against the source doc (D:\ITForce\Cases Upwork\Cases recap.docx)
+
+Owner asked to check whether all cases from the master source document made it into the KB /
+case ledger with nothing dropped. Extracted the docx directly (python-docx) — 10 numbered cases
+plus a standalone ChronoCash recap, 11 total. Cross-checked every name and every figure against
+`frontend/src/lib/caseLedger.js` (16 entries).
+
+Result: nothing fabricated, nothing drifted, no case missing outright. The ledger's 5 "extra"
+cases (Oxytec, SMASH, Game-X, GKit, Casa Eleganza) are correctly NOT in this doc — they're seeded
+from the separate web-dev portfolio source (KB #518) per the ledger's own header, not an error.
+"Real Estate" in the doc = "Atlant" in the ledger — same case, just named generically in the
+source vs. by client name in the ledger; figures match (144.25%→144%, 56.51%→56.5%, -31.02%→-31%,
+reasonable rounding).
+
+BUT 4 of the 11 cases were missing a real, verified headline metric that IS in the doc's primary
+"Best metrics" / "Key Metrics & Results" line:
+- FridgeFix: missing `$1.71 CPC`
+- Derma Solution: missing `35.26% of revenue from Organic Search`
+- Multilingual Site: missing `Visibility +30%`
+- ChronoCash: missing `€4.83K monthly ad spend`
+
+This matters specifically because of how the ledger is meant to work (DESIGN.md §21.3): once
+letters cite cases via `{{case:id}}` placeholder instead of free prose, the ledger becomes the
+ONLY source — anything not in it becomes permanently uncitable even though it's a real, sourced
+number. Added all 4 missing figures verbatim from the docx to their respective `metrics` arrays.
+Did NOT add each case's "Extra proof points" (secondary, time-boxed stats like Skin Reboot's
+Sept2024-Oct2025 ROAS breakdown or FridgeFix's Jul-Aug 2023 PMax window) — those are consistently
+absent from every other ledger entry too, so leaving them out keeps the standard consistent
+(headline "Best metrics" fully represented, secondary drill-down stats optional).
+
+Verified: `renderCaseLine()` output checked for all 4 updated cases (Node, ESM import) — correct
+rendering, all new figures present, count still 16/16. `npm run build` clean.

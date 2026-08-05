@@ -30,7 +30,7 @@ export const CASE_LEDGER = [
   {
     id: 'derma-solution', name: 'Derma Solution', vertical: 'ecom-health', service: 'seo',
     attachment: 'pdf', is_real: true,
-    metrics: ['+1,861% organic traffic', '+14,342% conversions', '357 → 25,989 monthly users', '155 referring domains (DR 19)'],
+    metrics: ['+1,861% organic traffic', '+14,342% conversions', '357 → 25,989 monthly users', '155 referring domains (DR 19)', '35.26% of revenue from Organic Search'],
     one_liner: 'Technical-first SEO in a strict YMYL medical-aesthetics niche — fixed robots/HTTPS/canonicals/site speed, schema, and E-E-A-T authority building',
   },
   {
@@ -48,7 +48,7 @@ export const CASE_LEDGER = [
   {
     id: 'fridgefix', name: 'FridgeFix', vertical: 'local-service', service: 'ppc',
     attachment: 'profile-highlights', is_real: true,
-    metrics: ['-92% cost per conversion', '+1,405% conversions'],
+    metrics: ['-92% cost per conversion', '+1,405% conversions', '$1.71 CPC'],
     one_liner: 'Local lead-gen for a California refrigerator-repair business — full GA4/GTM conversion tracking, Local PMax + Search, and ongoing negative-keyword / geo pruning',
   },
   {
@@ -60,7 +60,7 @@ export const CASE_LEDGER = [
   {
     id: 'multilingual-site', name: 'Multilingual Site', vertical: 'construction', service: 'seo',
     attachment: 'profile-highlights', is_real: true,
-    metrics: ['17,100 new monthly visits', '18 keywords in Top 1', '47 keywords in Top 3'],
+    metrics: ['17,100 new monthly visits', '18 keywords in Top 1', '47 keywords in Top 3', '+30% visibility'],
     one_liner: 'Bilingual (Italian + German) local SEO for a construction / permits consultancy on the Italian–Austrian border — dual-language indexing and technical structure',
   },
   {
@@ -78,7 +78,7 @@ export const CASE_LEDGER = [
   {
     id: 'chronocash', name: 'ChronoCash', vertical: 'ecom-luxury', service: 'ppc',
     attachment: 'profile-highlights', is_real: true,
-    metrics: ['€0.52 CPC', '+42% conversions', '4,690 conversions from 9,210 clicks'],
+    metrics: ['€0.52 CPC', '+42% conversions', '4,690 conversions from 9,210 clicks', '€4.83K monthly ad spend'],
     one_liner: 'Google Ads lead generation for a European luxury-watch dealer — Video + PMax + DSA + Demand Gen across buyer-intent stages, focused on minimizing cost per conversion',
   },
   {
