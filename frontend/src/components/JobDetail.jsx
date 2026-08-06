@@ -3395,7 +3395,22 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       // "short-term / part-time / one-off" is the NATURE of an audit, not a risk.
       // (Owner instruction 2026-07-22: always apply to these, don't care about the rate.)
       const _PPC_AUDIT_JOB_RE = /\b(?:google\s*ads?|adwords|ppc|paid\s+search|\bsem\b)\b[^.\n]{0,80}\b(?:audit|review|assessment|health\s*check|analys[ei]s|analyse|analyze)\b|\b(?:audit|review|assessment|health\s*check)\b[^.\n]{0,80}\b(?:google\s*ads?|adwords|ppc|paid\s+search|\bsem\b)\b/i
+      // Exclusion: the regex above matches ANYWHERE in the posting, so an
+      // ongoing MANAGEMENT job that merely lists "audit" as one bullet among
+      // many initial deliverables (e.g. "Audit of Google Ads, GA4..." inside
+      // an 8-item deliverables list) false-positives as if the WHOLE job were
+      // Artem's fixed $300/1-day audit product. Confirmed on job 10312 — the
+      // model itself flagged the contradiction ("the mandatory audit flag
+      // fired incorrectly... this is a MANAGEMENT ENGAGEMENT, not the $300
+      // fixed 1-day audit deliverable") but the mandatory-flag text still
+      // got forced into the reasons, and the verdict-override fix from job
+      // 9522 still fired, overriding a verdict that should have weighed the
+      // real rate/scope concerns. The premise the audit override rests on —
+      // "fixed-fee, not an hourly engagement" — simply doesn't hold when the
+      // posting itself says otherwise.
+      const _ONGOING_MGMT_NOT_AUDIT_RE = /\b(?:ongoing\s+(?:hours|management|campaigns?)|plan,?\s+launch\s+and\s+manage|manage\s+campaigns?|scale\s+(?:successful\s+)?campaigns?|monthly\s+report|hourly\s+freelance\s+engagement|not\s+looking\s+for\s+a\s+fixed\s+monthly|defined\s+setup\s+and\s+testing\s+phase)\b/i
       const _isPpcAuditJob = _PPC_AUDIT_JOB_RE.test(`${job.title || ''} ${job.category || ''} ${job.keywords || ''} ${fullDescription}`)
+        && !_ONGOING_MGMT_NOT_AUDIT_RE.test(fullDescription)
       const mandatoryFlags = []
       if (_isPpcAuditJob) {
         mandatoryFlags.push(`PPC / GOOGLE ADS ACCOUNT AUDIT — this is Artem's STANDARD productised deliverable: FIXED $300, delivered in 1 working day, with his Google Ads audit samples attached. Because it is a FIXED-FEE deliverable and NOT an hourly engagement, the hourly rate floor DOES NOT APPLY: do NOT deduct points for a low posted hourly ceiling or a low client historical avg rate, and do NOT raise any rate-floor-risk flag. "Short-term", "part-time", "small project" and "one-off" describe the NATURE of an audit — treat them as EXPECTED and NEUTRAL, never as negatives or scope-creep risk. This job type is always worth applying to: verdict APPLY and score 7-9 unless one of the four HARD disqualifiers genuinely applies.`)

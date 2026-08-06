@@ -2817,3 +2817,48 @@ Verified against the live backend (hot-reloaded via uvicorn --reload, no restart
 the first 8 feed rows post-fix — posted_date descends monotonically (16:07 → 15:52 → 15:33 →
 15:33 → Aug4 → Aug3 → Aug2 → Aug2), correctly interleaving bot-sourced and API-sourced timestamp
 formats in one consistent order. `python -m py_compile` clean.
+
+---
+
+## 2026-08-06 — Owner-requested review of job 10312: audit-flag false positive + letter garbling
+
+Owner shared job 10312 (Freelance Google Ads Specialist, Denmark, B2B industrial, $187K-spend
+client) and asked for a review. Two distinct findings.
+
+**1. FIXED — `_isPpcAuditJob` false-positive on ongoing-management jobs.** The analysis was
+visibly self-contradictory: Reason 1 stated the standing "always APPLY, $300/1-day audit" policy
+verbatim (the mandatory-flag text), while Reason 2 said "the mandatory audit flag fired
+incorrectly... this is a MANAGEMENT ENGAGEMENT, not the $300 fixed 1-day audit deliverable" — the
+model caught its own contradiction but the flag and the verdict-override (from the job-9522 fix)
+still fired anyway. Root cause: `_PPC_AUDIT_JOB_RE` matches "audit" near "Google Ads" ANYWHERE in
+the posting, with no check for whether audit is the WHOLE job or one bullet among many. Confirmed:
+the posting's "Initial Deliverables" list includes "Audit of Google Ads, GA4, Google Tag Manager
+and attribution" as ONE of eight bullets in an otherwise clearly ongoing, hourly, ~10-20hrs/month
+management engagement ("This is an hourly freelance engagement... Ongoing hours depend on
+workload"). The override's whole premise — "fixed-fee, not an hourly engagement, rate floor
+doesn't apply" — simply doesn't hold when the posting itself says it's hourly.
+
+Fix: added `_ONGOING_MGMT_NOT_AUDIT_RE`, an exclusion signal (ongoing hours/management, "plan
+launch and manage", "hourly freelance engagement", "not looking for a fixed monthly package",
+etc.) that suppresses `_isPpcAuditJob` when present. Verified against both cases: fires false
+(correctly excluded) on job 10312's real Commercial Arrangement text; fires false on job 9522's
+original text too (i.e. does NOT accidentally exclude the genuine audit-job case the original fix
+was built for) — confirmed via isolated regex tests before wiring in. `npm run build` clean.
+
+**2. OBSERVED, not fixed — garbled prose in the cover letter draft.** Two defects: (a) a sentence
+referencing Golden State Trailers inline inside a parenthetical came out mangled — "Built lead-gen
+architecture for B2B manufacturing (" cut off, followed by "Golden State Trailers (attached in
+profile highlights):, custom trailers across 72 US cities) that went +350%..." with a stray comma
+and unbalanced parens; (b) two instances of a lone "g." starting a sentence where "e.g." was
+almost certainly intended, each apparently swallowing the preceding clause entirely. Hypothesized
+the deterministic case-formatting pipeline (`_ensureCaseStudyHighlightsLeadIn` /
+`_splitCrammedCaseStudies`) mis-handled an inline parenthetical case reference — built an isolated
+test harness (extracted the real functions, fed a reconstructed draft matching the hypothesized
+original wording) to check. **Hypothesis disproven**: the pipeline left that exact structure
+completely intact, unmangled. This means the garbling most likely originated in the raw model
+generation itself, not in Falcon Scout's post-processing — plausibly a CLI-mode-specific
+coherence issue (this letter is long and complex, generated via the flattened-plain-text CLI
+bridge path rather than the native structured API), though not confirmed with certainty. Not
+something a deterministic patch can reliably fix after the fact the way the other bugs this
+session were. Logged as an observation; owner should know CLI-mode output on long/complex letters
+may need a closer proofread pass than API-mode output did.
