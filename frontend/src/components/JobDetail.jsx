@@ -4081,6 +4081,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
   const [showRules, setShowRules] = useState(false)
   const [feedback, setFeedback] = useState(null) // 'liked' | 'disliked'
   const [flagged, setFlagged] = useState(false) // brief confirmation after manual violation flag
+  const [preEnforcerDraft, setPreEnforcerDraft] = useState('') // snapshot of the draft right before the rule-compliance rewrite pass — lets a later "share with claude" show before/after so a garbled sentence can be traced to whichever pass introduced it
   const scrollRef = useRef(null)
   const proposalCacheRef = useRef({}) // { [jobId]: { proposal, feedback } } for unsaved drafts
   const prevProposalJobIdRef = useRef(null) // tracks previous job id for save-before-reset
@@ -4169,10 +4170,13 @@ function ProposalColumn({ job, bridgeReady = false }) {
       e.detail.proposalChat = (chatMessagesRef.current || []).slice()
       e.detail.proposalFeedback = feedback || null
       e.detail.savedProposal = savedProposal || null
+      // Only worth sending when it actually differs from the final text —
+      // an identical snapshot means the enforcer pass made no changes.
+      e.detail.preEnforcerDraft = (preEnforcerDraft && preEnforcerDraft !== proposal) ? preEnforcerDraft : null
     }
     window.addEventListener('falconscout:share-with-claude', onShare)
     return () => window.removeEventListener('falconscout:share-with-claude', onShare)
-  }, [proposal, feedback, savedProposal])
+  }, [proposal, feedback, savedProposal, preEnforcerDraft])
 
   // Reset and load saved proposal whenever the selected job changes.
   // Save the current unsaved draft to cache BEFORE resetting — the closure
@@ -4207,6 +4211,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
     }
     setProposal(cached?.proposal || '')
     if (cached?.feedback) setFeedback(cached.feedback)
+    setPreEnforcerDraft((newId != null && _lsLoad('preEnforcerDraft', newId)) || '')
 
     if (!newId) return
 
@@ -4484,6 +4489,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
 
     setLoading(true)
     setFeedback(null)
+    setPreEnforcerDraft('') // clear any stale snapshot from a previous run/job
     try {
       // Load the stored analysis verdict so the generator can gate on SKIP /
       // include score + flags in the job context. ProposalColumn is a sibling
@@ -6616,6 +6622,16 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               '',
               'OUTPUT FORMAT: Return ONLY the corrected cover letter text — the first character is the first word of the letter. No preamble, no list of changes, no explanation, no second version.',
             ].join('\n')
+
+            // Snapshot the draft right before the rewrite pass. If a garbled
+            // sentence shows up later, comparing this against the final text
+            // tells us whether the FIRST pass wrote it or the enforcer's
+            // rewrite introduced it — confirmed on job 10312 that this
+            // couldn't be answered after the fact because nothing captured
+            // the pre-enforcer state.
+            const _preEnforcerSnapshot = text
+            setPreEnforcerDraft(_preEnforcerSnapshot)
+            if (job?.id != null) _lsSave('preEnforcerDraft', job.id, _preEnforcerSnapshot)
 
             const enforceRes = await fetch('/claude', {
               method: 'POST',

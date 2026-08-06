@@ -2862,3 +2862,29 @@ bridge path rather than the native structured API), though not confirmed with ce
 something a deterministic patch can reliably fix after the fact the way the other bugs this
 session were. Logged as an observation; owner should know CLI-mode output on long/complex letters
 may need a closer proofread pass than API-mode output did.
+
+---
+
+## 2026-08-06 — Added pre-enforcer draft snapshotting (for tracing garbled-letter causes)
+
+Follow-up to the job 10312 review. Traced the garbled prose to "somewhere in the two-pass API
+generation" but couldn't pin it to the first draft vs. the `proposal_rule_enforce` rewrite pass,
+because nothing captured the pre-enforcer state — by the time a defect is noticed, only the final
+text survives. Owner asked to fix that gap so next time this happens it's actually diagnosable.
+
+Added (JobDetail.jsx): a `preEnforcerDraft` state, snapshotted right before the enforcer's
+`/claude` call fires (the exact `text` value that's about to be rewritten), persisted to
+localStorage per-job (mirrors the existing `proposalDraft` cache pattern) and cleared at the start
+of every fresh generate() so a stale snapshot from a different job/run can never linger. Hydrates
+back on job switch, same as the proposal draft does.
+
+Wired into "share with claude" (JobDetail.jsx + api/main.py /share-with-claude): the snapshot now
+includes a "## Draft BEFORE the rule-compliance rewrite pass" section immediately before the final
+"## Cover letter draft", but ONLY when a pre-enforcer snapshot exists AND actually differs from
+the final text (identical means the enforcer changed nothing, not worth showing). This makes a
+before/after diff directly available next time a letter looks off — settles whether the first pass
+or the rewrite introduced it, which the job-10312 review couldn't answer after the fact.
+
+Verified: `python -m py_compile` + `npm run build` both clean; posted a synthetic snapshot payload
+directly to the live `/share-with-claude` endpoint and confirmed the rendered markdown has both
+sections in the correct order with the right conditional labels.

@@ -1229,6 +1229,7 @@ def share_with_claude(data: dict):
     job = data.get("job") or {}
     analysis = data.get("analysis")
     proposal = (data.get("proposal") or "").strip()
+    pre_enforcer = (data.get("preEnforcerDraft") or "").strip()
     saved = data.get("savedProposal")
     a_chat = data.get("analysisChat") or []
     p_chat = data.get("proposalChat") or []
@@ -1298,8 +1299,18 @@ def share_with_claude(data: dict):
             lines.append("")
 
     # ── Cover letter ──────────────────────────────────────────────────
+    # Pre-enforcer snapshot renders FIRST so a diff reads naturally top-to-
+    # bottom: draft, then the rule-compliance rewrite, then the final text.
+    # Only present when the enforcer pass actually ran AND changed something.
+    if pre_enforcer:
+        lines.append("## Draft BEFORE the rule-compliance rewrite pass")
+        lines.append("_(compare against the final draft below to see exactly what the enforcer pass changed — added to trace whether a defect came from the first pass or the rewrite)_")
+        lines.append("```")
+        lines.append(pre_enforcer)
+        lines.append("```")
+        lines.append("")
     if proposal:
-        lines.append("## Cover letter draft")
+        lines.append("## Cover letter draft" + (" (after rule-compliance rewrite)" if pre_enforcer else ""))
         lines.append("```")
         lines.append(proposal)
         lines.append("```")
