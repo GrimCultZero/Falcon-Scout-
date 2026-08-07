@@ -5145,6 +5145,7 @@ SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually w
   - attach the TECHNICAL SEO AUDIT SAMPLE (inventory item 5). WEAVE the mention into the letter tied to what you diagnosed — do NOT drop it as an isolated boilerplate line floating before the signoff (out-of-context orphan = current failure). Keep it recognizable and named ("sample technical SEO audit … see the format and depth"), but connect it to a surrounding sentence, e.g. "That crawl/indexation matrix is exactly what my audit maps — I've attached a recent technical SEO audit sample so you can see the format and depth." NOT a lone trailing "I'm attaching a sample technical SEO audit so you can see the format and depth."
   - offer the concrete diagnostic deliverable but state NO turnaround time for it (e.g. "i can run a full diagnostic crawl covering redirects, indexation, canonicals, schema and Core Web Vitals, then hand you a prioritized findings doc"). CRITICAL: a technical SEO audit is NOT a 1–2 day job — NEVER attach a day-count to it ("audit in 2 working days", "audit within 2 days", "deliver the audit in 1 working day" are all FORBIDDEN). The "1 working day" turnaround is the GOOGLE ADS audit only; the "2 working days" turnaround is the SEO PROMOTION PLAN only (option B). The technical SEO audit's timeline is OMITTED from the cover letter entirely (internal estimate ~2 weeks; that figure never goes in the letter).
   EXCEPTION — AUDIT + RETAINER JOBS: if the client mentions BOTH an initial audit AND ongoing/retainer/long-term work ("audit project, followed by a retainer", "initial audit then monthly SEO", "audit and ongoing improvements"), the (A) "do not push the plan" rule does NOT apply. For audit+retainer jobs you MUST include BOTH: (1) the audit sample attachment, AND (2) the 3-month SEO promotion plan CTA. The plan covers the retainer phase.
+  EXCEPTION — ALREADY-AUDITED / IMPLEMENTATION-ONLY JOBS (mandatory — common on "review and fix" jobs): if the posting explicitly states the client ALREADY completed a technical SEO audit (e.g. "we already have done a technical SEO audit", "we've already had an audit completed", "based on our existing audit", "already identified the issues") and is asking you to review the current setup / validate / implement the fixes — do NOT offer or mention the technical SEO audit sample. The client isn't buying an audit; saying "here's a sample audit so you can see the format" when they just told you they already have one reads as if you didn't read the posting. Skip the audit-sample line entirely and lean on case studies that demonstrate IMPLEMENTATION results (fixed canonicals/schema/redirects/site speed, etc.) as your proof instead. Describe the review-then-fix process directly — no separate audit deliverable to attach or time.
 
 (B) GROWTH / RANKINGS / ONGOING-SEO jobs — the client wants to grow organic traffic/rankings (not primarily diagnose a broken site). For these you MUST offer the custom 3-month SEO Promotion Plan in 2 working days (deliverables, costs, link building budget, basic site check, competitor overview) and attach the SEO promotion plan sample:
 "i can prepare a custom 3-month SEO promotion plan within 2 working days — covers deliverables, costs, link building budget, a basic site check, and competitor overview. i'm attaching a sample SEO promotion plan so you can see the format."
@@ -5942,6 +5943,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // per letter (never both a 3-month plan AND a technical audit offer).
             let hasSeoPlanMention = false
             let jobIsAuditOnly = false
+            // Client already had the audit done — a "review + implement" job, not
+            // an "audit us" job. Offering "here's a sample audit so you can see the
+            // format" when the client just said they already have one reads as if
+            // the posting wasn't read. Hoisted here (before both the plan-vs-audit
+            // block and the missing-audit-sample block below) so both can use it.
+            const _ALREADY_AUDITED_RE = /\balready\s+(?:have\s+|had\s+)?(?:done|completed|conducted|run|performed)\s+(?:a|an|the)?\s*(?:full\s+|complete\s+)?(?:technical\s+)?(?:seo\s+)?audit\b|\balready\s+(?:have|had|has)\s+(?:a|an|the)\s+(?:technical\s+)?(?:seo\s+)?audit\b/i
+            const clientAlreadyAudited = _ALREADY_AUDITED_RE.test(jobContextLower)
+            let wrongAuditSampleOnAlreadyAudited = false
             if (jobIsSeo && !jobIsPpc && !jobIsWebdev) {
               hasSeoPlanMention = /\b(?:seo\s+(?:promotion\s+)?plan|seo\s+roadmap|promotion\s+plan)\b/i.test(text)
               // For a pure audit-only job with no retainer/ongoing component, the audit
@@ -5966,6 +5975,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 !_RETAINER_SIGNAL_RE.test(jobContextLower)
               const draftHasAuditSampleAttach = /\battach(?:ing|ed)?\b[^.]{0,60}\bsample\b[^.]{0,80}\baudit\b/i.test(text) ||
                 /\baudit\b[^.]{0,60}\bsample\b[^.]{0,60}\battach/i.test(text)
+              // Wrong deliverable: the client already has an audit done, but the
+              // draft still offers/attaches an audit sample anyway.
+              wrongAuditSampleOnAlreadyAudited = clientAlreadyAudited && draftHasAuditSampleAttach
               // One deliverable per letter. Suppress the plan requirement when the
               // job is audit-only (the audit sample IS the deliverable there) OR
               // when the draft already offers an audit sample — never force BOTH.
@@ -6004,6 +6016,10 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // produced letters with no deliverable at all.)
             const _AUDIT_SIGNAL_RE = /\b(technical\s+seo|crawl(?:ing|ability|\s+budget)?|index(?:ing|ation)|faceted\s+nav(?:igation)?|structured\s+data|schema(?:\s+markup)?|site\s+speed|core\s+web\s+vitals|site\s+review|search\s+console|\bgsc\b|canonical|redirect\s+chain|migration|traffic\s+drop|ranking\s+drop|diagnos)/i
             const isAuditJob = /\baudit\b/i.test(jobContextLower) || _AUDIT_SIGNAL_RE.test(jobContextLower)
+            // clientAlreadyAudited is hoisted above (before the plan-vs-audit block)
+            // — gates ONLY the audit-sample requirement below. jobIsAuditOnly (which
+            // correctly suppresses the SEO PROMOTION PLAN requirement, since this
+            // still isn't a growth/ongoing job) is untouched.
             let missingAuditSampleMention = false
             if (isAuditJob) {
               // Check that the draft contains both "attach" and "sample" (in any
@@ -6014,8 +6030,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // Require the audit sample ONLY on audit-only (technical/diagnosis)
               // jobs, and only when there's no other deliverable. Growth/ongoing
               // SEO jobs get the 3-month plan instead (missingSeoPlanOffer) — never
-              // force BOTH the plan and the audit offer in the same letter.
-              missingAuditSampleMention = !(hasAttach && hasSampleRef) && !hasSeoPlanMention && jobIsAuditOnly
+              // force BOTH the plan and the audit offer in the same letter. Also
+              // never force it when the client already has an audit done.
+              missingAuditSampleMention = !(hasAttach && hasSampleRef) && !hasSeoPlanMention && jobIsAuditOnly && !clientAlreadyAudited
             }
 
             // ── Wrong audit offer on a LAUNCH / from-scratch job (KB Rule 450) ──
@@ -6167,6 +6184,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const draftCompliant = timingCompliant && !hasForbiddenPhrase && !hasCircumventionRisk && !missingPdfLabel
               && !missingAuditSampleMention && !missingCaseStudy && !missingHighlightsPhrase
               && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming && !wrongPlanOnAuditJob
+              && !wrongAuditSampleOnAlreadyAudited
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -6213,6 +6231,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingSeoPlanOffer && 'missingSeoPlanOffer',
               wrongSeoPlanTiming && 'wrongSeoPlanTiming',
               wrongPlanOnAuditJob && 'wrongPlanOnAuditJob',
+              wrongAuditSampleOnAlreadyAudited && 'wrongAuditSampleOnAlreadyAudited',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -6259,6 +6278,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongPlanOnAuditJob) {
               console.log('[Falcon] Rule pre-check: audit-only SEO job but draft offers the 3-month SEO promotion plan (wrong deliverable) — firing Claude enforcer to remove it.')
+            }
+            if (wrongAuditSampleOnAlreadyAudited) {
+              console.log('[Falcon] Rule pre-check: client already has an audit done but draft offers the technical SEO audit sample anyway (wrong deliverable) — firing Claude enforcer to remove it.')
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -6536,6 +6558,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 'WRONG DELIVERABLE — SEO PROMOTION PLAN ON AN AUDIT-ONLY JOB: The client asked for a one-time SEO AUDIT / ranking analysis with a written report + prioritized recommendations — NOT ongoing SEO management. There is no retainer or continuing engagement in this posting (any "long-term strategy / recommendations" is a SECTION of the audit report, not ongoing work). The draft offers a "3-month SEO promotion plan", which is an ongoing-campaign document — the wrong deliverable, and it reads as an unwanted upsell. ' +
                 'DELETE the entire "i can prepare a custom 3-month SEO promotion plan…" sentence. If the draft attaches "a sample SEO promotion plan", REPLACE that clause with the technical SEO audit sample instead: "i\'m attaching a sample technical SEO audit so you can see the format and depth." (If a technical SEO audit sample is already attached, just delete the promotion-plan sentence and keep it.) The deliverable here is the audit + prioritized fixes (e.g. the rich-snippets/schema fix), nothing more — never a promotion plan or link-building budget.'
+              )
+            }
+            if (wrongAuditSampleOnAlreadyAudited) {
+              specificViolations.push(
+                'WRONG DELIVERABLE — AUDIT SAMPLE OFFERED BUT THE CLIENT ALREADY HAS AN AUDIT DONE: The posting explicitly says the client already completed a technical SEO audit and wants the current setup reviewed / fixes implemented — they are NOT buying an audit. The draft still offers/attaches the technical SEO audit sample ("here\'s a sample audit so you can see the format and depth"), which reads as if the posting was not read — it is proof of a deliverable they never asked for. ' +
+                'DELETE the entire audit-sample sentence (the "i\'m attaching a sample technical SEO audit…" line and any lead-in tied to it). Do NOT replace it with another audit-shaped offer. Lean on the case studies already cited (they demonstrate IMPLEMENTATION results — fixed canonicals/schema/redirects/site speed — which IS the relevant proof here) and describe the review-then-fix process directly. No separate audit deliverable to attach or time.'
               )
             }
             if (missingSeoPlanOffer) {

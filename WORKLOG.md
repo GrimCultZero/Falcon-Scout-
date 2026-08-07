@@ -2888,3 +2888,35 @@ or the rewrite introduced it, which the job-10312 review couldn't answer after t
 Verified: `python -m py_compile` + `npm run build` both clean; posted a synthetic snapshot payload
 directly to the live `/share-with-claude` endpoint and confirmed the rendered markdown has both
 sections in the correct order with the right conditional labels.
+
+## 2026-08-07 — Generator was offering an audit sample to clients who already have an audit done
+
+Owner flagged (job 10570, "Technical SEO Website Developer"): the posting explicitly says "We already
+have done a technical SEO audit, but you should be able to review the current setup, recommend
+fixes, and implement changes" — an IMPLEMENTATION-ONLY ask. The generator still offered "I'm
+attaching a sample technical SEO audit so you can see the format and depth" in both the first-pass
+draft and the post-rewrite draft — pitching proof of a deliverable (an audit) the client explicitly
+said they don't need. Root cause: bucket (A) of the SEO-job-deliverable prompt instructs the model to
+ALWAYS attach the audit sample on any audit/technical-SEO-signal job, and the deterministic enforcer
+backstop (`missingAuditSampleMention`) independently force-injects it if the draft omits it — neither
+layer checked whether the posting says the audit is already done.
+
+Fix (JobDetail.jsx), two layers per the established deterministic-first pattern:
+1. **First-pass prompt**: added an "ALREADY-AUDITED / IMPLEMENTATION-ONLY JOBS" exception under
+   bucket (A) — when the posting explicitly states an audit is already done, do NOT offer the audit
+   sample; lean on implementation-result case studies (already cited) instead.
+2. **Deterministic gate + strip**: new `_ALREADY_AUDITED_RE` (hoisted before both the plan-vs-audit
+   block and the missing-sample block so both can use it) + `clientAlreadyAudited` boolean, tested
+   against the job posting text (jobContextLower), NOT the draft. Wired two ways:
+   - `missingAuditSampleMention` now ALSO requires `!clientAlreadyAudited` — the enforcer no longer
+     force-injects the sample on an already-audited job.
+   - New `wrongAuditSampleOnAlreadyAudited` (mirrors the existing `wrongPlanOnAuditJob` pattern
+     exactly — same draftCompliant gate, telemetry entry, console pre-check, and specificViolations
+     message) — fires the Claude enforcer to DELETE the audit-sample sentence if the draft still
+     offers it despite the corrected prompt.
+   `jobIsAuditOnly` (which correctly suppresses the SEO PROMOTION PLAN requirement — this is still not
+   a growth/retainer job) is deliberately left untouched; only the audit-SAMPLE requirement is gated.
+
+Verified: `_ALREADY_AUDITED_RE` tested against 5 "already audited" phrasings (incl. the exact job
+10570 posting text) — all match; 4 normal audit-request phrasings ("please conduct an audit", "we
+need someone to audit...") — none false-match. `vite build` clean.
