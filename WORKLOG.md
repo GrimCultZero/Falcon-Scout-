@@ -2920,3 +2920,55 @@ Fix (JobDetail.jsx), two layers per the established deterministic-first pattern:
 Verified: `_ALREADY_AUDITED_RE` tested against 5 "already audited" phrasings (incl. the exact job
 10570 posting text) — all match; 4 normal audit-request phrasings ("please conduct an audit", "we
 need someone to audit...") — none false-match. `vite build` clean.
+
+## 2026-08-07 (2) — Fixed a race condition: switching jobs mid-analysis showed the WRONG job's verdict
+
+Owner shared job 10555 ("Shopify Ad Setup Optimization" — Adsale/Meta/Google, Canada, $0 spend, 0
+reviews) and reacted "cringe": the description + cover letter were correctly about job 10555, but the
+**AI Analysis panel showed job 10570's verdict verbatim** ("Technical SEO + WordPress... Rosedale
+screening token... $14.75/hr avg... 3 reviews at 4.96 rating") — a completely different job, with
+numbers that don't even match 10555's own posted stats. This is worse than a phrasing bug: reading the
+wrong verdict/rate-floor-risk/flags while believing you're evaluating the job on screen could drive a
+real bidding mistake.
+
+**Root cause (classic React stale-closure race):** `AIAnalysisColumn` and `ProposalColumn` both stay
+mounted across job switches (same instance, only the `job` prop changes) and both have a "reset on
+job.id change" effect — but `analyse()`/`generate()` are plain async functions triggered by a button
+click, not tied to that effect's cleanup. If the user clicks Analyse on job A, then switches to job B
+BEFORE A's API call resolves, A's completion handler still runs (the closure's `job` is frozen at A)
+and calls `setAnalysis(parsed)`/`setProposal(finalText)` — stable state setters that unconditionally
+update the CURRENT component instance, now showing job B. Nothing anywhere in the file compared "is
+this result still for the job on screen" before applying it — `grep`'d for any `job.id !==` staleness
+check; there was none.
+
+**Fix — same pattern in both components:**
+1. `currentJobIdRef` (a ref updated every render: `currentJobIdRef.current = job?.id`) tracks whichever
+   job is ACTUALLY on screen right now, independent of any single closure's frozen `job`.
+2. At the top of `analyse()`/`generate()`, capture `const _jobIdAtCallTime = job?.id` (frozen, matches
+   the closure) and `const _isStale... = () => currentJobIdRef.current !== _jobIdAtCallTime`.
+3. Every place that writes CONTENT into visible state (`setAnalysis(parsed)`, `setSimilar(d)`,
+   `setProposal(finalText)` at both the deterministic-pass-through and enforcer-pass completion sites,
+   the SKIP-gate pass note, and the generator's error message) now checks staleness first. When stale:
+   skip the state update entirely and instead write the result DIRECTLY into `cacheRef`/
+   `proposalCacheRef` + localStorage under the ORIGINAL job's id — so the API call isn't wasted, and
+   the correct result is instantly ready if Artem navigates back to that job later.
+   `setLoading(false)`/`setError` are left unconditional (matches prior behavior) — only the
+   CONTENT setters are gated, to avoid a new stuck-spinner edge case for a job that never itself
+   requested analysis/generation.
+
+Applies to BOTH the Analyser (`AIAnalysisColumn`) and the Generator (`ProposalColumn`) — the owner only
+noticed it on the Analyser this time, but the identical missing-guard shape existed in `generate()` too,
+and there the consequence is worse: a wrong cover letter landing in the textarea (and potentially being
+sent to a real client) instead of just a wrong on-screen verdict.
+
+Verified: `vite build` clean (confirms no scoping conflicts from the two separately-scoped `_finalText`
+extractions). The staleness-check control flow itself is a trivial ref-vs-frozen-const comparison,
+manually traced correct in both directions (same job at completion → not stale → normal update; job
+switched before completion → stale → skip + cache under the original id).
+
+(Separately, also spotted the Skin Reboot "$12k to $95k" dollar-figure fabrication had resurged in the
+draft-BEFORE-rewrite text on this same job — a previously-killed fabrication (WORKLOG, multiple prior
+sessions) reappearing in raw generation. Confirmed the existing deterministic strip still catches it:
+gone in the draft-AFTER-rewrite text. Not re-fixed here since the safety net is working; flagged as
+further evidence for DESIGN.md §21's diagnosis that prompt-only bans don't hold and the case ledger
+(21-A)/grounding checker (21-B) are the right fix, not another one-off strip.)

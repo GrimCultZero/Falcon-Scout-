@@ -3194,6 +3194,15 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
   const scrollRef = useRef(null)
   const cacheRef = useRef({}) // persists analysis per job id
   const chatMessagesRef = useRef([])  // latest chat transcript (kept in sync by InlineChat)
+  // Always holds the id of whichever job is CURRENTLY on screen (updated every
+  // render, not just on job-id change) — read from inside analyse()'s async
+  // completion handlers to detect "the user has navigated to a different job
+  // since this call started" and avoid overwriting that job's analysis panel
+  // with a stale result (found via job 10570 -> 10555: an in-flight Analyse
+  // call for 10570 resolved after the user switched to 10555 and unconditionally
+  // overwrote the panel with 10570's verdict/reasons/flags).
+  const currentJobIdRef = useRef(job?.id)
+  currentJobIdRef.current = job?.id
 
   // Turn the chat transcript into a system-prompt section the LLM will obey on the next run.
   const buildAdjustments = (msgs) => {
@@ -3321,6 +3330,10 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
     setFeedback(null)
     setSimilar(null)
     setSimilarOpen(false)
+    // Captured now (not re-read after the awaits below) so the completion
+    // handlers can tell whether the user has since navigated to a different job.
+    const _jobIdAtCallTime = job?.id
+    const _isStaleAnalyse = () => currentJobIdRef.current !== _jobIdAtCallTime
     try {
       // Fetch rules + Core entries (always); style examples only on full pass.
       let rulesText = ''
@@ -3733,12 +3746,26 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
           _recordViolations('analyser', job?.id, ['auditJobVerdictOverridden'])
         }
       }
-      setAnalysis(parsed)
+      if (_isStaleAnalyse()) {
+        // The user navigated to a different job while this analysis was in
+        // flight. Don't overwrite the panel now showing a DIFFERENT job — cache
+        // the result directly under its own (original) job id so it's ready
+        // instantly if Artem comes back to it, instead of silently discarding
+        // work that already cost an API call.
+        console.log(`[Falcon] Analysis for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s panel).`)
+        if (_jobIdAtCallTime != null) {
+          const staleValue = { analysis: parsed, feedback: null, enriched_at: job?.enriched_at || null }
+          cacheRef.current[_jobIdAtCallTime] = staleValue
+          _lsSave('analysis', _jobIdAtCallTime, staleValue)
+        }
+      } else {
+        setAnalysis(parsed)
+      }
       // Fire similarity lookup — fire-and-forget, never blocks the analysis UX
       if (job?.id) {
         fetch(`/proposals/similar?job_id=${job.id}`)
           .then(r => r.ok ? r.json() : null)
-          .then(d => { if (d) setSimilar(d) })
+          .then(d => { if (d && !_isStaleAnalyse()) setSimilar(d) })
           .catch(() => {})
       }
       // Cache the verdict server-side so proposal-save can snapshot it even
@@ -4084,6 +4111,13 @@ function ProposalColumn({ job, bridgeReady = false }) {
   const [preEnforcerDraft, setPreEnforcerDraft] = useState('') // snapshot of the draft right before the rule-compliance rewrite pass — lets a later "share with claude" show before/after so a garbled sentence can be traced to whichever pass introduced it
   const scrollRef = useRef(null)
   const proposalCacheRef = useRef({}) // { [jobId]: { proposal, feedback } } for unsaved drafts
+  // Always holds the id of whichever job is CURRENTLY on screen — same
+  // staleness-detection pattern as AIAnalysisColumn's currentJobIdRef. Read from
+  // inside generate()'s async completion handlers so an in-flight generation
+  // for a job the user has since navigated away from can't overwrite the
+  // textarea now showing a DIFFERENT job's cover letter.
+  const currentJobIdRef = useRef(job?.id)
+  currentJobIdRef.current = job?.id
   const prevProposalJobIdRef = useRef(null) // tracks previous job id for save-before-reset
   const chatMessagesRef = useRef([])  // latest cover-letter chat transcript
   // Whether the cover-letter chat has any messages yet. When empty, the chat
@@ -4490,6 +4524,10 @@ function ProposalColumn({ job, bridgeReady = false }) {
     setLoading(true)
     setFeedback(null)
     setPreEnforcerDraft('') // clear any stale snapshot from a previous run/job
+    // Captured now (not re-read after the awaits below) so the completion
+    // handlers can tell whether the user has since navigated to a different job.
+    const _jobIdAtCallTime = job?.id
+    const _isStaleGenerate = () => currentJobIdRef.current !== _jobIdAtCallTime
     try {
       // Load the stored analysis verdict so the generator can gate on SKIP /
       // include score + flags in the job context. ProposalColumn is a sibling
@@ -4511,7 +4549,7 @@ function ProposalColumn({ job, bridgeReady = false }) {
         const reason = storedAnalysis.summary
           ? storedAnalysis.summary.replace(/\.$/, '')
           : storedAnalysis.flags?.[0] || 'hard disqualifiers apply'
-        setProposal(`Skip — ${reason}.\n\nNot applying on this one.`)
+        if (!_isStaleGenerate()) setProposal(`Skip — ${reason}.\n\nNot applying on this one.`)
         setLoading(false)
         return
       }
@@ -6239,7 +6277,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              setProposal(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job))
+              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+              if (_isStaleGenerate()) {
+                console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
+                if (_jobIdAtCallTime != null) {
+                  const staleValue = { proposal: _finalText, feedback: null }
+                  proposalCacheRef.current[_jobIdAtCallTime] = staleValue
+                  _lsSave('proposalDraft', _jobIdAtCallTime, staleValue)
+                }
+              } else {
+                setProposal(_finalText)
+              }
               return
             }
 
@@ -6693,9 +6741,21 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
       }
 
-      setProposal(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job))
+      {
+        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+        if (_isStaleGenerate()) {
+          console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
+          if (_jobIdAtCallTime != null) {
+            const staleValue = { proposal: _finalText, feedback: null }
+            proposalCacheRef.current[_jobIdAtCallTime] = staleValue
+            _lsSave('proposalDraft', _jobIdAtCallTime, staleValue)
+          }
+        } else {
+          setProposal(_finalText)
+        }
+      }
     } catch (e) {
-      setProposal(`Error generating cover letter: ${e.message}`)
+      if (!_isStaleGenerate()) setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
       setLoading(false)
     }
