@@ -1615,6 +1615,38 @@ function _stripGenericCaseParagraphs(text, isRegulated) {
 // with an inspection claim, delete that sentence and keep the rest.
 const _FABRICATED_OPENER_RE =
   /^\s*(?:i\s+(?:took\s+a\s+look\s+at|had\s+a\s+look\s+(?:at|through)|checked\s+(?:out|over)|looked\s+(?:at|over|into|through)|reviewed|visited|explored|dug\s+into|went\s+through|pulled\s+up|browsed|poked\s+around)|after\s+(?:looking\s+at|reviewing|checking)|having\s+(?:looked\s+at|reviewed|checked)|looking\s+(?:at|over)\s+your)\b/i
+
+// Deterministic removal of a leaked STRATEGY-LABEL prefix — the model narrating
+// which opening/angle it picked (per the prompt's "VARY THE ANGLE" instruction)
+// as if it were a heading, instead of just writing the resulting prose. Observed
+// verbatim on job 10612: "opening with expertise (restricted YMYL): scaling a
+// relationships/anti-scam/Filipina-culture site comes down to..." — a raw
+// planning artifact that survived BOTH the first-pass draft and the rule-
+// compliance rewrite untouched (no existing guard covers this shape:
+// _stripLeadingNarration only catches "what I changed" edit-commentary like
+// "Stripped the…", is wired only into the CHAT-REWRITE path, and its regex
+// wouldn't match this anyway). Strip ONLY the label prefix — the sentence that
+// follows the colon is a perfectly good hook once the leaked label is gone.
+// Scoped to "opening"/"hook"/"angle" specifically: these are meta-commentary-
+// about-the-letter words that no legitimate letter section is ever labeled
+// with (unlike "Rate:", "Timeline:", "Tools:", "My Shopify approach:", which
+// are real content labels seen in good letters and must NOT be touched).
+const _STRATEGY_LABEL_LEAD_RE =
+  /^\s*(?:opening\s+(?:with|angle|line|hook|strategy)|hook|angle)\b[^:()\n]{0,40}(?:\([^)]{0,80}\))?\s*:\s*/i
+function _stripLeadingStrategyLabel(text) {
+  if (!text) return text
+  const paras = text.split(/\n\s*\n/)
+  if (!paras.length) return text
+  const first = paras[0]
+  const m = first.match(_STRATEGY_LABEL_LEAD_RE)
+  if (!m) return text
+  const remainder = first.slice(m[0].length)
+  if (!remainder.trim()) return text // nothing safe survives after the label — leave untouched
+  // Re-capitalize the new first letter since the leading label is gone.
+  paras[0] = remainder.replace(/^(\s*)([a-z])/, (_full, ws, c) => ws + c.toUpperCase())
+  return paras.join('\n\n')
+}
+
 function _stripFabricatedOpener(text) {
   if (!text) return text
   // Also kill a posting-restatement opener ("The job posting asks for…"). Done
@@ -1622,6 +1654,10 @@ function _stripFabricatedOpener(text) {
   // too, and BEFORE the early return below (a restate opener is not a
   // fabricated-inspection opener, so the test below would otherwise skip it).
   text = _stripPostingRestateOpener(text)
+  // Also kill a leaked strategy-label prefix ("opening with expertise (...):").
+  // Same reasoning as above — must run before the early return, and before
+  // _FABRICATED_OPENER_RE's own test (a leaked label is a different shape).
+  text = _stripLeadingStrategyLabel(text)
   const paras = text.split(/\n\s*\n/)
   if (!paras.length) return text
   const first = paras[0]

@@ -2972,3 +2972,37 @@ sessions) reappearing in raw generation. Confirmed the existing deterministic st
 gone in the draft-AFTER-rewrite text. Not re-fixed here since the safety net is working; flagged as
 further evidence for DESIGN.md §21's diagnosis that prompt-only bans don't hold and the case ledger
 (21-A)/grounding checker (21-B) are the right fix, not another one-off strip.)
+
+## 2026-08-08 — Killed a raw internal-planning-label leak into the cover letter's opening line
+
+Owner flagged "huge bug in the opening" on job 10612 (Freelance SEO Specialist, client spent $718K —
+high stakes). The letter's FIRST LINE, in BOTH the first-pass draft and the post-rewrite draft,
+verbatim: "opening with expertise (restricted YMYL): scaling a relationships/anti-scam/Filipina-
+culture site comes down to navigating Google's YMYL filters..." — the model's own internal planning
+label (narrating which opening angle it picked, per the prompt's "VARY THE ANGLE" instruction) leaked
+straight into client-facing text. Sending a letter that opens with a literal AI stage-direction is
+instant-credibility-death — far worse than any grounding/duplication defect seen so far, and it
+survived the FULL rule-compliance rewrite pass untouched.
+
+**Why nothing caught it:** `_stripLeadingNarration`/`_NARRATION_LEAD_RE` looks like the right guard
+but isn't — it's wired ONLY into the chat-rewrite path (InlineChat's `<proposal>` handler), never into
+`generate()`'s own two completion chains, AND its regex only matches "what I changed" edit-commentary
+("Stripped the…", "I've removed…") — a different shape than a leaked STRATEGY label. No guard in
+either `generate()` pipeline covered this shape at all.
+
+**Fix:** new `_stripLeadingStrategyLabel()` (JobDetail.jsx, sibling of `_stripFabricatedOpener` /
+`_stripPostingRestateOpener`) strips a leading self-describing label ("opening with X (Y):", "Opening
+angle:", "Hook:", "Angle (Z):") from the first paragraph ONLY — keeping the sentence that follows the
+colon, which is a perfectly good hook once the leaked label is gone — then re-capitalizes the new
+first letter. Scoped deliberately to "opening/hook/angle" (meta-commentary-about-the-letter words no
+legitimate letter section is ever labeled with) so it can NEVER touch real content labels seen in good
+letters ("Rate and scope:", "Timeline:", "Tools I use:", "My Shopify approach:", "Why I'm a good
+fit:", "Shopify SEO experience:" — all explicitly verified untouched). Wired by calling it at the top
+of `_stripFabricatedOpener` (same trick used for the posting-restate fix) — every emit path that
+already calls `_stripFabricatedOpener` (both of `generate()`'s completion chains) gets it for free,
+no paren surgery needed.
+
+Verified (standalone Node, 11/11): the exact job-10612 leak → strips to "Scaling a
+relationships/anti-scam/Filipina-culture site comes down to…"; 3 label variants (Opening angle:,
+Hook:, Angle (buyer intent):) stripped correctly; 6 legitimate real-letter labels + a normal sentence
+starting with "Hooking" all left untouched. `vite build` clean.
