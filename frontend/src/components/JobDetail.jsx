@@ -6973,9 +6973,29 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 // is always coherent — the whole point of snapshotting it — so
                 // when the rewrite looks garbled, discard it and keep the
                 // first-pass draft instead of shipping broken English.
+                // MUST-KEEP PRICING regression check (confirmed on job 10609,
+                // 3rd regen — worse than garbling because the output is
+                // grammatically clean, just WRONG). The pre-enforcer draft
+                // correctly had "$300 flat", the "1 working day" timeline, a
+                // sane "$1,200-$1,800/month" ongoing estimate, AND the
+                // complimentary-credit line — the enforcer's rewrite deleted
+                // ALL of it and replaced it with an unrelated, contradictory
+                // "I can set up and launch your campaigns from scratch in 5
+                // working days" offer (the LAUNCH-FROM-SCRATCH pitch, nonsensical
+                // on a job that explicitly has an existing account to audit).
+                // None of the existing violations force this — the enforcer
+                // wasn't even asked to touch pricing here — so this is pure
+                // enforcer overreach. A hard-rule element that was correctly
+                // present before the rewrite must NEVER silently vanish after
+                // it, regardless of which violation triggered the call.
+                const _regressedAuditPrice = draftOffersPpcAudit && !/\$300\b/.test(correctedText)
+                const _regressedComplimentary = draftHasComplimentaryOffer && !_DRAFT_COMPLIMENTARY_RE.test(correctedText)
                 if (_looksGarbled(correctedText) && !_looksGarbled(_preEnforcerSnapshot)) {
                   console.warn('[Falcon] Rule-compliance rewrite looked garbled (orphaned punctuation / unbalanced parens) — discarding it and keeping the pre-enforcer draft.')
                   _recordViolations('generator', job?.id, ['enforcerGarbledRewrite'])
+                } else if (_regressedAuditPrice || _regressedComplimentary) {
+                  console.warn('[Falcon] Rule-compliance rewrite silently dropped the $300 audit price and/or the complimentary-credit line that was correctly present pre-enforcer — discarding it and keeping the pre-enforcer draft.')
+                  _recordViolations('generator', job?.id, ['enforcerDroppedPricing'])
                 } else {
                   text = correctedText
                 }

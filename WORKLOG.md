@@ -3202,3 +3202,47 @@ the leak + 2 variants, no false positives on legit hooks; case-pileup fires exac
 FridgeFix+SkinReboot combination, doesn't fire on either case alone; ongoing-rate regex catches the
 real "$124/hr...ongoing" text, doesn't fire on a clean monthly-retainer draft or an unrelated hourly
 mention. `vite build` clean.
+
+## 2026-08-08 (6) — The audit rule worked perfectly pre-enforcer; the enforcer then deleted it entirely
+
+Owner asked "what about our new audit rule?" on job 10609's 3rd regeneration. Good news first: the
+PRE-ENFORCER draft is a textbook-perfect execution of every rule shipped this week — "the audit is
+$300 flat... if we end up working together on the retainer, that $300 is credited back" (correct fixed
+price + correct complimentary-credit line) and "for the ongoing work:... i'd estimate $1,200 - $1,800
+/month" (correct MONTHLY retainer framing, not hourly — exactly what yesterday's fix asked for). Intro
+was sharp and diagnostic (no restate-opener this run), and case studies were FridgeFix/House
+Painting/Atlant — all correctly local-service/appointment-vertical, no ecom-health pile-up.
+
+But the ENFORCER PASS then deleted the entire pricing paragraph — $300, the 1-working-day timeline,
+the $1,200-1,800/month estimate, AND the complimentary-credit line — and replaced it with an unrelated,
+CONTRADICTORY offer: "I can set up and launch your campaigns from scratch in 5 working days..." — the
+LAUNCH-FROM-SCRATCH pitch, which makes no sense on a job that explicitly has an existing account
+needing an audit (the posting literally lists "Complete account audit", "Campaign structure review",
+etc.). Comparing drafts: the enforcer was almost certainly invoked for a real, minor, legitimate
+reason (the case studies gained "(attached in profile highlights)" labels they were missing pre-
+enforcer — a genuine fix) — but while making that small fix, it also silently deleted and replaced
+the entire commercial pitch, something it was never asked to touch and was explicitly instructed not
+to ("preserve voice, tone, structure, and every other sentence verbatim").
+
+This is a WORSE failure mode than the garbling bug fixed a session ago: the output here is
+grammatically clean, just missing the entire fee-structure section and replaced with wrong content —
+`_looksGarbled()` correctly does NOT flag it (nothing is broken, it's just gone).
+
+**Fix:** extended the SAME enforcer-response fallback block (JobDetail.jsx) that already discards a
+garbled rewrite, adding a MUST-KEEP PRICING regression check: if the pre-enforcer draft correctly had
+"$300" and/or the complimentary-credit line, and the enforcer's corrected text lost either one
+entirely, discard the correction and keep the coherent pre-enforcer draft instead — regardless of
+which violation triggered the enforcer call in the first place. Fires `enforcerDroppedPricing`
+telemetry. Reuses `draftOffersPpcAudit`/`draftHasComplimentaryOffer`/`_DRAFT_COMPLIMENTARY_RE` (already
+computed earlier in `generate()`'s scope from yesterday's fee-structure work) — no new regexes needed,
+just a before/after comparison mirroring the garbling check's structure.
+
+Verified (Node): the exact real pre/post-enforcer text pair → correctly flags both the price and
+complimentary-line regression; a non-audit letter (no $300 ever) → never triggers; a case where the
+enforcer legitimately keeps "$300" present → does not false-trigger. `vite build` clean.
+
+This is now the THIRD safety net on the enforcer's output (garbling, wrong deliverable checks, and now
+must-keep-pricing regression) — strong, mounting evidence that the enforcer LLM pass itself is the
+single least reliable link in the whole pipeline, exactly as DESIGN.md §21 diagnosed. Worth reading as
+a strong signal to prioritize §21-C (slimming the prompt so the enforcer has less to juggle per call,
+or reducing reliance on it) once the current soak period ends.
