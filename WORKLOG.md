@@ -3006,3 +3006,48 @@ Verified (standalone Node, 11/11): the exact job-10612 leak → strips to "Scali
 relationships/anti-scam/Filipina-culture site comes down to…"; 3 label variants (Opening angle:,
 Hook:, Angle (buyer intent):) stripped correctly; 6 legitimate real-letter labels + a normal sentence
 starting with "Hooking" all left untouched. `vite build` clean.
+
+## 2026-08-08 (2) — Confirmed + root-caused a SECOND instance: analysis cache had no server-truth check
+
+Owner asked me to confirm the "Rosedale" screening-token flag on job 10612's analysis — grep of the
+actual posting text confirmed "Rosedale" appears NOWHERE in job 10612's description (only in the
+analysis flag/chat lines). Same corruption class as yesterday's job 10555 (10570's stale analysis
+bleeding onto a different job), but this time appearing on a THIRD job today, after yesterday's
+race-condition fix was already shipped — meaning that fix alone wasn't the full story.
+
+**Root-caused via the DB, not guessing:** queried `upwork_jobs.db` directly —
+`last_analysis_json` for job 10612 is **NULL** (server confirms it was NEVER analysed), while job
+10570's own row correctly holds ITS OWN real "Rosedale" analysis (that one was legitimate — 10570
+really did have that screening token). This proves the corruption lives ENTIRELY in the frontend's
+local cache (`cacheRef` + localStorage `_lsSave('analysis', jobId, …)`) — almost certainly an
+ORPHANED entry written by the same underlying race before yesterday's staleness-guard fix landed
+(the fix stops NEW corruption but does nothing to clean up entries already sitting in localStorage
+from before it existed).
+
+**The deeper gap:** the hydration effect (`useLayoutEffect` keyed on `[job?.id, job?.enriched_at]`)
+loads from `cacheRef`/localStorage and NEVER cross-checks against the backend's own server-recorded
+`job.last_analysis` / `job.last_analysis_at` (both already present on every job object the API
+returns — `api/main.py:775`) — despite the POST that persists analysis server-side always using the
+correctly-scoped job id (that write path was never buggy; only the local display/cache path was).
+So even after yesterday's fix, an already-corrupted cache entry — or any future corruption from an
+as-yet-undiscovered path — would silently persist forever with nothing to catch it.
+
+**Fix (JobDetail.jsx, `AIAnalysisColumn` hydration effect):** reconcile the local cache against
+`job.last_analysis` on every hydration:
+- Server has a real analysis that substantively differs (compared on `verdict`/`score`/`summary`,
+  not a raw deep-equal, so metadata fields like `ran_at` don't cause false mismatches) → trust the
+  server, overwrite the local cache with it (self-heals silently, logs a warning).
+- Server has NOTHING recorded but a local cache claims otherwise (job 10612's exact signature) →
+  discard the orphaned entry rather than display unverifiable local-only data.
+Effect's dependency array extended to `job?.last_analysis`/`job?.last_analysis_at` so a fresh fetch of
+the job (e.g. after a background refetch) re-triggers reconciliation, not just an id/enriched_at
+change.
+
+Verified (standalone Node, 5/5): job-10612 signature (orphaned + server null) → discarded; server has
+a genuinely different analysis → server truth wins; cached already matches server → left alone,
+feedback preserved (no needless overwrite/cache churn); no cache + server has one → populated from
+server; no cache + server has none → stays null, no crash. `vite build` clean.
+
+This is now SELF-HEALING, not just preventative — the next time job 10612 (or any similarly
+orphaned job) is viewed, the corrupted cache entry is automatically discarded on load; no manual
+"clear analysis" click needed.

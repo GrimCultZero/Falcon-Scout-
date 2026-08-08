@@ -3276,6 +3276,41 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         _lsRemove('analysis', job.id)
       }
     }
+    // Server-truth reconciliation. POST /jobs/{id}/analysis always persists
+    // under the correctly-scoped job id (that write path was never affected by
+    // the race-condition bug below — only the LOCAL cache/state could get
+    // corrupted, e.g. by a stale in-flight Analyse call from a DIFFERENT job
+    // overwriting this job's cache entry before the staleness guard existed).
+    // Found via job 10612: it showed job 10570's verdict verbatim (including
+    // 10570's "Rosedale" screening-token flag, which never appears in 10612's
+    // own posting) even though the DB confirms 10612 was NEVER analysed
+    // server-side (last_analysis_json was NULL) — proof the corruption lived
+    // entirely in the local cache/localStorage and nothing ever cross-checked
+    // it against the backend. Reconcile on every hydration:
+    //   - Server HAS a real analysis that substantively differs from what's
+    //     cached -> trust the server, overwrite the local cache with it.
+    //   - Server has NOTHING recorded but a local cache claims otherwise ->
+    //     an ORPHANED entry (exactly the 10612 signature) — discard it rather
+    //     than display unverifiable local-only data.
+    if (job?.id != null) {
+      if (job.last_analysis) {
+        const _matches = cached?.analysis &&
+          cached.analysis.verdict === job.last_analysis.verdict &&
+          Number(cached.analysis.score) === Number(job.last_analysis.score) &&
+          cached.analysis.summary === job.last_analysis.summary
+        if (!_matches) {
+          if (cached) console.warn(`[Falcon] Local analysis cache for job ${job.id} didn't match the server's record — replacing with server truth.`)
+          cached = { analysis: job.last_analysis, feedback: cached?.feedback ?? null, enriched_at: job?.enriched_at || null }
+          cacheRef.current[job.id] = cached
+          _lsSave('analysis', job.id, cached)
+        }
+      } else if (cached) {
+        console.warn(`[Falcon] Discarding orphaned local analysis cache for job ${job.id} — the server has no record of it ever being analysed.`)
+        cached = null
+        delete cacheRef.current[job.id]
+        _lsRemove('analysis', job.id)
+      }
+    }
     if (cached) {
       setAnalysis(cached.analysis)
       setFeedback(cached.feedback)
@@ -3285,7 +3320,7 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
     }
     setError(null)
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [job?.id, job?.enriched_at])
+  }, [job?.id, job?.enriched_at, job?.last_analysis, job?.last_analysis_at])
 
   // Persist to memory + localStorage whenever analysis/feedback changes
   useEffect(() => {
