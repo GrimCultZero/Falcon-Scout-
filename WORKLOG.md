@@ -3358,3 +3358,46 @@ as the full answer. One of the verify agents also reported a suspicious environm
 run (a scratchpad test file it wrote got externally modified mid-task with substituted test content and
 an embedded instruction not to mention this to the user) — the agent correctly ignored the embedded
 instruction and flagged it instead; surfaced to the owner directly rather than silently proceeding.
+
+## 2026-08-08 — Job 10659: opener echoes the posting's own goal line + proper-noun casing feature
+
+Owner shared job 10659 (SEO/web-dev, Windsor-Essex, Ontario) and asked to analyse the opener
+specifically, plus requested a new feature: stop the generator's deliberate casual-lowercase voice
+from lowercasing real proper nouns (cities, countries) -- "writing 'oslo' or 'essex' instead of Oslo
+and Essex is rude."
+
+**Opener analysis:** the letter opened "Fast + technically clean + seo optimized + mobile friendly +
+conversion focused - for windsor-essex local searches." -- this is the posting's OWN closing line
+("Fast + technically clean + SEO optimized + mobile friendly + easy to use + conversion focused +
+competitive in local Google search.") echoed back almost verbatim with a couple of items dropped.
+Distinct, newly-identified gap: `hasEchoedQuestion` only catches echoed screening QUESTIONS, nothing
+catches an echoed descriptive/goal SENTENCE. Added `openerEchoesPostingLine` (JobDetail.jsx, wired into
+the standard 4 sites) -- fires when the opener shares a 30+ char normalized run with any posting line.
+
+**Proper-noun casing:** traced to `_humanizeCasing` -- it already deterministically fixes "I"/"Artem"
+(DESIGN.md already documents this philosophy: casing correctness is never part of the human-imperfection
+channel) but was never extended to place names, so the model's lowercase style bled onto real proper
+nouns the client themselves capitalized in their own posting. Added `_extractProtectedProperNouns` +
+`_restoreProperNounCasing` (module scope near `_humanizeCasing`) -- pulls every mid-sentence-capitalized
+word/phrase from the RAW job context (a capitalized word NOT at a sentence/line start is a high-precision
+signal of a genuine proper noun, acronym, or brand name -- no hardcoded city gazetteer needed) and
+force-corrects any lowercase/miscased occurrence in the final letter. Wired into both `_gcShadow(...)`
+strip chains, applies to every job (not gated to any vertical).
+
+Ran a workflow (3 parallel agents) adversarially testing both features against diverse postings before
+shipping. Found and fixed two real bugs from the FIRST implementation attempt: a hyphenated compound
+like "Windsor-Essex" was only getting half-corrected ("Windsor-essex") because the hyphen-split logic
+operated on the whole multi-word capture instead of each individual word-token. Ran a SECOND verify pass
+on the fixed version and found two more real issues: (1) mid-sentence EMPHASIS-capitalized common words
+("a truly Professional result", "done Quick") were getting registered as protected proper nouns, which
+would force-capitalize that common word everywhere in the letter including unrelated generic sentences --
+fixed with a curated stoplist of common emphasis adjectives/nouns. (2) the opener-echo check only probed
+the first ~40 characters of each posting line, missing an echo buried later in a line that opens with
+throat-clearing preamble ("Please note before anything else that our priority is: fast technically
+clean...") -- fixed by sliding a 40-char window across the full line in 15-char steps instead of only
+checking a fixed prefix.
+
+Verified all fixes (final version) against: Oslo (Norway), multi-city (LA/SF/NYC), Windsor-Essex County
+(Ontario), Shopify/WordPress brand names, the emphasis-word false-positive case, the buried-echo case,
+the original confirmed opener-echo bug, a genuinely original opener (no false-fire), and a short-posting
+inert case. Zero regressions, `vite build` clean.

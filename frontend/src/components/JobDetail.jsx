@@ -2472,6 +2472,94 @@ function _humanizeCasing(s) {
   return t
 }
 
+// PROPER-NOUN CASING (owner correction, 2026-08-08, job 10609/10659): the
+// casual lowercase voice is a deliberate style choice, but it must never
+// extend to a genuine proper noun the client themselves capitalized in
+// their own posting -- writing "oslo" or "windsor-essex" instead of "Oslo"
+// or "Windsor-Essex" reads as illiterate, not casual, and is a distinct
+// failure from the deliberate lowercase-first-person voice this project
+// intentionally writes in. _humanizeCasing above already treats "I" and
+// "Artem" this way (see its comment: casing correctness is deterministic,
+// never part of the human-imperfection channel) -- this extends the same
+// philosophy to every proper noun visible in the job's own posting text.
+//
+// Extraction heuristic: scan the RAW (non-lowercased) job context for a
+// capitalized word/phrase that appears in the MIDDLE of a sentence (i.e.
+// preceded by a lowercase letter or comma, not a sentence/line start) --
+// English only capitalizes a mid-sentence word for a proper noun, an
+// acronym, or the pronoun "I", so this is a high-precision signal without
+// needing a hardcoded city/country gazetteer that would miss most jobs.
+// Common English words that Upwork clients frequently capitalize mid-sentence
+// purely for EMPHASIS, not because they're proper nouns ("a truly Professional
+// result", "need this done Quick"). A workflow adversarial-verify pass
+// (2026-08-08) confirmed this is a real false-positive source: mid-sentence
+// capitalization alone can't distinguish emphasis from a genuine proper noun,
+// and force-capitalizing a common word everywhere in the generated letter
+// (including unrelated generic sentences) is a visible, illiterate-looking
+// regression -- the exact failure this feature exists to prevent, inverted.
+const _EMPHASIS_WORD_STOPLIST = new Set([
+  'professional', 'quick', 'amazing', 'great', 'excellent', 'perfect', 'reliable',
+  'experienced', 'skilled', 'dedicated', 'passionate', 'creative', 'innovative',
+  'strong', 'solid', 'proven', 'talented', 'serious', 'urgent', 'important',
+  'simple', 'easy', 'complete', 'full', 'total', 'real', 'true', 'genuine',
+  'fast', 'best', 'top', 'rockstar', 'ninja', 'guru', 'expert', 'superstar',
+  'awesome', 'fantastic', 'outstanding', 'exceptional', 'flexible', 'affordable',
+  'competitive', 'custom', 'tailored', 'immediate', 'ongoing', 'hardworking',
+  'motivated', 'driven', 'ambitious', 'friendly', 'responsive', 'honest',
+])
+function _extractProtectedProperNouns(rawContext) {
+  if (!rawContext) return []
+  const found = new Map() // lowercase key -> the posting's own correct casing
+  const MID_SENTENCE_PROPER_RE = /(?:[a-z,][ \t]|[ \t]and[ \t])([A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*(?:[ \t][A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*){0,2})\b/g
+  let m
+  while ((m = MID_SENTENCE_PROPER_RE.exec(rawContext))) {
+    const term = m[1]
+    if (term.length < 3 || term === 'I') continue
+    const key = term.toLowerCase()
+    if (_EMPHASIS_WORD_STOPLIST.has(key)) continue
+    if (!found.has(key)) found.set(key, term)
+    // Also register each hyphenated WORD's own segments ("Windsor-Essex
+    // County" -> the "Windsor-Essex" token splits into "Windsor" AND
+    // "Essex" individually) -- a draft can use just one half of a compound
+    // place name ("windsor-essex" without "county" trailing it), and
+    // without this only the segment that ALSO appears elsewhere as its own
+    // standalone word gets fixed, leaving the other half lowercase
+    // (confirmed: "windsor-essex" -> "Windsor-essex", only the first half
+    // corrected, without this). Splitting the whole multi-word term on '-'
+    // is wrong here -- "Windsor-Essex County" has only one hyphen, so a
+    // naive split gives "Windsor" + "Essex County", never bare "Essex".
+    // Split word-by-word first, THEN split each word on its own hyphens.
+    // Space-separated trailing words ("County") are deliberately never
+    // registered alone -- a common noun like "county" shouldn't be forced
+    // to capitalize everywhere it appears.
+    for (const word of term.split(/[ \t]+/)) {
+      if (!word.includes('-')) continue
+      for (const seg of word.split('-')) {
+        if (seg.length < 3) continue
+        const segKey = seg.toLowerCase()
+        if (_EMPHASIS_WORD_STOPLIST.has(segKey)) continue
+        if (!found.has(segKey)) found.set(segKey, seg)
+      }
+    }
+  }
+  return [...found.entries()]
+}
+
+// Force any lowercase/miscased occurrence of a protected term back to the
+// exact casing the client used in their own posting. Whole-word/phrase
+// match (case-insensitive) so "oslo", "Oslo", or "OSLO" in the draft all
+// normalize to whatever the posting itself wrote ("Oslo").
+function _restoreProperNounCasing(text, protectedTerms) {
+  if (!text || !protectedTerms || !protectedTerms.length) return text
+  let out = text
+  for (const [, correctForm] of protectedTerms) {
+    const escaped = correctForm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`\\b${escaped}\\b`, 'gi')
+    out = out.replace(re, correctForm)
+  }
+  return out
+}
+
 // Strip any stray three-tag-protocol markup from text that ends up in a chat
 // bubble. Safety net for when the model emits malformed tags (e.g. a closing
 // </remarks> with no opening tag, or an unclosed <chat_reply>) — the regex
@@ -5034,6 +5122,12 @@ function ProposalColumn({ job, bridgeReady = false }) {
         /\b(hemp|CBD|cannabis|marijuana|THC|vape|vaping|e-?cig(?:arette)?|nicotine|kratom|mushroom|psilocybin|supplement|nutraceutical|peptides?|SARMs?|bio[-\s]?hacking|med[-\s]?spa|medspa|aesthetics?|cosmetic|skincare|skin\s+care|dermatology|botox|filler|YMYL|salmon\s+dna|micro-?infusion)\b/i
           .test(jobContext.toLowerCase())
 
+      // Proper nouns (cities, counties, countries, brand names) as the
+      // client themselves capitalized them in the posting -- computed once
+      // here so both the compliant-bypass and post-enforcer strip chains
+      // below can reference the same list without re-scanning jobContext.
+      const _protectedProperNouns = _extractProtectedProperNouns(jobContext)
+
       const response = await fetch('/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -5904,7 +5998,45 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               })
             const hasEchoedQuestion = _echoedQuestions.length > 0
 
-            // ── Listy / labeled-outline structure (structural AI tell) ───────
+            // -- Opener echoes the posting's own summary/goal line (confirmed
+            // job 10659) -- distinct from hasEchoedQuestion above (screening
+            // QUESTIONS only). The posting's own closing line ("Fast +
+            // technically clean + SEO optimized + mobile friendly + easy to
+            // use + conversion focused + competitive in local Google
+            // search.") got echoed almost verbatim as the letter's OPENING
+            // line -- restating the client's own goal list proves no
+            // diagnosis or expertise, the opposite of the required
+            // client-problem-first hook. Only the OPENER is checked (mirrors
+            // hasBannedOpener/hasExplainerOpener above) -- posting language
+            // reused later as supporting context is fine, it's restating it
+            // as the hook that reads as copy-paste.
+            const _postingLines = fullDescription
+              .split(/\n+/)
+              .map(l => l.trim())
+              .filter(l => l.length >= 30)
+            const _openerNorm = _normEcho(_openingPara.slice(0, 220))
+            // Slide a window across each posting line rather than only
+            // probing its first ~40 chars -- a workflow adversarial-verify
+            // pass (2026-08-08) found a real blind spot: a posting line with
+            // throat-clearing preamble before the part that actually gets
+            // echoed ("Please note before anything else that our top
+            // priority above all is: fast technically clean seo optimized
+            // and mobile friendly...") never got its true echoed clause
+            // checked, since only the line's own opening 40 characters were
+            // ever probed. Stepping every 15 chars catches an echo anywhere
+            // in the line, not just one starting at its very beginning.
+            const openerEchoesPostingLine = _postingLines.some(line => {
+              const nLine = _normEcho(line)
+              if (nLine.length < 30) return false
+              const windowLen = Math.min(nLine.length, 40)
+              for (let i = 0; i + 30 <= nLine.length; i += 15) {
+                const probe = nLine.slice(i, i + windowLen)
+                if (probe.length >= 30 && _openerNorm.includes(probe)) return true
+              }
+              return false
+            })
+
+            // -- Listy / labeled-outline structure (structural AI tell) ---
             // The body reading as a labeled outline ("First thing I'd audit:",
             // "Site side:", "Step 1:") is a top AI tell. Flag when 2+ such labels
             // appear so the enforcer dissolves them into flowing prose. ("Recent
@@ -6519,7 +6651,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob && !campaignLiveTooFast && !caseStudyToldAsRemediation
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
-              && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience
+              && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience && !openerEchoesPostingLine
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
               && !hasBannedOpener && !hasExplainerOpener
 
@@ -6551,6 +6683,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasListyOutline && 'hasListyOutline',
               timelineRequestedButMissing && 'timelineRequestedButMissing',
               hasEchoedQuestion && 'hasEchoedQuestion',
+              openerEchoesPostingLine && 'openerEchoesPostingLine',
               fabricatedGeoExperience && 'fabricatedGeoExperience',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
@@ -6574,7 +6707,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_forceFixOngoingFee(text)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_forceFixOngoingFee(text), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
               if (_isStaleGenerate()) {
                 console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
                 if (_jobIdAtCallTime != null) {
@@ -6699,6 +6832,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (hasEchoedQuestion) {
               console.log(`[Falcon] Rule pre-check: draft echoes the client's screening question(s) verbatim (${_echoedQuestions.length}) — mechanical form-fill, firing Claude enforcer.`)
             }
+            if (openerEchoesPostingLine) {
+              console.log('[Falcon] Rule pre-check: opener echoes the posting\'s own summary/goal line near-verbatim — generic copy-paste hook, firing Claude enforcer.')
+            }
             if (fabricatedGeoExperience) {
               console.log(`[Falcon] Rule pre-check: opener claims experience in the client's country (${_clientCountry}) with no case study there — fabricated geo/vertical experience, firing Claude enforcer.`)
             }
@@ -6777,6 +6913,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 `ECHOED SCREENING QUESTIONS (mechanical form-fill — wording-critical): The draft pastes the client's question wording near-verbatim as a heading/label before answering — e.g. "${_echoedQuestions[0].slice(0, 70)}${_echoedQuestions[0].length > 70 ? '…' : ''}". No human echoes the client's own questions back at them; it reads as an AI template. ` +
                 'REWRITE so the answers are in Artem\'s own words woven into natural prose. Remove every pasted question heading. If a light label genuinely aids readability, use a SHORT self-authored 2–4-word label in Artem\'s voice ("Local results:", "First thing I\'d check:", "Rate & availability:") — never the client\'s full question. Cover every point, just don\'t restate the questions.'
+              )
+            }
+            if (openerEchoesPostingLine) {
+              specificViolations.push(
+                'WEAK OPENER — ECHOES THE POSTING\'S OWN SUMMARY/GOAL LINE (credibility-critical): The letter opens by restating a sentence from the client\'s own job posting (e.g. their own goal/summary list) almost verbatim. This proves no diagnosis or expertise — it is just copy-pasting the brief back at them, the opposite of the required client-problem-first hook. ' +
+                'REWRITE the opening paragraph entirely: replace it with a specific diagnostic observation about THIS client\'s actual situation (per the writing rules — do not open with a credential, a rhetorical question, or a restatement of the brief). Do not just paraphrase the same goal list with different wording — the new opener must not share a 30+ character run with any sentence in the job posting.'
               )
             }
             if (timelineRequestedButMissing) {
@@ -7154,7 +7296,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       }
 
       {
-        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_forceFixOngoingFee(text)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_forceFixOngoingFee(text), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {
