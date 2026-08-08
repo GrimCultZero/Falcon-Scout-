@@ -3401,3 +3401,41 @@ Verified all fixes (final version) against: Oslo (Norway), multi-city (LA/SF/NYC
 (Ontario), Shopify/WordPress brand names, the emphasis-word false-positive case, the buried-echo case,
 the original confirmed opener-echo bug, a genuinely original opener (no false-fire), and a short-posting
 inert case. Zero regressions, `vite build` clean.
+
+## 2026-08-08 — Job 10659: generic hourly-rate-vs-posted-ceiling check
+
+Follow-up to the in-app chat exchange the owner flagged ("did they ask for a rate?"). Verified the
+chat's claim first: queried upwork_jobs.db directly and confirmed Rule 18 (kb_entries id=423) is real
+and correctly quoted -- "Set maximum hourly rates at $35 for SEO optimization projects and $30 for PPC
+projects" -- not a hallucinated rule number (the codebase's own prompt explicitly warns citing rule
+numbers from memory can produce ones that don't exist, so this was worth checking rather than assuming).
+The draft's "$40/hr" genuinely violated it, and nothing caught this deterministically since Rule 18 lives
+in the editable KB (prompt-injected as reference only) with no JS backstop, and the enforcer is
+explicitly told not to hunt for violations beyond the ones listed for it.
+
+Owner asked to fix this ("do it"). Built it GENERIC rather than hardcoding Rule 18's specific $35/$30
+figures (which live in user-editable KB data and could change): a deterministic check comparing
+whatever hourly rate the draft quotes against THIS job's own posted rate_max, flagging when the quote
+exceeds a threshold (10% over OR $3 over, whichever is more permissive) -- enforces the RATE ANCHOR
+philosophy already in the prompt ("anchor to the posted ceiling, never exceed it") without duplicating
+any specific KB rule's numbers.
+
+Added `_extractQuotedHourlyRate`/`_forceFixQuotedHourlyRate` (JobDetail.jsx, module scope near
+`_forceFixOngoingFee`) -- only matches Artem's own rate-quote phrasing ("my rate is...", "I charge...",
+"hourly rate:...") via three targeted patterns, never a bare "$X/hr" mention elsewhere in the letter
+(a diagnostic claim like "wasting $40/hr in ad spend" must never be touched). Wired the deterministic
+check into the standard 4 sites (draftCompliant, telemetry, console pre-check, specificViolations.push)
+and the force-fix into both `_gcShadow(...)` strip chains as an unconditional last-mile correction,
+matching the established pattern from the ongoing-fee fix earlier today (the enforcer alone has proven
+unreliable all session for load-bearing numbers).
+
+Found and fixed one real bug during my own verification (before it shipped): the number-capture regex
+`\d[\d,]*` swallowed a trailing sentence comma right after the number ("Hourly rate: $50, billed
+weekly" -> captured "50," instead of "50") whenever the following suffix group was optional and
+provided no backtracking pressure -- fixed by requiring the capture to end in a digit
+(`\d(?:[\d,]*\d)?`), which still correctly handles a genuine thousands separator ("$1,200") while never
+absorbing a trailing comma. Verified against the real job 10659 text (extracts $40, threshold $33 for a
+$30 ceiling, correctly flags and force-corrects to $30), a senior-rate-near-ceiling case (correctly
+untouched), an unrelated "$40/hr in wasted ad spend" diagnostic mention (correctly untouched), a
+fixed-budget job with no hourly_rate_max (inert, no crash), and the comma-preservation fix. `vite
+build` clean.

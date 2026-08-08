@@ -1719,6 +1719,61 @@ function _forceFixOngoingFee(text) {
   return out
 }
 
+// WRONG HOURLY RATE -- EXCEEDS THE JOB'S OWN POSTED CEILING (owner request,
+// 2026-08-08, job 10659, surfaced via the in-app chat feature): a draft
+// quoted "$40/hr" on a job posted at $15-$30/hr -- reads as not having read
+// the client's own stated budget. Deliberately GENERIC and job-agnostic:
+// does NOT hardcode any KB rule's specific figures (e.g. the user-editable
+// Rule 18 SEO/PPC rate ceiling) -- it enforces the RATE ANCHOR philosophy
+// already in the prompt ("anchor TO the posted ceiling... never exceed
+// it") against whatever THIS job's own posted range actually is, so it
+// stays correct even if KB rules change later. Only matches Artem's own
+// rate-quote phrasing ("my rate is...", "I charge...", "rate sits at...")
+// -- never a bare "$X/hr" mention elsewhere in the letter (e.g. "wasting
+// $40/hr in ad spend" is a diagnostic claim about the CLIENT's situation,
+// not a rate quote, and must never be touched).
+// Number group requires a trailing DIGIT ("\d(?:[\d,]*\d)?", not "\d[\d,]*")
+// -- confirmed via testing that a bare "\d[\d,]*" swallows a real sentence
+// comma right after the number ("Hourly rate: $50, billed weekly" -> group
+// captured "50," instead of "50") whenever the following suffix group is
+// OPTIONAL and provides no backpressure to force backtracking. Requiring
+// the capture to END in a digit means a comma is only ever included when
+// it's a genuine thousands separator ("$1,200"), never a trailing one.
+const _QUOTED_RATE_PATTERNS = [
+  /(\b(?:my\s+)?rate\s+(?:sits\s+at|is|for\s+(?:this|the)\s+(?:scope|work|project))\s*:?\s*\$)(\d(?:[\d,]*\d)?)(\s*\/?\s*(?:hr|hour)\b)/i,
+  /(\bi\s+(?:charge|work\s+at|bill\s+at)\s*\$)(\d(?:[\d,]*\d)?)(\s*\/?\s*(?:hr|hour)\b)/i,
+  /(\bhourly\s+rate\s*:?\s*\$)(\d(?:[\d,]*\d)?)(\s*\/?\s*(?:hr|hour)?\b)/i,
+]
+function _extractQuotedHourlyRate(t) {
+  if (!t) return null
+  for (const re of _QUOTED_RATE_PATTERNS) {
+    const m = t.match(re)
+    if (m) return Number(m[2].replace(/,/g, ''))
+  }
+  return null
+}
+// A quote is only flagged once it clears BOTH a relative buffer (10% over
+// the ceiling) AND an absolute buffer ($3 over) -- small overages read as
+// reasonable premium positioning near the ceiling (the RATE ANCHOR's own
+// "senior rate near the ceiling" guidance); this only catches a real
+// mismatch like $40 quoted on a $30 ceiling (33% / $10 over).
+function _hourlyRateThreshold(hMax) {
+  return Math.max(hMax * 1.1, hMax + 3)
+}
+function _forceFixQuotedHourlyRate(text, hMax) {
+  if (!text || !hMax || !(hMax > 0)) return text
+  const threshold = _hourlyRateThreshold(hMax)
+  let out = text
+  for (const re of _QUOTED_RATE_PATTERNS) {
+    out = out.replace(re, (full, pre, numStr, post) => {
+      const num = Number(numStr.replace(/,/g, ''))
+      if (num > threshold) return pre + String(Math.round(hMax)) + (post || '')
+      return full
+    })
+  }
+  return out
+}
+
 function _stripFabricatedOpener(text) {
   if (!text) return text
   // Also kill a posting-restatement opener ("The job posting asks for…"). Done
@@ -6386,6 +6441,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _LAUNCH_FROM_SCRATCH_OFFER_RE = /\b(?:set\s+up\s+and\s+launch|build\s+and\s+launch|launch)\s+your\s+campaigns?\s+from\s+scratch\b|\bset\s+up\s+and\s+launch\s+your\s+campaigns?\b/i
             const wrongLaunchOfferOnExistingAccount = jobIsPpcAuditExisting && _LAUNCH_FROM_SCRATCH_OFFER_RE.test(text)
 
+            // WRONG HOURLY RATE -- exceeds the job's own posted ceiling
+            // (confirmed job 10659, via in-app chat: draft quoted "$40/hr"
+            // on a $15-$30/hr posting). See _extractQuotedHourlyRate's
+            // module-level comment for the full rationale.
+            const _hMaxForRateCheck = Number(job.hourly_rate_max)
+            const _quotedHourlyRate = _extractQuotedHourlyRate(text)
+            const wrongHourlyRateAboveCeiling = _quotedHourlyRate != null && _hMaxForRateCheck > 0
+              && _quotedHourlyRate > _hourlyRateThreshold(_hMaxForRateCheck)
+
             // ── SEO promotion plan check ──────────────────────────────────────
             // For SEO jobs, the proposal must offer a 3-month SEO Promotion
             // Plan delivered in 2 working days. Two failure modes:
@@ -6643,7 +6707,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming && !wrongPlanOnAuditJob
               && !wrongAuditSampleOnAlreadyAudited && !missingComplimentaryAuditOffer && !wrongComplimentaryOfferOnAuditOnly && !wrongAuditPrice
               && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming && !missingAuditPriceEntirely
-              && !wrongOngoingManagementFee && !wrongLaunchOfferOnExistingAccount
+              && !wrongOngoingManagementFee && !wrongLaunchOfferOnExistingAccount && !wrongHourlyRateAboveCeiling
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -6700,6 +6764,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingAuditPriceEntirely && 'missingAuditPriceEntirely',
               wrongOngoingManagementFee && 'wrongOngoingManagementFee',
               wrongLaunchOfferOnExistingAccount && 'wrongLaunchOfferOnExistingAccount',
+              wrongHourlyRateAboveCeiling && 'wrongHourlyRateAboveCeiling',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -6707,7 +6772,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_forceFixOngoingFee(text), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
               if (_isStaleGenerate()) {
                 console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
                 if (_jobIdAtCallTime != null) {
@@ -6783,6 +6848,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongLaunchOfferOnExistingAccount) {
               console.log('[Falcon] Rule pre-check: existing-account audit job but draft offers a from-scratch campaign launch (nothing to launch) — firing Claude enforcer to remove it.')
+            }
+            if (wrongHourlyRateAboveCeiling) {
+              console.log(`[Falcon] Rule pre-check: draft quotes $${_quotedHourlyRate}/hr, which exceeds this job's posted ceiling of $${_hMaxForRateCheck}/hr — firing Claude enforcer to correct it.`)
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -7117,6 +7185,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 'WRONG LAUNCH OFFER ON AN EXISTING-ACCOUNT AUDIT JOB: the client has an EXISTING running Google Ads account and asked for an audit/review — there is no from-scratch launch to offer. The draft offers to "set up and launch your campaigns from scratch" (or similar). DELETE that entire sentence. Do NOT replace it with anything — the audit + ongoing-management offer is the complete pitch for this job.'
               )
             }
+            if (wrongHourlyRateAboveCeiling) {
+              specificViolations.push(
+                `WRONG HOURLY RATE — EXCEEDS THE JOB'S OWN POSTED CEILING: the draft quotes $${_quotedHourlyRate}/hr, but this posting's own rate range tops out at $${_hMaxForRateCheck}/hr. Quoting well above what the client themselves said they'd pay reads as not having read the posting. FIX by either (a) lowering the quoted rate to fit at or below the posting's own $${_hMaxForRateCheck}/hr ceiling, or (b) removing the rate line entirely if the posting never explicitly asked for one — do not invent a justification for exceeding it.`
+              )
+            }
             if (missingSeoPlanOffer) {
               specificViolations.push(
                 'MISSING SEO PROMOTION PLAN OFFER: This is an SEO job. The draft must offer a custom 3-month SEO Promotion Plan deliverable in 2 working days, covering: deliverables, costs, link building budget, basic site check, competitor overview. ' +
@@ -7296,7 +7369,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       }
 
       {
-        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_forceFixOngoingFee(text), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {
