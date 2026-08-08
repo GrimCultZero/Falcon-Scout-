@@ -3246,3 +3246,52 @@ must-keep-pricing regression) — strong, mounting evidence that the enforcer LL
 single least reliable link in the whole pipeline, exactly as DESIGN.md §21 diagnosed. Worth reading as
 a strong signal to prioritize §21-C (slimming the prompt so the enforcer has less to juggle per call,
 or reducing reliance on it) once the current soak period ends.
+
+## 2026-08-08 — Job 10609 round 4: missing audit price, wrong ongoing fee, recurring wrong launch offer
+
+Owner shared the 4th regen of the same job (10609, tattoo studio) with three distinct findings:
+"Didnt mention audit price. Also: my management monthly fee (if it's fixed) is 700 for the setup
+month and 600 for the ongoing management. Idk where those $1,200-$1,800/month coming from."
+
+**Finding 1 — $300 audit price silently absent from the FIRST pass, not just dropped by the enforcer.**
+Both the pre-enforcer AND post-enforcer drafts state "if we end up working together on ongoing
+management, the audit fee is credited back" but never once state what that fee actually IS. Every
+existing check (`missingComplimentaryAuditOffer`, `_regressedAuditPrice`) is gated on `draftOffersPpcAudit`
+(the pre-enforcer draft already having "$300") before it fires — when $300 is simply never generated
+in the first place, nothing catches it. Added `missingAuditPriceEntirely = jobIsPpcAuditExisting &&
+!draftOffersPpcAudit`, wired into the standard 4 sites (draftCompliant, telemetry, console pre-check,
+enforcer instruction).
+
+**Finding 2 — the codebase's own "$800-2,500/mo" ongoing-retainer guidance was factually wrong.**
+Artem's real ongoing-management fee is a FIXED two-tier price: $700 for the first (setup) month,
+$600/month after — never a scope-sized range. That vague generic figure (in the RATE DISCLOSURE RULE
+prompt text and in the FEE STRUCTURE hard rule's own ongoing-quote instruction, both from the
+2026-08-08 fee-structure-rule work earlier the same day) is almost certainly what the enforcer drew
+"$1,200-$1,800/month" from in this round. Corrected both prompt locations to state the fixed $700/$600
+figures explicitly instead of a range, and added `wrongOngoingManagementFee` (fires when an
+ongoing-monthly dollar figure is quoted that doesn't state both $700 and $600 together) wired into the
+same 4 sites. Also updated the existing `wrongOngoingRateFraming` enforcer-instruction string to quote
+the fixed fee instead of the old range.
+
+**Finding 3 — the "launch your campaigns from scratch in 5 working days" offer recurred a 3rd time**
+(rounds 3 and 4), still appended by the enforcer's rewrite on an existing-account audit job despite
+round 3's must-keep-pricing regression fix, which only guards against pricing being DROPPED, not new
+unrelated content being ADDED. Added two layers: (a) `wrongLaunchOfferOnExistingAccount` as a standard
+pre-check boolean (inverse of the existing `wrongAuditOfferOnLaunch`) in case the first pass itself
+adds it, and (b) `_addedWrongLaunchOffer` in the enforcer-response regression block — if the
+pre-enforcer snapshot never mentioned a from-scratch launch and the corrected text does, discard the
+enforcer's rewrite and keep the pre-enforcer draft, same pattern as the garbling and
+must-keep-pricing checks.
+
+Verified with a standalone Node script against the exact real BEFORE/AFTER text from this snapshot:
+`missingAuditPriceEntirely` correctly fires on both drafts (neither ever states $300);
+`wrongOngoingManagementFee` correctly fires on the AFTER draft ($1,200-$1,800/month) and not on a
+draft stating both $700 and $600; `wrongLaunchOfferOnExistingAccount` correctly fires on the AFTER
+draft only (the BEFORE draft never mentions a launch), confirming the enforcer added it, not the
+first pass. A synthetic fully-correct draft (states $300, the credit line, and "$700... $600...")
+produces zero false positives across all three new checks. `vite build` clean.
+
+This is now a 4th and 5th safety net around the enforcer's output (garbling, wrong-deliverable,
+must-keep-pricing, and now enforcer-added-launch-offer) — the enforcer keeps introducing unrelated
+overreach even when explicitly told "preserve every other sentence verbatim," reinforcing the §21
+diagnosis that the enforcer pass is the least reliable link in the pipeline.

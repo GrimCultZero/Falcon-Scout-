@@ -5210,7 +5210,7 @@ The imperfections should feel like someone typed fast and didn't proofread, NOT 
 - THE ONLY VALID ENDING IS "Artem" (capital A) on its own line — nothing else. No CTA, no closing filler, no invitation, no question, no next-step prompt. Every one of these is banned as a closing line: "happy to answer questions", "feel free to reach out", "let me know if you have questions", "looking forward to hearing from you", "happy to discuss further", "happy to chat", "reach out anytime", "let's talk", "keen to hear more", "would love to connect", "open to a quick call", "communication will be efficient", or ANY variation. The letter ends with the last content sentence and then "Artem" on its own line. Period.
 - NEVER write "i work async" anywhere in the letter — not as a closing line, not as a mid-letter description of communication style. This phrase is banned entirely. If you need to explain communication cadence, describe it concretely ("weekly summary report covering spend, leads, CPL, and next actions") without the phrase "async".
 - CIRCUMVENTION SAFETY (Trust & Safety — absolute, zero exceptions): Upwork's automated scanners flag accounts over wording that even RESEMBLES moving work, payments, or communication off-platform. A real enforcement flag already hit Artem's account over the innocent line "managing through Upwork hits friction … we'll find workaround". Therefore NEVER write, in any context: "outside Upwork", "off Upwork", "around Upwork", "without Upwork", any sentence putting "Upwork" near "friction"/"workaround"/"limitations"; any payment method (PayPal, Wise, wire, crypto, "pay directly"); any contact channel (WhatsApp, Telegram, Skype, email addresses, phone numbers). If a platform-access difficulty is genuinely relevant (e.g. Meta Business Manager 2FA), describe the solution positively without mentioning Upwork at all: "i'll set up secure partner access through Meta Business Manager". When in doubt, omit the topic entirely.
-- RATE DISCLOSURE RULE: if the posting explicitly asks for your rate, pricing, or a cost/phase estimate, you MUST give a concrete number or range — never skip it, and NEVER leave a [[ ARTEM: … ]] placeholder for a price the client asked for (fill it with a real figure). ANCHOR TO THE POSTED CEILING per the RATE ANCHOR line in the job context — do NOT default to $30-35. On a client with a high posted ceiling, or one asking for senior / expert / "top-tier" talent, quote a SENIOR rate near the ceiling (e.g. $50-55/hr for a $60 ceiling), not your floor — quoting the floor on a premium client reads as budget-tier and leaves money on the table. Only quote toward $30-40 when the posted ceiling itself is near the floor or the client is clearly budget-tier. For fixed / per-phase estimates, give concrete ranges sized to the described scope (a full audit is typically $700-1,645+ depending on depth; ongoing retainer $800-2,500/mo). Both skipping the rate AND lowballing it against a high ceiling fail the client's ask.
+- RATE DISCLOSURE RULE: if the posting explicitly asks for your rate, pricing, or a cost/phase estimate, you MUST give a concrete number or range — never skip it, and NEVER leave a [[ ARTEM: … ]] placeholder for a price the client asked for (fill it with a real figure). ANCHOR TO THE POSTED CEILING per the RATE ANCHOR line in the job context — do NOT default to $30-35. On a client with a high posted ceiling, or one asking for senior / expert / "top-tier" talent, quote a SENIOR rate near the ceiling (e.g. $50-55/hr for a $60 ceiling), not your floor — quoting the floor on a premium client reads as budget-tier and leaves money on the table. Only quote toward $30-40 when the posted ceiling itself is near the floor or the client is clearly budget-tier. For fixed / per-phase estimates on non-audit jobs, give concrete ranges sized to the described scope. For a Google Ads / PPC account audit specifically, use the fixed $300 audit price and, if ongoing management follows, the fixed $700 (first month) / $600 (per month after) fee per the FEE STRUCTURE rule below — never a scope-sized range for either figure. Both skipping the rate AND lowballing it against a high ceiling fail the client's ask.
 - NEVER run multiple case studies into a single paragraph. Each case study MUST be its own paragraph with a blank line above it. If you have two case studies back to back with no blank line between them, that is a formatting error — fix it before emitting.
 
 AUDIT OFFER RULES — context-dependent (read carefully before applying):
@@ -5226,7 +5226,7 @@ The client has a running Google Ads account with campaigns already live. Signals
   • If the posting explicitly says this is a ONE-TIME / one-off audit with NO ongoing work after it ("one-time project", "audit only", "not looking for ongoing help", "no retainer needed"), the price is the plain "$300 flat, delivered within 1 working day" — do NOT add any complimentary/credit language; there is no future engagement to credit it toward.
   • If the posting signals POSSIBLE ongoing cooperation after the audit (e.g. "could lead to ongoing management", "if this works out we'd like to continue", "potential for a long-term partnership", mentions monthly management/retainer as a next step), you MUST ALSO convey — in your own natural phrasing, not verbatim boilerplate — "if we end up working together on ongoing management, this audit fee is credited back / the audit becomes complimentary." This is an ADDITION to the $300/1-day offer, never a replacement, and it lowers the client's risk of trying the audit at zero cost to Artem unless they actually convert to ongoing work.
   • If the posting is genuinely silent on future work either way, default to the plain $300 (no complimentary language) — only add the credit offer when the posting actually signals ongoing potential.
-  • If you quote a rate for the ONGOING work that follows the audit, it MUST be a MONTHLY RETAINER RANGE sized to scope ("$800-$2,500/month depending on scope"), NEVER an hourly rate. Do NOT apply the RATE ANCHOR (posted-ceiling-based hourly figure) to the ongoing-work quote — that mechanism is for a direct hourly engagement, not a retainer following a fixed-fee audit, and the posting's raw hourly range is frequently a capture artifact (e.g. an implausible $5-$155/hr spread) that produces a nonsensical number when mirrored back as an hourly rate for a small local business.
+  • If you quote a rate for the ONGOING work that follows the audit, it is a FIXED TWO-TIER MONTHLY FEE — $700 for the first (setup) month, $600/month after that — NEVER a scope-sized range and NEVER an hourly rate. State it plainly, e.g. "$700 for the first month to implement the fixes, then $600/month for ongoing management." Do not invent any other figure (never "$800-$2,500/month" or similar) and do NOT apply the RATE ANCHOR (posted-ceiling-based hourly figure) to this quote — that mechanism is for a direct hourly engagement, not the fixed post-audit management fee, and the posting's raw hourly range is frequently a capture artifact (e.g. an implausible $5-$155/hr spread) that produces a nonsensical number when mirrored back as an hourly rate for a small local business.
 
 WHEN NOT TO OFFER AN AUDIT (zero-pixel / launch from scratch):
 The client has NO existing account — they want to build and launch from scratch. Signals: "launch", "from scratch", "new brand", "starting from zero", "no existing campaigns", "build and launch", "zero pixel data". In these cases:
@@ -6095,6 +6095,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             const _auditPriceInDraft = jobIsPpcAuditExisting ? _extractAuditPrice(text) : null
             const wrongAuditPrice = _auditPriceInDraft != null && _auditPriceInDraft !== 300
+            // MISSING AUDIT PRICE ENTIRELY (confirmed on job 10609, 4th regen): the
+            // draft can state the complimentary/credit-if-we-work-together line
+            // WITHOUT ever quoting the $300 figure it's supposedly crediting back —
+            // crediting an unstated price is meaningless to the client. Distinct
+            // from wrongAuditPrice (a number IS present but wrong) and the
+            // enforcer's must-keep-pricing regression check below (present
+            // pre-enforcer, then dropped) — this catches the first pass never
+            // stating it at all.
+            const missingAuditPriceEntirely = jobIsPpcAuditExisting && !draftOffersPpcAudit
             // Webdev detection: if the job is about building a site (WordPress dev,
             // Shopify, OpenCart, web dev, build a website), suppress the SEO promotion
             // plan requirement — that deliverable is wrong for a development scope.
@@ -6152,6 +6161,28 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // intent for a single local tattoo studio's marketing retainer.
             const _ONGOING_HOURLY_RATE_RE = /\bongoing\b[^.\n]{0,60}\$\d[\d,]*\s*\/?\s*hr\b|\$\d[\d,]*\s*\/?\s*hr\b[^.\n]{0,60}\bongoing\b/i
             const wrongOngoingRateFraming = jobIsPpcAuditExisting && jobHasOngoingSignal && _ONGOING_HOURLY_RATE_RE.test(text)
+
+            // WRONG ONGOING MANAGEMENT FEE (owner correction, 2026-08-08, job
+            // 10609 4th regen): Artem's real ongoing-management fee after the
+            // audit is a FIXED two-tier monthly price — $700 for the first
+            // (setup) month, $600/month after — NEVER a scope-sized range. Every
+            // regen so far invented a different plausible-looking range instead
+            // ("$124/hr" round 2, "$1,200-$1,800/month" round 4) because nothing
+            // grounded the model in the actual number. Catch ANY ongoing-monthly
+            // dollar mention that doesn't state both correct figures together.
+            const _ONGOING_MONTHLY_MENTION_RE = /\bongoing\b[^.\n]{0,60}\$\d[\d,]*(?:\s*-\s*\$?\d[\d,]*)?\s*\/?\s*(?:mo\b|month\b)|\$\d[\d,]*(?:\s*-\s*\$?\d[\d,]*)?\s*\/?\s*(?:mo\b|month\b)[^.\n]{0,60}\bongoing\b/i
+            const _hasCorrectOngoingFee = /\$700\b[^.\n]{0,60}\$600\b|\$600\b[^.\n]{0,60}\$700\b/.test(text)
+            const wrongOngoingManagementFee = jobIsPpcAuditExisting && jobHasOngoingSignal && _ONGOING_MONTHLY_MENTION_RE.test(text) && !_hasCorrectOngoingFee
+
+            // WRONG LAUNCH OFFER ON AN EXISTING-ACCOUNT AUDIT JOB (confirmed on
+            // job 10609, rounds 3 AND 4 — inverse of wrongAuditOfferOnLaunch):
+            // the client has an EXISTING running account and asked for an audit,
+            // but the draft (usually the enforcer's rewrite — see the
+            // must-keep-pricing regression block below) adds a "set up and
+            // launch your campaigns from scratch" offer. There is nothing to
+            // launch, they already have a running account.
+            const _LAUNCH_FROM_SCRATCH_OFFER_RE = /\b(?:set\s+up\s+and\s+launch|build\s+and\s+launch|launch)\s+your\s+campaigns?\s+from\s+scratch\b|\bset\s+up\s+and\s+launch\s+your\s+campaigns?\b/i
+            const wrongLaunchOfferOnExistingAccount = jobIsPpcAuditExisting && _LAUNCH_FROM_SCRATCH_OFFER_RE.test(text)
 
             // ── SEO promotion plan check ──────────────────────────────────────
             // For SEO jobs, the proposal must offer a 3-month SEO Promotion
@@ -6409,7 +6440,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !missingAuditSampleMention && !missingCaseStudy && !missingHighlightsPhrase
               && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming && !wrongPlanOnAuditJob
               && !wrongAuditSampleOnAlreadyAudited && !missingComplimentaryAuditOffer && !wrongComplimentaryOfferOnAuditOnly && !wrongAuditPrice
-              && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming
+              && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming && !missingAuditPriceEntirely
+              && !wrongOngoingManagementFee && !wrongLaunchOfferOnExistingAccount
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -6462,6 +6494,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               wrongAuditPrice && 'wrongAuditPrice',
               localServiceCaseDisplacedByEcomHealth && 'localServiceCaseDisplacedByEcomHealth',
               wrongOngoingRateFraming && 'wrongOngoingRateFraming',
+              missingAuditPriceEntirely && 'missingAuditPriceEntirely',
+              wrongOngoingManagementFee && 'wrongOngoingManagementFee',
+              wrongLaunchOfferOnExistingAccount && 'wrongLaunchOfferOnExistingAccount',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -6536,6 +6571,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongOngoingRateFraming) {
               console.log('[Falcon] Rule pre-check: ongoing-work rate is quoted hourly instead of a monthly retainer range — firing Claude enforcer to correct it.')
+            }
+            if (missingAuditPriceEntirely) {
+              console.log('[Falcon] Rule pre-check: audit job but the draft never states the $300 price anywhere (may still mention the complimentary/credit line with nothing to credit) — firing Claude enforcer to add it.')
+            }
+            if (wrongOngoingManagementFee) {
+              console.log('[Falcon] Rule pre-check: ongoing-management monthly figure is not the fixed $700 (setup month) / $600 (ongoing) — firing Claude enforcer to correct it.')
+            }
+            if (wrongLaunchOfferOnExistingAccount) {
+              console.log('[Falcon] Rule pre-check: existing-account audit job but draft offers a from-scratch campaign launch (nothing to launch) — firing Claude enforcer to remove it.')
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -6843,7 +6887,22 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongOngoingRateFraming) {
               specificViolations.push(
-                'WRONG ONGOING-RATE FRAMING — OWNER HARD RULE: once the audit is offered with the fee-structure credit line ("if we end up working together..."), the ONGOING work that follows must be quoted as a MONTHLY RETAINER RANGE sized to scope (e.g. "$800-$2,500/month depending on scope"), never an hourly rate. The draft quotes an hourly figure (e.g. "$X/hr") for the ongoing work instead — this is very likely anchored to the posting\'s raw hourly ceiling, which does not represent a sane monthly-retainer price for this engagement shape. REPLACE the hourly ongoing-rate sentence with a monthly retainer range in the $800-$2,500/month vicinity, sized to the scope already described (adjust up or down within that range based on how much work was described, but do NOT quote an hourly figure).'
+                'WRONG ONGOING-RATE FRAMING — OWNER HARD RULE: once the audit is offered with the fee-structure credit line ("if we end up working together..."), the ONGOING work that follows must be quoted as the FIXED two-tier monthly fee ($700 for the first/setup month, $600/month after), never an hourly rate. The draft quotes an hourly figure (e.g. "$X/hr") for the ongoing work instead — this is very likely anchored to the posting\'s raw hourly ceiling, which does not represent a sane price for this engagement shape. REPLACE the hourly ongoing-rate sentence with the fixed fee, e.g. "$700 for the first month to implement the fixes, then $600/month for ongoing management" — do NOT quote an hourly figure or invent a scope-sized range.'
+              )
+            }
+            if (missingAuditPriceEntirely) {
+              specificViolations.push(
+                'MISSING AUDIT PRICE — OWNER HARD RULE: this is a Google Ads / PPC audit job but the draft never states the $300 price anywhere (it may mention "the audit fee is credited back" or similar without ever saying what that fee IS — meaningless to the client). ADD the plain price statement "$300 flat, delivered within 1 working day" near where the audit deliverable is described. Do NOT remove or alter any complimentary/credit line that is already present — this is an ADDITION.'
+              )
+            }
+            if (wrongOngoingManagementFee) {
+              specificViolations.push(
+                'WRONG ONGOING-MANAGEMENT FEE — OWNER HARD RULE: Artem\'s real ongoing-management fee after the audit is a FIXED two-tier monthly price — $700 for the first (setup) month, $600/month after — never a scope-sized range and never any other figure. The draft quotes a different monthly figure for the ongoing work (e.g. "$1,200-$1,800/month"). REPLACE it with the exact fixed fee, e.g. "$700 for the first month to implement the fixes, then $600/month for ongoing management." Do NOT invent or keep any other range.'
+              )
+            }
+            if (wrongLaunchOfferOnExistingAccount) {
+              specificViolations.push(
+                'WRONG LAUNCH OFFER ON AN EXISTING-ACCOUNT AUDIT JOB: the client has an EXISTING running Google Ads account and asked for an audit/review — there is no from-scratch launch to offer. The draft offers to "set up and launch your campaigns from scratch" (or similar). DELETE that entire sentence. Do NOT replace it with anything — the audit + ongoing-management offer is the complete pitch for this job.'
               )
             }
             if (missingSeoPlanOffer) {
@@ -6990,12 +7049,26 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 // it, regardless of which violation triggered the call.
                 const _regressedAuditPrice = draftOffersPpcAudit && !/\$300\b/.test(correctedText)
                 const _regressedComplimentary = draftHasComplimentaryOffer && !_DRAFT_COMPLIMENTARY_RE.test(correctedText)
+                // ENFORCER-ADDED LAUNCH OFFER (confirmed on job 10609, rounds 3
+                // AND 4): the pre-enforcer draft never mentions a from-scratch
+                // launch, and no listed violation asked for one, but the
+                // rewrite adds "I can set up and launch your campaigns from
+                // scratch..." anyway — pure enforcer overreach on an
+                // existing-account audit job. Discard rather than ship a
+                // self-contradicting letter (audits an account that
+                // apparently doesn't exist yet).
+                const _addedWrongLaunchOffer = jobIsPpcAuditExisting &&
+                  !_LAUNCH_FROM_SCRATCH_OFFER_RE.test(_preEnforcerSnapshot) &&
+                  _LAUNCH_FROM_SCRATCH_OFFER_RE.test(correctedText)
                 if (_looksGarbled(correctedText) && !_looksGarbled(_preEnforcerSnapshot)) {
                   console.warn('[Falcon] Rule-compliance rewrite looked garbled (orphaned punctuation / unbalanced parens) — discarding it and keeping the pre-enforcer draft.')
                   _recordViolations('generator', job?.id, ['enforcerGarbledRewrite'])
                 } else if (_regressedAuditPrice || _regressedComplimentary) {
                   console.warn('[Falcon] Rule-compliance rewrite silently dropped the $300 audit price and/or the complimentary-credit line that was correctly present pre-enforcer — discarding it and keeping the pre-enforcer draft.')
                   _recordViolations('generator', job?.id, ['enforcerDroppedPricing'])
+                } else if (_addedWrongLaunchOffer) {
+                  console.warn('[Falcon] Rule-compliance rewrite added an unrelated "launch your campaigns from scratch" offer on an existing-account audit job — discarding it and keeping the pre-enforcer draft.')
+                  _recordViolations('generator', job?.id, ['enforcerAddedWrongLaunchOffer'])
                 } else {
                   text = correctedText
                 }
