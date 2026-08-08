@@ -1647,6 +1647,33 @@ function _stripLeadingStrategyLabel(text) {
   return paras.join('\n\n')
 }
 
+// Garbling sanity check for the enforcer's rewrite pass. Confirmed on job
+// 10609: the surgical-edit enforcer, while fixing the listed violations,
+// silently deleted a mid-sentence chunk of an UNRELATED sentence, leaving an
+// orphaned fragment — "...blackwork, etc.) so the ad copy sells..." became
+// "...bleed. ) So the ad copy sells...", and a separate paragraph elsewhere
+// started with a bare quote+comma with no preceding context. Two cheap,
+// generic, high-precision signals catch this class of damage without needing
+// to understand WHY the model dropped the text:
+//   1. Unbalanced parens — a clean rewrite never orphans a bracket.
+//   2. A paragraph starting with bare closing punctuation, or a lone quote
+//      mark immediately followed by a comma — the signature of a chunk
+//      deleted right at a paragraph's start.
+function _looksGarbled(text) {
+  if (!text) return false
+  const opens = (text.match(/\(/g) || []).length
+  const closes = (text.match(/\)/g) || []).length
+  if (opens !== closes) return true
+  const paras = text.split(/\n\s*\n/)
+  for (const p of paras) {
+    const t = p.trim()
+    if (!t) continue
+    if (/^[)\]},;:]/.test(t)) return true
+    if (/^["'][,;]/.test(t)) return true
+  }
+  return false
+}
+
 function _stripFabricatedOpener(text) {
   if (!text) return text
   // Also kill a posting-restatement opener ("The job posting asks for…"). Done
@@ -6044,6 +6071,29 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const draftOffersPpcAudit = /\$300\b/.test(text)
             const missingComplimentaryAuditOffer = jobHasOngoingSignal && draftOffersPpcAudit && !draftHasComplimentaryOffer
             const wrongComplimentaryOfferOnAuditOnly = jobIsAuditOnlyExplicit && draftHasComplimentaryOffer
+            // WRONG AUDIT PRICE (confirmed on job 10609): the $300 figure is a
+            // FIXED, unconditional productised price — the prompt never says
+            // "adjust for scope" — but on a posting with an unusually long
+            // checklist the model quoted "$800 flat" instead, which contradicts
+            // the standing rule AND the analyser's own $300 assumption for the
+            // same job (shown side-by-side to the owner, an obvious mismatch).
+            // Extract whatever price the draft attaches to the audit deliverable
+            // specifically (never the separate, legitimate ongoing-retainer
+            // estimate elsewhere in the same letter) and correct it if it isn't 300.
+            const _extractAuditPrice = (t) => {
+              const patterns = [
+                /\$(\d[\d,]*)\s*flat\b[^.\n]{0,60}\baudit\b/i,
+                /\baudit\b[^.\n]{0,40}\$(\d[\d,]*)\s*flat\b/i,
+                /(?:rate|price|fee|cost)\s+for\s+the\s+audit\s*:?\s*\$(\d[\d,]*)/i,
+              ]
+              for (const re of patterns) {
+                const m = t.match(re)
+                if (m) return Number(m[1].replace(/,/g, ''))
+              }
+              return null
+            }
+            const _auditPriceInDraft = jobIsPpcAuditExisting ? _extractAuditPrice(text) : null
+            const wrongAuditPrice = _auditPriceInDraft != null && _auditPriceInDraft !== 300
             // Webdev detection: if the job is about building a site (WordPress dev,
             // Shopify, OpenCart, web dev, build a website), suppress the SEO promotion
             // plan requirement — that deliverable is wrong for a development scope.
@@ -6325,7 +6375,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const draftCompliant = timingCompliant && !hasForbiddenPhrase && !hasCircumventionRisk && !missingPdfLabel
               && !missingAuditSampleMention && !missingCaseStudy && !missingHighlightsPhrase
               && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming && !wrongPlanOnAuditJob
-              && !wrongAuditSampleOnAlreadyAudited && !missingComplimentaryAuditOffer && !wrongComplimentaryOfferOnAuditOnly
+              && !wrongAuditSampleOnAlreadyAudited && !missingComplimentaryAuditOffer && !wrongComplimentaryOfferOnAuditOnly && !wrongAuditPrice
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -6375,6 +6425,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               wrongAuditSampleOnAlreadyAudited && 'wrongAuditSampleOnAlreadyAudited',
               missingComplimentaryAuditOffer && 'missingComplimentaryAuditOffer',
               wrongComplimentaryOfferOnAuditOnly && 'wrongComplimentaryOfferOnAuditOnly',
+              wrongAuditPrice && 'wrongAuditPrice',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -6440,6 +6491,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongComplimentaryOfferOnAuditOnly) {
               console.log('[Falcon] Rule pre-check: posting is explicitly a one-off audit with no ongoing work, but the draft added a complimentary/credit offer anyway — firing Claude enforcer to remove it.')
+            }
+            if (wrongAuditPrice) {
+              console.log(`[Falcon] Rule pre-check: draft quotes $${_auditPriceInDraft} for the audit instead of the fixed $300 — firing Claude enforcer to correct it.`)
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -6735,6 +6789,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 'WRONG FEE-STRUCTURE OFFER — OWNER HARD RULE: the posting explicitly states this is a one-off audit with NO ongoing work (one-time project, audit only, not looking for a retainer). The draft added a complimentary/credit-if-we-work-together line anyway — there is no ongoing work to credit it toward, so this reads as a confused, unprompted promise. DELETE the complimentary/credit sentence. Keep the plain "$300 flat, delivered within 1 working day" offer with no fee-structure caveat attached.'
               )
             }
+            if (wrongAuditPrice) {
+              specificViolations.push(
+                `WRONG AUDIT PRICE — OWNER HARD RULE: the Google Ads / PPC account audit is a FIXED, unconditional $300 productised deliverable — never a variable price, regardless of how long or detailed the posting's checklist is. The draft quotes $${_auditPriceInDraft} for the audit instead. CHANGE the audit price to "$300 flat, delivered within 1 working day" exactly. Do NOT touch any separate ONGOING/monthly retainer estimate elsewhere in the letter (that figure is scope-dependent and correct as-is) — this fix is ONLY the one-time audit price.`
+              )
+            }
             if (missingSeoPlanOffer) {
               specificViolations.push(
                 'MISSING SEO PROMOTION PLAN OFFER: This is an SEO job. The draft must offer a custom 3-month SEO Promotion Plan deliverable in 2 working days, covering: deliverables, costs, link building budget, basic site check, competitor overview. ' +
@@ -6850,7 +6909,24 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               const enforceData = await enforceRes.json()
               const correctedText = _stripAttachmentsSummaryLine(_stripLeadingSignoff((enforceData.content || []).map(b => b.text || '').join('').trim()))
               if (correctedText && correctedText.length > 40) {
-                text = correctedText
+                // Garbling sanity check (confirmed on job 10609): the enforcer's
+                // surgical rewrite can, while satisfying the listed violations,
+                // delete a mid-sentence chunk of an UNRELATED sentence and leave
+                // an orphaned fragment — e.g. "...blackwork, etc.) so the ad copy
+                // sells..." became "...bleed. ) So the ad copy sells..." (the
+                // whole "the oslo market is small enough... structure separate
+                // campaigns for your top artists + styles (realism, traditional,
+                // blackwork, etc." clause vanished, leaving a stray ")" and a
+                // dangling non-sequitur). The pre-enforcer draft (_preEnforcerSnapshot)
+                // is always coherent — the whole point of snapshotting it — so
+                // when the rewrite looks garbled, discard it and keep the
+                // first-pass draft instead of shipping broken English.
+                if (_looksGarbled(correctedText) && !_looksGarbled(_preEnforcerSnapshot)) {
+                  console.warn('[Falcon] Rule-compliance rewrite looked garbled (orphaned punctuation / unbalanced parens) — discarding it and keeping the pre-enforcer draft.')
+                  _recordViolations('generator', job?.id, ['enforcerGarbledRewrite'])
+                } else {
+                  text = correctedText
+                }
               }
             }
           }

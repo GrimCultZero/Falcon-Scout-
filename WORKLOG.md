@@ -3094,3 +3094,56 @@ caught; ongoing-signal + missing credit line → caught; ongoing-signal + correc
 line → clean; silent posting (no signal either way) → defaults to plain $300, clean; launch-from-
 scratch job → fee-structure rule correctly doesn't apply at all (different offer entirely).
 `vite build` clean.
+
+## 2026-08-08 (4) — Job 10609 validated the new fee-structure rule AND surfaced two new bugs
+
+Owner shared job 10609 (tattoo studio in Oslo — explicitly wants "a long-term partner", textbook
+ongoing-cooperation signal) to check the freshly-shipped fee-structure rule. Result: the rule worked
+— the letter correctly included "if we end up working together on ongoing management, the audit fee
+is credited back." But the BEFORE/AFTER draft comparison surfaced two SEPARATE, more serious bugs.
+
+### Bug 1 — the enforcer rewrite garbled the letter (unsendable as shipped)
+Diffing the two drafts: the first-pass draft was fully coherent. The post-rewrite (enforcer) draft
+had a chunk silently deleted mid-sentence in TWO places, leaving broken fragments:
+- "...and broad match bleed. **) So the ad copy sells** the specific artist..." (the whole "the oslo
+  market is small enough... structure separate campaigns for your top artists + styles (realism,
+  traditional, blackwork, etc." clause vanished — only the orphaned closing paren survived).
+- A second paragraph that started **"\", conversion rate stays low..."** — a bare quote+comma with
+  no preceding context, another mid-sentence deletion.
+Confirmed via the file's own BEFORE/AFTER snapshot mechanism (added in an earlier session
+specifically to diagnose "did the first pass or the rewrite introduce this" — referenced job 10312
+in an existing code comment) that this is 100% an ENFORCER-INTRODUCED defect, not a first-pass or
+deterministic-strip issue. The enforcer LLM, while satisfying several simultaneous listed violations
+in one rewrite call, corrupted unrelated prose it wasn't even asked to touch.
+
+**Fix:** new `_looksGarbled(text)` (JobDetail.jsx) — two cheap, generic, high-precision signals:
+(1) unbalanced parens (a clean rewrite never orphans a bracket), (2) a paragraph starting with bare
+closing punctuation or a lone quote+comma (the signature of a chunk deleted at a paragraph's start).
+Wired into the enforcer-response handler: if the corrected text looks garbled AND the pre-enforcer
+snapshot (already captured, per the existing job-10312 mechanism) does NOT look garbled, DISCARD the
+enforcer's rewrite and keep the first-pass draft instead of shipping broken English. Fires
+`enforcerGarbledRewrite` telemetry so we can see how often this actually happens over the next 30d.
+Verified (Node): the real broken AFTER-draft → detected; the real clean BEFORE-draft → not flagged;
+3 other clean letters from earlier sessions → no false positives.
+
+### Bug 2 — audit price drifted from the fixed $300 to $800
+The existing hard rule ("ALWAYS quote the FIXED PRICE... a flat $300... State it plainly") has NO
+scope-based exception clause anywhere, yet this posting's unusually long checklist (account audit +
+campaign optimization + conversion tracking + landing pages + marketing strategy + reporting, each
+its own section) apparently led the model to quote "$800 flat" instead — contradicting both the
+standing rule AND the analyser's own "$300 fixed audit is the perfect door-opener" assumption for
+the SAME job, shown side-by-side to the owner. Zero deterministic enforcement existed for the audit
+price at all (only the fee-STRUCTURE — i.e. whether to add the complimentary line — got a backstop
+in the previous session's commit; the price NUMBER itself was unguarded).
+
+**Fix:** `_extractAuditPrice(text)` looks specifically for a dollar figure attached to the AUDIT
+deliverable ("$X flat ... audit", "audit ... $X flat", "rate/price/fee/cost for the audit: $X") —
+deliberately scoped so it never matches the separate, legitimate ongoing-retainer estimate elsewhere
+in the same letter (verified). `wrongAuditPrice` fires when a price is found and it isn't exactly
+300, triggering the enforcer to correct ONLY the audit price line, explicitly instructed not to touch
+any retainer estimate. Wired into all 4 sites (compliance gate, telemetry, console pre-check, enforcer
+message), same pattern as every other hard rule shipped today.
+Verified (Node): real $800 draft → extracted 800, flagged wrong; a $300 draft → extracted 300, not
+flagged; a retainer-only mention with no audit price → returns null, not flagged (no false positive).
+
+Both fixes: `vite build` clean.
