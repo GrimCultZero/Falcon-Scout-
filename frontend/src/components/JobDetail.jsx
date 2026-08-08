@@ -1674,6 +1674,51 @@ function _looksGarbled(text) {
   return false
 }
 
+// FORCE-FIX ONGOING MANAGEMENT FEE (owner correction, 2026-08-08, job 10609):
+// the $124/hr and $1,200-$1,800/month figures kept surviving into the FINAL
+// letter across five regens of the same job — sometimes because the
+// enforcer wasn't told to fix it, sometimes because it was told and didn't
+// comply, sometimes because its fix got correctly discarded (garbled/
+// overreaching) but the pre-enforcer draft it fell back to had the same
+// wrong number baked in from the first pass. An enforcer-instruction alone
+// isn't reliable enough for a number this load-bearing (real client-facing
+// pricing) — this is a deterministic, unconditional last-mile guarantee
+// applied regardless of what happened upstream. Gated on the letter already
+// pitching the $300 flat audit (a strong, self-contained signal this is
+// Artem's audit-then-management flow) so it never touches an unrelated
+// SEO/webdev ongoing-retainer quote that has nothing to do with this rule.
+function _forceFixOngoingFee(text) {
+  if (!text) return text
+  // Gate on "$300" appearing NEAR the word "audit" (same 60-char proximity
+  // idiom as _extractAuditPrice above) rather than a bare "$300" substring
+  // anywhere in the letter. A workflow adversarial-verify pass (2026-08-08)
+  // found a real false positive: a letter quoting "$300 flat" for an
+  // unrelated deliverable (e.g. a landing-page redesign) that separately
+  // mentioned "ongoing ad management ... $50/hr" got its legitimate,
+  // unrelated hourly rate clobbered by this function. Requiring "audit" near
+  // the "$300" ties the gate to the actual rule this function enforces.
+  if (!/\$300\b[^.\n]{0,60}\baudit\b|\baudit\b[^.\n]{0,60}\$300\b/i.test(text)) return text
+  const CORRECT_FEE = '$700 for the first month, then $600/month'
+  let out = text
+  const _hasCorrectFee = () => /\$700\b[^.\n]{0,60}\$600\b|\$600\b[^.\n]{0,60}\$700\b/i.test(out)
+  if (_hasCorrectFee()) return out
+  const hourlyNearOngoing = /\bongoing\b[^.\n]{0,60}\$\d[\d,]*\s*\/?\s*hr\b|\$\d[\d,]*\s*\/?\s*hr\b[^.\n]{0,60}\bongoing\b/i
+  if (hourlyNearOngoing.test(out)) {
+    out = out.replace(/\$\d[\d,]*\s*\/?\s*hr\b/i, CORRECT_FEE)
+  }
+  const monthlyNearOngoing = /\bongoing\b[^.\n]{0,60}\$\d[\d,]*(?:\s*-\s*\$?\d[\d,]*)?\s*\/?\s*(?:mo\b|month\b)|\$\d[\d,]*(?:\s*-\s*\$?\d[\d,]*)?\s*\/?\s*(?:mo\b|month\b)[^.\n]{0,60}\bongoing\b/i
+  if (!_hasCorrectFee() && monthlyNearOngoing.test(out)) {
+    out = out.replace(/\$\d[\d,]*(?:\s*-\s*\$?\d[\d,]*)?\s*\/?\s*(?:mo\b|month\b)/i, CORRECT_FEE)
+    // Strip the now-stale "depending on scope" qualifier but PRESERVE its
+    // trailing separator comma if one was there (a workflow adversarial-
+    // verify pass, 2026-08-08, found the old `,?`-in-match version silently
+    // ate the comma, producing a run-on: "...$600/month weekly search-term
+    // review..." instead of "...$600/month, weekly search-term review...").
+    out = out.replace(/(\$700 for the first month, then \$600\/month)\s*(?:depending on|sized to|based on)\s*scope\b(,)?/i, (_m, fee, comma) => fee + (comma || ''))
+  }
+  return out
+}
+
 function _stripFabricatedOpener(text) {
   if (!text) return text
   // Also kill a posting-restatement opener ("The job posting asks for…"). Done
@@ -2304,8 +2349,33 @@ function _splitLongBodyParagraphs(text) {
     if (/:\s*$/.test(t)) return para                        // a short self-authored label line
     if (/^\s*[-*•\d]/.test(t)) return para                  // already a list/bullet
     // Sentence split (keeps terminal punctuation). Falls back to the whole
-    // paragraph if we can't find sentence boundaries.
-    const sentences = t.match(/[^.!?]+[.!?]+(?:\s+|$)/g)
+    // paragraph if we cannot find sentence boundaries.
+    // Confirmed via reproduction (2026-08-08, job 10609): the old
+    // t.match(/[^.!?]+[.!?]+(?:\s+|$)/g) approach requires each "sentence"
+    // to be captured as ONE atomic match, so a rhetorical "?" inside a
+    // parenthetical aside -- "...booking?), campaign-structure..." (terminator
+    // then bracket then a COMMA, not whitespace) -- has no valid match ending
+    // there, and a genuine sentence end like "...homepage?)." (terminator
+    // then bracket then ANOTHER terminator) has no match ending at the "?"
+    // either. match() silently DROPS whatever text it cannot fit into a
+    // match, then resumes at the next fragment it can match (often just an
+    // orphaned ")" or "),"), producing a paragraph that starts mid-clause.
+    // Fix: do not try to match whole sentences atomically. Instead, mark
+    // every position that IS a genuine boundary (terminator(s), optionally
+    // followed by closing brackets/quotes, immediately followed by
+    // whitespace or end-of-string) and split on those markers. A false
+    // candidate (terminator+bracket followed by a comma, like the
+    // parenthetical-question case) never gets marked and stays fused to its
+    // sentence -- nothing in the original text is ever dropped, because
+    // replace() only transforms the parts that actually match and passes
+    // everything else through untouched. \x1f is a control character that
+    // never appears in real letter text, used purely as a split marker.
+    const _SENT_BOUNDARY_RE = /([.!?]+[)\]"'\u201d\u2019]*)(?=\s+|$)/g
+    const sentences = t
+      .replace(_SENT_BOUNDARY_RE, '$1\x1f')
+      .split('\x1f')
+      .map(s => s.trim())
+      .filter(Boolean)
     if (!sentences || sentences.length < 2) return para
     const beats = []
     let cur = [], curW = 0
@@ -6504,7 +6574,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_forceFixOngoingFee(text)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
               if (_isStaleGenerate()) {
                 console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
                 if (_jobIdAtCallTime != null) {
@@ -7084,7 +7154,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       }
 
       {
-        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(text).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_forceFixOngoingFee(text)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {

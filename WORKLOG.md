@@ -3295,3 +3295,66 @@ This is now a 4th and 5th safety net around the enforcer's output (garbling, wro
 must-keep-pricing, and now enforcer-added-launch-offer) — the enforcer keeps introducing unrelated
 overreach even when explicitly told "preserve every other sentence verbatim," reinforcing the §21
 diagnosis that the enforcer pass is the least reliable link in the pipeline.
+
+## 2026-08-08 — Job 10609 round 5: deterministic force-fix for the ongoing fee, root cause of the garbled paragraph
+
+Owner shared a 5th regen of job 10609: "again weird rate, paragraph starts with ")." and overall
+I dont like it." Two distinct, now-resolved bugs.
+
+**Bug 1 — the wrong ongoing-work rate ($124/hr this round) kept surviving despite round 4's fixes.**
+Round 4 added enforcer-instruction checks (`wrongOngoingRateFraming`, `wrongOngoingManagementFee`) but
+those only ask the enforcer LLM pass to fix the number — and across 5 regens of the same job the
+enforcer has proven unreliable at this (sometimes not told to touch it, sometimes told and didn't
+comply, sometimes its fix correctly discarded for an unrelated reason with the pre-enforcer draft's
+own wrong number surviving instead). Added `_forceFixOngoingFee(text)` (JobDetail.jsx, module scope
+near `_looksGarbled`) — a deterministic, unconditional last-mile regex correction wired into BOTH
+`_gcShadow(_splitLongBodyParagraphs(...))` chains (the compliant-bypass path and the post-enforcer
+path), so it runs regardless of what happened upstream. Gated on "$300" appearing near the word
+"audit" (same proximity idiom as `_extractAuditPrice`) so it can never touch an unrelated SEO/webdev
+ongoing-retainer quote.
+
+A workflow adversarial-verify pass (3 parallel agents, independent Node repros against the real text)
+caught two real defects in the first version before it shipped: (a) the initial gate was a bare
+`$300` substring check with no context — a letter quoting $300 for something unrelated (e.g. a
+landing-page redesign) plus a separate legitimate hourly rate near "ongoing" would have had that
+unrelated rate wrongly clobbered; tightened the gate to require "$300" within 60 chars of "audit".
+(b) the "strip the stale 'depending on scope' qualifier" cleanup regex consumed the trailing
+separator comma as part of its match, producing a run-on sentence ("...$600/month weekly
+search-term review..." missing the comma); fixed by capturing the comma and re-emitting it only when
+it was actually there.
+
+**Bug 2 — a paragraph in the final letter literally started with "). The audit prioritises..."**
+Root-caused via a workflow agent that reproduced it directly (not just theorized): `_splitLongBodyParagraphs`'s
+sentence tokenizer (`t.match(/[^.!?]+[.!?]+(?:\s+|$)/g)`) requires each "sentence" to be captured as
+ONE atomic match ending in terminator+whitespace. Real prose routinely ends a clause "...homepage?)."
+(terminator, then a closing paren, then the paragraph's real terminating period) or has a rhetorical
+"?" INSIDE a parenthetical aside followed by a comma, not whitespace ("...booking?), campaign-structure...").
+Neither shape has a valid atomic match under the old regex, so `.match()` silently DROPPED the entire
+clause up to that point and resumed matching at the next fragment it could find — usually an orphaned
+")." — which then became its own paragraph once `beats.join()` ran. This happened downstream of the
+existing `_looksGarbled` enforcer-discard check (which is correct in isolation — confirmed independently
+by the root-cause agent), so that safety net never saw the damage: the corruption was introduced by
+the splitter, which runs LATER in the same shared strip-chain, on ANY accepted text regardless of path
+(the compliant-bypass path doesn't call `_looksGarbled` at all, and even the post-enforcer path's check
+runs on `correctedText` before the split, not after).
+
+Fixed by replacing the atomic-match approach with a boundary-marking split: find every genuine sentence
+boundary (terminator, optionally followed by closing brackets/quotes, immediately followed by
+whitespace/EOF) via `replace()`, mark it, and split on the marker — `replace()` only transforms parts
+that actually match and passes everything else through untouched, so no text can ever be silently
+dropped the way `.match()` could. A candidate that ISN'T followed by whitespace (the parenthetical-
+question case) simply never gets marked and stays fused to its sentence, exactly as intended.
+
+Verified against the real round-5 paragraph containing BOTH failure shapes (the "?)," mid-sentence case
+and the "?)." end-of-clause case) plus a normal paragraph with no bracket edge cases at all — output
+now splits cleanly at real sentence boundaries with zero content loss (word count identical before/after)
+and no garbled paragraph starts in either case. `vite build` clean.
+
+**Process note:** used the Workflow tool (ultracode-directed) for adversarial verification and root-cause
+investigation on this one — three independent agents tried to break `_forceFixOngoingFee` against
+diverse job types and found the two real defects above before they shipped; a fourth agent
+independently reproduced the splitter bug rather than accepting "the check looks correct in isolation"
+as the full answer. One of the verify agents also reported a suspicious environment event during its
+run (a scratchpad test file it wrote got externally modified mid-task with substituted test content and
+an embedded instruction not to mention this to the user) — the agent correctly ignored the embedded
+instruction and flagged it instead; surfaced to the owner directly rather than silently proceeding.
