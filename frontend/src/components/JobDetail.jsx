@@ -5195,6 +5195,10 @@ The client has a running Google Ads account with campaigns already live. Signals
 - ALWAYS state the timeline: "audit delivered within 1 working day."
 - ALWAYS quote the FIXED PRICE: the Google Ads / PPC account audit is a productised deliverable at a flat $300. State it plainly and confidently ("$300 flat, delivered within 1 working day") EVEN IF the posting never asked for a rate — this is the standard offer, not an unsolicited quote, and it is the whole pitch. This OVERRIDES "never quote a price upfront" and overrides the RATE ANCHOR (do NOT bid the posted hourly ceiling on an audit job — the deliverable is fixed-fee, so a low posted hourly range is irrelevant and must never be mirrored back as an hourly rate). Never write an hourly figure for the audit.
 - ALWAYS mention the audit sample, but WEAVE IT INTO THE LETTER — do NOT drop it as an isolated boilerplate sentence floating right before the signoff (that reads pasted-in and out of context, which is exactly how it currently fails). Connect it to what you just said — tie it to the specific issue you diagnosed or make it the natural next step. Example: instead of a lone trailing "I'm attaching a sample of a recent Google Ads audit so you can see the format and depth.", write something like "That wasted-spend question is the first thing my audit pins down — I've attached a recent Google Ads audit sample so you can see the format and depth." You MUST still (a) name the audit type explicitly ("Google Ads audit" / "technical SEO audit", never a bare "sample") and (b) keep it recognizable with "sample … audit … see the format and depth", but it has to connect to a sentence around it, not stand alone.
+- FEE STRUCTURE — HARD RULE (owner policy, read the posting for future-work signals; deterministically enforced, not a suggestion):
+  • If the posting explicitly says this is a ONE-TIME / one-off audit with NO ongoing work after it ("one-time project", "audit only", "not looking for ongoing help", "no retainer needed"), the price is the plain "$300 flat, delivered within 1 working day" — do NOT add any complimentary/credit language; there is no future engagement to credit it toward.
+  • If the posting signals POSSIBLE ongoing cooperation after the audit (e.g. "could lead to ongoing management", "if this works out we'd like to continue", "potential for a long-term partnership", mentions monthly management/retainer as a next step), you MUST ALSO convey — in your own natural phrasing, not verbatim boilerplate — "if we end up working together on ongoing management, this audit fee is credited back / the audit becomes complimentary." This is an ADDITION to the $300/1-day offer, never a replacement, and it lowers the client's risk of trying the audit at zero cost to Artem unless they actually convert to ongoing work.
+  • If the posting is genuinely silent on future work either way, default to the plain $300 (no complimentary language) — only add the credit offer when the posting actually signals ongoing potential.
 
 WHEN NOT TO OFFER AN AUDIT (zero-pixel / launch from scratch):
 The client has NO existing account — they want to build and launch from scratch. Signals: "launch", "from scratch", "new brand", "starting from zero", "no existing campaigns", "build and launch", "zero pixel data". In these cases:
@@ -6012,6 +6016,34 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const SEO_JOB_KEYWORDS = /\b(?:seo\b|search\s+engine\s+optimi[sz]ation|organic\s+(?:traffic|search)|google\s+rank|ranking|backlinks?|schema(?:\s+markup)?|ai\s+overviews?|aeo|geo\s+(?:seo|search)|content\s+strategy|technical\s+seo|onpage\s+seo|off[\s-]page\s+seo)\b/i
             const jobIsPpc = PPC_JOB_KEYWORDS.test(jobContextLower)
             const jobIsSeo = SEO_JOB_KEYWORDS.test(jobContextLower)
+
+            // PPC AUDIT FEE STRUCTURE (owner hard rule, 2026-08-08): the $300 Google
+            // Ads audit's fee framing depends on what the POSTING signals about
+            // future work, never the model's own guess.
+            //   - Posting explicitly says this is one-off / no ongoing work -> plain
+            //     $300, no complimentary/credit language (nothing to credit toward).
+            //   - Posting signals POSSIBLE ongoing cooperation after the audit
+            //     (retainer, "could lead to", "if this works out", long-term
+            //     partnership, monthly management) -> still $300, but the letter
+            //     MUST also convey "if we end up working together, this audit fee
+            //     is credited / becomes complimentary" — lowers the client's risk
+            //     of trying the audit and signals confidence, at zero cost unless
+            //     they actually convert to ongoing work.
+            //   - Posting is silent on this either way -> default to plain $300
+            //     (no unprompted promise) — only add the credit offer when the
+            //     posting actually signals ongoing potential.
+            const _PPC_AUDIT_EXISTING_RE = /\b(?:audit|review|assessment|health\s*check|analys[ei]s|analyse|analyze)\b/i
+            const _PPC_LAUNCH_FROM_SCRATCH_RE = /\b(?:launch|from\s+scratch|new\s+brand|starting\s+from\s+zero|no\s+existing\s+campaigns?|build\s+and\s+launch|zero[\s-]?pixel)\b/i
+            const jobIsPpcAuditExisting = jobIsPpc && _PPC_AUDIT_EXISTING_RE.test(jobContextLower) && !_PPC_LAUNCH_FROM_SCRATCH_RE.test(jobContextLower)
+            const _AUDIT_ONLY_NO_ONGOING_RE = /\b(?:one[\s-]?time|one[\s-]?off|single|standalone|isolated)\b[^.\n]{0,40}\b(?:audit|project|task|engagement|job)\b|\baudit\s+only\b|\bnot\s+(?:looking\s+for|seeking|interested\s+in|needing)\s+(?:ongoing|recurring|a\s+retainer|long[\s-]?term|monthly)\b|\bno\s+(?:ongoing|recurring|retainer|long[\s-]?term)\s+(?:work|commitment|engagement|management|help)\b|\bthis\s+is\s+(?:a\s+)?(?:one[\s-]?time|one[\s-]?off|single|standalone)\s+(?:project|job|task|engagement|audit)\b/i
+            const _ONGOING_SIGNAL_PPC_RE = /\b(?:could\s+lead\s+to|potential\s+for|possibility\s+of|may\s+lead\s+to|if\s+(?:this|it)\s+(?:works?\s+out|goes\s+well)|looking\s+for\s+a\s+long[\s-]?term|ongoing\s+(?:management|support|optimi[sz]ation|work|help|relationship|basis)|continu(?:e|ed|ing)\s+(?:to\s+)?(?:work|manage|optimi[sz]e)|\bretainer\b|long[\s-]?term\s+(?:partner|partnership|relationship|engagement|collaboration|role)|monthly\s+(?:management|retainer)|future\s+work|potential\s+long[\s-]?term|room\s+for\s+ongoing|this\s+could\s+(?:turn\s+into|become)\s+(?:ongoing|regular|recurring))\b/i
+            const jobHasOngoingSignal = jobIsPpcAuditExisting && _ONGOING_SIGNAL_PPC_RE.test(jobContextLower) && !_AUDIT_ONLY_NO_ONGOING_RE.test(jobContextLower)
+            const jobIsAuditOnlyExplicit = jobIsPpcAuditExisting && _AUDIT_ONLY_NO_ONGOING_RE.test(jobContextLower)
+            const _DRAFT_COMPLIMENTARY_RE = /\b(?:complimentary|credit(?:ed)?\s+(?:back|toward|against|off)|on\s+(?:me|the\s+house)|waive[d]?|no\s+charge|free)\b[^.\n]{0,70}\b(?:if|when|once|should)\b[^.\n]{0,50}\b(?:work(?:ing)?\s+together|ongoing|continu(?:e|ing)|hire|retain|management|partner)\b|\bif\s+(?:we|this)\s+(?:end\s+up\s+)?work(?:ing)?\s+together\b[^.\n]{0,90}\b(?:complimentary|credit(?:ed)?|free|waive[d]?|no\s+charge|on\s+me)\b/i
+            const draftHasComplimentaryOffer = _DRAFT_COMPLIMENTARY_RE.test(text)
+            const draftOffersPpcAudit = /\$300\b/.test(text)
+            const missingComplimentaryAuditOffer = jobHasOngoingSignal && draftOffersPpcAudit && !draftHasComplimentaryOffer
+            const wrongComplimentaryOfferOnAuditOnly = jobIsAuditOnlyExplicit && draftHasComplimentaryOffer
             // Webdev detection: if the job is about building a site (WordPress dev,
             // Shopify, OpenCart, web dev, build a website), suppress the SEO promotion
             // plan requirement — that deliverable is wrong for a development scope.
@@ -6293,7 +6325,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const draftCompliant = timingCompliant && !hasForbiddenPhrase && !hasCircumventionRisk && !missingPdfLabel
               && !missingAuditSampleMention && !missingCaseStudy && !missingHighlightsPhrase
               && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming && !wrongPlanOnAuditJob
-              && !wrongAuditSampleOnAlreadyAudited
+              && !wrongAuditSampleOnAlreadyAudited && !missingComplimentaryAuditOffer && !wrongComplimentaryOfferOnAuditOnly
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -6341,6 +6373,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               wrongSeoPlanTiming && 'wrongSeoPlanTiming',
               wrongPlanOnAuditJob && 'wrongPlanOnAuditJob',
               wrongAuditSampleOnAlreadyAudited && 'wrongAuditSampleOnAlreadyAudited',
+              missingComplimentaryAuditOffer && 'missingComplimentaryAuditOffer',
+              wrongComplimentaryOfferOnAuditOnly && 'wrongComplimentaryOfferOnAuditOnly',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -6400,6 +6434,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongAuditSampleOnAlreadyAudited) {
               console.log('[Falcon] Rule pre-check: client already has an audit done but draft offers the technical SEO audit sample anyway (wrong deliverable) — firing Claude enforcer to remove it.')
+            }
+            if (missingComplimentaryAuditOffer) {
+              console.log('[Falcon] Rule pre-check: posting signals possible ongoing work but the $300 audit offer is missing the complimentary-if-we-work-together line — firing Claude enforcer to add it.')
+            }
+            if (wrongComplimentaryOfferOnAuditOnly) {
+              console.log('[Falcon] Rule pre-check: posting is explicitly a one-off audit with no ongoing work, but the draft added a complimentary/credit offer anyway — firing Claude enforcer to remove it.')
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -6683,6 +6723,16 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 'WRONG DELIVERABLE — AUDIT SAMPLE OFFERED BUT THE CLIENT ALREADY HAS AN AUDIT DONE: The posting explicitly says the client already completed a technical SEO audit and wants the current setup reviewed / fixes implemented — they are NOT buying an audit. The draft still offers/attaches the technical SEO audit sample ("here\'s a sample audit so you can see the format and depth"), which reads as if the posting was not read — it is proof of a deliverable they never asked for. ' +
                 'DELETE the entire audit-sample sentence (the "i\'m attaching a sample technical SEO audit…" line and any lead-in tied to it). Do NOT replace it with another audit-shaped offer. Lean on the case studies already cited (they demonstrate IMPLEMENTATION results — fixed canonicals/schema/redirects/site speed — which IS the relevant proof here) and describe the review-then-fix process directly. No separate audit deliverable to attach or time.'
+              )
+            }
+            if (missingComplimentaryAuditOffer) {
+              specificViolations.push(
+                'MISSING FEE-STRUCTURE OFFER — OWNER HARD RULE: the posting signals the client MIGHT want ongoing management after the audit (retainer language, "could lead to", "if this works out", a long-term partnership, monthly management). The $300 Google Ads audit offer in the draft is missing the required complimentary/credit line. ADD a sentence conveying (in your own natural phrasing, not verbatim boilerplate): "if we end up working together on ongoing management, this audit fee is credited back / the audit becomes complimentary." Keep the $300 flat price and the 1-working-day timeline exactly as they are — this is an ADDITION, not a replacement. Place it naturally near the price/timeline line, not as a disconnected afterthought.'
+              )
+            }
+            if (wrongComplimentaryOfferOnAuditOnly) {
+              specificViolations.push(
+                'WRONG FEE-STRUCTURE OFFER — OWNER HARD RULE: the posting explicitly states this is a one-off audit with NO ongoing work (one-time project, audit only, not looking for a retainer). The draft added a complimentary/credit-if-we-work-together line anyway — there is no ongoing work to credit it toward, so this reads as a confused, unprompted promise. DELETE the complimentary/credit sentence. Keep the plain "$300 flat, delivered within 1 working day" offer with no fee-structure caveat attached.'
               )
             }
             if (missingSeoPlanOffer) {

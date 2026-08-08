@@ -3051,3 +3051,46 @@ server; no cache + server has none → stays null, no crash. `vite build` clean.
 This is now SELF-HEALING, not just preventative — the next time job 10612 (or any similarly
 orphaned job) is viewed, the corrupted cache entry is automatically discarded on load; no manual
 "clear analysis" click needed.
+
+## 2026-08-08 (3) — New hard rule: PPC audit fee structure depends on posting's ongoing-work signal
+
+Owner requested a new business rule for the Google Ads audit offer: if the posting says it's ONLY a
+one-off audit with no recurring work, offer the plain $300 flat fee. If the posting signals possible
+ongoing cooperation after the audit, still offer $300 but ALWAYS add "if we end up working together
+[on ongoing management], this audit fee is credited back / becomes complimentary" — a confidence
+signal that costs nothing unless the client actually converts to ongoing work.
+
+Given this session's whole body of evidence that prompt-only instructions get ignored, implemented
+as a HARD rule with both layers (matching the established pattern):
+
+1. **Prompt instruction** — extended the existing "WHEN TO OFFER AN AUDIT (existing account)" section
+   (JobDetail.jsx) with a new "FEE STRUCTURE — HARD RULE" bullet covering all three cases: explicit
+   one-off/no-ongoing → plain $300; explicit ongoing-cooperation signal → $300 + the credit line
+   (as an ADDITION, not a replacement); genuinely silent posting → default to plain $300 (no
+   unprompted promise — only add the offer when the posting actually signals ongoing potential).
+
+2. **Deterministic backstop** (generate()'s classification block, alongside the existing
+   `jobIsPpc`/`jobIsSeo` detection):
+   - `jobIsPpcAuditExisting` — is this actually a PPC audit-on-an-existing-account job (not a
+     launch-from-scratch, which has its own different offer)?
+   - `_AUDIT_ONLY_NO_ONGOING_RE` — explicit "one-time/one-off/single/no ongoing/not looking for a
+     retainer" signal in the POSTING.
+   - `_ONGOING_SIGNAL_PPC_RE` — "could lead to", "if this works out", "long-term partnership",
+     "retainer", "monthly management", etc. in the POSTING.
+   - `_DRAFT_COMPLIMENTARY_RE` — does the DRAFT already convey the credit-if-we-work-together promise
+     (flexible on word order and phrasing, not verbatim-only)?
+   - `missingComplimentaryAuditOffer` = ongoing signal present + draft offers the $300 audit + credit
+     line missing → fires the enforcer to ADD it (keeping price/timeline unchanged).
+   - `wrongComplimentaryOfferOnAuditOnly` = explicit no-ongoing-work signal + draft added the credit
+     line anyway → fires the enforcer to DELETE it (nothing to credit toward).
+   Both wired into all 4 sites (draftCompliant gate, telemetry array, console pre-check, and the
+   specificViolations enforcer-instruction message), mirroring the exact pattern used for
+   `wrongAuditSampleOnAlreadyAudited` earlier today.
+
+Verified (standalone Node, 6/6 after fixing 2 test-harness postings that were missing the PPC
+keyword — the underlying regex logic was correct on first try, only my simplified test's job-type
+classifier needed the fix): one-off + plain draft → clean; one-off + wrongly-added credit line →
+caught; ongoing-signal + missing credit line → caught; ongoing-signal + correctly-included credit
+line → clean; silent posting (no signal either way) → defaults to plain $300, clean; launch-from-
+scratch job → fee-structure rule correctly doesn't apply at all (different offer entirely).
+`vite build` clean.
