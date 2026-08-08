@@ -6565,6 +6565,43 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingAuditSampleMention = !(hasAttach && hasSampleRef) && !hasSeoPlanMention && jobIsAuditOnly && !clientAlreadyAudited
             }
 
+            // SEO AUDIT FEE STRUCTURE (owner correction, 2026-08-08, job
+            // 10659; verified against KB Rule 426, kb_entries id=426, via a
+            // direct DB query): Artem's real technical SEO audit price is a
+            // FIXED $700 flat, and if ongoing SEO optimization follows, the
+            // retainer is a FIXED $1050/month -- mirrors the PPC $300-flat-
+            // audit fee structure already enforced elsewhere in this file,
+            // using SEO's own real figures. The draft bundled the audit into
+            // a vague "$1,200-1,800 foundation buildout" and separately
+            // quoted "$600-800/month" ongoing -- both wrong, and the clean,
+            // discrete "$700 flat audit, sample attached" offer (the SEO
+            // mirror of the PPC $300 flat audit) never actually got stated.
+            const _DOLLAR_NEAR_AUDIT_RE = /\$(\d(?:[\d,]*\d)?)(?:\s*-\s*\$?\d(?:[\d,]*\d)?)?[^.\n]{0,100}\baudit\b|\baudit\b[^.\n]{0,100}\$(\d(?:[\d,]*\d)?)/gi
+            const _DOLLAR_NEAR_MONTHLY_RE = /\$(\d(?:[\d,]*\d)?)(?:\s*-\s*\$?\d(?:[\d,]*\d)?)?\s*\/?\s*(?:mo\b|month\b)/gi
+            const _jobIsSeoAuditContext = isAuditJob && jobIsSeo && !jobIsPpc && !jobIsWebdev
+            // Collect EVERY dollar-figure-near-"audit" occurrence rather than
+            // trusting whichever one a plain (non-/g) .match() happens to
+            // find first. A workflow adversarial-verify pass (2026-08-08)
+            // confirmed this was a real, order-dependent false positive: an
+            // unrelated case-study sentence mentioning both a dollar figure
+            // and the word "audit" within 100 chars, if it appeared EARLIER
+            // in the letter than the real "$700 flat" pricing line, got
+            // mistaken for the audit price and wrongly flagged a correctly-
+            // priced letter. Checking whether $700 appears ANYWHERE among
+            // all matches (not just the first) removes that fragility.
+            const _extractAllDollarsNear = (t, re) => {
+              const nums = []
+              let m
+              re.lastIndex = 0
+              while ((m = re.exec(t))) nums.push(Number((m[1] || m[2]).replace(/,/g, '')))
+              return nums
+            }
+            const _seoAuditPricesNearby = _jobIsSeoAuditContext ? _extractAllDollarsNear(text, _DOLLAR_NEAR_AUDIT_RE) : []
+            const missingSeoAuditPriceEntirely = _jobIsSeoAuditContext && _seoAuditPricesNearby.length === 0
+            const wrongSeoAuditPrice = _seoAuditPricesNearby.length > 0 && !_seoAuditPricesNearby.includes(700)
+            const _seoMonthlyPricesNearby = _jobIsSeoAuditContext ? _extractAllDollarsNear(text, _DOLLAR_NEAR_MONTHLY_RE) : []
+            const wrongSeoRetainerFee = _seoMonthlyPricesNearby.length > 0 && !_seoMonthlyPricesNearby.includes(1050)
+
             // ── Wrong audit offer on a LAUNCH / from-scratch job (KB Rule 450) ──
             // When the client is launching a Google Ads account FROM SCRATCH
             // (zero pixel data, $0 to scale, no existing campaigns), there is
@@ -6717,6 +6754,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !wrongAuditSampleOnAlreadyAudited && !missingComplimentaryAuditOffer && !wrongComplimentaryOfferOnAuditOnly && !wrongAuditPrice
               && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming && !missingAuditPriceEntirely
               && !wrongOngoingManagementFee && !wrongLaunchOfferOnExistingAccount && !wrongHourlyRateAboveCeiling
+              && !missingSeoAuditPriceEntirely && !wrongSeoAuditPrice && !wrongSeoRetainerFee
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -6774,6 +6812,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               wrongOngoingManagementFee && 'wrongOngoingManagementFee',
               wrongLaunchOfferOnExistingAccount && 'wrongLaunchOfferOnExistingAccount',
               wrongHourlyRateAboveCeiling && 'wrongHourlyRateAboveCeiling',
+              missingSeoAuditPriceEntirely && 'missingSeoAuditPriceEntirely',
+              wrongSeoAuditPrice && 'wrongSeoAuditPrice',
+              wrongSeoRetainerFee && 'wrongSeoRetainerFee',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -6860,6 +6901,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongHourlyRateAboveCeiling) {
               console.log(`[Falcon] Rule pre-check: draft quotes $${_quotedHourlyRate}/hr, which exceeds this job's posted ceiling of $${_hMaxForRateCheck}/hr — firing Claude enforcer to correct it.`)
+            }
+            if (missingSeoAuditPriceEntirely) {
+              console.log('[Falcon] Rule pre-check: SEO audit job but the draft never states the $700 flat audit price anywhere — firing Claude enforcer to add it.')
+            }
+            if (wrongSeoAuditPrice) {
+              console.log(`[Falcon] Rule pre-check: draft quotes $${_seoAuditPricesNearby.join(', $')} near the SEO audit instead of the fixed $700 — firing Claude enforcer to correct it.`)
+            }
+            if (wrongSeoRetainerFee) {
+              console.log(`[Falcon] Rule pre-check: draft quotes $${_seoMonthlyPricesNearby.join(', $')}/month for ongoing SEO work instead of the fixed $1050/month — firing Claude enforcer to correct it.`)
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -7197,6 +7247,21 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (wrongHourlyRateAboveCeiling) {
               specificViolations.push(
                 `WRONG HOURLY RATE — EXCEEDS THE JOB'S OWN POSTED CEILING: the draft quotes $${_quotedHourlyRate}/hr, but this posting's own rate range tops out at $${_hMaxForRateCheck}/hr. Quoting well above what the client themselves said they'd pay reads as not having read the posting. FIX by either (a) lowering the quoted rate to fit at or below the posting's own $${_hMaxForRateCheck}/hr ceiling, or (b) removing the rate line entirely if the posting never explicitly asked for one — do not invent a justification for exceeding it.`
+              )
+            }
+            if (missingSeoAuditPriceEntirely) {
+              specificViolations.push(
+                'MISSING SEO AUDIT PRICE — OWNER HARD RULE: this is a technical SEO audit job but the draft never clearly states the fixed $700 flat price for the audit anywhere. Artem\'s real technical SEO audit is a productised $700 flat deliverable (the SEO mirror of the PPC $300 flat audit) — state it plainly, e.g. "the technical SEO audit is $700 flat" — near where the audit sample offer is described. Do NOT invent a scoped/bundled price range for this instead.'
+              )
+            }
+            if (wrongSeoAuditPrice) {
+              specificViolations.push(
+                `WRONG SEO AUDIT PRICE — OWNER HARD RULE: the technical SEO audit is a FIXED, unconditional $700 flat productised deliverable, never a variable or bundled price. The draft quotes $${_seoAuditPricesNearby.join(', $')} near the audit instead (e.g. a "foundation buildout" range that bundles the audit with other work), with no $700 mention anywhere. REPLACE this with the plain fixed "$700 flat" statement for the audit specifically — do NOT bundle it into a broader project-price range, and do NOT touch any separate, correctly-stated ongoing retainer figure elsewhere in the letter.`
+              )
+            }
+            if (wrongSeoRetainerFee) {
+              specificViolations.push(
+                `WRONG SEO ONGOING RETAINER FEE — OWNER HARD RULE: Artem's real ongoing SEO optimization retainer is a FIXED $1050/month, never an invented range. The draft quotes $${_seoMonthlyPricesNearby.join(', $')}/month instead (e.g. "$600-800/month"), with no $1050/month mention anywhere. REPLACE it with the exact fixed figure, e.g. "ongoing SEO optimization after that runs $1050/month." Do NOT invent or keep any other range.`
               )
             }
             if (missingSeoPlanOffer) {

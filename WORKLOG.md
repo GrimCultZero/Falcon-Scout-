@@ -3462,3 +3462,38 @@ already worked correctly for those two). Removed the now-redundant inner declara
 by manually tracing the actual brace structure around the try/catch boundary (grep + sed on the real
 line numbers) rather than trusting build-clean alone, confirming the relocated declaration sits in the
 shared outer scope and all six usage sites resolve to the same binding.
+
+## 2026-08-08 — Job 10659 round 2: SEO audit fixed-price rule ($700/$1050), mirroring the PPC one
+
+Owner shared job 10659 regenerated: "rates are off and most importantly didnt offer audit with
+samples." The draft DID technically mention "attaching a sample technical SEO audit" — the real issue
+was pricing: it invented a vague "$1,200-1,800 fixed-price technical foundation buildout" (bundling the
+audit with implementation work) plus "$600-800/month" ongoing, instead of clearly offering the audit as
+its own discrete, correctly-priced deliverable.
+
+Queried the KB directly (same verification discipline as the earlier Rule 18 check) and confirmed Rule
+426 (kb_entries id=426) is real: "Only mention the $700 fixed price for technical SEO audit and that
+it's included in the $1050/month SEO optimization retainer..." — this is the exact SEO-side mirror of
+the PPC $300-flat-audit rule, but had NO deterministic backstop anywhere in the codebase (only the PPC
+side had one). The draft's invented $1,200-1,800/$600-800 figures are the SEO equivalent of every wrong-
+price bug already fixed on the PPC side this session.
+
+Built `missingSeoAuditPriceEntirely`, `wrongSeoAuditPrice`, and `wrongSeoRetainerFee` (JobDetail.jsx,
+gated on `isAuditJob && jobIsSeo && !jobIsPpc && !jobIsWebdev` so it stays inert on PPC-with-audit and
+webdev-with-generic-audit jobs), wired into the standard 4 sites, enforcing the real $700 flat audit /
+$1050/month retainer figures from Rule 426.
+
+Ran a workflow (3 parallel agents) adversarially verifying before shipping — same discipline as every
+other pricing fix this session. Two checks passed clean (job-type gating correctly stays inert for
+PPC/webdev jobs and fires for signal-only SEO-audit jobs with no literal "audit" word; the monthly-rate
+regex correctly handles thousands-commas, ranges, and doesn't false-positive on unrelated "$X this
+month" aggregate stats). One found a REAL, order-dependent false positive: the audit-price extractor
+used a plain (non-`/g`) `.match()`, which only returns the FIRST dollar-figure-near-"audit" occurrence
+in the whole letter -- if a case-study sentence mentioning an unrelated dollar figure near the word
+"audit" happened to appear BEFORE the actual correct "$700 flat" pricing line, a correctly-priced letter
+got wrongly flagged as having the wrong price. Fixed by switching to a global match collecting EVERY
+occurrence and checking whether the correct figure ($700 / $1050) appears ANYWHERE among them, rather
+than trusting whichever one is leftmost -- removes the order-dependency entirely while still catching
+the real bug (verified: case-study-before-correct-price case no longer false-flags; the actual job
+10659 bug is still caught). `vite build` clean, all usages confirmed to stay within the try block (no
+repeat of the earlier `_hMaxForRateCheck` scope bug).
