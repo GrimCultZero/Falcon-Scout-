@@ -3147,3 +3147,58 @@ Verified (Node): real $800 draft → extracted 800, flagged wrong; a $300 draft 
 flagged; a retainer-only mention with no audit price → returns null, not flagged (no false positive).
 
 Both fixes: `vite build` clean.
+
+## 2026-08-08 (5) — Three more bugs from job 10609's regeneration: weak intro, wrong case studies, insane rate
+
+Owner regenerated job 10609 (tattoo studio, Oslo) after yesterday's garbling/price fixes and flagged
+three fresh issues in one message. Root-caused and fixed all three.
+
+### 1. Intro regressed to a posting-restate opener
+The enforcer replaced a genuinely sharp, diagnostic first-pass opener ("scaling google ads... comes
+down to one thing: conversion tracking that separates real bookings from form spam...") with a weak
+paraphrase of the client's own stated goal: "You're looking to own local search for tattoo in oslo:
+stronger impression share than competitors..." — nearly a direct echo of the posting's own "Our goal
+is simple: to become the leading tattoo studio in Oslo." The existing `_stripPostingRestateOpener`
+guard didn't catch it because this phrasing uses "looking TO [verb]" (own/dominate/build) rather than
+the "looking FOR X" pattern it was scoped to.
+**Fix:** extended `_POSTING_RESTATE_OPENER_RE` with `looking\s+to\s+\w+` and `your\s+goal\s+is\s+to\s+\w+`
+alternatives. Verified: catches "you're looking to own/dominate X" and "your goal is to become X";
+does not false-positive on legit hooks ("You're bleeding budget...", "Most accounts...").
+
+### 2. Wrong case studies — off-vertical ecom-health cases piled onto the correct local-service ones
+The letter correctly identified FridgeFix/House Painting as "the exact same setup" early on (woven
+into the intro, per the CASE STUDY SELECTION RULE's own local-service guidance), then ALSO cited
+Skin Reboot and Derma Solution (medical-aesthetic ecommerce — a fundamentally different account
+archetype) as a separate, properly-labeled "Here are some relevant results:" block — undercutting the
+correct case with a worse-fitting one. Confirmed `jobIsRegulatedForStrip` (the YMYL/regulated
+classifier) does NOT fire on "tattoo" — so this wasn't a misclassification-driven strip; the model
+picked the wrong "official" case block on its own, likely echoing structure from an unrelated few-shot
+example.
+**Fix:** new `localServiceCaseDisplacedByEcomHealth` — fires when the draft cites BOTH a local-service
+case (FridgeFix/House Painting/Nectar Flowers/Golden State Trailers) AND an ecom-health case (Skin
+Reboot/Derma Solution) in the same letter on a PPC job. These are never simultaneously appropriate
+(different account archetypes), so requiring "pick the local-service lane" is safe. Enforcer instructed
+to DELETE the ecom-health block entirely, not replace it — the local-service case is already complete
+proof. Wired into all 4 sites (compliance gate, telemetry, console pre-check, enforcer message).
+
+### 3. "$124/hr" for ongoing work — traced to an anomalous rate-anchor calculation
+Owner: "this is crazy, dunno where it's coming from." Traced exactly: `_anchorLow = Math.max(_genFloor
++ 5, Math.round(_hMax * 0.8))` where `_hMax` = the posting's hourly ceiling. This job's posted range is
+"$5-$155/hr" — a ~30x spread, almost certainly a capture artifact, not genuine client intent, for a
+single small Oslo tattoo studio. 155 * 0.8 = 124.0 exactly — the RATE ANCHOR mechanism (designed to
+anchor a DIRECT hourly quote to a high posted ceiling) got applied to the SEPARATE ongoing-retainer
+quote that follows the $300 audit, producing a nonsensical hourly figure for what should be a scope-
+sized MONTHLY retainer (the prompt already has its own "$800-2,500/mo" precedent for exactly this
+engagement shape elsewhere, and an EARLIER regeneration of this SAME job correctly quoted "$1,200 -
+$1,800/month" — confirming this is a self-inconsistency across runs, not a deliberate choice).
+**Fix:** (a) prompt instruction — extended the FEE STRUCTURE hard rule: the ongoing-work quote MUST be
+a monthly retainer range, RATE ANCHOR must not apply to it. (b) deterministic backstop —
+`wrongOngoingRateFraming` fires when `jobIsPpcAuditExisting && jobHasOngoingSignal` and an hourly figure
+appears near "ongoing" language; enforcer instructed to replace it with a monthly range, sized to scope.
+Wired into all 4 sites.
+
+Verified (standalone Node): all three against the exact real draft text — restate-opener regex catches
+the leak + 2 variants, no false positives on legit hooks; case-pileup fires exactly on the real
+FridgeFix+SkinReboot combination, doesn't fire on either case alone; ongoing-rate regex catches the
+real "$124/hr...ongoing" text, doesn't fire on a clean monthly-retainer draft or an unrelated hourly
+mention. `vite build` clean.

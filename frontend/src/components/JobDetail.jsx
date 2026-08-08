@@ -1711,7 +1711,7 @@ function _stripFabricatedOpener(text) {
 // clear restatement phrasings — bare "You need…/You want…" is left alone (those
 // can be legitimate diagnostic hooks). Sibling of _stripFabricatedOpener.
 const _POSTING_RESTATE_OPENER_RE =
-  /^\s*(?:the\s+(?:job\s+)?(?:posting|post|listing|ad|brief|description|role)\s+(?:asks?|is\s+asking|says?|mentions?|wants?|requires?|calls?\s+for|is\s+(?:for|about|looking))|you'?re\s+(?:looking\s+for|after|seeking|asking\s+for)|this\s+(?:role|project|job|position|gig)\s+is\s+(?:about|for|looking)|looking\s+at\s+your\s+(?:posting|job\s*post|listing|brief|ad|description)|based\s+on\s+(?:your|the)\s+(?:posting|job\s*post|listing|brief|description|ad)|from\s+(?:your|the)\s+(?:posting|job\s*post|listing|description|brief)|i\s+see\s+(?:you'?re|that\s+you|you\s+need|you\s+want))\b/i
+  /^\s*(?:the\s+(?:job\s+)?(?:posting|post|listing|ad|brief|description|role)\s+(?:asks?|is\s+asking|says?|mentions?|wants?|requires?|calls?\s+for|is\s+(?:for|about|looking))|you'?re\s+(?:looking\s+for|after|seeking|asking\s+for|looking\s+to\s+\w+)|this\s+(?:role|project|job|position|gig)\s+is\s+(?:about|for|looking)|looking\s+at\s+your\s+(?:posting|job\s*post|listing|brief|ad|description)|based\s+on\s+(?:your|the)\s+(?:posting|job\s*post|listing|brief|description|ad)|from\s+(?:your|the)\s+(?:posting|job\s*post|listing|description|brief)|i\s+see\s+(?:you'?re|that\s+you|you\s+need|you\s+want)|your\s+goal\s+is\s+to\s+\w+)\b/i
 function _stripPostingRestateOpener(text) {
   if (!text) return text
   const paras = text.split(/\n\s*\n/)
@@ -5226,6 +5226,7 @@ The client has a running Google Ads account with campaigns already live. Signals
   • If the posting explicitly says this is a ONE-TIME / one-off audit with NO ongoing work after it ("one-time project", "audit only", "not looking for ongoing help", "no retainer needed"), the price is the plain "$300 flat, delivered within 1 working day" — do NOT add any complimentary/credit language; there is no future engagement to credit it toward.
   • If the posting signals POSSIBLE ongoing cooperation after the audit (e.g. "could lead to ongoing management", "if this works out we'd like to continue", "potential for a long-term partnership", mentions monthly management/retainer as a next step), you MUST ALSO convey — in your own natural phrasing, not verbatim boilerplate — "if we end up working together on ongoing management, this audit fee is credited back / the audit becomes complimentary." This is an ADDITION to the $300/1-day offer, never a replacement, and it lowers the client's risk of trying the audit at zero cost to Artem unless they actually convert to ongoing work.
   • If the posting is genuinely silent on future work either way, default to the plain $300 (no complimentary language) — only add the credit offer when the posting actually signals ongoing potential.
+  • If you quote a rate for the ONGOING work that follows the audit, it MUST be a MONTHLY RETAINER RANGE sized to scope ("$800-$2,500/month depending on scope"), NEVER an hourly rate. Do NOT apply the RATE ANCHOR (posted-ceiling-based hourly figure) to the ongoing-work quote — that mechanism is for a direct hourly engagement, not a retainer following a fixed-fee audit, and the posting's raw hourly range is frequently a capture artifact (e.g. an implausible $5-$155/hr spread) that produces a nonsensical number when mirrored back as an hourly rate for a small local business.
 
 WHEN NOT TO OFFER AN AUDIT (zero-pixel / launch from scratch):
 The client has NO existing account — they want to build and launch from scratch. Signals: "launch", "from scratch", "new brand", "starting from zero", "no existing campaigns", "build and launch", "zero pixel data". In these cases:
@@ -6120,6 +6121,38 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               (jobIsSeo && !jobIsPpc && ppcCaseInDraft) ||
               (jobIsPpc && !jobIsSeo && seoCaseInDraft)
 
+            // LOCAL-SERVICE CASE PILE-UP (confirmed on job 10609 — tattoo studio):
+            // the draft correctly led with a local-service case (FridgeFix/House
+            // Painting/Nectar Flowers/Golden State Trailers — appointment- or
+            // call-based conversion, same mechanic as the job) but ALSO piled on
+            // an off-vertical ecom-health case (Skin Reboot/Derma Solution —
+            // medical-aesthetic ecommerce) as a separate "relevant results" block,
+            // even though the CASE STUDY SELECTION RULE says local-service jobs
+            // should lead with the local-service case, not layer an unrelated
+            // vertical on top. Citing both in one letter for one job is never
+            // simultaneously appropriate — they're different account archetypes —
+            // so requiring "pick the local-service lane" is safe with no
+            // legitimate case lost.
+            const _LOCAL_SERVICE_CASE_RE = /\bfridgefix\b|\bhouse\s+painting\b|\bnectar\s+flowers?\b|\bgolden\s+state\s+trailers?\b/i
+            const _ECOM_HEALTH_CASE_RE = /\bskin\s*reboot\b|\bderma\s*solution\b/i
+            const localServiceCaseDisplacedByEcomHealth =
+              jobIsPpc && _LOCAL_SERVICE_CASE_RE.test(text) && _ECOM_HEALTH_CASE_RE.test(text)
+
+            // WRONG ONGOING-RATE FRAMING (confirmed on job 10609): once the $300
+            // audit is offered with the "complimentary if we work together"
+            // fee-structure rule (jobHasOngoingSignal), the ONGOING work that
+            // follows must be quoted as a MONTHLY RETAINER RANGE sized to scope
+            // (matching this same prompt's own "$800-2,500/mo" guidance elsewhere)
+            // — never an hourly rate. The RATE ANCHOR mechanism (anchors to 80% of
+            // the posting's raw hourly ceiling) is designed for a direct hourly
+            // ENGAGEMENT, not for framing a retainer that follows a fixed-fee
+            // audit — and it produced a nonsensical "$124/hr" here because the
+            // posting's own hourly range ($5-$155/hr) is an implausible ~30x
+            // spread, almost certainly a capture artifact, not the client's real
+            // intent for a single local tattoo studio's marketing retainer.
+            const _ONGOING_HOURLY_RATE_RE = /\bongoing\b[^.\n]{0,60}\$\d[\d,]*\s*\/?\s*hr\b|\$\d[\d,]*\s*\/?\s*hr\b[^.\n]{0,60}\bongoing\b/i
+            const wrongOngoingRateFraming = jobIsPpcAuditExisting && jobHasOngoingSignal && _ONGOING_HOURLY_RATE_RE.test(text)
+
             // ── SEO promotion plan check ──────────────────────────────────────
             // For SEO jobs, the proposal must offer a 3-month SEO Promotion
             // Plan delivered in 2 working days. Two failure modes:
@@ -6376,6 +6409,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !missingAuditSampleMention && !missingCaseStudy && !missingHighlightsPhrase
               && !caseStudyDomainMismatch && !missingSeoPlanOffer && !wrongSeoPlanTiming && !wrongPlanOnAuditJob
               && !wrongAuditSampleOnAlreadyAudited && !missingComplimentaryAuditOffer && !wrongComplimentaryOfferOnAuditOnly && !wrongAuditPrice
+              && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -6426,6 +6460,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingComplimentaryAuditOffer && 'missingComplimentaryAuditOffer',
               wrongComplimentaryOfferOnAuditOnly && 'wrongComplimentaryOfferOnAuditOnly',
               wrongAuditPrice && 'wrongAuditPrice',
+              localServiceCaseDisplacedByEcomHealth && 'localServiceCaseDisplacedByEcomHealth',
+              wrongOngoingRateFraming && 'wrongOngoingRateFraming',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -6494,6 +6530,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongAuditPrice) {
               console.log(`[Falcon] Rule pre-check: draft quotes $${_auditPriceInDraft} for the audit instead of the fixed $300 — firing Claude enforcer to correct it.`)
+            }
+            if (localServiceCaseDisplacedByEcomHealth) {
+              console.log('[Falcon] Rule pre-check: draft cites BOTH a local-service case (FridgeFix/House Painting/Nectar Flowers/Golden State Trailers) AND an off-vertical ecom-health case (Skin Reboot/Derma Solution) — firing Claude enforcer to drop the off-vertical one.')
+            }
+            if (wrongOngoingRateFraming) {
+              console.log('[Falcon] Rule pre-check: ongoing-work rate is quoted hourly instead of a monthly retainer range — firing Claude enforcer to correct it.')
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -6792,6 +6834,16 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (wrongAuditPrice) {
               specificViolations.push(
                 `WRONG AUDIT PRICE — OWNER HARD RULE: the Google Ads / PPC account audit is a FIXED, unconditional $300 productised deliverable — never a variable price, regardless of how long or detailed the posting's checklist is. The draft quotes $${_auditPriceInDraft} for the audit instead. CHANGE the audit price to "$300 flat, delivered within 1 working day" exactly. Do NOT touch any separate ONGOING/monthly retainer estimate elsewhere in the letter (that figure is scope-dependent and correct as-is) — this fix is ONLY the one-time audit price.`
+              )
+            }
+            if (localServiceCaseDisplacedByEcomHealth) {
+              specificViolations.push(
+                'WRONG CASE STUDY — LOCAL-SERVICE JOB CITES AN OFF-VERTICAL ECOM-HEALTH CASE: this is a local, appointment/call-based business (per the CASE STUDY SELECTION RULE, verticals like this should lead with FridgeFix / House Painting / Nectar Flowers / Golden State Trailers). The draft already correctly cites one of those local-service cases, but ALSO cites Skin Reboot and/or Derma Solution (medical-aesthetic ecommerce) as a separate "relevant results" block — an off-vertical case that does not belong here and undercuts the correct one. DELETE the Skin Reboot / Derma Solution paragraph(s) entirely. Do NOT replace them with anything — the already-cited local-service case is the complete, correct proof for this job.'
+              )
+            }
+            if (wrongOngoingRateFraming) {
+              specificViolations.push(
+                'WRONG ONGOING-RATE FRAMING — OWNER HARD RULE: once the audit is offered with the fee-structure credit line ("if we end up working together..."), the ONGOING work that follows must be quoted as a MONTHLY RETAINER RANGE sized to scope (e.g. "$800-$2,500/month depending on scope"), never an hourly rate. The draft quotes an hourly figure (e.g. "$X/hr") for the ongoing work instead — this is very likely anchored to the posting\'s raw hourly ceiling, which does not represent a sane monthly-retainer price for this engagement shape. REPLACE the hourly ongoing-rate sentence with a monthly retainer range in the $800-$2,500/month vicinity, sized to the scope already described (adjust up or down within that range based on how much work was described, but do NOT quote an hourly figure).'
               )
             }
             if (missingSeoPlanOffer) {
