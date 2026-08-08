@@ -3439,3 +3439,26 @@ $30 ceiling, correctly flags and force-corrects to $30), a senior-rate-near-ceil
 untouched), an unrelated "$40/hr in wasted ad spend" diagnostic mention (correctly untouched), a
 fixed-budget job with no hourly_rate_max (inert, no crash), and the comma-preservation fix. `vite
 build` clean.
+
+## 2026-08-08 — Fix: "_hMaxForRateCheck is not defined" crash on Generate
+
+Owner hit a live crash immediately after the hourly-rate-ceiling fix shipped: "Error generating cover
+letter: _hMaxForRateCheck is not defined". Root cause: `generate()` has a try/catch wrapping the
+enforcer call, and a SEPARATE sibling block right after the `catch` for the post-enforcer strip chain
+(`} catch (enforceErr) { ... } \n { const _finalText = _gcShadow(...) }`) -- I'd declared
+`_hMaxForRateCheck` INSIDE the try block (alongside the other deterministic pre-check booleans), so it
+was only in scope for the FIRST (compliant-bypass) chain nested inside that same try. The moment a
+letter actually went through the enforcer path, the SECOND chain (outside the try/catch entirely) threw
+a ReferenceError trying to read a const that only existed in a sibling block.
+
+This is a class of bug `vite build`/esbuild can't catch -- bundlers check syntax validity, not whether
+every reference resolves to a live binding on every code path, so the earlier "build clean" checks this
+session gave false confidence. Node-script testing of the extracted functions in isolation didn't catch
+it either, since those tests never replicate the real file's actual block/try-catch structure.
+
+Fixed by moving the declaration up to where `_protectedProperNouns`/`jobIsRegulatedForStrip` already
+live -- BEFORE the try/catch, at the outer function scope both chains share (the same pattern that
+already worked correctly for those two). Removed the now-redundant inner declaration. Verified this time
+by manually tracing the actual brace structure around the try/catch boundary (grep + sed on the real
+line numbers) rather than trusting build-clean alone, confirming the relocated declaration sits in the
+shared outer scope and all six usage sites resolve to the same binding.

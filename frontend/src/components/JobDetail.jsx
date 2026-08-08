@@ -5183,6 +5183,15 @@ function ProposalColumn({ job, bridgeReady = false }) {
       // below can reference the same list without re-scanning jobContext.
       const _protectedProperNouns = _extractProtectedProperNouns(jobContext)
 
+      // This job's own posted hourly ceiling -- declared here (before the
+      // try/catch further down) rather than inside the deterministic
+      // pre-check block, because the POST-ENFORCER strip chain lives in its
+      // own block AFTER that try/catch closes and can't see a const scoped
+      // inside it (confirmed: "_hMaxForRateCheck is not defined" at runtime
+      // whenever the enforcer path ran, since only the compliant-bypass
+      // chain -- inside the try -- could see it).
+      const _hMaxForRateCheck = Number(job.hourly_rate_max)
+
       const response = await fetch('/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -6444,8 +6453,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // WRONG HOURLY RATE -- exceeds the job's own posted ceiling
             // (confirmed job 10659, via in-app chat: draft quoted "$40/hr"
             // on a $15-$30/hr posting). See _extractQuotedHourlyRate's
-            // module-level comment for the full rationale.
-            const _hMaxForRateCheck = Number(job.hourly_rate_max)
+            // module-level comment for the full rationale. (_hMaxForRateCheck
+            // itself is declared earlier, outside the try/catch -- see there.)
             const _quotedHourlyRate = _extractQuotedHourlyRate(text)
             const wrongHourlyRateAboveCeiling = _quotedHourlyRate != null && _hMaxForRateCheck > 0
               && _quotedHourlyRate > _hourlyRateThreshold(_hMaxForRateCheck)
