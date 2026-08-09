@@ -1774,6 +1774,21 @@ function _forceFixQuotedHourlyRate(text, hMax) {
   return out
 }
 
+// Dissolve a standalone "Label experience:"/"Label depth:" line (the
+// colon-labeled-outline structural AI tell -- confirmed on job 10702,
+// round 3: hasListyOutline correctly fired on this shape, but the enforcer
+// -- told to dissolve it into flowing prose -- left the labels completely
+// untouched across the rewrite. Same pattern as this session's rate/fee
+// bugs: an enforcer instruction alone isn't reliable enough, so this is a
+// deterministic, unconditional backstop). Safe to just remove the label
+// line: the content that follows already reads as a complete, self-
+// contained paragraph without it (a case-study-style "Name (attached...):
+// ..." opening, or a sub-topic sentence).
+function _stripTopicNounLabelLines(text) {
+  if (!text) return text
+  return text.replace(/(?:^|\n)[ \t]*[A-Z][\w/-]*(?:[ \t]+[A-Za-z][\w/-]*){0,3}[ \t]+(?:experience|expertise|depth|background)\s*:[ \t]*\n+/g, '\n')
+}
+
 function _stripFabricatedOpener(text) {
   if (!text) return text
   // Also kill a posting-restatement opener ("The job posting asks for…"). Done
@@ -2586,7 +2601,16 @@ function _extractProtectedProperNouns(rawContext) {
     .replace(/^\s*Summary\s*#{1,6}[^\n]*\n/, '')
     .replace(/^#{1,6}[^\n]*\n/gm, '')
   const found = new Map() // lowercase key -> the posting's own correct casing
-  const MID_SENTENCE_PROPER_RE = /(?:[a-z,][ \t]|[ \t]and[ \t])([A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*(?:[ \t][A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*){0,2})\b/g
+  // \b before [a-z]+ is load-bearing (confirmed on job 10702): a bare
+  // [a-z,] prefix has no word-boundary requirement, so it can match the
+  // TAIL of an already-capitalized word -- "**Google Ads**" (bold markdown
+  // hides "Google"'s leading G from the prefix check) let the trailing "e"
+  // of "Google" itself satisfy "[a-z,][ \t]", spuriously capturing bare
+  // "Ads" as its own protected term and force-capitalizing generic phrases
+  // like "shopping ads" into "Shopping Ads" elsewhere in the letter. \b
+  // requires the lowercase run to start at a genuine word boundary, which
+  // a word's OWN internal letters never satisfy.
+  const MID_SENTENCE_PROPER_RE = /(?:\b[a-z]+[ \t]|,[ \t]|[ \t]and[ \t])([A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*(?:[ \t][A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*){0,2})\b/g
   let m
   while ((m = MID_SENTENCE_PROPER_RE.exec(_proseOnly))) {
     const term = m[1]
@@ -6881,7 +6905,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
               if (_isStaleGenerate()) {
                 console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
                 if (_jobIdAtCallTime != null) {
@@ -7502,7 +7526,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       }
 
       {
-        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {

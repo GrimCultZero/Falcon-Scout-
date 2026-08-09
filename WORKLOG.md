@@ -3611,3 +3611,39 @@ scenario.
   into a specific diagnosed point (a rule the prompt already states explicitly) -- "is this woven in
   vs. just present" is inherently a fuzzy, qualitative judgment to detect deterministically; not
   attempting a heuristic for it this round.
+
+## 2026-08-09 — Job 10702 round 3: word-boundary regex bug + deterministic listy-outline strip
+
+Owner shared round 3. Good news: the casing epidemic and case-study fixes from the last two rounds
+held -- no "AND"/"NOT"/"FIXED", no "Audit"/"Campaigns" mis-caps, ChronoCash now named explicitly with
+real stats (4,690 conversions from 9,210 clicks), FridgeFix dropped entirely, Nectar Flowers correctly
+demoted from a full case citation to a brief supporting mention. Two remaining issues found and fixed:
+
+**1. Standalone "Ads" still leaking through ("Shopping ads" -> "Shopping Ads").** Root cause: the
+extraction regex's `[a-z,][ \t]` prefix has no word-boundary requirement, so it can match the TAIL of
+an already-capitalized word, not just a genuine standalone lowercase word. `**Google Ads specialist**`
+(bold markdown hides "Google"'s leading G from the prefix check) let the trailing "e" of "Google" itself
+satisfy the prefix, spuriously capturing bare "Ads" as its own protected term -- which then force-
+capitalized the GENERIC phrase "shopping ads" into "Shopping Ads" elsewhere in the letter (a real client
+account type description, not the Google Ads product name). Fixed by requiring `\b` before the lowercase
+run (`\b[a-z]+[ \t]` instead of `[a-z,][ \t]`) -- a word's own internal letters never satisfy a
+word-boundary check, so this can no longer match mid-word. Kept a separate comma-based alternative
+(`,[ \t]`) since commas aren't letters and were never at risk of this bug (needed for cases like
+"Windsor-Essex County, Ontario"). Re-ran the FULL accumulated regression suite from this session
+(job 10702's real ads bug, Windsor-Essex, Oslo, emphasis-word stoplist, multi-city) against the fixed
+regex: 9/9 checks pass, zero regressions.
+
+**2. Colon-labeled outline sections persisted despite hasListyOutline correctly firing.** Confirmed via
+inspection: "E-commerce Google Ads experience:", "Platform experience:", and "How I'd audit an
+account...:" were ALL still present, unchanged, in the post-enforcer draft -- meaning the enforcer was
+invoked (the fix from the last round IS detecting this shape correctly) but failed to actually
+restructure the prose despite being told to, the same enforcer-unreliability pattern as every
+rate/fee bug this session. Added `_stripTopicNounLabelLines` -- a deterministic, unconditional strip
+that dissolves a standalone "Label experience:"/"Label depth:" line (the specific colon-label shape
+this session's fix targets) directly into the paragraph break, since the content that follows already
+reads as a complete, self-contained paragraph without the label. Verified: cleanly removes both offending
+labels with no double-blank-line artifacts, preserves all content, doesn't touch the "How I'd audit...:"
+question-label (a different, less severe shape not yet auto-fixed), and doesn't false-positive on a
+legitimate sentence using "experience"/"depth" as an ordinary word rather than a section label.
+
+Wired both fixes into the shared strip chain (both `_gcShadow(...)` call sites). `vite build` clean.
