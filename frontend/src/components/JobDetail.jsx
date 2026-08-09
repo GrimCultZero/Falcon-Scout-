@@ -2564,10 +2564,23 @@ const _EMPHASIS_WORD_STOPLIST = new Set([
 ])
 function _extractProtectedProperNouns(rawContext) {
   if (!rawContext) return []
+  // Strip markdown header lines before scanning. Confirmed on job 10702:
+  // the scraper glues the job's own Title-Cased headline directly onto the
+  // description body as a markdown header ("Summary## Google Ads
+  // Specialist Needed to Audit & Optimize E-Commerce Campaigns") -- this is
+  // the SAME headline-styling problem that excluding the separate job.title
+  // field was supposed to solve, just duplicated inside description_full
+  // itself, so "Audit"/"Campaigns" still leaked through as "protected
+  // proper nouns" and got force-capitalized everywhere in the letter. Strip
+  // the glued "Summary#{...}" line specifically, then any other standalone
+  // "### Section Header" lines (also Title-Cased styling, not prose).
+  const _proseOnly = rawContext
+    .replace(/^\s*Summary\s*#{1,6}[^\n]*\n/, '')
+    .replace(/^#{1,6}[^\n]*\n/gm, '')
   const found = new Map() // lowercase key -> the posting's own correct casing
   const MID_SENTENCE_PROPER_RE = /(?:[a-z,][ \t]|[ \t]and[ \t])([A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*(?:[ \t][A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*){0,2})\b/g
   let m
-  while ((m = MID_SENTENCE_PROPER_RE.exec(rawContext))) {
+  while ((m = MID_SENTENCE_PROPER_RE.exec(_proseOnly))) {
     const term = m[1]
     if (term.length < 3 || term === 'I') continue
     const key = term.toLowerCase()

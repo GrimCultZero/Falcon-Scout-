@@ -3532,3 +3532,26 @@ harmless in practice since a draft is very unlikely to naturally use those exact
 elsewhere, unlike the "not"/"fixed"/"audit" case which are extremely common standalone words. Not
 fixing further right now given the severity of what's already resolved; worth revisiting if a
 concrete instance of THIS specific residual risk ever surfaces.
+
+## 2026-08-09 — Follow-up fix: title headline duplicated INSIDE description_full itself
+
+Owner regenerated job 10702 after the previous critical-fix commit and still saw "Campaigns"/"Audit"
+wrongly capitalized mid-sentence (partial recurrence of the same corruption class, not the full "AND"
+epidemic — the earlier fix did eliminate the analyser-text contamination, but not this).
+
+Root cause, confirmed by querying the REAL stored `description_full` directly (not a hand-reconstruction
+this time): the scraper glues the job's own Title-Cased headline straight onto the description body as a
+markdown header with NO separating whitespace -- `"Summary## Google Ads Specialist Needed to Audit &
+Optimize E-Commerce Campaigns\r\n\r\n..."`. Excluding the separate `job.title` field (the previous fix)
+didn't help, because this exact headline text is ALSO duplicated inside `description_full` itself as its
+first line. "to Audit" and "Commerce Campaigns" are headline-styling capitalization, not proper nouns,
+and the extractor had no way to know that first line was a title rather than a sentence.
+
+Fixed by stripping markdown header lines inside `_extractProtectedProperNouns` itself before scanning:
+the glued `"Summary#{...}"` first line specifically, then any other standalone `"### Section Header"`
+lines throughout the description (also Title-Cased styling, not prose -- this incidentally also dropped
+some harmless-but-spurious captures like "We Need"/"Looking For"/"Applying" from the posting's own
+section headers). Verified against the REAL `description_full` fetched straight from the DB for job
+10702: "audit"/"campaigns" no longer appear in the extracted terms list at all now; legitimate terms
+(Google Ads, Indian, Performance Max, Demand Gen, Shopping, Merchant Center, ROAS, CPA) remain protected.
+`vite build` clean.
