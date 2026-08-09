@@ -2517,12 +2517,20 @@ function _humanizeCasing(s) {
   // Reduce the em-dash / spaced-hyphen connector — ChatGPT's single most
   // recognizable punctuation tell (the current letters use " - " in nearly every
   // sentence). Keep the FIRST as an occasional human dash; convert the rest to
-  // commas. Only a SPACED dash directly before a lowercase word (a clause
-  // connector) is touched — never hyphenated compounds ("high-intent"), numeric
-  // ranges ("300-500", "9am - 5pm"), or dashes before a capitalised proper noun.
+  // commas. A SPACED dash directly before a letter (either case) is touched —
+  // never hyphenated compounds ("high-intent") or numeric ranges ("300-500",
+  // "9am - 5pm", since digits aren't in [a-zA-Z]). Confirmed on job 10702
+  // (workflow adversarial review, 2026-08-09): the original (?=[a-z])-only
+  // version deliberately skipped any dash followed by a CAPITALIZED word,
+  // meant to spare dashes before proper nouns -- but in a PPC letter full of
+  // capitalized product names (PMax, Shopping, Search), this let an
+  // unlimited number of dashes survive untouched ("Auditing two running ecom
+  // brands - children's..." AND "Platform depth - PMax, Search..." both kept
+  // as literal " - "), directly violating the "AT MOST ONE spaced dash"
+  // rule, which states no such exception.
   {
     let dashCount = 0
-    t = t.replace(/[ \t]+[-–—][ \t]+(?=[a-z])/g, () => (++dashCount === 1 ? ' - ' : ', '))
+    t = t.replace(/[ \t]+[-–—][ \t]+(?=[a-zA-Z])/g, () => (++dashCount === 1 ? ' - ' : ', '))
   }
   return t
 }
@@ -6144,8 +6152,23 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // they don't match. 2+ such label-blocks reads as an outline.
             const _labelBlockRe = /(?:^|\n)[ \t]*[A-Z][\w/&]{1,25}(?:[ \t]+[\w/&()]+){0,4}[ \t]+[–-][ \t]+\S/g
             const _labelBlockCount = (text.match(_labelBlockRe) || []).length
+            // Colon-labeled outline sections (workflow adversarial review,
+            // 2026-08-09, job 10702): the checks above only catch a DASH
+            // after the label ("Platform depth - PMax…"); a colon-labeled
+            // section ("How I'd Audit an account…:", "Who does the work:",
+            // "Ecommerce Google Ads experience:") is the identical
+            // labeled-outline tell but slipped through untouched -- this
+            // exact letter would have passed the check cleanly if a stray
+            // dash elsewhere hadn't coincidentally tripped _labelBlockRe.
+            // Tested against 8 legitimate short sentences (case-study
+            // lead-ins like "Recent example: rebuilt tracking…", sign-offs)
+            // with zero false positives.
+            const QUESTION_LABEL_RE = /(?:^|\n)[ \t]*(?:how|what|who|why)\b[^\n:]{0,80}:/gi
+            const TOPIC_NOUN_LABEL_RE = /(?:^|\n)[ \t]*[A-Z][\w/-]*(?:[ \t]+[A-Za-z][\w/-]*){0,3}[ \t]+(?:experience|expertise|depth|background)\s*[:\-–]/gi
+            const _questionLabelCount = (text.match(QUESTION_LABEL_RE) || []).length
+            const _topicNounLabelCount = (text.match(TOPIC_NOUN_LABEL_RE) || []).length
             const hasListyOutline = _OUTLINE_LABEL_RES.filter(re => re.test(text)).length >= 2
-              || _labelBlockCount >= 2
+              || (_labelBlockCount + _questionLabelCount + _topicNounLabelCount) >= 2
 
             // ── Fabricated GEOGRAPHIC experience (opener) ────────────────────
             // The opener sometimes claims Artem "works with sites in <the client's
@@ -6187,9 +6210,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 caseRe: /\b(derma\s*solution|skin\s*reboot|medical|aesthetic|dermatolog|ymyl)\b/i,
                 lead: 'Derma Solution (medical/YMYL — +1,861% organic traffic, +14,342% conversions) and/or Skin Reboot' },
               { name: 'ecommerce',
+                // caseRe matches only actual CASE-STUDY NAMES, never generic
+                // vocabulary ("e-commerce", "shopify", "roas", "revenue") --
+                // a workflow adversarial review (2026-08-09, job 10702) found
+                // those generic terms let _verIdx match ordinary prose
+                // (e.g. "grew revenue +693.8%" appearing before the actual
+                // named case) and be mistaken for the on-vertical case
+                // "leading", silently suppressing this check exactly when a
+                // real off-vertical filler (FridgeFix) needed to be flagged.
+                // chronocash added: an approved high-ticket ecommerce case
+                // (luxury watch dealer, EUR0.52 CPC, +42% conversions) that
+                // should count as on-vertical proof for this job type.
                 jobRe: /\b(e-?commerce|online\s+store|shopify|woocommerce|magento|product\s+feed|merchant\s+center|shopping\s+ads?|\bdtc\b|\bd2c\b)\b/i,
-                caseRe: /\b(nectar\s*flowers|skin\s*reboot|smash|game-?x|oxytec|e-?commerce|shopify|\broas\b|revenue)\b/i,
-                lead: 'an ecommerce case (Nectar Flowers -72% CPA / +350% revenue, or Skin Reboot 17.51 ROAS)' },
+                caseRe: /\b(nectar\s*flowers|skin\s*reboot|smash|game-?x|oxytec|chronocash)\b/i,
+                lead: 'an ecommerce case (Nectar Flowers -72% CPA / +350% revenue, Skin Reboot 17.51 ROAS, or ChronoCash luxury-watch high-ticket)' },
             ]
             const _jobVertical = _VERTICAL_LEAD_CASES.find(v => v.jobRe.test(_jobVerticalBlob)) || null
             let exactVerticalCaseNotLeading = false

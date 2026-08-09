@@ -3555,3 +3555,59 @@ section headers). Verified against the REAL `description_full` fetched straight 
 10702: "audit"/"campaigns" no longer appear in the extracted terms list at all now; legitimate terms
 (Google Ads, Indian, Performance Max, Demand Gen, Shopping, Merchant Center, ROAS, CPA) remain protected.
 `vite build` clean.
+
+## 2026-08-09 — Job 10702 round 2: workflow-driven review, three more confirmed fixes
+
+After the casing fixes, owner said "still a lot of mistakes." Ran a workflow (3 parallel reviewers,
+each briefed with the real letter + real posting + real code) to sweep for remaining issues beyond
+casing. All three findings below were independently confirmed via throwaway Node scripts against the
+real regexes before being implemented, and cross-corroborated by more than one reviewer.
+
+**1. Dash-reducer let unlimited dashes survive before capitalized words.** `_humanizeCasing`'s "at most
+one spaced dash" rule only ever considered a dash if followed by a LOWERCASE letter
+(`(?=[a-z])`) -- deliberately sparing dashes before a capitalized proper noun. In a PPC letter full of
+capitalized product names (PMax, Shopping, Search), this let an unbounded number of dashes survive
+untouched ("Auditing two running ecom brands - children's..." AND "Platform depth - PMax, Search...").
+Fixed by extending the lookahead to `(?=[a-zA-Z])` -- verified numeric ranges ("9am - 5pm") and
+hyphenated compounds ("high-intent") remain correctly unaffected (digits/no-surrounding-whitespace
+still exempt).
+
+**2. `hasListyOutline` missed colon-labeled sections entirely.** The existing check only catches a
+DASH after a label ("Platform depth - PMax…"); it had no pattern for a colon-labeled section ("How I'd
+Audit an account…:", "Who does the work:", "Ecommerce Google Ads experience:") -- the identical
+structural-AI-tell, just punctuated differently. This exact letter would have passed the check cleanly
+if a stray dash in the opening sentence hadn't coincidentally tripped the existing dash-block pattern.
+Added two new patterns (question-style labels: how/what/who/why + colon; topic-noun labels: a short
+Title-Case phrase ending in experience/expertise/depth/background + colon-or-dash), combined into the
+same occurrence-count threshold. Verified against 5 legitimate short sentences (case-study lead-ins,
+sign-offs) with zero false positives, and confirms this exact letter now correctly crosses the >=2
+threshold.
+
+**3. `exactVerticalCaseNotLeading`'s ecommerce `caseRe` had generic words that polluted its matching.**
+It included bare vocabulary ("e-commerce", "shopify", "roas", "revenue") alongside actual case-study
+names -- meaning ordinary prose mentioning "revenue" or "e-commerce" ANYWHERE before an off-vertical
+filler case (FridgeFix) could be mistaken for "the on-vertical case already led," silently suppressing
+the check exactly when it should fire. Narrowed `caseRe` to real case names only (nectar flowers/skin
+reboot/smash/game-x/oxytec), and added `chronocash` -- an approved high-ticket ecommerce case (luxury
+watch dealer, EUR0.52 CPC, +42% conversions) the reviewer confirmed exists in the codebase's approved
+case list but wasn't being recognized as on-vertical proof. Verified the fix doesn't regress the correct
+"genuinely leading" case and now correctly flags the previously-missed "generic words before filler"
+scenario.
+
+`vite build` clean across all three.
+
+**Deferred, documented but not fixed (judgment calls needing more design, not shipped this round):**
+- ChronoCash exists with full metrics in the approved case list but got buried as an unnamed fragment
+  ("luxury watch dealer case") inside a Demand-Gen platform-depth aside instead of leading as a named,
+  full-metric primary case for this ecommerce job -- a real gap, but fixing it means changing how the
+  GENERATOR chooses/prioritizes which cases to name up front, not a simple regex catch; needs its own
+  scoped pass.
+- FridgeFix (a local-service case) got grouped under an "Ecommerce Google Ads experience:" header,
+  which is a mislabeling distinct from simple ordering (which `exactVerticalCaseNotLeading` already
+  checks) -- no existing mechanism checks "is this off-vertical case being mislabeled as on-vertical,"
+  and building one risks over-fitting to this one header's exact wording. Flagging for a future,
+  more careful pass rather than shipping something fragile now.
+- The audit-sample mention reads as boilerplate tacked on right before the signoff rather than woven
+  into a specific diagnosed point (a rule the prompt already states explicitly) -- "is this woven in
+  vs. just present" is inherently a fuzzy, qualitative judgment to detect deterministically; not
+  attempting a heuristic for it this round.
