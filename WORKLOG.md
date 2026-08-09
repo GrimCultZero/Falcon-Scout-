@@ -3497,3 +3497,38 @@ than trusting whichever one is leftmost -- removes the order-dependency entirely
 the real bug (verified: case-study-before-correct-price case no longer false-flags; the actual job
 10659 bug is still caught). `vite build` clean, all usages confirmed to stay within the try block (no
 repeat of the earlier `_hMaxForRateCheck` scope bug).
+
+## 2026-08-09 — CRITICAL FIX: proper-noun casing feature was corrupting entire letters
+
+Owner shared job 10702 (Google Ads audit, ecommerce) and asked to check/analyse. Found a severe
+regression: nearly every "and" in the generated letter had been capitalized to "AND", plus "audit" ->
+"Audit", "campaigns" -> "Campaigns", "Search" wrongly capitalized, and "Artem" -> "ARTEM" (all caps) at
+the very end. This is MY OWN proper-noun-casing feature (shipped earlier this session, job 10659) badly
+misfiring — not a cosmetic issue, a genuinely severe letter-corrupting regression that would have shipped
+to real clients if the owner hadn't caught it.
+
+Root-caused by reconstructing the actual `jobContext` blob and running the extraction function against
+it directly. `_extractProtectedProperNouns` was scanning the ENTIRE `jobContext` variable, not just the
+client's own posting -- and jobContext also concatenates the ANALYSER's own generated summary/flags text
+(riddled with ALL-CAPS emphasis for readability, e.g. "does NOT apply", "a FIXED $300 audit") and the job
+TITLE (Title-Cased as a headline convention -- "Needed to Audit & Optimize E-Commerce Campaigns"
+capitalizes "Audit"/"Campaigns" because that's how titles are styled, not because they're proper nouns).
+Both got mistaken for genuine proper nouns and force-capitalized EVERYWHERE they appeared as ordinary
+words in the letter -- "and" being astronomically common meant the corruption was total.
+
+Fixed by scanning ONLY `fullDescription` (the client's actual raw posting body) instead of the full
+`jobContext` composite -- normal prose doesn't have this problem since Title-Case headlines and ALL-CAPS
+emphasis are specifically a title/analysis-text convention, not how people write sentences. Verified via
+direct reconstruction test: extracting from fullDescription alone drops all the toxic terms ("not",
+"fixed", "audit", "campaigns", spurious multi-word captures like "We Need"/"Looking For" from the
+posting's OWN section headers) while correctly keeping legitimate protected terms (Google Ads, Indian,
+Performance Max, Demand Gen, Shopping, Merchant Center, ROAS). Re-ran the real job 10702 BEFORE-draft
+text through the fixed pipeline end-to-end -- zero corruption, "Artem" stays correctly title-cased,
+"Google Ads" etc. still protected. `vite build` clean.
+
+Residual, deliberately accepted risk: a posting's own short section headers ("What We Need", "Who We're
+Looking For") can still register 2-3-word phrases as protected terms (e.g. "Looking For") -- essentially
+harmless in practice since a draft is very unlikely to naturally use those exact lowercase phrases
+elsewhere, unlike the "not"/"fixed"/"audit" case which are extremely common standalone words. Not
+fixing further right now given the severity of what's already resolved; worth revisiting if a
+concrete instance of THIS specific residual risk ever surfaces.

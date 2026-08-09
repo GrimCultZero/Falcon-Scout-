@@ -5180,8 +5180,20 @@ function ProposalColumn({ job, bridgeReady = false }) {
       // Proper nouns (cities, counties, countries, brand names) as the
       // client themselves capitalized them in the posting -- computed once
       // here so both the compliant-bypass and post-enforcer strip chains
-      // below can reference the same list without re-scanning jobContext.
-      const _protectedProperNouns = _extractProtectedProperNouns(jobContext)
+      // below can reference the same list without re-scanning.
+      // CRITICAL: scan ONLY fullDescription (the client's raw posting text),
+      // never the full jobContext blob. Confirmed on job 10702: jobContext
+      // also contains the analyser's own summary/flags text (riddled with
+      // ALL-CAPS emphasis like "does NOT apply", "a FIXED $300 audit") and
+      // the job TITLE (Title-Cased as a headline -- "Needed to Audit &
+      // Optimize E-Commerce Campaigns" capitalizes "Audit"/"Campaigns" as
+      // ordinary headline styling, not because they're proper nouns). Both
+      // got registered as "protected proper nouns" and force-capitalized
+      // EVERY occurrence of "not"/"fixed"/"audit"/"campaigns" throughout the
+      // entire generated letter -- a severe, highly visible regression.
+      // fullDescription is normal prose, not headline/analysis text, so the
+      // mid-sentence-capitalization heuristic is actually reliable there.
+      const _protectedProperNouns = _extractProtectedProperNouns(fullDescription)
 
       // This job's own posted hourly ceiling -- declared here (before the
       // try/catch further down) rather than inside the deterministic
