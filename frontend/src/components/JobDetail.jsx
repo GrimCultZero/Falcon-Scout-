@@ -2567,6 +2567,80 @@ function _humanizeCasing(s) {
 // English only capitalizes a mid-sentence word for a proper noun, an
 // acronym, or the pronoun "I", so this is a high-precision signal without
 // needing a hardcoded city/country gazetteer that would miss most jobs.
+// COST OPTIMIZATION (owner request, 2026-08-09): "Case Studies Results
+// Overview" and "Web Development ... Portfolio" (the two manual KB entries
+// behind portfolioText) are each a LIST of independent case studies (11 and
+// 4 respectively), sent to Claude IN FULL on every single generate() call
+// regardless of the job's vertical -- a PPC audit job gets the webdev
+// portfolio, an ecommerce job gets the real-estate case, etc. That's ~12.2K
+// chars (~3K tokens) of mostly-irrelevant content on every call.
+//
+// This filters each entry down to only the case-study BLOCKS relevant to
+// the current job, verified against the actual KB content (both entries use
+// a "### <name/number> ..." heading per case, with intro "Key takeaways"
+// and -- for the webdev entry -- trailing "Live proof sites"/"How to use
+// these" guidance sections that are never case-specific and always kept).
+//
+// Safety-first by design: if fewer than 2 tagged cases match the job text,
+// filtering does NOT activate and the FULL, unfiltered entry is returned --
+// identical to today's behavior. This can only ever show a job FEWER,
+// more-relevant cases than before; it can never leave a confidently-matched
+// job with less than it would have had, and an unmatched/ambiguous job is
+// completely unaffected (same content as before this change, every time).
+const _CASE_STUDY_VERTICAL_TAGS = {
+  'Skin Reboot': /\b(health|wellness|beauty|medical[\s-]?aesthetic|skincare|skin\s*care|cosmetic|supplement)\b/i,
+  'Golden State Trailers': /\b(trailer|b2b|manufactur)\b/i,
+  'Vape Shop': /\b(vape|vaping|e-?cig(?:arette)?|nicotine)\b/i,
+  'Luxury Parfums': /\b(perfume|parfum|fragrance|scent)\b/i,
+  'Derma Solution': /\b(medical|dermatolog|aesthetic|ymyl|skincare|skin\s*care|cosmetic)\b/i,
+  'Multilingual Construction Website': /\b(multilingual|multi-?language|construction|tender|permit|bilingual)\b/i,
+  'FridgeFix': /\b(appliance|repair|refrigerator|home\s+service|local\s+service)\b/i,
+  'Nectar Flowers Ottawa': /\b(florist|flower)\b/i,
+  'House Painting Company': /\b(paint|painting|contractor)\b/i,
+  'Real Estate Complex': /\b(real\s*estate|realtor|propert(?:y|ies)|residential|brokerage|new[-\s]?listing)\b/i,
+  'ChronoCash': /\b(watch|luxury|high[-\s]?ticket|high[-\s]?end|jewelry)\b/i,
+  'SMASH': /\b(streetwear|fashion|apparel)\b/i,
+  'Game-X': /\b(pc\s+hardware|gaming|hardware)\b/i,
+  'GKit': /\b(footwear|fashion|apparel|shoe)\b/i,
+  'Casa Eleganza': /\b(furniture|home\s+decor|d[eé]cor)\b/i,
+}
+function _filterCaseStudyBlocks(content, jobText) {
+  if (!content) return content
+  const firstIdx = content.search(/\n###\s+/)
+  if (firstIdx === -1) return content // not this per-case-heading shape -- leave untouched
+  const preamble = content.slice(0, firstIdx)
+  const rest = content.slice(firstIdx)
+  const HEADING_RE = /\n(#{2,3})\s+([^\n]+)/g
+  const pieces = []
+  let m, last = null
+  while ((m = HEADING_RE.exec(rest))) {
+    if (last) pieces.push({ ...last, text: rest.slice(last.start, m.index) })
+    last = { level: m[1].length, title: m[2], start: m.index }
+  }
+  if (last) pieces.push({ ...last, text: rest.slice(last.start) })
+  const caseBlocks = []
+  const alwaysKeep = []
+  for (const p of pieces) {
+    if (p.level === 3) {
+      caseBlocks.push(p)
+    } else {
+      // A bare level-2 category label ("## SEO Case Studies") with no real
+      // body before the next heading is redundant with each case's own
+      // heading -- drop it. Otherwise it's general guidance ("Live proof
+      // sites", "How to use these in a proposal") -- always keep it.
+      const bodyAfterHeading = p.text.replace(/^\n#{2,3}\s+[^\n]+/, '').trim()
+      if (bodyAfterHeading) alwaysKeep.push(p.text)
+    }
+  }
+  if (caseBlocks.length === 0) return content
+  const matched = caseBlocks.filter(b => {
+    const tagEntry = Object.entries(_CASE_STUDY_VERTICAL_TAGS).find(([name]) => b.title.includes(name))
+    return tagEntry ? tagEntry[1].test(jobText) : false
+  })
+  if (matched.length < 2) return content // not confident enough -- full content, unchanged from today
+  return preamble + matched.map(b => b.text).join('') + alwaysKeep.join('')
+}
+
 // Common English words that Upwork clients frequently capitalize mid-sentence
 // purely for EMPHASIS, not because they're proper nouns ("a truly Professional
 // result", "need this done Quick"). A workflow adversarial-verify pass
@@ -5111,8 +5185,9 @@ function ProposalColumn({ job, bridgeReady = false }) {
             /case stud|portfolio|results|overview|client/i.test(e.title)
           )
           if (portfolioEntries.length > 0) {
+            const _jobTextForCaseFilter = `${job?.title || ''} ${fullDescription}`
             portfolioText = '\n\nARTEM\'S APPROVED CASE STUDIES (the ONLY case studies you may reference or suggest attaching — do not invent or cite any others):\n' +
-              portfolioEntries.map(e => `--- ${e.title} ---\n${(e.content || '').slice(0, 8000)}`).join('\n\n')
+              portfolioEntries.map(e => `--- ${e.title} ---\n${_filterCaseStudyBlocks(e.content || '', _jobTextForCaseFilter).slice(0, 8000)}`).join('\n\n')
           }
           // Reference/template entries = manual entries containing vertical prompt
           // templates and real client metrics (e.g. "Upwork Prompt Gemini + template examples").

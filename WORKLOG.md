@@ -3647,3 +3647,63 @@ question-label (a different, less severe shape not yet auto-fixed), and doesn't 
 legitimate sentence using "experience"/"depth" as an ordinary word rather than a section label.
 
 Wired both fixes into the shared strip chain (both `_gcShadow(...)` call sites). `vite build` clean.
+
+## 2026-08-09 — Cost optimization: vertical-filter the case-study portfolio KB blocks
+
+Owner asked for a thorough audit of KB entries to find spend-reduction opportunities. Ran a workflow
+(3 parallel investigators) against the real DB + prompt-construction code. Findings, ranked by impact:
+
+1. **Prompt caching is broken for generate() (biggest lever, not implemented this round):** `analysis`
+   calls get a healthy 3:1 cache write:read ratio; `proposal` calls get 67:1 -- writing constantly,
+   almost never reusing. Root cause: `analyse()` keeps job-specific data in the user message (system
+   prompt stays near-identical across calls, cache hits work); `generate()` splices job-varying content
+   (scope-filtered rules, portfolio/reference/past-proposal text) directly into the system prompt, so
+   the backend's cache-split heuristic treats the whole per-job blob as "static" and writes a fresh,
+   never-reused cache entry on every single call -- paying the ~25% cache-write surcharge with almost
+   none of the 90% cache-read discount. Deferred: this is an architectural change (move job-specific
+   content to the user message, stop varying what's sent, matching how analyse() already isolates
+   jobSummary), not something to rush alongside today's change.
+2. **Portfolio/reference text sent unfiltered on every generate() call, ~30K chars, no relevance
+   gating** -- addressed below.
+3. Rule-scope filtering already works reasonably (keeps 16-20/34 rules depending on job type) -- smaller
+   lever, not touched.
+4. 96 "case_study" KB entries (1.26M chars) are dead weight -- confirmed never fetched anywhere in the
+   generator path (only referenced in the KB manager UI's display filter). Not a cost issue since
+   nothing sends them, but worth knowing if you thought they fed the generator -- they don't; `manual`-
+   type entries do.
+
+**Implemented (owner chose #2, explicitly asked for revertibility):** the two manual-KB entries behind
+`portfolioText` ("Case Studies Results Overview", 11 cases; "Web Development ... Portfolio", 4 cases)
+were sent in FULL on every generate() call regardless of the job's vertical -- a PPC audit job got the
+webdev portfolio, a real-estate case got the vape-shop case, etc.
+
+Before implementing a naive character cap, inspected the actual content and found it would have been
+actively harmful: these entries are lists of independent case studies (confirmed 11 and 4 respectively),
+and a blind `.slice(0, N)` truncation would silently drop most of them (only keeping whichever appear
+first), not just trim filler -- this would have made FridgeFix, Nectar Flowers, and ChronoCash
+invisible to the generator regardless of a job's actual fit. Built `_filterCaseStudyBlocks` instead:
+parses each entry into its individual `### case` blocks (verified against the real KB content -- both
+entries use this exact heading shape, with "Key takeaways" intro and, for the webdev entry, trailing
+"Live proof sites"/"How to use these" guidance sections that are never case-specific and always kept
+regardless of filtering), hand-tagged each of the 15 cases with a vertical keyword pattern extracted
+from its own "Niche:" line, and matches those tags against the current job's title+description.
+
+Safety-first design, confirmed by owner requirement: if fewer than 2 tagged cases match the job text,
+filtering does NOT activate and the full, unfiltered entry ships exactly as before -- this can only ever
+show a confidently-matched job FEWER, more-relevant cases; an ambiguous or unmatched job (most of this
+session's real jobs -- tattoo studio, generic ecommerce -- correctly fell back to full, unchanged
+content) is completely unaffected.
+
+Verified against real KB content across 7 scenarios: two real jobs from this session (10609 tattoo
+studio, 10702 generic ecommerce) correctly fall back to full/unchanged; a med-spa job correctly filters
+to Skin Reboot + Derma Solution only (6,869 -> 1,931 chars, ~72% reduction for that call) while excluding
+FridgeFix/Golden State Trailers; a local-home-service job correctly filters to FridgeFix + House
+Painting while excluding Skin Reboot; a real-estate-only job correctly falls back (only 1 match, below
+the 2-match safety threshold); a streetwear+gaming-hardware job on the webdev entry correctly matches
+SMASH+Game-X+GKit while excluding Casa Eleganza's dedicated block (Casa Eleganza is still legitimately
+name-dropped in the always-kept "How to use these" guidance, which is correct, not a leak); a
+furniture+fashion combination job correctly includes Casa Eleganza's block once 2+ matches exist. `vite
+build` clean.
+
+**Revert:** this is one isolated commit on a clean tree -- `git revert <this-commit-hash>` fully restores
+today's send-everything behavior with no side effects on any other change.
