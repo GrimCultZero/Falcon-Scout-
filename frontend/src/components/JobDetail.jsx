@@ -2215,8 +2215,15 @@ function _stripUnaskedRate(text, asksRate) {
     const t = p.trim()
     // CARVE-OUT: the productised AUDIT offer ($300 flat, 1 working day) is Artem's
     // standard deliverable and IS the pitch — it must survive even when the posting
-    // never asked for a rate. Never strip a paragraph that mentions an audit.
-    if (/\baudits?\b/i.test(t)) return true
+    // never asked for a rate. Requires the paragraph to actually BE that $300
+    // offer, not just any paragraph that happens to mention the word "audit"
+    // as a common noun. Confirmed on job 11202: a genuinely unsolicited
+    // "Rate for this: $160/hr..." paragraph also mentioned "tracking audit"
+    // in passing (describing the scope of the hourly work, not the $300
+    // productised audit), and the old bare /\baudits?\b/i check wrongly
+    // treated that as the protected paragraph, letting an unrequested
+    // hourly rate survive a posting that never asked for one.
+    if (/\baudits?\b/i.test(t) && /\$300\b/.test(t)) return true
     // A paragraph that is PRIMARILY a rate/price quote: it opens with "Rate …",
     // or it states an hourly figure ("$40/hr") inside a pricing context.
     const isRatePara = _RATE_PARA_RE.test(t) ||
@@ -5240,10 +5247,35 @@ function ProposalColumn({ job, bridgeReady = false }) {
       // default. The model kept quoting $30-35 even on high-ceiling premium clients.
       const _hMax = Number(job.hourly_rate_max) || 0
       const _genFloor = /\b(shopify|woocommerce|wordpress|opencart|magento|web\s*develop|website\s+develop|landing\s+page|\bliquid\b|theme\s+(?:dev|customi))\b/i.test(`${job.title || ''} ${fullDescription}`) ? 40 : 30
+      // The analyser already cross-checks job.avg_rate (the client's own
+      // historical average paid to freelancers) against the posted ceiling
+      // and Artem's floor when scoring a job -- but the generator's rate
+      // anchor never did, and blindly anchoring to 80% of the posted
+      // ceiling breaks down when that ceiling is inflated/aspirational.
+      // Confirmed on job 11202: posted range $8-$200/hr, but avg_rate is
+      // only $24.49/hr (the analyser itself flagged "rate-floor risk" for
+      // this exact reason) -- the blind 80%-of-$200 anchor told the model
+      // to quote "$160-$200/hr", and it dutifully quoted $160/hr to a
+      // client who has never paid more than $24.49/hr. When avg_rate is
+      // available and meaningfully below the naive anchor, ground the
+      // anchor in the client's real paying history instead of the posted
+      // range.
+      const _avgRate = Number(job.avg_rate) || 0
       let _rateAnchorNote = ''
       if (_hMax >= _genFloor) {
-        const _anchorLow = Math.max(_genFloor + 5, Math.round(_hMax * 0.8))
-        _rateAnchorNote = `RATE ANCHOR (apply ONLY if the posting asks for your rate/pricing/estimate — otherwise quote no rate): the posted ceiling is $${_hMax}/hr. Anchor your quote in the UPPER part of the range, roughly $${_anchorLow}-$${_hMax}/hr — NOT at your $${_genFloor}/hr floor. A client posting a $${_hMax} ceiling, or asking for senior / expert / "top-tier" talent, expects a senior rate; quoting $30-35 here reads as budget-tier and leaves money on the table. Give a concrete figure/range, never a [[ ARTEM: … ]] placeholder for a price the client explicitly asked for.`
+        const _naiveAnchor = Math.max(_genFloor + 5, Math.round(_hMax * 0.8))
+        // A MEANINGFUL gap, not any gap -- require avg_rate to be below
+        // Artem's own floor (the analyser's own risk threshold) OR less
+        // than half the naive anchor. Verified this matters: a client
+        // paying $110/hr against a $120 naive anchor is NOT "inflated
+        // ceiling" territory (still a strong, plausible rate) and
+        // shouldn't get told the posted ceiling is unrealistic.
+        if (_avgRate > 0 && (_avgRate < _genFloor || _avgRate < _naiveAnchor * 0.5)) {
+          const _realisticAnchor = Math.max(_genFloor, Math.round(_avgRate * 1.15))
+          _rateAnchorNote = `RATE ANCHOR (apply ONLY if the posting asks for your rate/pricing/estimate — otherwise quote no rate): the posted ceiling is $${_hMax}/hr, but this client's ACTUAL historical average paid to freelancers is only $${_avgRate}/hr — the posted ceiling is very likely inflated/aspirational, not a realistic budget. Do NOT anchor to 80% of the posted ceiling (that would suggest an unrealistic ~$${_naiveAnchor}/hr here, which this client has never paid anything close to). Anchor near $${_realisticAnchor}/hr instead (a modest step above their own paying history, not a premium derived from the posted range) — or quote a fixed project price sized to scope. Give a concrete figure, never a [[ ARTEM: … ]] placeholder for a price the client explicitly asked for.`
+        } else {
+          _rateAnchorNote = `RATE ANCHOR (apply ONLY if the posting asks for your rate/pricing/estimate — otherwise quote no rate): the posted ceiling is $${_hMax}/hr${_avgRate > 0 ? ` (this client's historical average paid to freelancers, $${_avgRate}/hr, supports this)` : ''}. Anchor your quote in the UPPER part of the range, roughly $${_naiveAnchor}-$${_hMax}/hr — NOT at your $${_genFloor}/hr floor. A client posting a $${_hMax} ceiling, or asking for senior / expert / "top-tier" talent, expects a senior rate; quoting $30-35 here reads as budget-tier and leaves money on the table. Give a concrete figure/range, never a [[ ARTEM: … ]] placeholder for a price the client explicitly asked for.`
+        }
       } else if (_hMax > 0) {
         _rateAnchorNote = `RATE ANCHOR (apply ONLY if the posting asks for your rate): the posted ceiling ($${_hMax}/hr) is at/below Artem's ~$${_genFloor}/hr floor. Quote at the floor or as a fixed project price sized to scope; never write a sub-floor effective hourly.`
       }

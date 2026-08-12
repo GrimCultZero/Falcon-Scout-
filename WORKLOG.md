@@ -3707,3 +3707,38 @@ build` clean.
 
 **Revert:** this is one isolated commit on a clean tree -- `git revert <this-commit-hash>` fully restores
 today's send-everything behavior with no side effects on any other change.
+
+## 2026-08-12 — Job 11202: two confirmed rate bugs ("$160/hr" to a client who's never paid more than $24.49/hr)
+
+Owner reacted "wtf is this rate" to job 11202 (Google Ads/Meta/HubSpot ad management, posted $8-$200/hr).
+Two distinct, real bugs compounded to produce this:
+
+**1. RATE ANCHOR never cross-checked the client's actual paying history.** The analyser already computes
+and weighs `job.avg_rate` (client's historical average paid to freelancers) against the posted ceiling
+and Artem's floor when scoring a job -- this exact job was flagged "client avg $24.49/hr creates material
+rate-floor risk" in the analyser's own reasoning. But the GENERATOR's rate anchor (`_rateAnchorNote`)
+never looked at `avg_rate` at all -- it blindly anchored to 80% of the posted ceiling ($200 * 0.8 = $160),
+producing a confident "$160-$200/hr" instruction for a client who has never paid more than $24.49/hr.
+Fixed by cross-checking avg_rate: when it's below Artem's floor OR less than half the naive anchor (a
+real gap, not a marginal one -- tested and tightened after an initial version would have wrongly flagged
+a $110/hr avg against a $120 naive anchor, which is NOT inflated-ceiling territory), ground the anchor in
+the client's real payment history (avg_rate * 1.15, floored at Artem's own minimum) instead of the raw
+posted range. Verified: job 11202's case now anchors near $30/hr instead of $160/hr; a job with no
+avg_rate data or one where avg_rate confirms the ceiling behaves exactly as before.
+
+**2. `_stripUnaskedRate`'s audit carve-out was too broad, let an unsolicited rate survive.** This job's
+posting never asks for a rate/pricing/budget anywhere -- confirmed by reading the full posting text, and
+by `_postingAsksRate`'s own regex correctly evaluating false for it. The draft should have had its entire
+"Rate for this: $160/hr..." paragraph stripped by `_stripUnaskedRate`. It survived because that
+paragraph ALSO mentions "tracking audit" in passing (describing the hourly work's scope, not Artem's
+$300 productised audit offer), and the carve-out meant to protect the genuine $300 audit pitch
+(`/\baudits?\b/i.test(t)`) matched on the bare word "audit" alone, with no check that this was actually
+the $300 offer. Narrowed the carve-out to require BOTH "audit" and the literal "$300" figure co-occurring
+-- only the genuine productised-audit paragraph is protected now, not any paragraph that happens to use
+"audit" as an ordinary word. Verified: the real unsolicited-rate paragraph now correctly gets stripped;
+a genuine "$300 flat for the audit..." paragraph still survives being stripped when the posting doesn't
+ask for a rate (regression-checked).
+
+Both bugs independently contributed to the bad output: bug 2 meant a rate got quoted AT ALL (should have
+been zero, since never asked); bug 1 meant the FIGURE would have been unrealistic even on a job that
+genuinely did ask for a rate. `vite build` clean.
