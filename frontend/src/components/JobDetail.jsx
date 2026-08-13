@@ -6366,6 +6366,26 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               exactVerticalCaseNotLeading = _genIdx >= 0 && (_verIdx < 0 || _genIdx < _verIdx)
             }
 
+            // ── Off-vertical case PADDING (distinct from ordering above) ──────
+            // exactVerticalCaseNotLeading only catches a filler case that leads
+            // BEFORE the on-vertical proof. It misses a letter that correctly
+            // leads with the right case(s) but ALSO tacks on the generic filler
+            // as an unnecessary extra. Confirmed real case (job 11333, pure
+            // ecommerce PPC audit): draft led with Skin Reboot + Nectar Flowers
+            // (2 genuinely on-vertical cases, correct order) and STILL padded
+            // on FridgeFix (appliance repair, zero ecommerce relevance) as a
+            // third case — a manual "add skin reboot" chat correction on that
+            // same job still kept FridgeFix, so a prompt rule alone isn't
+            // enough. Once 2+ distinct on-vertical cases are already cited,
+            // an off-vertical filler adds nothing and must be dropped.
+            let wrongVerticalCasePadding = false
+            if (_jobVertical) {
+              const _onVerticalNames = new Set(
+                (text.match(new RegExp(_jobVertical.caseRe.source, 'gi')) || []).map(s => s.toLowerCase())
+              )
+              wrongVerticalCasePadding = _onVerticalNames.size >= 2 && _GENERIC_FILLER_CASE_RE.test(text)
+            }
+
             // ── Regulated-vertical / Vape Shop case-study checks (KB Rule 437) ──
             // (1) If the job is in a regulated/restricted-substance vertical
             //     (hemp/CBD/cannabis/vape/supplement/etc.) the draft MUST cite
@@ -6951,7 +6971,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !missingYearsExperience && !ppcMissingPremierPartner
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob && !campaignLiveTooFast && !caseStudyToldAsRemediation
-              && !hasAssumedBrand && !exactVerticalCaseNotLeading && !caseMislabeledAsSaas
+              && !hasAssumedBrand && !exactVerticalCaseNotLeading && !wrongVerticalCasePadding && !caseMislabeledAsSaas
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience && !openerEchoesPostingLine
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
               && !hasBannedOpener && !hasExplainerOpener
@@ -6978,6 +6998,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasFillerCloser && 'hasFillerCloser',
               hasAssumedBrand && 'hasAssumedBrand',
               exactVerticalCaseNotLeading && 'exactVerticalCaseNotLeading',
+              wrongVerticalCasePadding && 'wrongVerticalCasePadding',
               caseMislabeledAsSaas && 'caseMislabeledAsSaas',
               openCartMislabeledAsPlatform && 'openCartMislabeledAsPlatform',
               seoLedOnMaintenanceWebdev && 'seoLedOnMaintenanceWebdev',
@@ -7131,6 +7152,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (exactVerticalCaseNotLeading) {
               console.log(`[Falcon] Rule pre-check: ${_jobVertical?.name} job but draft leads with a generic filler case before the on-vertical case — firing Claude enforcer to reorder.`)
             }
+            if (wrongVerticalCasePadding) {
+              console.log(`[Falcon] Rule pre-check: ${_jobVertical?.name} job already cites 2+ on-vertical cases but the draft ALSO pads on a generic filler case (FridgeFix/House Painting) — firing Claude enforcer to drop it.`)
+            }
             if (caseMislabeledAsSaas) {
               console.log('[Falcon] Rule pre-check: a non-SaaS case study is described as SaaS/software (business-model fabrication) — firing Claude enforcer.')
             }
@@ -7273,6 +7297,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 `CASE-STUDY ORDERING — ${_jobVertical.name.toUpperCase()} CASE MUST LEAD (relevance-critical): This is a ${_jobVertical.name} job, but the draft cites a generic local-service filler case (FridgeFix appliance repair / House Painting) BEFORE the on-vertical proof. ` +
                 `REORDER the proof block so the ${_jobVertical.name} case leads: ${_jobVertical.lead}. It must be the FIRST case study cited. ` +
                 'Then keep AT MOST one supporting case only if it adds the same conversion mechanic. Drop the weakest generic case rather than pad — the on-vertical case is the most important element of this letter and cannot be buried after a generic one.'
+              )
+            }
+            if (wrongVerticalCasePadding && _jobVertical) {
+              specificViolations.push(
+                `CASE-STUDY PADDING — OFF-VERTICAL FILLER ADDED ON TOP OF STRONG MATCHES (relevance-critical): This is a ${_jobVertical.name} job and the draft already cites 2+ genuinely on-vertical cases (${_jobVertical.lead}) — but it ALSO tacks on a generic local-service filler case (FridgeFix appliance repair or House Painting) as an extra. FridgeFix/House Painting have ZERO ${_jobVertical.name} relevance; sharing a similar mechanic (e.g. a conversion-tracking fix) with the on-vertical cases is NOT a good enough reason to keep an off-vertical case once strong on-vertical proof already exists. ` +
+                'DELETE the entire FridgeFix/House Painting case-study paragraph (and its blank line) — do not replace it with anything or swap in another case. Keep only the on-vertical case(s) already cited. The letter should end with at most 2 case studies for this job, none of them a mismatched vertical.'
               )
             }
             if (hasUnsolicitedLogistics) {

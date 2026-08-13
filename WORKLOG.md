@@ -3742,3 +3742,51 @@ ask for a rate (regression-checked).
 Both bugs independently contributed to the bad output: bug 2 meant a rate got quoted AT ALL (should have
 been zero, since never asked); bug 1 meant the FIGURE would have been unrealistic even on a job that
 genuinely did ask for a rate. `vite build` clean.
+
+## 2026-08-13 — Job 11333: FridgeFix padding survives even when the on-vertical case correctly leads
+
+Owner reported a recurring pattern, not a one-off: "generator chooses cases wrongly in many cases --
+e.g. here job posting is e-commerce and it included Frige fix case -- we have much more relevent cases
+in portfolio." Job 11333 (pure ecommerce PPC audit, $500-1K/day ad spend) is the concrete example: both
+the first-pass draft AND the post-enforcer draft cited THREE cases -- Skin Reboot and Nectar Flowers
+(both genuinely ecommerce) plus FridgeFix (local appliance-repair, zero ecommerce relevance). A manual
+in-app chat correction ("add skin reboot") made it worse in one way and confirmed the pattern in
+another: it added Skin Reboot as lead but explicitly reasoned "Kept Nectar Flowers and FridgeFix (both
+strong conversion/tracking optimization angles)" -- justifying the off-vertical case by mechanic
+similarity instead of vertical relevance.
+
+Root cause: `exactVerticalCaseNotLeading` (built earlier this session for the same FridgeFix pattern)
+only checks ORDERING -- does an on-vertical case appear before the generic filler in the text. On job
+11333's actual draft, Skin Reboot genuinely does appear before FridgeFix, so the check evaluates false
+and never fires -- but it doesn't check whether the filler should be there AT ALL once strong on-vertical
+proof already exists. Confirmed via a standalone Node regression script reproducing both the before and
+after drafts verbatim: `exactVerticalCaseNotLeading` is false on the after-draft (ordering already
+"correct") even though the letter is clearly wrong.
+
+Added a second, distinct deterministic check, `wrongVerticalCasePadding`, reusing the existing
+`_jobVertical`/`_GENERIC_FILLER_CASE_RE` table (no new data structure): counts DISTINCT on-vertical case
+names actually cited (deduped, so the same case mentioned twice doesn't double-count) and fires when 2+
+genuinely on-vertical cases are already present AND a generic filler (FridgeFix/House Painting) is also
+cited. Wired into all 4 standard sites (draftCompliant gate, telemetry, console pre-check, enforcer
+`specificViolations` message instructing a hard delete of the filler paragraph, no replacement). The
+2-match threshold matches the existing "CASE STUDY VOLUME CAP" language (stop padding once 2 strong
+matches exist) rather than inventing a new arbitrary bar.
+
+Verified via a standalone Node script against 7 scenarios including job 11333's REAL before/after draft
+text pulled from share-with-claude.md: fires correctly on both the before-draft (filler leads) and the
+after-draft (filler trails, ordering check misses it) with onVerticalCount=2 in both; does NOT fire when
+only 1 on-vertical case is cited (below threshold, matches existing behavior); does NOT fire on a clean
+2-case letter with no filler; correctly generalizes to a real-estate analog (2 real-estate matches +
+FridgeFix padding fires); correctly stays silent on a genuine local-service job where `_jobVertical` is
+null (FridgeFix is legitimate there, untouched); correctly dedupes a case mentioned twice in the same
+letter (counts as 1, not 2). `esbuild` transform of `JobDetail.jsx` clean (no local `vite`/build install
+available in this session to run a full `vite build`).
+
+Deliberately scoped narrow: does NOT attempt the reverse direction (a local-service job padding on an
+ecommerce case, or other verticals like luxury/fashion/gaming padding on the wrong filler) since that
+would need a new `_VERTICAL_LEAD_CASES` entry for "local service" itself and reconciling it with
+`_GENERIC_FILLER_CASE_RE`'s current "always filler" assumption -- flagging as a natural follow-up, not
+done here, to keep this commit an isolated, cleanly revertible fix for the confirmed complaint.
+
+**Revert:** one isolated commit on a clean tree -- `git revert <this-commit-hash>` fully removes the new
+check with no side effects on any other rule.
