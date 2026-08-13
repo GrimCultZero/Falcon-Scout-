@@ -87,8 +87,15 @@ const server = http.createServer((req, res) => {
         if (err) console.error('[stderr]', err.slice(0, 300));
 
         if (code !== 0 || !out.trim()) {
+          // The CLI's actual error/status text (e.g. a session-limit message)
+          // often lands on STDOUT, not stderr -- confirmed via direct repro:
+          // "You've hit your session limit · resets ..." printed to stdout
+          // with stderr completely empty. Previously that meant `err` was ''
+          // and this fell back to the useless generic "exited with code N",
+          // hiding the real reason. Prefer stderr, then stdout, then generic.
+          const message = (err && err.trim()) || (out && out.trim()) || `claude exited with code ${code}`;
           res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: (err || `claude exited with code ${code}`).trim() }));
+          res.end(JSON.stringify({ error: message }));
           return;
         }
 

@@ -3848,3 +3848,30 @@ this specific wiring.
 
 **Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` and `api/main.py` —
 `git revert <this-commit-hash>` fully restores the prior (text-only, no-file) chat behavior.
+
+## 2026-08-13 — "Analyse this job" failing: CLI bridge's error message hid the real cause
+
+Owner hit "Error: CLI bridge error: {"error":"claude exited with code 1"}" on Analyse and asked to check
+what's wrong. Confirmed `ai_provider.json` currently reads `{"provider": "cli"}` — the app is routing
+through `cli-bridge.js` / the local `claude -p` subscription, not the direct Anthropic API.
+
+Reproduced the bridge's exact spawn command directly (`claude -p --model sonnet --strict-mcp-config
+--disable-slash-commands` from the bridge's neutral cwd) with stdout/stderr captured separately. Real
+cause: "You've hit your session limit - resets 9:20pm (Europe/Kiev)" — the Claude Code CLI subscription's
+own session usage cap, NOT the Anthropic API console spend limit from the earlier session (a distinct
+billing surface). Note it's printed to **stdout**, with stderr completely empty.
+
+That surfaced a separate, real bug in `cli-bridge.js`: its failure handler only ever checked `err`
+(stderr) for a message, falling back to the generic "claude exited with code N" whenever the CLI's actual
+reason landed on stdout instead — exactly what happened here, hiding a perfectly clear, actionable message
+behind a useless one. Fixed the fallback order to stderr -> stdout -> generic. Verified with a standalone
+Node script covering the real repro (stderr empty, stdout has the message -> now surfaced), a regression
+for stderr-present (unchanged, still preferred), and both-empty (unchanged generic fallback). `node -c`
+clean. Did NOT restart the owner's live bridge process to test end-to-end — it's otherwise functioning,
+the CLI limit blocks calls regardless of the bridge restart, and restarting a process the owner started
+themselves risked leaving it down if a background respawn didn't persist past this session. Fix takes
+effect next time the bridge is naturally restarted (falconscout.bat, reboot, etc.).
+
+Left the provider toggle exactly as found (`"cli"`) — did not switch it back to `"api"` even though the
+owner stated a standing preference for API mode earlier this session, since that's a real billing-method
+decision (and the API-side spend limit's current status is unknown) rather than a code bug to just fix.
