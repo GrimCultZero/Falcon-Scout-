@@ -2818,7 +2818,7 @@ function AnswerBlock({ q, text, index }) {
   )
 }
 
-function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRework, reworkLabel = '↺ Rework above', chatId = 'chat', onProposalRewrite, currentProposalText, fillHeight = false }) {
+function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRework, reworkLabel = '↺ Rework above', chatId = 'chat', onProposalRewrite, currentProposalText, fillHeight = false, droppedFiles = [] }) {
   const _kind = `chat.${chatId}`
   const _readStored = (jid) => {
     if (jid == null) return []
@@ -2926,6 +2926,37 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
       // array (and possibly other UI-only fields) that the API rejects.
       const apiMessages = _sanitizeMessagesForApi(newMessages.slice(-10))
 
+      // Attach any files dropped on the generator's dropzone so the chat can
+      // actually read them too — previously `droppedFiles` only ever reached
+      // generate()'s /claude call; the chat had zero file-handling code, so
+      // asking it to "describe the attached PDFs" made it fabricate content
+      // instead (confirmed real bug, job 11279). Mirrors generate()'s own
+      // content-block construction; re-attaches on every send (same resend-
+      // every-call tradeoff generate() already accepts) since sent `messages`
+      // are stored as plain text and don't carry file blocks between turns.
+      const _chatFileBlocks = droppedFiles
+        .filter(f => f.blockType === 'document' || f.blockType === 'image')
+        .map(f => f.blockType === 'document'
+          ? { type: 'document', source: { type: 'base64', media_type: f.mediaType, data: f.data } }
+          : { type: 'image', source: { type: 'base64', media_type: f.mediaType, data: f.data } })
+      const _chatTextFileContent = droppedFiles
+        .filter(f => f.blockType === 'text')
+        .map(f => `--- ${f.name} ---\n${f._excelText || atob(f.data)}`)
+        .join('\n\n')
+      if (droppedFiles.length > 0 && apiMessages.length > 0) {
+        const _lastIdx = apiMessages.length - 1
+        const _last = apiMessages[_lastIdx]
+        if (_last.role === 'user' && typeof _last.content === 'string') {
+          const _fullText = _chatTextFileContent
+            ? `${_last.content}\n\nADDITIONAL TEXT FILES:\n${_chatTextFileContent}`
+            : _last.content
+          apiMessages[_lastIdx] = {
+            ..._last,
+            content: _chatFileBlocks.length > 0 ? [..._chatFileBlocks, { type: 'text', text: _fullText }] : _fullText,
+          }
+        }
+      }
+
       // Proposal-column chats use a tagged-response protocol so Claude can
       // either (a) rewrite the cover letter, or (b) produce a separate
       // chat-only deliverable (e.g. a paragraph answering an additional
@@ -2947,6 +2978,11 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
       //   • Ambiguous / discussion only → omit both, just <remarks>
       const isProposalChat = !!onProposalRewrite
       let effectiveSuffix = buildSuffix()
+      if (droppedFiles.length > 0) {
+        effectiveSuffix += (effectiveSuffix ? '\n\n' : '') +
+          `ATTACHED FILES (${droppedFiles.length}): ${droppedFiles.map(f => f.name).join(', ')}\n` +
+          'Read ALL attached files carefully before responding — they likely contain the client\'s full brief, spec, screening questions, or portfolio requirements not captured in the posting text. The job posting still defines what this proposal must accomplish; treat an attached file as supporting context, never as a substitute for describing it accurately. NEVER invent or guess a file\'s title/content — if you cannot actually read it, say so plainly instead of fabricating a plausible-sounding description.'
+      }
       if (isProposalChat) {
         effectiveSuffix += (effectiveSuffix ? '\n\n' : '') + [
           '## CURRENT PROPOSAL DRAFT (the text in the top textarea)',
@@ -3048,6 +3084,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
           messages: apiMessages,
           job_id: job?.id ?? null,
           system_suffix: effectiveSuffix,
+          ...(_chatFileBlocks.some(b => b.type === 'document') ? { _betas: ['pdfs-2024-09-25'] } : {}),
         }),
       })
       const data = await res.json()
@@ -8223,6 +8260,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           onProposalRewrite={(text) => setProposal(text)}
           currentProposalText={proposal}
           fillHeight={true}
+          droppedFiles={droppedFiles}
         />
       </div>
 

@@ -3790,3 +3790,61 @@ done here, to keep this commit an isolated, cleanly revertible fix for the confi
 
 **Revert:** one isolated commit on a clean tree -- `git revert <this-commit-hash>` fully removes the new
 check with no side effects on any other rule.
+
+## 2026-08-13 — Job 11279: cover-letter chat fabricated PDF content it never received
+
+Owner reported: "generator dosnt see the files (pdfs) I have dropped for the context." The shared
+transcript (job 11279, pet-supplement SEO/AEO retainer) showed exactly why it looked broken: owner told
+the proposal chat "see atteched pdfs ... desribe them in the text insdead of yours", and the chat
+FABRICATED three plausible-sounding article titles out of thin air instead of reading real ones. When
+challenged ("can you confirm you see the attachments?") it admitted "I don't see any attachments in this
+conversation." Ran a 3-way parallel workflow investigation (frontend attach UI, backend `/chat` endpoint,
+repo-wide file-handling sweep) before touching code, since this could have been either a broken feature
+or one that never existed.
+
+**Root cause, confirmed:** `generate()` (the "Generate Cover Letter" button, `ProposalColumn`) has a real,
+working file-drop zone — `droppedFiles` state, a `FileReader`-based drop handler, and a `/claude` call
+that builds proper Anthropic `document`/`image` content blocks plus the `pdfs-2024-09-25` beta header
+(git history: `d037178` "feat: file drop zone in cover letter generator", Jun 18; `3015e04` fixed CLI-mode
+PDF stubbing, Aug 1). But the SEPARATE in-app "InlineChat" component used to iteratively edit that letter
+(`chatId="proposal"`) has ZERO file-handling code — its `send()` posts only `{messages, job_id,
+system_suffix}` as plain text to `/chat`. The user dropped PDFs onto the generator's dropzone (the only
+one that exists), then tried to reference them in the ongoing chat below it — which never received them,
+so Claude fabricated instead of admitting nothing, then correctly (but confusingly) said "no attachment"
+once pressed. `/chat`'s backend handler also had no `anthropic-beta` header support at all — it hardcoded
+the Anthropic request body with no way to pass a beta flag, unlike `/claude` which already had this.
+
+**Fix (both sides):**
+- Backend (`api/main.py`, `/chat`): added `betas = request.get("_betas") or []` and forward it as
+  `anthropic-beta` header on the Anthropic call, mirroring `/claude`'s existing pattern exactly.
+- Frontend (`JobDetail.jsx`): `InlineChat` now accepts a `droppedFiles` prop (default `[]`); the
+  `ProposalColumn` passes its existing `droppedFiles` state into the `chatId="proposal"` instance (the
+  `chatId="analyser"` instance is untouched — the dropzone is scoped/labeled to the generator, and the
+  real bug was specifically in the proposal-editing chat). In `send()`, the current outgoing user message
+  now gets the same content-block treatment `generate()` already does (document/image blocks + trailing
+  text, or appended text for `.txt`/Excel-derived content), and the fetch body passes `_betas:
+  ['pdfs-2024-09-25']` when a document is present. A system-suffix note tells Claude the files are
+  attached, to read them before answering, and — directly targeting the fabrication — to say plainly if
+  it can't actually read something rather than inventing a plausible description.
+
+Deliberately re-attaches the current `droppedFiles` on every chat turn rather than tracking "already
+sent" — `messages` history is stored as plain text (file blocks are spliced in only at send time), so a
+turn that isn't re-attached would silently lose the file from Claude's context once it's not the newest
+message. This matches `generate()`'s own accepted resend-every-call cost profile; a future optimization
+could track a "files already acknowledged" fingerprint to avoid the repeat resend, but that's out of
+scope for restoring correctness.
+
+Verified: a standalone Node script reproducing the exact content-block logic (15/15 checks) — no-files
+case stays untouched (plain string, regression-safe), a real fabricated-bug repro (PDF + "describe the
+attached pdfs") correctly produces a document content block with the real base64 payload, text-file
+drops append as text with no beta flag needed, only the CURRENT/last message gets the file block (not
+earlier turns still in history), and an assistant-authored last message is correctly left alone. `esbuild`
+transform of `JobDetail.jsx` and `python -m py_compile api/main.py` both clean. Live-loaded the app in the
+browser and confirmed the job detail page, dropzone, and both chat panels render with no new console
+errors (JobDetail's one pre-existing React-key warning is unrelated, predates this change). Did NOT
+trigger an actual paid Claude API call for verification — owner has flagged spend sensitivity this
+session, and a real end-to-end round-trip would cost real tokens without needing to be spent to validate
+this specific wiring.
+
+**Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` and `api/main.py` —
+`git revert <this-commit-hash>` fully restores the prior (text-only, no-file) chat behavior.

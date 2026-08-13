@@ -2203,6 +2203,9 @@ async def chat(request: dict):
     # core_only: when true, only inject rules + entries with is_core=true.
     # Used by "Rescan & Re-write" for a fast, cheap pass with curated context.
     core_only = bool(request.get("core_only"))
+    # `_betas` mirrors /claude's handling — lets InlineChat request beta
+    # features (e.g. PDF document content blocks dropped for chat context).
+    betas = request.get("_betas") or []
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     # In CLI mode the key is not needed — skip the guard so the request
@@ -2478,6 +2481,11 @@ async def chat(request: dict):
         _record_usage("chat", "claude-sonnet-4-5", parsed)
         return parsed
 
+    # Build extra headers — PDF document blocks in `messages` need the beta flag.
+    extra_headers: dict = {}
+    if betas:
+        extra_headers["anthropic-beta"] = ",".join(betas)
+
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
@@ -2486,6 +2494,7 @@ async def chat(request: dict):
                     "x-api-key": api_key,
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
+                    **extra_headers,
                 },
                 json={
                     "model": "claude-sonnet-4-5",
