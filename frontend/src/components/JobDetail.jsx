@@ -5651,6 +5651,7 @@ The client has a running Google Ads account with campaigns already live. Signals
 - ALWAYS state the timeline: "audit delivered within 1 working day."
 - ALWAYS quote the FIXED PRICE: the Google Ads / PPC account audit is a productised deliverable at a flat $300. State it plainly and confidently ("$300 flat, delivered within 1 working day") EVEN IF the posting never asked for a rate — this is the standard offer, not an unsolicited quote, and it is the whole pitch. This OVERRIDES "never quote a price upfront" and overrides the RATE ANCHOR (do NOT bid the posted hourly ceiling on an audit job — the deliverable is fixed-fee, so a low posted hourly range is irrelevant and must never be mirrored back as an hourly rate). Never write an hourly figure for the audit.
 - ALWAYS mention the audit sample, but WEAVE IT INTO THE LETTER — do NOT drop it as an isolated boilerplate sentence floating right before the signoff (that reads pasted-in and out of context, which is exactly how it currently fails). Connect it to what you just said — tie it to the specific issue you diagnosed or make it the natural next step. Example: instead of a lone trailing "I'm attaching a sample of a recent Google Ads audit so you can see the format and depth.", write something like "That wasted-spend question is the first thing my audit pins down — I've attached a recent Google Ads audit sample so you can see the format and depth." You MUST still (a) name the audit type explicitly ("Google Ads audit" / "technical SEO audit", never a bare "sample") and (b) keep it recognizable with "sample … audit … see the format and depth", but it has to connect to a sentence around it, not stand alone.
+- ALWAYS convey that the audit itself is performed entirely manually — no automated tools, no templated/auto-generated reports, every account gone through by hand. State it plainly, woven into the audit description rather than as a standalone line — e.g. "every audit I run is done entirely by hand — no automated tools, no templated report."
 - FEE STRUCTURE — HARD RULE (owner policy, read the posting for future-work signals; deterministically enforced, not a suggestion):
   • If the posting explicitly says this is a ONE-TIME / one-off audit with NO ongoing work after it ("one-time project", "audit only", "not looking for ongoing help", "no retainer needed"), the price is the plain "$300 flat, delivered within 1 working day" — do NOT add any complimentary/credit language; there is no future engagement to credit it toward.
   • If the posting signals POSSIBLE ongoing cooperation after the audit (e.g. "could lead to ongoing management", "if this works out we'd like to continue", "potential for a long-term partnership", mentions monthly management/retainer as a next step), you MUST ALSO convey — in your own natural phrasing, not verbatim boilerplate — "if we end up working together on ongoing management, this audit fee is credited back / the audit becomes complimentary." This is an ADDITION to the $300/1-day offer, never a replacement, and it lowers the client's risk of trying the audit at zero cost to Artem unless they actually convert to ongoing work.
@@ -5714,6 +5715,7 @@ SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually w
 (A) TECHNICAL-AUDIT / DIAGNOSIS / MIGRATION-RECOVERY SEO jobs — the client wants you to FIND and FIX issues on an EXISTING site (signals: "audit", "technical audit", "site review", "crawl", "GSC / Search Console", "indexation", "redirect chains", "canonicals", "Core Web Vitals", "migration", "recover traffic", "diagnose", "why did rankings drop"). For these you MUST:
   - attach the TECHNICAL SEO AUDIT SAMPLE (inventory item 5). WEAVE the mention into the letter tied to what you diagnosed — do NOT drop it as an isolated boilerplate line floating before the signoff (out-of-context orphan = current failure). Keep it recognizable and named ("sample technical SEO audit … see the format and depth"), but connect it to a surrounding sentence, e.g. "That crawl/indexation matrix is exactly what my audit maps — I've attached a recent technical SEO audit sample so you can see the format and depth." NOT a lone trailing "I'm attaching a sample technical SEO audit so you can see the format and depth."
   - offer the concrete diagnostic deliverable but state NO turnaround time for it (e.g. "i can run a full diagnostic crawl covering redirects, indexation, canonicals, schema and Core Web Vitals, then hand you a prioritized findings doc"). CRITICAL: a technical SEO audit is NOT a 1–2 day job — NEVER attach a day-count to it ("audit in 2 working days", "audit within 2 days", "deliver the audit in 1 working day" are all FORBIDDEN). The "1 working day" turnaround is the GOOGLE ADS audit only; the "2 working days" turnaround is the SEO PROMOTION PLAN only (option B). The technical SEO audit's timeline is OMITTED from the cover letter entirely (internal estimate ~2 weeks; that figure never goes in the letter).
+  - ALWAYS convey that the audit itself is performed entirely manually — no automated crawlers spitting out a templated report, every site gone through by hand. State it plainly, woven into the audit description rather than as a standalone line — e.g. "every audit I run is done entirely by hand — no automated tools, no templated report."
   EXCEPTION — AUDIT + RETAINER JOBS: if the client mentions BOTH an initial audit AND ongoing/retainer/long-term work ("audit project, followed by a retainer", "initial audit then monthly SEO", "audit and ongoing improvements"), the (A) "do not push the plan" rule does NOT apply. For audit+retainer jobs you MUST include BOTH: (1) the audit sample attachment, AND (2) the 3-month SEO promotion plan CTA. The plan covers the retainer phase.
   EXCEPTION — ALREADY-AUDITED / IMPLEMENTATION-ONLY JOBS (mandatory — common on "review and fix" jobs): if the posting explicitly states the client ALREADY completed a technical SEO audit (e.g. "we already have done a technical SEO audit", "we've already had an audit completed", "based on our existing audit", "already identified the issues") and is asking you to review the current setup / validate / implement the fixes — do NOT offer or mention the technical SEO audit sample. The client isn't buying an audit; saying "here's a sample audit so you can see the format" when they just told you they already have one reads as if you didn't read the posting. Skip the audit-sample line entirely and lean on case studies that demonstrate IMPLEMENTATION results (fixed canonicals/schema/redirects/site speed, etc.) as your proof instead. Describe the review-then-fix process directly — no separate audit deliverable to attach or time.
 
@@ -6849,6 +6851,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _seoMonthlyPricesNearby = _jobIsSeoAuditContext ? _extractAllDollarsNear(text, _DOLLAR_NEAR_MONTHLY_RE) : []
             const wrongSeoRetainerFee = _seoMonthlyPricesNearby.length > 0 && !_seoMonthlyPricesNearby.includes(1050)
 
+            // MISSING MANUAL-AUDIT CLAIM (owner request, 2026-08-13): both audit
+            // offerings — the $300 flat PPC/Google Ads audit and the $700 flat
+            // technical SEO audit — must convey the audit itself is performed
+            // entirely manually (no automated tools/templated reports). A
+            // trust/differentiation signal, since "audit" in this market often
+            // means an auto-generated SEMrush/ChatGPT report. Only checked when
+            // an audit is ACTUALLY being offered in the draft (reuses the same
+            // "is the audit present" signals the price checks above already use)
+            // — never forces the claim onto a letter that isn't offering an audit.
+            const _MANUAL_AUDIT_CLAIM_RE = /\b(?:entirely|100\s?%|completely|fully|all)\s+manual(?:ly)?\b|\bmanual(?:ly)?\b[^.\n]{0,60}\bno\s+automat|\bby\s+hand\b[^.\n]{0,60}\baudit\b|\baudit\b[^.\n]{0,60}\bby\s+hand\b|\bno\s+automat\w*[^.\n]{0,60}\bmanual(?:ly)?\b/i
+            const _ppcAuditOfferedInDraft = jobIsPpcAuditExisting && draftOffersPpcAudit
+            const _seoAuditOfferedInDraft = _jobIsSeoAuditContext && _seoAuditPricesNearby.length > 0
+            const missingManualAuditClaim = (_ppcAuditOfferedInDraft || _seoAuditOfferedInDraft) && !_MANUAL_AUDIT_CLAIM_RE.test(text)
+
             // ── Wrong audit offer on a LAUNCH / from-scratch job (KB Rule 450) ──
             // When the client is launching a Google Ads account FROM SCRATCH
             // (zero pixel data, $0 to scale, no existing campaigns), there is
@@ -7001,7 +7017,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !wrongAuditSampleOnAlreadyAudited && !missingComplimentaryAuditOffer && !wrongComplimentaryOfferOnAuditOnly && !wrongAuditPrice
               && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming && !missingAuditPriceEntirely
               && !wrongOngoingManagementFee && !wrongLaunchOfferOnExistingAccount && !wrongHourlyRateAboveCeiling
-              && !missingSeoAuditPriceEntirely && !wrongSeoAuditPrice && !wrongSeoRetainerFee
+              && !missingSeoAuditPriceEntirely && !wrongSeoAuditPrice && !wrongSeoRetainerFee && !missingManualAuditClaim
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -7061,6 +7077,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               wrongLaunchOfferOnExistingAccount && 'wrongLaunchOfferOnExistingAccount',
               wrongHourlyRateAboveCeiling && 'wrongHourlyRateAboveCeiling',
               missingSeoAuditPriceEntirely && 'missingSeoAuditPriceEntirely',
+              missingManualAuditClaim && 'missingManualAuditClaim',
               wrongSeoAuditPrice && 'wrongSeoAuditPrice',
               wrongSeoRetainerFee && 'wrongSeoRetainerFee',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
@@ -7158,6 +7175,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (wrongSeoRetainerFee) {
               console.log(`[Falcon] Rule pre-check: draft quotes $${_seoMonthlyPricesNearby.join(', $')}/month for ongoing SEO work instead of the fixed $1050/month — firing Claude enforcer to correct it.`)
+            }
+            if (missingManualAuditClaim) {
+              console.log('[Falcon] Rule pre-check: audit is offered but the draft never states it is performed entirely manually — firing Claude enforcer to add it.')
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -7519,6 +7539,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (wrongSeoRetainerFee) {
               specificViolations.push(
                 `WRONG SEO ONGOING RETAINER FEE — OWNER HARD RULE: Artem's real ongoing SEO optimization retainer is a FIXED $1050/month, never an invented range. The draft quotes $${_seoMonthlyPricesNearby.join(', $')}/month instead (e.g. "$600-800/month"), with no $1050/month mention anywhere. REPLACE it with the exact fixed figure, e.g. "ongoing SEO optimization after that runs $1050/month." Do NOT invent or keep any other range.`
+              )
+            }
+            if (missingManualAuditClaim) {
+              specificViolations.push(
+                'MISSING MANUAL-AUDIT CLAIM — OWNER HARD RULE: an audit (the $300 flat Google Ads audit or the $700 flat technical SEO audit) is being offered in this letter, but the draft never states that the audit itself is performed entirely manually — no automated tools, no templated/auto-generated report. This is a required trust/differentiation signal (many competing "audits" are auto-generated by SEO/PPC tools or AI). ADD one sentence conveying this, woven naturally into the audit description near the price/sample mention — do NOT drop it as an isolated boilerplate line. Example: "every audit I run is done entirely by hand — no automated tools, no templated report." Keep the rest of the letter untouched.'
               )
             }
             if (missingSeoPlanOffer) {
