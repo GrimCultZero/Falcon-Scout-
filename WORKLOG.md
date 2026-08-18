@@ -4054,3 +4054,45 @@ the cross-file nature of this change.
 **Revert:** one isolated commit on a clean tree touching `App.jsx` and `JobDetail.jsx` — `git revert
 <this-commit-hash>` restores the Ahrefs box to the generator column and removes `AhrefsBar` + the lifted
 state/props in both files.
+
+Owner then reported "I honestly don't see where did ahrefs section go" after a screenshot — the move
+had actually worked (visible top-left of the header row), it was just visually subtle (small uppercase
+label, no distinct background) next to the bold app header above it. Pointed out its exact location
+rather than redesigning it; owner didn't ask for more visual weight, moved on to the next request.
+
+## 2026-08-13 — UI: moved "My Rules" from the generator column to the header too
+
+Same congestion thread, next request: "this part is just taking space, move it also there where ahrefs
+now is" (screenshot showed the "▸ Cover Letter" label + "⚙ My Rules" button row in the generator column
+— now the only thing left there besides Digit Bomb/Generate, since the dropzone and Ahrefs box were
+already moved out).
+
+Turned out simpler than the Ahrefs move: KB rules are entirely job-independent (`generate()` fetches its
+own separate copy of the rules via `rulesForGenerator`, a differently-scoped local variable also named
+`kbRules` — confirmed via grep before touching anything, so there was zero risk of collision) — so
+extracting the whole rule-management system (create/distill/list/delete + the KB-conflict-resolution
+flow + `ConflictModal`) into a new component needed NO callback wiring back into `JobDetail`/
+`ProposalColumn` at all, unlike Ahrefs which had to report `ahrefsResult`/`websiteText` back down into
+`generate()`. Extracted into `MyRulesBar()`, a fully self-contained named export (no props needed),
+rendered in `App.jsx`'s header next to "share with claude"/"refresh". The rules panel itself renders as
+an absolutely-positioned dropdown anchored to the button (`position:absolute, top:100%, right:0`) rather
+than the header growing taller, so it doesn't disturb the header's height when open.
+
+Removed the "▸ Cover Letter" label along with the button, per the owner's literal request ("move it
+also there") — the generator column now goes straight from nothing into the Digit Bomb box, no header
+row at all above it (the AI Analysis column still keeps its own "▸ AI Analysis" label, since that wasn't
+part of this request).
+
+Verified with the same rigor as the Ahrefs move given the last one produced a scary-looking (but
+ultimately stale-bundle, not real) runtime error: exact function-boundary check confirmed every
+`showRules`/`ruleInput`/`distilledRule`/`kbRules`/etc. reference after the move falls entirely inside
+`MyRulesBar` (lines 4789-~5010) with zero leakage into `ProposalColumn` (5016+); a full bundled esbuild
+build of `App.jsx` resolved cleanly. This time the dev server was back up, so also verified live in the
+browser: clicked "⚙ My Rules" in the header and confirmed the panel opened showing all 34 real KB rules
+fetched from `/kb?type=rule`, with "✦ Create Rule" and the delete "×" buttons present and correctly
+wired; closed it again cleanly. No new console errors beyond the one pre-existing unrelated React-key
+warning.
+
+**Revert:** one isolated commit on a clean tree touching `App.jsx` and `JobDetail.jsx` — `git revert
+<this-commit-hash>` restores the "▸ Cover Letter" + "⚙ My Rules" row to the generator column and removes
+`MyRulesBar` + its header wiring in both files.

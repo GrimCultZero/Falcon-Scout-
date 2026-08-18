@@ -4777,6 +4777,235 @@ export function AhrefsBar({ job, bridgeReady, onResultChange }) {
   )
 }
 
+// ── My Rules bar ─────────────────────────────────────────────────────────────
+// Owner request, 2026-08-13: "this part is just taking space, move it also
+// there where ahrefs now is" (the "▸ Cover Letter" + "⚙ My Rules" header row
+// in ProposalColumn). Unlike Ahrefs, KB rules are entirely job-independent —
+// generate() fetches its own copy of the rules separately (a differently-
+// scoped local `kbRules` inside generate(), unrelated to this component's
+// state) — so this needed NO callback wiring back into JobDetail/ProposalColumn
+// at all, just a straight lift-and-move. Renders its own ConflictModal since
+// rule-creation can hit a KB conflict independent of which job is selected.
+export function MyRulesBar() {
+  const [showRules, setShowRules] = useState(false)
+  const [ruleInput, setRuleInput] = useState('')
+  const [distilledRule, setDistilledRule] = useState(null) // { text, saving, saved }
+  const [distilling, setDistilling] = useState(false)
+  const [kbRules, setKbRules] = useState([])
+  const [loadingKbRules, setLoadingKbRules] = useState(false)
+  const [myRulesConflict, setMyRulesConflict] = useState(null)
+
+  const fetchKbRules = async () => {
+    setLoadingKbRules(true)
+    try {
+      const res = await fetch('/kb?type=rule')
+      if (res.ok) {
+        const data = await res.json()
+        // Sort by id ASC so rule numbering matches the backend's chat injection
+        // (Rule 1 = first created, Rule 2 = second, …) and stays stable.
+        setKbRules([...data].sort((a, b) => (a.id || 0) - (b.id || 0)))
+      }
+    } catch {} finally {
+      setLoadingKbRules(false)
+    }
+  }
+
+  const distillRule = async () => {
+    const text = ruleInput.trim()
+    if (!text || distilling) return
+    setDistilling(true)
+    setDistilledRule(null)
+    try {
+      const res = await fetch('/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          _kind: 'rule_distill',
+          // Compress free-form input → 1-2 sentence rule. Haiku is plenty.
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 120,
+          system: 'You distill user input into a single, clear, actionable rule for an Upwork proposal assistant. Output ONLY the rule text — 1-2 sentences max, imperative tone, no preamble, no quotes.',
+          messages: [{ role: 'user', content: text }],
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(_friendlyApiError(data.detail, res.status))
+      const rule = data.content.map(b => b.text || '').join('').trim()
+      setDistilledRule({ text: rule, saving: false, saved: false })
+    } catch (e) {
+      setDistilledRule({ text: '', saving: false, saved: false, error: e.message })
+    } finally {
+      setDistilling(false)
+    }
+  }
+
+  const saveDistilledRuleToKB = async (text) => {
+    const res = await fetch('/kb', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'rule',
+        title: `Rule: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}`,
+        content: text,
+        tags: 'rule',
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || `API ${res.status}`)
+    }
+  }
+
+  const addDistilledToKB = async () => {
+    if (!distilledRule?.text) return
+    setDistilledRule(prev => ({ ...prev, saving: true }))
+    try {
+      const conflict = await checkRuleConflict(distilledRule.text)
+      if (conflict) {
+        setDistilledRule(prev => ({ ...prev, saving: false }))
+        setMyRulesConflict({ newRuleText: distilledRule.text, ...conflict })
+        return
+      }
+      await saveDistilledRuleToKB(distilledRule.text)
+      setDistilledRule(prev => ({ ...prev, saving: false, saved: true }))
+      setRuleInput('')
+      fetchKbRules()
+    } catch (e) {
+      setDistilledRule(prev => ({ ...prev, saving: false, error: e.message }))
+    }
+  }
+
+  const resolveMyRulesConflict = {
+    keepNew: async () => {
+      try {
+        await fetch(`/kb/${myRulesConflict.conflictingRule.id}`, { method: 'DELETE' })
+        await saveDistilledRuleToKB(myRulesConflict.newRuleText)
+        setDistilledRule(prev => ({ ...prev, saved: true }))
+        setRuleInput('')
+        fetchKbRules()
+      } catch {}
+      setMyRulesConflict(null)
+    },
+    keepExisting: () => { setMyRulesConflict(null) },
+    saveBoth: async (newText, existingText) => {
+      try {
+        await fetch(`/kb/${myRulesConflict.conflictingRule.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: existingText, title: `Rule: ${existingText.slice(0, 60)}${existingText.length > 60 ? '…' : ''}` }),
+        })
+        await saveDistilledRuleToKB(newText)
+        setDistilledRule(prev => ({ ...prev, saved: true }))
+        setRuleInput('')
+        fetchKbRules()
+      } catch {}
+      setMyRulesConflict(null)
+    },
+  }
+
+  const deleteKbRule = async (id) => {
+    try {
+      await fetch(`/kb/${id}`, { method: 'DELETE' })
+      setKbRules(prev => prev.filter(r => r.id !== id))
+    } catch {}
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => { setShowRules(v => { if (!v) fetchKbRules(); return !v }) }}
+        className="btn-ghost"
+        style={{ whiteSpace: 'nowrap' }}
+      >
+        ⚙ My Rules
+      </button>
+
+      {showRules && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 20,
+          width: 380, maxHeight: 420, overflowY: 'auto',
+          background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8,
+          padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+          boxShadow: '0 12px 32px rgba(0,0,0,0.25)',
+        }}>
+          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>My Rules — applied to every analysis &amp; cover letter</div>
+
+          {/* Input + distill */}
+          <textarea
+            value={ruleInput}
+            onChange={e => setRuleInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); distillRule() } }}
+            placeholder="Describe a rule in plain language… (Enter to create)"
+            rows={2}
+            style={{ width: '100%', background: 'var(--bg3)', border: '1px solid var(--border2)', color: 'var(--text)', fontFamily: 'inherit', fontSize: 11, padding: '7px 10px', borderRadius: 4, outline: 'none', resize: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
+          />
+          <button
+            onClick={distillRule}
+            disabled={distilling || !ruleInput.trim()}
+            className="btn-secondary"
+            style={{ width: '100%' }}
+          >
+            {distilling ? '…forming rule' : '✦ Create Rule'}
+          </button>
+
+          {/* Distilled rule bubble */}
+          {distilledRule && !distilledRule.error && (
+            <div style={{ background: 'rgba(0,200,212,0.08)', border: '1px solid rgba(0,200,212,0.30)', borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 10, color: '#00c8d4', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>✦ Distilled Rule</div>
+              <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.6 }}>{distilledRule.text}</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {!distilledRule.saved ? (
+                  <button
+                    onClick={addDistilledToKB}
+                    disabled={distilledRule.saving}
+                    style={{ padding: '5px 14px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', background: distilledRule.saving ? 'var(--bg3)' : '#00c8d4', color: distilledRule.saving ? 'var(--text3)' : '#fff', border: 'none', borderRadius: 4, cursor: distilledRule.saving ? 'wait' : 'pointer' }}
+                  >
+                    {distilledRule.saving ? 'Saving…' : '✚ Add to KB'}
+                  </button>
+                ) : (
+                  <span style={{ fontSize: 11, color: '#00d070', fontWeight: 600 }}>✓ Saved to KB</span>
+                )}
+                <button onClick={() => setDistilledRule(null)} style={{ fontSize: 10, background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit' }}>dismiss</button>
+              </div>
+            </div>
+          )}
+          {distilledRule?.error && (
+            <div style={{ fontSize: 11, color: '#ef4444' }}>✗ {distilledRule.error}</div>
+          )}
+
+          {/* Existing KB rules */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Active Rules in KB</div>
+            {loadingKbRules && <div style={{ fontSize: 11, color: 'var(--text3)' }}>Loading…</div>}
+            {!loadingKbRules && kbRules.length === 0 && <div style={{ fontSize: 11, color: 'var(--text3)' }}>No rules yet.</div>}
+            {kbRules.map((r, i) => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', background: 'var(--bg3)', borderRadius: 4, marginBottom: 6 }}>
+                <span style={{ color: '#00c8d4', fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 2, minWidth: 38, fontFamily: 'var(--font-mono, monospace)' }}>
+                  #{i + 1}
+                </span>
+                <span style={{ flex: 1, fontSize: 11, color: 'var(--text2)', lineHeight: 1.5 }}>{r.content}</span>
+                <button onClick={() => deleteKbRule(r.id)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {myRulesConflict && (
+        <ConflictModal
+          newRuleText={myRulesConflict.newRuleText}
+          conflictingRule={myRulesConflict.conflictingRule}
+          explanation={myRulesConflict.explanation}
+          onKeepNew={resolveMyRulesConflict.keepNew}
+          onKeepExisting={resolveMyRulesConflict.keepExisting}
+          onSaveBoth={resolveMyRulesConflict.saveBoth}
+          onClose={() => setMyRulesConflict(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Proposal column ────────────────────────────────────────────────────────
 // See DESIGN.md sections 6 and 8 (Phase 5).
 //
@@ -4792,7 +5021,6 @@ function ProposalColumn({ job, bridgeReady = false, droppedFiles = [], ahrefsRes
   const [proposal, setProposal] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [showRules, setShowRules] = useState(false)
   const [feedback, setFeedback] = useState(null) // 'liked' | 'disliked'
   const [flagged, setFlagged] = useState(false) // brief confirmation after manual violation flag
   const [preEnforcerDraft, setPreEnforcerDraft] = useState('') // snapshot of the draft right before the rule-compliance rewrite pass — lets a later "share with claude" show before/after so a garbled sentence can be traced to whichever pass introduced it
@@ -4973,134 +5201,12 @@ function ProposalColumn({ job, bridgeReady = false, droppedFiles = [], ahrefsRes
     _lsSave('proposalDraft', job.id, value)
   }, [proposal, feedback, savedProposal, job?.id])
 
-  const [ruleInput, setRuleInput] = useState('')
-  const [distilledRule, setDistilledRule] = useState(null) // { text, saving, saved }
-  const [distilling, setDistilling] = useState(false)
-  const [kbRules, setKbRules] = useState([])
-  const [loadingKbRules, setLoadingKbRules] = useState(false)
   // Digit Bomb — owner picks a real case from the ledger and arms it; the NEXT
   // Generate/Redo opens the letter with that case's verified numbers instead of
   // the usual diagnose-first opener. Consumed (disarmed) on that one generate()
   // call, same pattern as InlineChat's addlQMode.
   const [digitBombArmed, setDigitBombArmed] = useState(false)
   const [digitBombCaseId, setDigitBombCaseId] = useState('')
-
-  const fetchKbRules = async () => {
-    setLoadingKbRules(true)
-    try {
-      const res = await fetch('/kb?type=rule')
-      if (res.ok) {
-        const data = await res.json()
-        // Sort by id ASC so rule numbering matches the backend's chat injection
-        // (Rule 1 = first created, Rule 2 = second, …) and stays stable.
-        setKbRules([...data].sort((a, b) => (a.id || 0) - (b.id || 0)))
-      }
-    } catch {} finally {
-      setLoadingKbRules(false)
-    }
-  }
-
-  const distillRule = async () => {
-    const text = ruleInput.trim()
-    if (!text || distilling) return
-    setDistilling(true)
-    setDistilledRule(null)
-    try {
-      const res = await fetch('/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          _kind: 'rule_distill',
-          // Compress free-form input → 1-2 sentence rule. Haiku is plenty.
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 120,
-          system: 'You distill user input into a single, clear, actionable rule for an Upwork proposal assistant. Output ONLY the rule text — 1-2 sentences max, imperative tone, no preamble, no quotes.',
-          messages: [{ role: 'user', content: text }],
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(_friendlyApiError(data.detail, res.status))
-      const rule = data.content.map(b => b.text || '').join('').trim()
-      setDistilledRule({ text: rule, saving: false, saved: false })
-    } catch (e) {
-      setDistilledRule({ text: '', saving: false, saved: false, error: e.message })
-    } finally {
-      setDistilling(false)
-    }
-  }
-
-  const [myRulesConflict, setMyRulesConflict] = useState(null)
-
-  const saveDistilledRuleToKB = async (text) => {
-    const res = await fetch('/kb', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'rule',
-        title: `Rule: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}`,
-        content: text,
-        tags: 'rule',
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || `API ${res.status}`)
-    }
-  }
-
-  const addDistilledToKB = async () => {
-    if (!distilledRule?.text) return
-    setDistilledRule(prev => ({ ...prev, saving: true }))
-    try {
-      const conflict = await checkRuleConflict(distilledRule.text)
-      if (conflict) {
-        setDistilledRule(prev => ({ ...prev, saving: false }))
-        setMyRulesConflict({ newRuleText: distilledRule.text, ...conflict })
-        return
-      }
-      await saveDistilledRuleToKB(distilledRule.text)
-      setDistilledRule(prev => ({ ...prev, saving: false, saved: true }))
-      setRuleInput('')
-      fetchKbRules()
-    } catch (e) {
-      setDistilledRule(prev => ({ ...prev, saving: false, error: e.message }))
-    }
-  }
-
-  const resolveMyRulesConflict = {
-    keepNew: async () => {
-      try {
-        await fetch(`/kb/${myRulesConflict.conflictingRule.id}`, { method: 'DELETE' })
-        await saveDistilledRuleToKB(myRulesConflict.newRuleText)
-        setDistilledRule(prev => ({ ...prev, saved: true }))
-        setRuleInput('')
-        fetchKbRules()
-      } catch {}
-      setMyRulesConflict(null)
-    },
-    keepExisting: () => { setMyRulesConflict(null) },
-    saveBoth: async (newText, existingText) => {
-      try {
-        await fetch(`/kb/${myRulesConflict.conflictingRule.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: existingText, title: `Rule: ${existingText.slice(0, 60)}${existingText.length > 60 ? '…' : ''}` }),
-        })
-        await saveDistilledRuleToKB(newText)
-        setDistilledRule(prev => ({ ...prev, saved: true }))
-        setRuleInput('')
-        fetchKbRules()
-      } catch {}
-      setMyRulesConflict(null)
-    },
-  }
-
-  const deleteKbRule = async (id) => {
-    try {
-      await fetch(`/kb/${id}`, { method: 'DELETE' })
-      setKbRules(prev => prev.filter(r => r.id !== id))
-    } catch {}
-  }
 
   const saveProposalFeedback = async (kind) => {
     setFeedback(kind)
@@ -8070,83 +8176,6 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           there's no blank void; post-generation the textarea fills it. */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowAnchor: 'none' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>▸ Cover Letter</div>
-        <button
-          onClick={() => { setShowRules(v => { if (!v) fetchKbRules(); return !v }) }}
-          className="btn-ghost"
-        >
-          ⚙ My Rules
-        </button>
-      </div>
-
-      {/* Rules panel */}
-      {showRules && (
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>My Rules — applied to every analysis &amp; cover letter</div>
-
-          {/* Input + distill */}
-          <textarea
-            value={ruleInput}
-            onChange={e => setRuleInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); distillRule() } }}
-            placeholder="Describe a rule in plain language… (Enter to create)"
-            rows={2}
-            style={{ width: '100%', background: 'var(--bg3)', border: '1px solid var(--border2)', color: 'var(--text)', fontFamily: 'inherit', fontSize: 11, padding: '7px 10px', borderRadius: 4, outline: 'none', resize: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
-          />
-          <button
-            onClick={distillRule}
-            disabled={distilling || !ruleInput.trim()}
-            className="btn-secondary"
-            style={{ width: '100%' }}
-          >
-            {distilling ? '…forming rule' : '✦ Create Rule'}
-          </button>
-
-          {/* Distilled rule bubble */}
-          {distilledRule && !distilledRule.error && (
-            <div style={{ background: 'rgba(0,200,212,0.08)', border: '1px solid rgba(0,200,212,0.30)', borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ fontSize: 10, color: '#00c8d4', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>✦ Distilled Rule</div>
-              <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.6 }}>{distilledRule.text}</div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {!distilledRule.saved ? (
-                  <button
-                    onClick={addDistilledToKB}
-                    disabled={distilledRule.saving}
-                    style={{ padding: '5px 14px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', background: distilledRule.saving ? 'var(--bg3)' : '#00c8d4', color: distilledRule.saving ? 'var(--text3)' : '#fff', border: 'none', borderRadius: 4, cursor: distilledRule.saving ? 'wait' : 'pointer' }}
-                  >
-                    {distilledRule.saving ? 'Saving…' : '✚ Add to KB'}
-                  </button>
-                ) : (
-                  <span style={{ fontSize: 11, color: '#00d070', fontWeight: 600 }}>✓ Saved to KB</span>
-                )}
-                <button onClick={() => setDistilledRule(null)} style={{ fontSize: 10, background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit' }}>dismiss</button>
-              </div>
-            </div>
-          )}
-          {distilledRule?.error && (
-            <div style={{ fontSize: 11, color: '#ef4444' }}>✗ {distilledRule.error}</div>
-          )}
-
-          {/* Existing KB rules */}
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Active Rules in KB</div>
-            {loadingKbRules && <div style={{ fontSize: 11, color: 'var(--text3)' }}>Loading…</div>}
-            {!loadingKbRules && kbRules.length === 0 && <div style={{ fontSize: 11, color: 'var(--text3)' }}>No rules yet.</div>}
-            {kbRules.map((r, i) => (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', background: 'var(--bg3)', borderRadius: 4, marginBottom: 6 }}>
-                <span style={{ color: '#00c8d4', fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 2, minWidth: 38, fontFamily: 'var(--font-mono, monospace)' }}>
-                  #{i + 1}
-                </span>
-                <span style={{ flex: 1, fontSize: 11, color: 'var(--text2)', lineHeight: 1.5 }}>{r.content}</span>
-                <button onClick={() => deleteKbRule(r.id)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-
       {/* Digit Bomb — pick a real case, arm it, then Generate/Redo opens the
           letter with that case's verified numbers instead of the usual
           diagnose-first opener. Auto-disarms after one use. */}
@@ -8464,18 +8493,6 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           droppedFiles={droppedFiles}
         />
       </div>
-
-      {myRulesConflict && (
-        <ConflictModal
-          newRuleText={myRulesConflict.newRuleText}
-          conflictingRule={myRulesConflict.conflictingRule}
-          explanation={myRulesConflict.explanation}
-          onKeepNew={resolveMyRulesConflict.keepNew}
-          onKeepExisting={resolveMyRulesConflict.keepExisting}
-          onSaveBoth={resolveMyRulesConflict.saveBoth}
-          onClose={() => setMyRulesConflict(null)}
-        />
-      )}
     </div>
   )
 }

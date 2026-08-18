@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Dashboard from './components/Dashboard'
-import JobDetail, { AhrefsBar } from './components/JobDetail'
+import JobDetail, { AhrefsBar, MyRulesBar } from './components/JobDetail'
 import JobList from './components/JobList'
 import KnowledgeBase from './components/KnowledgeBase'
 import Outcomes from './components/Outcomes'
@@ -975,7 +975,8 @@ export default function App() {
               <>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:14, padding:'4px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)', flexShrink:0 }}>
                   <AhrefsBar job={selectedJob} bridgeReady={bridgeReady} onResultChange={setAhrefsData} />
-                  <div style={{ display:'flex', gap:14, flexShrink:0, paddingTop:2 }}>
+                  <div style={{ display:'flex', gap:14, flexShrink:0, alignItems:'center' }}>
+                    <MyRulesBar />
                     <ShareWithClaudeButton job={selectedJob} />
                     <button
                       onClick={() => fetchSelectedJob(selectedId)}
