@@ -4258,3 +4258,80 @@ case is armed. `esbuild` transform of `JobDetail.jsx` clean.
 
 **Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
 <this-commit-hash>` restores the presence-only (order-blind) check and the original prompt wording.
+
+## 2026-08-18 — Reply-sync silently losing most replies: room-walk broken in background tabs
+
+Owner: "I definitely received at least one reply this week — but the sync didn't catch it — please check
+if its working correctly" (Dashboard showed 0 replies for WEEK 34 · AUG 17-23 despite a real, visible
+reply from a client "Ish Mish" in Upwork's own Messages inbox).
+
+Ran a full investigation (general-purpose agent) across the Chrome extension, backend matching logic, and
+the real DB — confirmed with hard evidence, not guesswork:
+
+- The extension's messages-list scraper DID correctly capture the reply (exact text match to the
+  screenshot). It never got matched to proposal id 179 ("PPC Expert for Private Label Revival", job
+  11866) because **all three matching tiers failed simultaneously**:
+  1. **Room-walk (exact `upwork_job_id` match)** — the extension navigates into each candidate
+     conversation in a BACKGROUND tab to read the job-link off the room page. The sync's own debug dump
+     (`messages_sync_debug.json`, gitignored — real client message previews) showed **0 job links found
+     out of 10 rooms visited** that run. Chrome throttles background tabs enough that neither the DOM
+     anchor query nor the raw-HTML fallback ever saw the loaded page within the 12-second budget.
+  2. **job_title fallback** — Upwork's inbox list doesn't expose job titles at all; the scraper's
+     best-effort heuristic grabbed the client's own name ("Ish Mish") instead.
+  3. **greeting-name fallback** (the one the backend comments call "the reliable path") — requires the
+     cover letter to open with "Hi `<Name>`". Artem's actual cover letters never do this — his own
+     PRIMARY WRITING DIRECTIVE explicitly BANS greeting-style openers. This fallback is structurally
+     incapable of ever matching a letter this app generates, not just this one.
+  - Cross-referencing the same debug snapshot against the 50 proposals sitting at `sent`/`viewed` found
+    **19 of 20 scanned conversations failed to match that same run** — this was silently losing most
+    replies, not a one-off. Reported 5 more genuine unmatched client replies to the owner directly (incl.
+    one reading as a strong lead) for manual cross-referencing, since there's no stored client-name field
+    to auto-match them against.
+
+Root cause pointed at a KNOWN, previously-fixed-once instance of the exact same failure: a comment
+sitting directly above the CURRENT code in `background.js` reads *"open the proposals page as an ACTIVE
+tab (background tabs are throttled and don't render virtualised rows — that's why we only ever scraped
+~7/30)"* — but the actual code creates it with `active: false` anyway. Confirmed via `git diff`/direct
+reading that this contradiction is real, not a stale-comment red herring: Chrome background-tab throttling
+breaking Upwork scraping is a documented recurring failure mode in this exact file, not a new theory.
+
+Given the real trade-off (reliability vs. the owner's explicit "never steal focus" requirement from when
+this was built), checked in before changing anything: asked whether to make the messages-sync tab briefly
+active, keep it background with just a longer timeout (likely only a partial fix per the ~7/30
+precedent), or active only for the manual "Sync from Upwork" button. Owner chose making it active for
+both the hourly auto-sync and the manual button.
+
+**Implemented** (`upwork-enricher/background.js`, `upwork-enricher/messages-list.js`):
+- The messages-sync tab now opens `active: true` in both `_startSync()` (hourly `chrome.alarms` tick) and
+  the `SYNC_PROPOSAL_STATUSES` manual-sync handler. The proposals-list leg is untouched — stays
+  background, out of scope for this fix.
+- To minimize the "never steal focus" trade-off the owner accepted: added `_msgTabPrevActive` (tabId →
+  the tab that was active right before we opened the sync tab). Restored in THREE places so the focus
+  restoration can't be skipped by whichever path the sync happens to finish through: the normal
+  `MESSAGES_LIST_SCRAPE_DONE` completion handler, AND the 4-minute failsafe tab-cleanup alarm (in case the
+  walk hangs badly enough to hit that instead) — both `chrome.tabs.update` calls are best-effort/fail-
+  silent (`lastError`-guarded) exactly like the existing `chrome.tabs.remove` pattern already in this
+  file, since the tab being restored to may have been closed by the owner in the meantime.
+- `_startSync` had to become `async` to `await chrome.tabs.query(...)` for the "capture current active
+  tab" step — checked its one call site (a fire-and-forget call inside the `chrome.alarms` listener) is
+  safe with an unawaited async function before making the change.
+- Bumped `waitForRoomJobLink`'s default timeout from 12s to 15s (modest — now a safety margin on a fast,
+  reliably-rendering active tab, not an attempt to outlast background-tab throttling) and updated its
+  comments accordingly.
+- Did NOT touch the job_title heuristic or the greeting-name fallback — the latter is fundamentally
+  incompatible with Artem's own no-greeting writing rule, not something a regex tweak can fix without
+  either changing that writing rule (not asked for) or fabricating a different matching signal.
+
+**Verification is necessarily limited for this one**: this is a Chrome extension background service
+worker interacting with the owner's real Upwork session — nothing that runs through this session's usual
+esbuild/browser-preview verification tools. Confirmed via `node --check` on both files (clean) and a full
+manual trace of every `chrome.tabs.create`/`chrome.tabs.query`/`chrome.tabs.update` call site added,
+including the one existing caller of `_startSync` to confirm making it `async` was safe. Could NOT
+live-test the actual Chrome behavior (whether an active tab really does render fast enough now, and
+whether the focus-restore is visually smooth) — that needs the owner to reload the unpacked extension in
+`chrome://extensions` and run a real sync. Flagged this limitation directly rather than claiming
+end-to-end verification that wasn't possible here.
+
+**Revert:** one isolated commit on a clean tree touching only the two extension files — `git revert
+<this-commit-hash>` restores both messages-sync tabs to `active: false` with no focus-restore logic and
+the original 12s timeout.

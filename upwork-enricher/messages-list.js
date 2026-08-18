@@ -315,12 +315,17 @@
 
   // In a room view, hunt for the job posting id two ways:
   //   1. The job-link anchor (same proven selector messages.js uses).
-  //   2. RAW innerHTML regex for /jobs/~hex — background tabs may build the DOM
-  //      without painting/hydrating the sidebar chip, so the anchor query can
-  //      miss while the id still sits in the markup. The id alone is enough to
+  //   2. RAW innerHTML regex for /jobs/~hex, in case the anchor query misses
+  //      while the id still sits in the markup. The id alone is enough to
   //      match (title is a bonus).
+  // This tab now opens ACTIVE (background.js — a real sync's debug dump
+  // confirmed 0/10 job links found when this ran in a background tab; Chrome
+  // throttles background tabs enough that neither the anchor nor the raw-HTML
+  // fallback ever saw the loaded page within the old 12s budget). Bumped
+  // modestly to 15s as a safety margin now that rendering should be fast and
+  // reliable — NOT trying to compensate for background-tab throttling anymore.
   // Returns { upwork_job_id, job_title } or null after timeout.
-  async function waitForRoomJobLink(maxMs = 12000) {
+  async function waitForRoomJobLink(maxMs = 15000) {
     const start = Date.now();
     while (Date.now() - start < maxMs) {
       const anchors = document.querySelectorAll('a[href*="/jobs/~"], a[href*="/job/~"]');
