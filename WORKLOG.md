@@ -3915,3 +3915,61 @@ api/main.py` both clean.
 
 **Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
 <this-commit-hash>` fully removes both prompt bullets and the deterministic check with no side effects.
+
+## 2026-08-13 — New feature: "Digit Bomb" opener
+
+Owner request: a button that arms a cold-open style where the letter starts with a real case study's
+raw numbers instead of the usual diagnose-first opener (example given: "17.51 ROAS and +693.8% revenue
+scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL
+niche... same pricing-and-feed problem you're dealing with on Japanese artisan goods"). Asked whether
+the generator should auto-pick the case or whether to add a manual dropdown; recommended manual, given
+this session's repeated automatic-case-selection reliability issues (FridgeFix padding, mislabeled
+verticals, wrong ordering — three separate bugs fixed today alone), and the owner agreed, with an explicit
+requirement: "pull only verified facts from the case ledger — no fabrications."
+
+Verified before building: the example's "Korean medical-aesthetic" detail for Skin Reboot is NOT a
+fabrication — it's the real, already-approved `one_liner` text in `frontend/src/lib/caseLedger.js`'s
+`CASE_LEDGER` (the structured, model-proof case data source built in Step 21-A per DESIGN.md §21.3).
+This confirmed the ledger was exactly the right foundation to build on — it already guarantees "metrics
+can't drift" and "verticals can't be relabeled" since they're rendered from data, never typed by the model.
+
+**Implementation** (`JobDetail.jsx`, `ProposalColumn`):
+- New UI box (next to the existing Ahrefs box, visible in both the pre-generate and post-generate states):
+  a dropdown listing all 15 `CASE_LEDGER` cases (name + headline metric) and an "Arm" toggle. Mirrors the
+  existing `addlQMode` UX pattern (InlineChat's "Additional Questions" arm button) — armed state is
+  consumed on the very next Generate/Redo click, then auto-disarms, so it can never silently bomb every
+  future regen. Gated the disarm on `options.digitBombCaseId` actually being present in the call (not the
+  raw armed-state alone) — otherwise clicking "Rescan & Re-write" (which never passes it through) would
+  have silently disarmed a still-pending Digit Bomb arm.
+- `generate(adjustmentsArg, options)` now accepts `options.digitBombCaseId`; resolves it against
+  `CASE_BY_ID` (already imported for the existing `{{case:id}}` placeholder system) BEFORE the try block,
+  matching this file's established "shared variables must be declared before the try so both `_gcShadow`
+  call sites see them" rule.
+- When set, a new "DIGIT BOMB OPENER MODE" system-prompt section is spliced in (right alongside the KB
+  RULES directive, before PRIMARY WRITING DIRECTIVE) that explicitly overrides the normal "diagnose first"
+  opener rules FOR THE OPENING ONLY. It hands the model the chosen case's exact `name`, `attachment`,
+  `metrics`, and `one_liner` from the ledger and says to use ONLY those facts — no invented or altered
+  numbers — while letting the model freely compose the one-clause bridge to the client's own real,
+  stated situation (the one part of this that's inherently generative). Also tells it not to cite the
+  same case again later in the letter's normal case-study block.
+- Deterministic backstop (per this session's established pattern — a prompt instruction alone isn't
+  trusted): `missingDigitBombFacts` fires when a case was armed for this call but the opening 400 chars
+  don't contain BOTH the case's real name and at least one of its metric NUMBERS (matched on the digits
+  themselves, not exact wording — so legitimate minor rewording, like reordering two metrics or dropping
+  "PMax" from "17.51 PMax ROAS", doesn't false-positive; only a genuinely dropped/altered/fabricated
+  number fails it). Wired into all 4 standard sites (draftCompliant gate, telemetry, console pre-check,
+  enforcer message — the enforcer message re-embeds the exact verified facts directly, since the enforcer
+  call uses a separate, short system prompt that doesn't automatically carry the original one).
+
+Verified via a standalone Node script against real `CASE_LEDGER` data (7/7 checks): the owner's own
+example text (verbatim) correctly passes; a compliant letter using a different metric pair passes; a
+model reversion to the normal "reading your post" opener correctly fails; a case name present with a
+fabricated/altered number correctly fails; a real metric present with the case name dropped correctly
+fails; the check correctly stays inert when no case was armed; and a case with a non-ASCII metric
+(ChronoCash's €0.52 CPC) is handled correctly. `esbuild` transform of `JobDetail.jsx` clean. Could not
+live-verify in the browser — the dev server had stopped running (not reachable) by the time of this
+change; did not start a competing instance since it's the owner's own environment to manage.
+
+**Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
+<this-commit-hash>` fully removes the feature (UI box, generate() option, prompt section, and
+deterministic check) with no side effects on any other rule.

@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 // Step 21-A: structured case ledger + {{case:id}} placeholder expansion (DESIGN.md §21.3).
 // Runs as the FIRST output step (before _cleanPasteText + the _strip* pile) so a case
 // placeholder becomes its canonical, deduped line before any prose processing.
-import { expandCasePlaceholders } from '../lib/caseLedger'
+import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID } from '../lib/caseLedger'
 // Step 21-B: deterministic grounding checker. Wired in SHADOW / record-only mode
 // (enforce:false) — it reports violation codes to telemetry without altering the
 // letter. Do NOT flip to enforce without checking in (ANTIFAB_HANDOFF.md §0/§8).
@@ -4769,6 +4769,12 @@ function ProposalColumn({ job, bridgeReady = false }) {
   // Each entry: { name, mediaType, data (base64), blockType ('document'|'image'|'text') }
   const [droppedFiles, setDroppedFiles] = useState([])
   const [isDragOver, setIsDragOver] = useState(false)
+  // Digit Bomb — owner picks a real case from the ledger and arms it; the NEXT
+  // Generate/Redo opens the letter with that case's verified numbers instead of
+  // the usual diagnose-first opener. Consumed (disarmed) on that one generate()
+  // call, same pattern as InlineChat's addlQMode.
+  const [digitBombArmed, setDigitBombArmed] = useState(false)
+  const [digitBombCaseId, setDigitBombCaseId] = useState('')
 
   const fetchKbRules = async () => {
     setLoadingKbRules(true)
@@ -4994,6 +5000,15 @@ function ProposalColumn({ job, bridgeReady = false }) {
     // cheap rewrite against the curated Core subset of the KB.
     const { coreOnly = false } = options
     const coreSuffix = coreOnly ? '&is_core=true' : ''
+
+    // Digit Bomb: consume the arm immediately (same "applies to this one call
+    // only" pattern as InlineChat's addlQMode) — the local `_digitBombCase`
+    // below stays correct for the rest of THIS call regardless of the React
+    // state reset, which only affects the next render/button press. Gated on
+    // options.digitBombCaseId (not the raw digitBombArmed state) so a call that
+    // never passes it — e.g. "Rescan & Re-write" — can't silently disarm it.
+    const _digitBombCase = options.digitBombCaseId ? CASE_BY_ID[options.digitBombCaseId] : null
+    if (options.digitBombCaseId && digitBombArmed) setDigitBombArmed(false)
 
     setLoading(true)
     setFeedback(null)
@@ -5406,6 +5421,34 @@ ${kbRulesText ? `
 PRIMARY DIRECTIVE — KB RULES (these override every other instruction below
 if they conflict on specifics like phrasing, timing, framing, or wording):
 ${kbRulesText.replace(/^\n+/, '')}
+═══════════════════════════════════════════════════════════════════
+` : ''}
+${_digitBombCase ? `
+═══════════════════════════════════════════════════════════════════
+DIGIT BOMB OPENER MODE — ACTIVE (owner-armed for this generation only). This
+OVERRIDES the PRIMARY WRITING DIRECTIVE's opener rules below — but ONLY for
+the opening. Everything else in this prompt (case study selection for the
+REST of the letter, rate rules, audit rules, closing, etc.) still applies.
+
+Artem has explicitly picked the case for this letter's cold open: ${_digitBombCase.name}.
+Do NOT diagnose the client's problem first and do NOT use any of the usual
+openers (no "reading your post", no credential lead-in, no rhetorical
+question). Instead, the very FIRST WORDS of the letter must be this case's
+real numbers.
+
+VERIFIED FACTS FOR THIS CASE (use ONLY these — do not invent, embellish, round
+differently, or add any metric/detail not listed here):
+- Case name: ${_digitBombCase.name} (${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'})
+- Real metrics: ${_digitBombCase.metrics.join(', ')}
+- What the case actually was: ${_digitBombCase.one_liner}
+
+HOW TO BUILD THE OPENING (1-2 sentences total):
+1. Lead with 1-2 of the metrics above, verbatim (exact numbers and units — never round, alter, or invent a different figure).
+2. Name the case and its attachment note in the same breath (e.g. "${_digitBombCase.name}, ${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'}").
+3. In the same sentence or the next one, bridge to what the case actually was (from the facts above) and connect it to THIS client's own situation using something REAL from their job posting (their actual product, vertical, or problem — never invented). This bridge clause is the ONLY place you write fresh prose; the numbers, case name, and case facts must not be altered.
+Illustrative shape only (do not copy verbatim, this is a different case): "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you're dealing with on [client's actual product]."
+
+After this opening, proceed with the rest of the letter NORMALLY per the rules below. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.
 ═══════════════════════════════════════════════════════════════════
 ` : ''}
 ═══════════════════════════════════════════════════════════════════
@@ -6865,6 +6908,26 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _seoAuditOfferedInDraft = _jobIsSeoAuditContext && _seoAuditPricesNearby.length > 0
             const missingManualAuditClaim = (_ppcAuditOfferedInDraft || _seoAuditOfferedInDraft) && !_MANUAL_AUDIT_CLAIM_RE.test(text)
 
+            // DIGIT BOMB — MISSING VERIFIED FACTS (owner feature, 2026-08-13):
+            // when Artem arms a case for the cold open, the opening MUST actually
+            // contain that case's real numbers — the prompt instruction alone
+            // isn't trusted (established pattern this session: the model can
+            // paraphrase or drop a number under pressure from its other rules).
+            // Anchors on the NUMBER itself (not the surrounding words) so minor,
+            // legitimate rewording ("17.51 ROAS" instead of the ledger's "17.51
+            // PMax ROAS") doesn't false-positive — only a genuinely fabricated or
+            // dropped figure should fire this.
+            let missingDigitBombFacts = false
+            if (_digitBombCase) {
+              const _dbOpening = text.slice(0, 400)
+              const _dbMetricNumbers = _digitBombCase.metrics
+                .map(m => (m.match(/[\d,]+\.?\d*/) || [])[0])
+                .filter(Boolean)
+              const _dbHasMetric = _dbMetricNumbers.some(n => _dbOpening.includes(n))
+              const _dbHasCaseName = _dbOpening.includes(_digitBombCase.name)
+              missingDigitBombFacts = !(_dbHasMetric && _dbHasCaseName)
+            }
+
             // ── Wrong audit offer on a LAUNCH / from-scratch job (KB Rule 450) ──
             // When the client is launching a Google Ads account FROM SCRATCH
             // (zero pixel data, $0 to scale, no existing campaigns), there is
@@ -7018,6 +7081,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming && !missingAuditPriceEntirely
               && !wrongOngoingManagementFee && !wrongLaunchOfferOnExistingAccount && !wrongHourlyRateAboveCeiling
               && !missingSeoAuditPriceEntirely && !wrongSeoAuditPrice && !wrongSeoRetainerFee && !missingManualAuditClaim
+              && !missingDigitBombFacts
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -7078,6 +7142,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               wrongHourlyRateAboveCeiling && 'wrongHourlyRateAboveCeiling',
               missingSeoAuditPriceEntirely && 'missingSeoAuditPriceEntirely',
               missingManualAuditClaim && 'missingManualAuditClaim',
+              missingDigitBombFacts && 'missingDigitBombFacts',
               wrongSeoAuditPrice && 'wrongSeoAuditPrice',
               wrongSeoRetainerFee && 'wrongSeoRetainerFee',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
@@ -7178,6 +7243,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (missingManualAuditClaim) {
               console.log('[Falcon] Rule pre-check: audit is offered but the draft never states it is performed entirely manually — firing Claude enforcer to add it.')
+            }
+            if (missingDigitBombFacts) {
+              console.log(`[Falcon] Rule pre-check: Digit Bomb armed (${_digitBombCase?.name}) but the opening doesn't contain its real numbers/name — firing Claude enforcer to fix it.`)
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -7544,6 +7612,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (missingManualAuditClaim) {
               specificViolations.push(
                 'MISSING MANUAL-AUDIT CLAIM — OWNER HARD RULE: an audit (the $300 flat Google Ads audit or the $700 flat technical SEO audit) is being offered in this letter, but the draft never states that the audit itself is performed entirely manually — no automated tools, no templated/auto-generated report. This is a required trust/differentiation signal (many competing "audits" are auto-generated by SEO/PPC tools or AI). ADD one sentence conveying this, woven naturally into the audit description near the price/sample mention — do NOT drop it as an isolated boilerplate line. Example: "every audit I run is done entirely by hand — no automated tools, no templated report." Keep the rest of the letter untouched.'
+              )
+            }
+            if (missingDigitBombFacts && _digitBombCase) {
+              specificViolations.push(
+                `DIGIT BOMB OPENER — MISSING REAL FACTS (credibility-critical): Artem armed the case "${_digitBombCase.name}" for this letter's cold open, but the opening paragraph doesn't actually contain its real numbers and case name. ` +
+                `REWRITE the opening (first 1-2 sentences only) to lead with 1-2 of these EXACT metrics — ${_digitBombCase.metrics.join(', ')} — then name the case: "${_digitBombCase.name}${_digitBombCase.attachment === 'pdf' ? ' (attached as PDF)' : ' (attached in profile highlights)'}". What the case actually was: ${_digitBombCase.one_liner}. Bridge to the client's real, stated situation from the job posting in the same or next sentence — never invent a detail about their business. Do NOT alter, round, or drop the numbers; do NOT use any other opener style (no "reading your post", no credential lead-in). Leave the rest of the letter untouched.`
               )
             }
             if (missingSeoPlanOffer) {
@@ -8021,6 +8095,56 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         )}
       </div>
 
+      {/* Digit Bomb — pick a real case, arm it, then Generate/Redo opens the
+          letter with that case's verified numbers instead of the usual
+          diagnose-first opener. Auto-disarms after one use. */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px',
+        background: digitBombArmed ? 'rgba(239,68,68,0.08)' : 'var(--bg2)',
+        border: `1px solid ${digitBombArmed ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
+        borderRadius: 8,
+      }}>
+        <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
+          💣 Digit Bomb opener
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <select
+            value={digitBombCaseId}
+            onChange={e => { setDigitBombCaseId(e.target.value); if (!e.target.value) setDigitBombArmed(false) }}
+            style={{
+              flex: 1, background: 'var(--bg)', border: '1px solid var(--border)',
+              borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--text)',
+              fontFamily: 'var(--font-mono)', outline: 'none',
+            }}
+          >
+            <option value="">Choose a case…</option>
+            {CASE_LEDGER.map(c => (
+              <option key={c.id} value={c.id}>{c.name} — {c.metrics[0] || ''}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => setDigitBombArmed(a => !a)}
+            disabled={!digitBombCaseId}
+            title={digitBombCaseId ? "Arm — the next Generate/Redo opens with this case's real numbers instead of the usual opener" : 'Pick a case first'}
+            style={{
+              padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
+              background: digitBombArmed ? '#ef4444' : 'rgba(239,68,68,0.13)',
+              color: digitBombArmed ? '#fff' : '#ef4444', border: '1px solid rgba(239,68,68,0.4)',
+              cursor: digitBombCaseId ? 'pointer' : 'not-allowed',
+              opacity: !digitBombCaseId ? 0.55 : 1,
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            {digitBombArmed ? '💣 Armed' : 'Arm'}
+          </button>
+        </div>
+        {digitBombArmed && (
+          <div style={{ fontSize: 11, color: '#ef4444', lineHeight: 1.4 }}>
+            Next Generate/Redo opens with {CASE_BY_ID[digitBombCaseId]?.name}'s real numbers. Disarms automatically after one use.
+          </div>
+        )}
+      </div>
+
       {(!proposal || !hasEnrichment) && !loading && (
         <>
           <p style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.6 }}>
@@ -8029,7 +8153,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               : 'Enrich the job first so the cover letter is built on fresh client data (current spend, hire rate, applicants).'}
           </p>
           <button
-            onClick={(e) => { flashLogo(e.currentTarget); fireLogoSplash(e.currentTarget); setTimeout(() => generate(), 480) }}
+            onClick={(e) => { flashLogo(e.currentTarget); fireLogoSplash(e.currentTarget); setTimeout(() => generate(null, digitBombArmed ? { digitBombCaseId } : {}), 480) }}
             disabled={!hasEnrichment}
             title={!hasEnrichment ? 'Enrich the job first — click the orange Enrich button above' : ''}
             className="btn-primary"
@@ -8192,7 +8316,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           >
             {saving ? 'Saving…' : (savedProposal ? '↻ Update in Outcomes' : '✚ Save to Outcomes')}
           </button>
-          <button onClick={() => generate(null, { skipOverride: true })} className="btn-ghost" style={{ paddingTop: 2, paddingBottom: 2, paddingLeft: 10, paddingRight: 10, fontSize: 10.5 }}>
+          <button onClick={() => generate(null, { skipOverride: true, ...(digitBombArmed ? { digitBombCaseId } : {}) })} className="btn-ghost" style={{ paddingTop: 2, paddingBottom: 2, paddingLeft: 10, paddingRight: 10, fontSize: 10.5 }}>
             ↺ Redo
           </button>
           <button
