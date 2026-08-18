@@ -763,6 +763,74 @@ export default function JobDetail({ job }) {
   const leftColRef = useRef(null)
   const wrapperRef = useRef(null)
 
+  // Dropped files — PDFs / images / text files the user drags in as context.
+  // Each entry: { name, mediaType, data (base64), blockType ('document'|'image'|'text') }
+  // Lifted up from ProposalColumn (owner request, 2026-08-13: "generator side
+  // is congested, move the drop zone to the middle section") so the dropzone
+  // UI can live in AIAnalysisColumn while generate() (in the sibling
+  // ProposalColumn) still reads the same droppedFiles state via props.
+  const [droppedFiles, setDroppedFiles] = useState([])
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const _readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1]
+      resolve({ name: file.name, data: base64, mediaType: file.type || 'application/octet-stream' })
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+
+  const _isExcel = (f) =>
+    f.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    f.type === 'application/vnd.ms-excel' ||
+    /\.(xlsx|xls)$/i.test(f.name)
+
+  const _readExcelAsText = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: 'array' })
+        const parts = wb.SheetNames.map(name => {
+          const ws = wb.Sheets[name]
+          const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false })
+          return `[Sheet: ${name}]\n${csv}`
+        })
+        resolve(parts.join('\n\n'))
+      } catch (err) {
+        reject(err)
+      }
+    }
+    reader.onerror = reject
+    reader.readAsArrayBuffer(file)
+  })
+
+  const handleFileDrop = async (e) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer?.files || [])
+    const supported = files.filter(f =>
+      f.type === 'application/pdf' ||
+      f.type.startsWith('image/') ||
+      f.type === 'text/plain' ||
+      _isExcel(f)
+    )
+    if (!supported.length) return
+    const loaded = await Promise.all(supported.map(async f => {
+      if (_isExcel(f)) {
+        const text = await _readExcelAsText(f)
+        // Encode text as base64 so the rest of the pipeline stays uniform
+        const b64 = btoa(unescape(encodeURIComponent(text)))
+        return { name: f.name, data: b64, mediaType: 'text/plain', blockType: 'text', size: f.size, _excelText: text }
+      }
+      const { name, data, mediaType } = await _readFileAsBase64(f)
+      const blockType = f.type === 'application/pdf' ? 'document' : f.type.startsWith('image/') ? 'image' : 'text'
+      return { name, data, mediaType, blockType, size: f.size }
+    }))
+    setDroppedFiles(prev => [...prev, ...loaded])
+  }
+
   // Restore previously-saved column widths on first mount of JobDetail. Runs
   // once per dashboard session; subsequent job switches keep the same widths.
   useLayoutEffect(() => {
@@ -1362,13 +1430,15 @@ export default function JobDetail({ job }) {
         <Divider />
 
         {/* ══ AI ANALYSIS ══════════════════════════════════════════════════ */}
-        <AIAnalysisColumn job={job} hasEnrichment={hasEnrichment} bridgeReady={bridgeReady} onEnrich={handleEnrich} />
+        <AIAnalysisColumn job={job} hasEnrichment={hasEnrichment} bridgeReady={bridgeReady} onEnrich={handleEnrich}
+          droppedFiles={droppedFiles} setDroppedFiles={setDroppedFiles}
+          isDragOver={isDragOver} setIsDragOver={setIsDragOver} handleFileDrop={handleFileDrop} />
 
         {/* ── DIVIDER 2 ── */}
         <Divider />
 
         {/* ══ PROPOSAL ═════════════════════════════════════════════════════ */}
-        <ProposalColumn job={job} bridgeReady={bridgeReady} />
+        <ProposalColumn job={job} bridgeReady={bridgeReady} droppedFiles={droppedFiles} />
       </div>
     </div>
   )
@@ -2926,8 +2996,9 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
       // array (and possibly other UI-only fields) that the API rejects.
       const apiMessages = _sanitizeMessagesForApi(newMessages.slice(-10))
 
-      // Attach any files dropped on the generator's dropzone so the chat can
-      // actually read them too — previously `droppedFiles` only ever reached
+      // Attach any files dropped in the dropzone (now in AI Analysis, formerly
+      // in this generator column) so the chat can actually read them too —
+      // previously `droppedFiles` only ever reached
       // generate()'s /claude call; the chat had zero file-handling code, so
       // asking it to "describe the attached PDFs" made it fabricate content
       // instead (confirmed real bug, job 11279). Mirrors generate()'s own
@@ -3622,7 +3693,7 @@ function Divider() {
 }
 
 // ── AI Analysis column ─────────────────────────────────────────────────────
-function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
+function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich, droppedFiles, setDroppedFiles, isDragOver, setIsDragOver, handleFileDrop }) {
   const [analysis, setAnalysis] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -4272,6 +4343,45 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 16, overflowAnchor: 'none' }}>
       <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>▸ AI Analysis</div>
 
+      {/* File drop zone — moved here from the (congested) generator column;
+          always visible so files can be attached before or after generation. */}
+      <div
+        onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={handleFileDrop}
+        style={{
+          border: `1px dashed ${isDragOver ? '#00c8d4' : 'var(--border2)'}`,
+          borderRadius: 6,
+          padding: droppedFiles.length > 0 ? '8px 10px' : '10px 12px',
+          background: isDragOver ? '#00c8d420' : 'transparent',
+          transition: 'all 0.15s',
+          cursor: 'default',
+        }}
+      >
+        {droppedFiles.length === 0 ? (
+          <div style={{ fontSize: 11, color: isDragOver ? '#00c8d4' : 'var(--text3)', textAlign: 'center', pointerEvents: 'none' }}>
+            Drop PDF, Excel, image, or text file to add context to the generator
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {droppedFiles.map((f, i) => (
+              <span key={i} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10,
+                padding: '2px 6px 2px 8px', borderRadius: 4,
+                background: '#00c8d414', color: '#00c8d4', border: '1px solid #00c8d440',
+              }}>
+                {f.blockType === 'document' ? '📄' : f.blockType === 'image' ? '🖼' : /\.(xlsx|xls)$/i.test(f.name) ? '📊' : '📝'} {f.name}
+                <button onClick={() => setDroppedFiles(prev => prev.filter((_, j) => j !== i))}
+                  style={{ background: 'none', border: 'none', color: '#00c8d4', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+              </span>
+            ))}
+            <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>
+              — drop more to add
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Cached/stale analysis is hidden when the job isn't currently enriched.
           Otherwise we'd show analysis generated against a previous (or
           missing) enrichment state — e.g. a "$6.6K spent" claim while the
@@ -4472,7 +4582,7 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
 //   (a) No saved Proposal row yet → Generate flow, then a "Save to KB" button.
 //   (b) Saved Proposal exists → loaded into the textarea; status dropdown,
 //       client-reply paste, and notes are revealed. Edits PUT back.
-function ProposalColumn({ job, bridgeReady = false }) {
+function ProposalColumn({ job, bridgeReady = false, droppedFiles = [] }) {
   // Same enrichment check the JobDetail/AnalysisColumn use — gate cached
   // cover-letter output behind this so a stale proposal from a previous
   // enrichment state doesn't appear on a now-un-enriched job.
@@ -4765,10 +4875,6 @@ function ProposalColumn({ job, bridgeReady = false }) {
   const [distilling, setDistilling] = useState(false)
   const [kbRules, setKbRules] = useState([])
   const [loadingKbRules, setLoadingKbRules] = useState(false)
-  // Dropped files — PDFs / images / text files the user drags in before generating.
-  // Each entry: { name, mediaType, data (base64), blockType ('document'|'image'|'text') }
-  const [droppedFiles, setDroppedFiles] = useState([])
-  const [isDragOver, setIsDragOver] = useState(false)
   // Digit Bomb — owner picks a real case from the ledger and arms it; the NEXT
   // Generate/Redo opens the letter with that case's verified numbers instead of
   // the usual diagnose-first opener. Consumed (disarmed) on that one generate()
@@ -4927,66 +5033,6 @@ function ProposalColumn({ job, bridgeReady = false }) {
       setFlagged(true)
       setTimeout(() => setFlagged(false), 2500)
     } catch (_) {}
-  }
-
-  // ── File drop handlers ────────────────────────────────────────────────────
-  const _readFileAsBase64 = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const base64 = reader.result.split(',')[1]
-      resolve({ name: file.name, data: base64, mediaType: file.type || 'application/octet-stream' })
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-
-  const _isExcel = (f) =>
-    f.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    f.type === 'application/vnd.ms-excel' ||
-    /\.(xlsx|xls)$/i.test(f.name)
-
-  const _readExcelAsText = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const wb = XLSX.read(ev.target.result, { type: 'array' })
-        const parts = wb.SheetNames.map(name => {
-          const ws = wb.Sheets[name]
-          const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false })
-          return `[Sheet: ${name}]\n${csv}`
-        })
-        resolve(parts.join('\n\n'))
-      } catch (err) {
-        reject(err)
-      }
-    }
-    reader.onerror = reject
-    reader.readAsArrayBuffer(file)
-  })
-
-  const handleFileDrop = async (e) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    const files = Array.from(e.dataTransfer?.files || [])
-    const supported = files.filter(f =>
-      f.type === 'application/pdf' ||
-      f.type.startsWith('image/') ||
-      f.type === 'text/plain' ||
-      _isExcel(f)
-    )
-    if (!supported.length) return
-    const loaded = await Promise.all(supported.map(async f => {
-      if (_isExcel(f)) {
-        const text = await _readExcelAsText(f)
-        // Encode text as base64 so the rest of the pipeline stays uniform
-        const b64 = btoa(unescape(encodeURIComponent(text)))
-        return { name: f.name, data: b64, mediaType: 'text/plain', blockType: 'text', size: f.size, _excelText: text }
-      }
-      const { name, data, mediaType } = await _readFileAsBase64(f)
-      const blockType = f.type === 'application/pdf' ? 'document' : f.type.startsWith('image/') ? 'image' : 'text'
-      return { name, data, mediaType, blockType, size: f.size }
-    }))
-    setDroppedFiles(prev => [...prev, ...loaded])
   }
 
   const generate = async (adjustmentsArg, options = {}) => {
@@ -7997,44 +8043,6 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         </div>
       )}
 
-      {/* File drop zone — always visible so files can be attached before or after generation */}
-      <div
-        onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={handleFileDrop}
-        style={{
-          border: `1px dashed ${isDragOver ? '#00c8d4' : 'var(--border2)'}`,
-          borderRadius: 6,
-          padding: droppedFiles.length > 0 ? '8px 10px' : '10px 12px',
-          background: isDragOver ? '#00c8d420' : 'transparent',
-          transition: 'all 0.15s',
-          cursor: 'default',
-        }}
-      >
-        {droppedFiles.length === 0 ? (
-          <div style={{ fontSize: 11, color: isDragOver ? '#00c8d4' : 'var(--text3)', textAlign: 'center', pointerEvents: 'none' }}>
-            Drop PDF, Excel, image, or text file to add context to the generator
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-            {droppedFiles.map((f, i) => (
-              <span key={i} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10,
-                padding: '2px 6px 2px 8px', borderRadius: 4,
-                background: '#00c8d414', color: '#00c8d4', border: '1px solid #00c8d440',
-              }}>
-                {f.blockType === 'document' ? '📄' : f.blockType === 'image' ? '🖼' : _isExcel(f) || /\.(xlsx|xls)$/i.test(f.name) ? '📊' : '📝'} {f.name}
-                <button onClick={() => setDroppedFiles(prev => prev.filter((_, j) => j !== i))}
-                  style={{ background: 'none', border: 'none', color: '#00c8d4', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
-              </span>
-            ))}
-            <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>
-              — drop more to add
-            </span>
-          </div>
-        )}
-      </div>
-
       {/* Ahrefs SEO health enrichment — optional, available before/after generate */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
         <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
@@ -8174,7 +8182,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             <div style={{ opacity: 0.4 }}><LogoCanvas /></div>
             <div style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 260, whiteSpace: 'pre-line' }}>
               {hasEnrichment
-                ? 'Your cover letter will appear here.\nDrop a PDF or add an Ahrefs scan above to enrich it.'
+                ? 'Your cover letter will appear here.\nDrop a PDF in AI Analysis or add an Ahrefs scan above to enrich it.'
                 : 'Once enriched, the generated cover letter will appear in this space.'}
             </div>
           </div>

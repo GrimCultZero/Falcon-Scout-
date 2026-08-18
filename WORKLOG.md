@@ -3973,3 +3973,36 @@ change; did not start a competing instance since it's the owner's own environmen
 **Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
 <this-commit-hash>` fully removes the feature (UI box, generate() option, prompt section, and
 deterministic check) with no side effects on any other rule.
+
+## 2026-08-13 — UI: moved the file dropzone from the generator column to AI Analysis (top)
+
+Owner request: "generator side of the interface is very congested now, lets move the drop zone for docs
+to the middle secton, on top" — the right (Cover Letter/generator) column had accumulated the file
+dropzone, the Ahrefs box, My Rules, and the new Digit Bomb box; the owner wanted the dropzone relocated to
+the middle (AI Analysis) column, at the very top.
+
+`droppedFiles`/`isDragOver` state and their handlers (`_readFileAsBase64`, `_isExcel`,
+`_readExcelAsText`, `handleFileDrop`) lived inside `ProposalColumn` — but `AIAnalysisColumn` (the middle
+column) is a SIBLING component, not a child, so simply moving the JSX would have broken it (no shared
+scope). Lifted the state + handlers up to the common parent, `JobDetail`, and passed them down as props
+to both: `AIAnalysisColumn` now renders the dropzone (new props: `droppedFiles`, `setDroppedFiles`,
+`isDragOver`, `setIsDragOver`, `handleFileDrop`), placed immediately after its "▸ AI Analysis" header
+(top of that column); `ProposalColumn` now receives `droppedFiles` as a read-only prop (`generate()` and
+the proposal `InlineChat` still read it exactly as before — no behavior change there, since standard
+one-way data flow already covers a read-only consumer).
+
+The dropzone's own text ("Drop PDF, Excel, image, or text file to add context to the generator") was left
+unchanged since it describes what the files DO, not where the box sits. Did update one now-stale
+reference: the empty cover-letter placeholder said "Drop a PDF... above to enrich it", which no longer
+made sense once the dropzone moved to a different column — changed to "Drop a PDF in AI Analysis or add
+an Ahrefs scan above to enrich it." Also corrected a comment in InlineChat's `send()` (added earlier this
+session for the chat-file-attachment fix) that still said "the generator's dropzone."
+
+Verified: `esbuild` transform of `JobDetail.jsx` clean; live in the browser (dev server had come back up
+by this point) — confirmed the dropzone now renders at the top of AI Analysis and is gone from the Cover
+Letter column, the Digit Bomb dropdown/Arm toggle still work correctly post-refactor (armed → "💣 Armed"
+→ disarmed via direct DOM interaction), and no new console errors (the one pre-existing React-key warning
+is unrelated and predates this session).
+
+**Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
+<this-commit-hash>` restores the dropzone to the generator column and removes the lifted state/props.
