@@ -115,6 +115,63 @@ def _get_ai_provider() -> str:
 def _set_ai_provider(provider: str) -> None:
     _AI_PROVIDER_FILE.write_text(_json_mod.dumps({"provider": provider}))
 
+# ── CLI bridge auto-start / self-heal ───────────────────────────────────────
+# Owner request, 2026-08-18: "I need bridge to start on every app launch and
+# be always available to be able to switch between CLI and API at any time."
+# Previously cli-bridge.js only ran if the user launched via falconscout.bat
+# AND kept that terminal window open -- a closed window, a crashed bridge, or
+# starting the backend some other way left CLI mode silently broken until the
+# next full relaunch. This makes the backend itself responsible: it checks
+# the bridge on its own startup, and self-heals (spawns + retries once) any
+# time a live CLI-mode call finds the bridge unreachable mid-session.
+async def _ping_cli_bridge() -> bool:
+    import httpx as _httpx_ping
+    try:
+        async with _httpx_ping.AsyncClient(timeout=1.0) as c:
+            r = await c.get("http://127.0.0.1:27182/ping")
+        return r.status_code == 200
+    except Exception:
+        return False
+
+def _spawn_cli_bridge() -> bool:
+    """Launch cli-bridge.js in its own console window (mirrors falconscout.bat
+    exactly, so bridge logs stay visible in the usual place). Safe to call
+    even when one is already running -- cli-bridge.js's own EADDRINUSE guard
+    makes the redundant instance print a message and exit immediately."""
+    try:
+        import subprocess
+        creationflags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+        subprocess.Popen(
+            ["node", "cli-bridge.js"],
+            cwd=str(ROOT),
+            creationflags=creationflags,
+            shell=(sys.platform != "win32"),
+        )
+        print("[CLI bridge] Not reachable — auto-starting `node cli-bridge.js`…")
+        return True
+    except Exception as e:
+        print(f"[CLI bridge] Auto-start failed: {e}")
+        return False
+
+async def _ensure_cli_bridge_running(wait_for_ready: bool = False) -> bool:
+    """Returns True once the bridge is confirmed reachable. With
+    wait_for_ready=True, spawns it if needed and polls briefly (Node/the CLI
+    take a moment to boot) so a caller can retry the SAME request right after,
+    instead of forcing the user to click again."""
+    if await _ping_cli_bridge():
+        return True
+    if not _spawn_cli_bridge():
+        return False
+    if not wait_for_ready:
+        return False
+    import asyncio
+    for _ in range(10):
+        await asyncio.sleep(0.5)
+        if await _ping_cli_bridge():
+            print("[CLI bridge] Auto-started and ready.")
+            return True
+    return False
+
 def _extract_pdf_text_local(raw_pdf_bytes: bytes) -> str:
     """Extract text from a PDF locally via PyMuPDF — no Claude call needed.
     Works for text-based PDFs (the common case: specs, briefs, case studies).
@@ -196,10 +253,22 @@ async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
         async with _httpx_cli.AsyncClient(timeout=300.0) as br:
             br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text, "model": model})
     except _httpx_cli.ConnectError:
-        raise HTTPException(
-            status_code=502,
-            detail="CLI bridge offline — open a terminal and run: node cli-bridge.js"
-        )
+        # Self-heal: the bridge may have been closed or never started this
+        # session — spawn it and retry the SAME request once before giving up.
+        if await _ensure_cli_bridge_running(wait_for_ready=True):
+            try:
+                async with _httpx_cli.AsyncClient(timeout=300.0) as br:
+                    br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text, "model": model})
+            except _httpx_cli.ConnectError:
+                raise HTTPException(
+                    status_code=502,
+                    detail="CLI bridge auto-started but is not responding — open a terminal and run: node cli-bridge.js"
+                )
+        else:
+            raise HTTPException(
+                status_code=502,
+                detail="CLI bridge was offline and could not auto-start (Node.js missing from PATH?) — open a terminal and run: node cli-bridge.js"
+            )
     except _httpx_cli.TimeoutException:
         raise HTTPException(
             status_code=504,
@@ -282,6 +351,9 @@ async def _start_background_tasks():
     print("[api-feed/auto] Background auto-fetch loop started (interval from feed_config.auto_fetch_minutes)")
     asyncio.create_task(_prune_loop())
     print(f"[Prune] Auto-prune loop started (every {_PRUNE_INTERVAL_SEC // 3600}h; keeps last {_JOB_RETAIN_RECENT} + responded/hired/starred)")
+    # Make the CLI bridge available on every backend launch, not just when the
+    # user runs the full falconscout.bat — fire-and-forget, doesn't block startup.
+    asyncio.create_task(_ensure_cli_bridge_running())
 
 
 # ── 10-day auto-ghost timer ──────────────────────────────────────────────────
@@ -5029,7 +5101,9 @@ async def claude_proxy(request: dict):
         if _get_ai_provider() == "cli":
             import httpx as _httpx_cli
             import traceback as _tb
-            try:
+            _cli_bridge_retried = False
+            while True:
+              try:
                 prompt_text = _flatten_for_cli(request)
                 print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27182/ai")
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
@@ -5049,19 +5123,26 @@ async def claude_proxy(request: dict):
                     "stop_reason": "end_turn",
                     "usage": {"input_tokens": 0, "output_tokens": 0},
                 }
-            except HTTPException:
+              except HTTPException:
                 raise
-            except _httpx_cli.ConnectError:
+              except _httpx_cli.ConnectError:
+                # Self-heal: the bridge may have been closed or never started
+                # this session — spawn it and retry this SAME request once
+                # before giving up (owner request, 2026-08-18: "always
+                # available... at any time").
+                if not _cli_bridge_retried and await _ensure_cli_bridge_running(wait_for_ready=True):
+                    _cli_bridge_retried = True
+                    continue
                 raise HTTPException(
                     status_code=502,
-                    detail="CLI bridge offline — open a terminal and run: node cli-bridge.js"
+                    detail="CLI bridge offline and could not auto-start (Node.js missing from PATH?) — open a terminal and run: node cli-bridge.js"
                 )
-            except _httpx_cli.TimeoutException:
+              except _httpx_cli.TimeoutException:
                 raise HTTPException(
                     status_code=504,
                     detail=f"CLI bridge timed out ({kind}) — the CLI is slow on large prompts; try again"
                 )
-            except Exception as _cli_e:
+              except Exception as _cli_e:
                 # Surface the REAL error instead of a bare 500 so it's diagnosable.
                 print(f"[CLI bridge] {kind}: EXCEPTION {type(_cli_e).__name__}: {_cli_e}")
                 _tb.print_exc()

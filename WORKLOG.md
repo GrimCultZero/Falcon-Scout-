@@ -4138,3 +4138,53 @@ consistent with treating it as the owner's own process.
 **Revert:** one isolated commit on a clean tree touching `App.jsx` and `JobDetail.jsx` — `git revert
 <this-commit-hash>` restores the dropzone to `AIAnalysisColumn` and the Digit Bomb box to `ProposalColumn`,
 removing `DropZoneBar`/`DigitBombBar` and their header wiring in both files.
+
+## 2026-08-18 — "Analyse this job" failing again: real OAuth expiry + CLI bridge auto-start/self-heal
+
+Owner hit "CLI bridge error: {"error":"Failed to authenticate: OAuth session expired and could not be
+refreshed"}" and asked to check why, plus a standing request: "I need bridge to start on every app
+launch and be always available to be able to switch between CLI and API at any time."
+
+**Diagnosis (real, confirmed directly):** `claude auth status` returns `{"loggedIn": false, "authMethod":
+"none"}` — the Claude Code CLI's own OAuth login has fully expired, not a code bug. This is DIFFERENT
+from the earlier session-limit issue (2026-08-13) — that was a usage cap with a resettable time; this is
+a login that needs re-establishing. Fix is on the owner's side: run `claude auth login` in a terminal
+(opens a browser to re-authenticate). Not something Claude Code can do on the owner's behalf — it's an
+interactive OAuth flow tied to their own Anthropic account.
+
+**The "always available" request, implemented:** `falconscout.bat` already started `cli-bridge.js` on
+launch (line 4), but only if the owner used the full batch launcher AND kept that terminal window open —
+starting the backend individually (`uvicorn api.main:app --reload`, per the CLAUDE.md quick-start), or a
+closed/crashed bridge window mid-session, left CLI mode silently broken until the next full relaunch.
+Moved responsibility for bridge availability into the backend itself:
+
+- New helpers in `api/main.py`: `_ping_cli_bridge()` (checks `GET /ping` on 27182), `_spawn_cli_bridge()`
+  (launches `node cli-bridge.js` in its own console window via `subprocess.Popen(..., cwd=ROOT,
+  creationflags=CREATE_NEW_CONSOLE)` — mirrors `falconscout.bat` exactly so bridge logs stay visible in
+  the usual place; safe to call even if one's already running, since `cli-bridge.js`'s own `EADDRINUSE`
+  guard makes a redundant instance exit immediately), and `_ensure_cli_bridge_running(wait_for_ready)`
+  (ping → spawn if unreachable → optionally poll up to 5s for it to come up).
+- Wired into the existing `@app.on_event("startup")` hook (fire-and-forget) so the bridge comes up
+  automatically no matter how the backend is started — not just via the full batch launcher.
+- Wired as a SELF-HEAL retry into both places that call the bridge directly: `_call_via_cli_bridge`
+  (used by `/chat`, `/chat/distill`) and `/claude`'s own separate inline CLI-routing block (the codebase
+  has this logic duplicated in two places already; extended both rather than refactoring them together,
+  out of scope for this fix) — on `ConnectError`, spawn + wait, then retry the SAME request once before
+  surfacing the offline error. The `/claude` retry needed restructuring its try/except into a `while
+  True:` loop (re-running the flatten+POST+return on a successful heal) since the original was a single
+  try wrapping the whole request+response+return sequence, not just the POST call.
+
+Verified fully end-to-end, twice (once per call site), with the owner's own live backend rather than a
+synthetic script — since this is subprocess/OS-level behavior a Node script can't meaningfully simulate:
+killed the real running bridge process, confirmed via `netstat` it was down, temporarily flipped
+`ai_provider.json` to `"cli"` (backed up first, restored after both tests), then sent a real request to
+`/claude` and separately to `/chat`. Both times: the request succeeded transparently (own the bridge auto-
+spawning, becoming reachable, and the SAME request retrying and returning a real result) and `netstat`
+confirmed a genuinely new bridge process (different PID each time) was left listening afterward. Restored
+`ai_provider.json` to its original value (`"api"`) when done. `python -m py_compile api/main.py` clean —
+this also caught a real indentation bug from restructuring `/claude`'s try/except into a loop (the final
+`except Exception` clause wasn't re-indented to match), fixed before testing.
+
+**Revert:** one isolated commit on a clean tree touching only `api/main.py` — `git revert
+<this-commit-hash>` removes the auto-start/self-heal helpers and both retry sites, restoring the
+original "CLI bridge offline — open a terminal and run: node cli-bridge.js" behavior.
