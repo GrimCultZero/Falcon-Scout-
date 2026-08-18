@@ -747,7 +747,10 @@ function Stars({ score, count }) {
   )
 }
 
-export default function JobDetail({ job, ahrefsResult = null, websiteText = null }) {
+export default function JobDetail({
+  job, ahrefsResult = null, websiteText = null,
+  droppedFiles = [], digitBombArmed = false, digitBombCaseId = '', setDigitBombArmed,
+}) {
   const [enriching, setEnriching] = useState(false)
   const [enrichMsg, setEnrichMsg] = useState('')
   const [enrichDebug, setEnrichDebug] = useState(null)  // last enrichment result or error
@@ -762,74 +765,6 @@ export default function JobDetail({ job, ahrefsResult = null, websiteText = null
   const bidsCapturedAtRef = useRef(null)
   const leftColRef = useRef(null)
   const wrapperRef = useRef(null)
-
-  // Dropped files — PDFs / images / text files the user drags in as context.
-  // Each entry: { name, mediaType, data (base64), blockType ('document'|'image'|'text') }
-  // Lifted up from ProposalColumn (owner request, 2026-08-13: "generator side
-  // is congested, move the drop zone to the middle section") so the dropzone
-  // UI can live in AIAnalysisColumn while generate() (in the sibling
-  // ProposalColumn) still reads the same droppedFiles state via props.
-  const [droppedFiles, setDroppedFiles] = useState([])
-  const [isDragOver, setIsDragOver] = useState(false)
-
-  const _readFileAsBase64 = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const base64 = reader.result.split(',')[1]
-      resolve({ name: file.name, data: base64, mediaType: file.type || 'application/octet-stream' })
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-
-  const _isExcel = (f) =>
-    f.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    f.type === 'application/vnd.ms-excel' ||
-    /\.(xlsx|xls)$/i.test(f.name)
-
-  const _readExcelAsText = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const wb = XLSX.read(ev.target.result, { type: 'array' })
-        const parts = wb.SheetNames.map(name => {
-          const ws = wb.Sheets[name]
-          const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false })
-          return `[Sheet: ${name}]\n${csv}`
-        })
-        resolve(parts.join('\n\n'))
-      } catch (err) {
-        reject(err)
-      }
-    }
-    reader.onerror = reject
-    reader.readAsArrayBuffer(file)
-  })
-
-  const handleFileDrop = async (e) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    const files = Array.from(e.dataTransfer?.files || [])
-    const supported = files.filter(f =>
-      f.type === 'application/pdf' ||
-      f.type.startsWith('image/') ||
-      f.type === 'text/plain' ||
-      _isExcel(f)
-    )
-    if (!supported.length) return
-    const loaded = await Promise.all(supported.map(async f => {
-      if (_isExcel(f)) {
-        const text = await _readExcelAsText(f)
-        // Encode text as base64 so the rest of the pipeline stays uniform
-        const b64 = btoa(unescape(encodeURIComponent(text)))
-        return { name: f.name, data: b64, mediaType: 'text/plain', blockType: 'text', size: f.size, _excelText: text }
-      }
-      const { name, data, mediaType } = await _readFileAsBase64(f)
-      const blockType = f.type === 'application/pdf' ? 'document' : f.type.startsWith('image/') ? 'image' : 'text'
-      return { name, data, mediaType, blockType, size: f.size }
-    }))
-    setDroppedFiles(prev => [...prev, ...loaded])
-  }
 
   // Restore previously-saved column widths on first mount of JobDetail. Runs
   // once per dashboard session; subsequent job switches keep the same widths.
@@ -1430,15 +1365,15 @@ export default function JobDetail({ job, ahrefsResult = null, websiteText = null
         <Divider />
 
         {/* ══ AI ANALYSIS ══════════════════════════════════════════════════ */}
-        <AIAnalysisColumn job={job} hasEnrichment={hasEnrichment} bridgeReady={bridgeReady} onEnrich={handleEnrich}
-          droppedFiles={droppedFiles} setDroppedFiles={setDroppedFiles}
-          isDragOver={isDragOver} setIsDragOver={setIsDragOver} handleFileDrop={handleFileDrop} />
+        <AIAnalysisColumn job={job} hasEnrichment={hasEnrichment} bridgeReady={bridgeReady} onEnrich={handleEnrich} />
 
         {/* ── DIVIDER 2 ── */}
         <Divider />
 
         {/* ══ PROPOSAL ═════════════════════════════════════════════════════ */}
-        <ProposalColumn job={job} bridgeReady={bridgeReady} droppedFiles={droppedFiles} ahrefsResult={ahrefsResult} websiteText={websiteText} />
+        <ProposalColumn job={job} bridgeReady={bridgeReady} droppedFiles={droppedFiles}
+          ahrefsResult={ahrefsResult} websiteText={websiteText}
+          digitBombArmed={digitBombArmed} digitBombCaseId={digitBombCaseId} setDigitBombArmed={setDigitBombArmed} />
       </div>
     </div>
   )
@@ -3693,7 +3628,7 @@ function Divider() {
 }
 
 // ── AI Analysis column ─────────────────────────────────────────────────────
-function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich, droppedFiles, setDroppedFiles, isDragOver, setIsDragOver, handleFileDrop }) {
+function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
   const [analysis, setAnalysis] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -4343,44 +4278,6 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 16, overflowAnchor: 'none' }}>
       <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>▸ AI Analysis</div>
 
-      {/* File drop zone — moved here from the (congested) generator column;
-          always visible so files can be attached before or after generation. */}
-      <div
-        onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={handleFileDrop}
-        style={{
-          border: `1px dashed ${isDragOver ? '#00c8d4' : 'var(--border2)'}`,
-          borderRadius: 6,
-          padding: droppedFiles.length > 0 ? '8px 10px' : '10px 12px',
-          background: isDragOver ? '#00c8d420' : 'transparent',
-          transition: 'all 0.15s',
-          cursor: 'default',
-        }}
-      >
-        {droppedFiles.length === 0 ? (
-          <div style={{ fontSize: 11, color: isDragOver ? '#00c8d4' : 'var(--text3)', textAlign: 'center', pointerEvents: 'none' }}>
-            Drop PDF, Excel, image, or text file to add context to the generator
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-            {droppedFiles.map((f, i) => (
-              <span key={i} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10,
-                padding: '2px 6px 2px 8px', borderRadius: 4,
-                background: '#00c8d414', color: '#00c8d4', border: '1px solid #00c8d440',
-              }}>
-                {f.blockType === 'document' ? '📄' : f.blockType === 'image' ? '🖼' : /\.(xlsx|xls)$/i.test(f.name) ? '📊' : '📝'} {f.name}
-                <button onClick={() => setDroppedFiles(prev => prev.filter((_, j) => j !== i))}
-                  style={{ background: 'none', border: 'none', color: '#00c8d4', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
-              </span>
-            ))}
-            <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>
-              — drop more to add
-            </span>
-          </div>
-        )}
-      </div>
 
       {/* Cached/stale analysis is hidden when the job isn't currently enriched.
           Otherwise we'd show analysis generated against a previous (or
@@ -5006,6 +4903,108 @@ export function MyRulesBar() {
   )
 }
 
+// ── Drop-zone bar ────────────────────────────────────────────────────────────
+// Owner request, 2026-08-13 (third move in the same congestion thread —
+// dropzone, then Ahrefs, then My Rules, now this too): "it makes sense to put
+// those [dropzone + digit bomb] to on the top as well, freeing the space."
+// State/handlers already lived one level up in JobDetail (from the earlier
+// dropzone move); lifted one level further to App.jsx so the UI can render in
+// the header. Purely presentational — all logic is passed in as props.
+export function DropZoneBar({ droppedFiles, setDroppedFiles, isDragOver, setIsDragOver, handleFileDrop }) {
+  return (
+    <div
+      onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={handleFileDrop}
+      style={{
+        flex: 1.3, minWidth: 0,
+        border: `1px dashed ${isDragOver ? '#00c8d4' : 'var(--border2)'}`,
+        borderRadius: 6,
+        padding: droppedFiles.length > 0 ? '4px 8px' : '5px 10px',
+        background: isDragOver ? '#00c8d420' : 'transparent',
+        transition: 'all 0.15s',
+        cursor: 'default',
+      }}
+    >
+      {droppedFiles.length === 0 ? (
+        <div style={{ fontSize: 11, color: isDragOver ? '#00c8d4' : 'var(--text3)', textAlign: 'center', pointerEvents: 'none' }}>
+          Drop PDF, Excel, image, or text file to add context to the generator
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+          {droppedFiles.map((f, i) => (
+            <span key={i} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10,
+              padding: '2px 6px 2px 8px', borderRadius: 4,
+              background: '#00c8d414', color: '#00c8d4', border: '1px solid #00c8d440',
+            }}>
+              {f.blockType === 'document' ? '📄' : f.blockType === 'image' ? '🖼' : /\.(xlsx|xls)$/i.test(f.name) ? '📊' : '📝'} {f.name}
+              <button onClick={() => setDroppedFiles(prev => prev.filter((_, j) => j !== i))}
+                style={{ background: 'none', border: 'none', color: '#00c8d4', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+            </span>
+          ))}
+          <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>
+            — drop more to add
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Digit Bomb bar ───────────────────────────────────────────────────────────
+// Same move as DropZoneBar above. digitBombCaseId's setter stays here (the
+// dropdown lives in this component now) — only digitBombArmed/digitBombCaseId
+// (read) and setDigitBombArmed (to auto-disarm after generate() consumes it)
+// need to reach ProposalColumn, which is a world away in App.jsx's tree.
+export function DigitBombBar({ digitBombArmed, setDigitBombArmed, digitBombCaseId, setDigitBombCaseId }) {
+  return (
+    <div style={{
+      flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4,
+    }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, flexShrink: 0 }}>
+          💣 Digit Bomb
+        </span>
+        <select
+          value={digitBombCaseId}
+          onChange={e => { setDigitBombCaseId(e.target.value); if (!e.target.value) setDigitBombArmed(false) }}
+          style={{
+            flex: 1, minWidth: 0, background: 'var(--bg)', border: '1px solid var(--border)',
+            borderRadius: 5, padding: '3px 8px', fontSize: 11.5, color: 'var(--text)',
+            fontFamily: 'var(--font-mono)', outline: 'none',
+          }}
+        >
+          <option value="">Choose a case…</option>
+          {CASE_LEDGER.map(c => (
+            <option key={c.id} value={c.id}>{c.name} — {c.metrics[0] || ''}</option>
+          ))}
+        </select>
+        <button
+          onClick={() => setDigitBombArmed(a => !a)}
+          disabled={!digitBombCaseId}
+          title={digitBombCaseId ? "Arm — the next Generate/Redo opens with this case's real numbers instead of the usual opener" : 'Pick a case first'}
+          style={{
+            padding: '3px 9px', fontSize: 10.5, fontWeight: 700, borderRadius: 5,
+            background: digitBombArmed ? '#ef4444' : 'rgba(239,68,68,0.13)',
+            color: digitBombArmed ? '#fff' : '#ef4444', border: '1px solid rgba(239,68,68,0.4)',
+            cursor: digitBombCaseId ? 'pointer' : 'not-allowed',
+            opacity: !digitBombCaseId ? 0.55 : 1,
+            whiteSpace: 'nowrap', flexShrink: 0,
+          }}
+        >
+          {digitBombArmed ? '💣 Armed' : 'Arm'}
+        </button>
+      </div>
+      {digitBombArmed && (
+        <div style={{ fontSize: 10.5, color: '#ef4444', lineHeight: 1.3 }}>
+          Next Generate/Redo opens with {CASE_BY_ID[digitBombCaseId]?.name}'s real numbers. Disarms after one use.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Proposal column ────────────────────────────────────────────────────────
 // See DESIGN.md sections 6 and 8 (Phase 5).
 //
@@ -5013,7 +5012,10 @@ export function MyRulesBar() {
 //   (a) No saved Proposal row yet → Generate flow, then a "Save to KB" button.
 //   (b) Saved Proposal exists → loaded into the textarea; status dropdown,
 //       client-reply paste, and notes are revealed. Edits PUT back.
-function ProposalColumn({ job, bridgeReady = false, droppedFiles = [], ahrefsResult = null, websiteText = null }) {
+function ProposalColumn({
+  job, bridgeReady = false, droppedFiles = [], ahrefsResult = null, websiteText = null,
+  digitBombArmed = false, digitBombCaseId = '', setDigitBombArmed,
+}) {
   // Same enrichment check the JobDetail/AnalysisColumn use — gate cached
   // cover-letter output behind this so a stale proposal from a previous
   // enrichment state doesn't appear on a now-un-enriched job.
@@ -5200,13 +5202,6 @@ function ProposalColumn({ job, bridgeReady = false, droppedFiles = [], ahrefsRes
     proposalCacheRef.current[job.id] = value
     _lsSave('proposalDraft', job.id, value)
   }, [proposal, feedback, savedProposal, job?.id])
-
-  // Digit Bomb — owner picks a real case from the ledger and arms it; the NEXT
-  // Generate/Redo opens the letter with that case's verified numbers instead of
-  // the usual diagnose-first opener. Consumed (disarmed) on that one generate()
-  // call, same pattern as InlineChat's addlQMode.
-  const [digitBombArmed, setDigitBombArmed] = useState(false)
-  const [digitBombCaseId, setDigitBombCaseId] = useState('')
 
   const saveProposalFeedback = async (kind) => {
     setFeedback(kind)
@@ -8176,55 +8171,6 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           there's no blank void; post-generation the textarea fills it. */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowAnchor: 'none' }}>
-      {/* Digit Bomb — pick a real case, arm it, then Generate/Redo opens the
-          letter with that case's verified numbers instead of the usual
-          diagnose-first opener. Auto-disarms after one use. */}
-      <div style={{
-        display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px',
-        background: digitBombArmed ? 'rgba(239,68,68,0.08)' : 'var(--bg2)',
-        border: `1px solid ${digitBombArmed ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
-        borderRadius: 8,
-      }}>
-        <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
-          💣 Digit Bomb opener
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <select
-            value={digitBombCaseId}
-            onChange={e => { setDigitBombCaseId(e.target.value); if (!e.target.value) setDigitBombArmed(false) }}
-            style={{
-              flex: 1, background: 'var(--bg)', border: '1px solid var(--border)',
-              borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--text)',
-              fontFamily: 'var(--font-mono)', outline: 'none',
-            }}
-          >
-            <option value="">Choose a case…</option>
-            {CASE_LEDGER.map(c => (
-              <option key={c.id} value={c.id}>{c.name} — {c.metrics[0] || ''}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => setDigitBombArmed(a => !a)}
-            disabled={!digitBombCaseId}
-            title={digitBombCaseId ? "Arm — the next Generate/Redo opens with this case's real numbers instead of the usual opener" : 'Pick a case first'}
-            style={{
-              padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
-              background: digitBombArmed ? '#ef4444' : 'rgba(239,68,68,0.13)',
-              color: digitBombArmed ? '#fff' : '#ef4444', border: '1px solid rgba(239,68,68,0.4)',
-              cursor: digitBombCaseId ? 'pointer' : 'not-allowed',
-              opacity: !digitBombCaseId ? 0.55 : 1,
-              whiteSpace: 'nowrap', flexShrink: 0,
-            }}
-          >
-            {digitBombArmed ? '💣 Armed' : 'Arm'}
-          </button>
-        </div>
-        {digitBombArmed && (
-          <div style={{ fontSize: 11, color: '#ef4444', lineHeight: 1.4 }}>
-            Next Generate/Redo opens with {CASE_BY_ID[digitBombCaseId]?.name}'s real numbers. Disarms automatically after one use.
-          </div>
-        )}
-      </div>
 
       {(!proposal || !hasEnrichment) && !loading && (
         <>

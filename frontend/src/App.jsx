@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import Dashboard from './components/Dashboard'
-import JobDetail, { AhrefsBar, MyRulesBar } from './components/JobDetail'
+import JobDetail, { AhrefsBar, MyRulesBar, DropZoneBar, DigitBombBar } from './components/JobDetail'
 import JobList from './components/JobList'
 import KnowledgeBase from './components/KnowledgeBase'
 import Outcomes from './components/Outcomes'
@@ -181,6 +182,80 @@ export default function App() {
       clearTimeout(t)
     }
   }, [])
+  // Dropped files — PDFs / images / text files the user drags in as context.
+  // Lifted here (owner request, 2026-08-13: "put those [dropzone + digit
+  // bomb] on top as well, freeing the space") from JobDetail, which had
+  // itself received it from ProposalColumn in an earlier move. Passed down
+  // into JobDetail -> ProposalColumn/InlineChat exactly as before.
+  const [droppedFiles, setDroppedFiles] = useState([])
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const _readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1]
+      resolve({ name: file.name, data: base64, mediaType: file.type || 'application/octet-stream' })
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+
+  const _isExcel = (f) =>
+    f.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    f.type === 'application/vnd.ms-excel' ||
+    /\.(xlsx|xls)$/i.test(f.name)
+
+  const _readExcelAsText = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: 'array' })
+        const parts = wb.SheetNames.map(name => {
+          const ws = wb.Sheets[name]
+          const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false })
+          return `[Sheet: ${name}]\n${csv}`
+        })
+        resolve(parts.join('\n\n'))
+      } catch (err) {
+        reject(err)
+      }
+    }
+    reader.onerror = reject
+    reader.readAsArrayBuffer(file)
+  })
+
+  const handleFileDrop = async (e) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer?.files || [])
+    const supported = files.filter(f =>
+      f.type === 'application/pdf' ||
+      f.type.startsWith('image/') ||
+      f.type === 'text/plain' ||
+      _isExcel(f)
+    )
+    if (!supported.length) return
+    const loaded = await Promise.all(supported.map(async f => {
+      if (_isExcel(f)) {
+        const text = await _readExcelAsText(f)
+        // Encode text as base64 so the rest of the pipeline stays uniform
+        const b64 = btoa(unescape(encodeURIComponent(text)))
+        return { name: f.name, data: b64, mediaType: 'text/plain', blockType: 'text', size: f.size, _excelText: text }
+      }
+      const { name, data, mediaType } = await _readFileAsBase64(f)
+      const blockType = f.type === 'application/pdf' ? 'document' : f.type.startsWith('image/') ? 'image' : 'text'
+      return { name, data, mediaType, blockType, size: f.size }
+    }))
+    setDroppedFiles(prev => [...prev, ...loaded])
+  }
+
+  // Digit Bomb — owner picks a real case from the ledger and arms it; the
+  // next Generate/Redo (in ProposalColumn, a descendant of JobDetail) opens
+  // the letter with that case's verified numbers instead of the usual
+  // diagnose-first opener. Consumed (disarmed) on that one generate() call.
+  const [digitBombArmed, setDigitBombArmed] = useState(false)
+  const [digitBombCaseId, setDigitBombCaseId] = useState('')
+
   const [query, setQuery] = useState(() => _restored.query ?? '')
   const [filter, setFilter] = useState(() => _restored.filter ?? 'all')
   const [loading, setLoading] = useState(false)
@@ -973,24 +1048,34 @@ export default function App() {
           <main style={{ flex:1, overflow:'hidden', background:'var(--bg)', display:'flex', flexDirection:'column' }}>
             {selectedJob ? (
               <>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:14, padding:'4px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)', flexShrink:0 }}>
-                  <AhrefsBar job={selectedJob} bridgeReady={bridgeReady} onResultChange={setAhrefsData} />
-                  <div style={{ display:'flex', gap:14, flexShrink:0, alignItems:'center' }}>
-                    <MyRulesBar />
-                    <ShareWithClaudeButton job={selectedJob} />
-                    <button
-                      onClick={() => fetchSelectedJob(selectedId)}
-                      title="Reload enrichment data"
-                      style={{ background:'none', border:'none', color:'var(--text3)', cursor:'pointer', fontSize:11, fontFamily:'inherit', padding:'2px 6px', letterSpacing:'0.06em', transition:'color 0.15s' }}
-                      onMouseEnter={e => e.target.style.color = '#00c8d4'}
-                      onMouseLeave={e => e.target.style.color = 'var(--text3)'}
-                    >
-                      ↺ refresh
-                    </button>
+                <div style={{ display:'flex', flexDirection:'column', gap:8, padding:'6px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)', flexShrink:0 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:14 }}>
+                    <AhrefsBar job={selectedJob} bridgeReady={bridgeReady} onResultChange={setAhrefsData} />
+                    <div style={{ display:'flex', gap:14, flexShrink:0, alignItems:'center' }}>
+                      <MyRulesBar />
+                      <ShareWithClaudeButton job={selectedJob} />
+                      <button
+                        onClick={() => fetchSelectedJob(selectedId)}
+                        title="Reload enrichment data"
+                        style={{ background:'none', border:'none', color:'var(--text3)', cursor:'pointer', fontSize:11, fontFamily:'inherit', padding:'2px 6px', letterSpacing:'0.06em', transition:'color 0.15s' }}
+                        onMouseEnter={e => e.target.style.color = '#00c8d4'}
+                        onMouseLeave={e => e.target.style.color = 'var(--text3)'}
+                      >
+                        ↺ refresh
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
+                    <DropZoneBar droppedFiles={droppedFiles} setDroppedFiles={setDroppedFiles}
+                      isDragOver={isDragOver} setIsDragOver={setIsDragOver} handleFileDrop={handleFileDrop} />
+                    <DigitBombBar digitBombArmed={digitBombArmed} setDigitBombArmed={setDigitBombArmed}
+                      digitBombCaseId={digitBombCaseId} setDigitBombCaseId={setDigitBombCaseId} />
                   </div>
                 </div>
                 <div style={{ flex:1, overflow:'hidden', display:'flex' }}>
-                  <JobDetail job={selectedJob} ahrefsResult={ahrefsData.ahrefsResult} websiteText={ahrefsData.websiteText} />
+                  <JobDetail job={selectedJob} ahrefsResult={ahrefsData.ahrefsResult} websiteText={ahrefsData.websiteText}
+                    droppedFiles={droppedFiles} digitBombArmed={digitBombArmed} digitBombCaseId={digitBombCaseId}
+                    setDigitBombArmed={setDigitBombArmed} />
                 </div>
               </>
             ) : (

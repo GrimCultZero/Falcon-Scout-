@@ -4096,3 +4096,45 @@ warning.
 **Revert:** one isolated commit on a clean tree touching `App.jsx` and `JobDetail.jsx` — `git revert
 <this-commit-hash>` restores the "▸ Cover Letter" + "⚙ My Rules" row to the generator column and removes
 `MyRulesBar` + its header wiring in both files.
+
+## 2026-08-13 — UI: moved dropzone + Digit Bomb into the header too (fourth move, same thread)
+
+Owner, after seeing the header with Ahrefs + My Rules already there: "actually it makes sense to put
+those to on the top as well, freeing the space" (screenshot showed the dropzone still at the top of AI
+Analysis and the Digit Bomb box still at the top of the generator column — the two remaining fixed-space
+items in either column). Completed the same congestion-relief thread for both:
+
+**Dropzone**: state (`droppedFiles`/`isDragOver`) and handlers (`_readFileAsBase64`/`_isExcel`/
+`_readExcelAsText`/`handleFileDrop`) had already been lifted ONE level, from `ProposalColumn` into
+`JobDetail`, in an earlier move this session (so `AIAnalysisColumn` could render the box while
+`ProposalColumn` still read the results). This time they moved a level FURTHER, from `JobDetail` up into
+`App.jsx`, mirroring exactly how `AhrefsBar` already works. `AIAnalysisColumn` lost all 5 of those props
+entirely — it never needed anything else from them, only rendering. `JobDetail` now just receives
+`droppedFiles` as a read-only prop (matching `ahrefsResult`/`websiteText`) and forwards it to
+`ProposalColumn`, unchanged from its perspective.
+
+**Digit Bomb**: `digitBombArmed`/`digitBombCaseId` state lived in `ProposalColumn` itself (not lifted
+before, since its UI and its consumer — `generate()` — were in the same component). Lifting it to
+`App.jsx` needed `setDigitBombArmed` to travel back DOWN through `JobDetail` into `ProposalColumn` too
+(not just the read values), since `generate()`'s auto-disarm-after-use logic calls it directly —
+`digitBombCaseId`'s OWN setter stays local to the new header component, since only the dropdown itself
+needs to change it.
+
+Extracted two new self-contained, purely-presentational components in `JobDetail.jsx` (co-located with
+`AhrefsBar`/`MyRulesBar`): `DropZoneBar` and `DigitBombBar`, both exported and rendered in `App.jsx`'s
+header as a NEW second row (row 1: Ahrefs + My Rules/Share/Refresh, unchanged; row 2: DropZone + Digit
+Bomb side by side) rather than cramming everything into one line.
+
+Verified with the same rigor as the last two header moves: exact function-boundary checks confirmed
+`droppedFiles`/`isDragOver`/`handleFileDrop` fall only inside `DropZoneBar` (plus the expected read-only
+uses in `InlineChat`/`ProposalColumn`/`generate()`) and `digitBombCaseId`'s setter falls only inside
+`DigitBombBar` — zero leakage anywhere; a full-file grep across both components confirmed single,
+non-duplicate state declarations in `App.jsx`; a full bundled esbuild build of `App.jsx` resolved all
+four new named imports (`AhrefsBar`, `MyRulesBar`, `DropZoneBar`, `DigitBombBar`) cleanly. Could not
+complete a live click-through — the dev server was down again by this point (confirmed via `netstat`,
+same intermittent pattern as earlier this session, not something this change caused); did not restart it,
+consistent with treating it as the owner's own process.
+
+**Revert:** one isolated commit on a clean tree touching `App.jsx` and `JobDetail.jsx` — `git revert
+<this-commit-hash>` restores the dropzone to `AIAnalysisColumn` and the Digit Bomb box to `ProposalColumn`,
+removing `DropZoneBar`/`DigitBombBar` and their header wiring in both files.
