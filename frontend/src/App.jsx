@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Dashboard from './components/Dashboard'
-import JobDetail from './components/JobDetail'
+import JobDetail, { AhrefsBar } from './components/JobDetail'
 import JobList from './components/JobList'
 import KnowledgeBase from './components/KnowledgeBase'
 import Outcomes from './components/Outcomes'
@@ -161,6 +161,26 @@ export default function App() {
   const [jobs, setJobs] = useState([])
   const [selectedId, setSelectedId] = useState(() => _restored.selectedId ?? null)
   const [selectedJob, setSelectedJob] = useState(null)
+  // Ahrefs/website-inspect results, reported up by the header's AhrefsBar
+  // (owner request, 2026-08-13: moved out of the generator column into the
+  // top header bar). Passed down into JobDetail -> ProposalColumn so
+  // generate() can still use them for personalisation.
+  const [ahrefsData, setAhrefsData] = useState({ ahrefsResult: null, websiteText: null })
+  // Bridge handshake — AhrefsBar needs this for its own enrich/inspect
+  // buttons. JobDetail keeps its own separate copy for its Enrich/Update-bids
+  // buttons; both listen for the same window event independently since
+  // AhrefsBar (in this header) and JobDetail are siblings, not parent/child.
+  const [bridgeReady, setBridgeReady] = useState(false)
+  useEffect(() => {
+    const onReady = () => setBridgeReady(true)
+    window.addEventListener('cockpit:bridge:ready', onReady)
+    window.dispatchEvent(new CustomEvent('cockpit:bridge:ping'))
+    const t = setTimeout(() => window.dispatchEvent(new CustomEvent('cockpit:bridge:ping')), 500)
+    return () => {
+      window.removeEventListener('cockpit:bridge:ready', onReady)
+      clearTimeout(t)
+    }
+  }, [])
   const [query, setQuery] = useState(() => _restored.query ?? '')
   const [filter, setFilter] = useState(() => _restored.filter ?? 'all')
   const [loading, setLoading] = useState(false)
@@ -953,20 +973,23 @@ export default function App() {
           <main style={{ flex:1, overflow:'hidden', background:'var(--bg)', display:'flex', flexDirection:'column' }}>
             {selectedJob ? (
               <>
-                <div style={{ display:'flex', justifyContent:'flex-end', gap:14, padding:'4px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)', flexShrink:0 }}>
-                  <ShareWithClaudeButton job={selectedJob} />
-                  <button
-                    onClick={() => fetchSelectedJob(selectedId)}
-                    title="Reload enrichment data"
-                    style={{ background:'none', border:'none', color:'var(--text3)', cursor:'pointer', fontSize:11, fontFamily:'inherit', padding:'2px 6px', letterSpacing:'0.06em', transition:'color 0.15s' }}
-                    onMouseEnter={e => e.target.style.color = '#00c8d4'}
-                    onMouseLeave={e => e.target.style.color = 'var(--text3)'}
-                  >
-                    ↺ refresh
-                  </button>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:14, padding:'4px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)', flexShrink:0 }}>
+                  <AhrefsBar job={selectedJob} bridgeReady={bridgeReady} onResultChange={setAhrefsData} />
+                  <div style={{ display:'flex', gap:14, flexShrink:0, paddingTop:2 }}>
+                    <ShareWithClaudeButton job={selectedJob} />
+                    <button
+                      onClick={() => fetchSelectedJob(selectedId)}
+                      title="Reload enrichment data"
+                      style={{ background:'none', border:'none', color:'var(--text3)', cursor:'pointer', fontSize:11, fontFamily:'inherit', padding:'2px 6px', letterSpacing:'0.06em', transition:'color 0.15s' }}
+                      onMouseEnter={e => e.target.style.color = '#00c8d4'}
+                      onMouseLeave={e => e.target.style.color = 'var(--text3)'}
+                    >
+                      ↺ refresh
+                    </button>
+                  </div>
                 </div>
                 <div style={{ flex:1, overflow:'hidden', display:'flex' }}>
-                  <JobDetail job={selectedJob} />
+                  <JobDetail job={selectedJob} ahrefsResult={ahrefsData.ahrefsResult} websiteText={ahrefsData.websiteText} />
                 </div>
               </>
             ) : (

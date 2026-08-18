@@ -4006,3 +4006,51 @@ is unrelated and predates this session).
 
 **Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
 <this-commit-hash>` restores the dropzone to the generator column and removes the lifted state/props.
+
+## 2026-08-13 — UI: moved Ahrefs section from the generator column to the top header bar
+
+Owner request, same "generator column is congested" thread as the dropzone move: "move ahrefs section
+at the very top, on the header - I need more space in the generation secton for better readability."
+Clarified first which "header" was meant — traced the actual page structure and found the job
+title/rate/badges block is really just the TOP of the left (posting) column, not a shared header; the
+genuine page-level header is a thin bar in `App.jsx` (currently just "share with claude" + "refresh"),
+rendered above all 3 columns as a sibling of `JobDetail`, not a child of it. Asked how the Ahrefs
+result text (which can run long) should behave once moved there — owner chose collapsible-in-header.
+
+This was a bigger lift than the dropzone move since the Ahrefs UI lived in `ProposalColumn` (inside
+`JobDetail.jsx`) but needed to render in `App.jsx`'s header — a different FILE, not just a sibling
+component in the same file. Extracted the whole self-contained block (domain/loading/timer state, the
+job-switch sync effect, the two bridge-event listener effects, `handleAhrefsEnrich`/
+`handleWebsiteInspect`) into a new named-exported component, `AhrefsBar`, still defined in
+`JobDetail.jsx` (co-located with the rest of the job-detail component family) but now imported by
+`App.jsx` and rendered directly in its header bar. Since `AhrefsBar` and `JobDetail` are siblings in
+`App.jsx`'s tree, `ahrefsResult`/`websiteText` (which `ProposalColumn`'s `generate()` needs for
+personalisation) are reported upward via an `onResultChange` callback into new `App.jsx` state, then
+passed back DOWN through `<JobDetail ahrefsResult=... websiteText=...>` into `<ProposalColumn>` as
+read-only props — the same lift-state-to-common-ancestor pattern as the dropzone move, just one level
+higher (common ancestor is `App.jsx` this time, not `JobDetail`).
+
+`bridgeReady` (needed by `AhrefsBar`'s enrich/inspect buttons) didn't exist in `App.jsx` — rather than
+restructure `JobDetail`'s own prop flow, duplicated the small `cockpit:bridge:ready` window-event
+listener in `App.jsx` too; both copies listen independently and never need to coordinate, since it's a
+global browser event, not per-component state that could drift.
+
+Added a "▼/▲ results" toggle button (only shown once a result exists) so the header stays a thin,
+single-line bar by default; expanding it reveals the scraped Ahrefs summary + website text below the bar
+(max-height 160px, scrollable) without pushing the 3-column layout around. Results collapse again
+automatically on switching to a different job.
+
+Verified: exact function-boundary check confirmed all `ahrefsDomain`/`ahrefsLoading`/etc. references
+after the move fall entirely inside `AhrefsBar` (lines 4587-4786) with zero leakage into `ProposalColumn`
+(4787+); a full-file grep for the old handler/state names outside that range returned nothing; a full
+BUNDLED esbuild build of `App.jsx` (not just per-file transforms, since this is the first change this
+session spanning two files) resolved the new `AhrefsBar` named export/import cleanly with zero errors.
+Could NOT complete a live browser click-through this time — the dev server went down mid-verification
+(confirmed via `netstat`, not something this change caused) and stayed down; did not restart it myself,
+consistent with treating the owner's dev server as their own process to manage. Worth a real click-
+through once the dev server is back up, though the static verification here is unusually thorough given
+the cross-file nature of this change.
+
+**Revert:** one isolated commit on a clean tree touching `App.jsx` and `JobDetail.jsx` — `git revert
+<this-commit-hash>` restores the Ahrefs box to the generator column and removes `AhrefsBar` + the lifted
+state/props in both files.

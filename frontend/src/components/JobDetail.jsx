@@ -747,7 +747,7 @@ function Stars({ score, count }) {
   )
 }
 
-export default function JobDetail({ job }) {
+export default function JobDetail({ job, ahrefsResult = null, websiteText = null }) {
   const [enriching, setEnriching] = useState(false)
   const [enrichMsg, setEnrichMsg] = useState('')
   const [enrichDebug, setEnrichDebug] = useState(null)  // last enrichment result or error
@@ -1438,7 +1438,7 @@ export default function JobDetail({ job }) {
         <Divider />
 
         {/* ══ PROPOSAL ═════════════════════════════════════════════════════ */}
-        <ProposalColumn job={job} bridgeReady={bridgeReady} droppedFiles={droppedFiles} />
+        <ProposalColumn job={job} bridgeReady={bridgeReady} droppedFiles={droppedFiles} ahrefsResult={ahrefsResult} websiteText={websiteText} />
       </div>
     </div>
   )
@@ -4575,20 +4575,16 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
   )
 }
 
-// ── Proposal column ────────────────────────────────────────────────────────
-// See DESIGN.md sections 6 and 8 (Phase 5).
-//
-// Two states this column moves through for a given job:
-//   (a) No saved Proposal row yet → Generate flow, then a "Save to KB" button.
-//   (b) Saved Proposal exists → loaded into the textarea; status dropdown,
-//       client-reply paste, and notes are revealed. Edits PUT back.
-function ProposalColumn({ job, bridgeReady = false, droppedFiles = [] }) {
-  // Same enrichment check the JobDetail/AnalysisColumn use — gate cached
-  // cover-letter output behind this so a stale proposal from a previous
-  // enrichment state doesn't appear on a now-un-enriched job.
-  const hasEnrichment = job.enriched_at || job.connects_required || job.proposals || job.hire_rate
-  const [proposal, setProposal] = useState('')
-  // ── Ahrefs + Website inspect ─────────────────────────────────────────────
+// ── Ahrefs / website-inspect bar ────────────────────────────────────────────
+// Owner request, 2026-08-13: "move ahrefs section to the very top, on the
+// header — need more space in the generation section for readability." Was
+// previously a box inside ProposalColumn; lifted out into its own component
+// so App.jsx can render it in the thin top bar above all 3 columns (a
+// sibling of JobDetail, not a child of it). Manages its own domain/loading/
+// timer state and reports ahrefsResult/websiteText upward via onResultChange
+// so App.jsx can pass them down into JobDetail -> ProposalColumn's generate()
+// call, since AhrefsBar and JobDetail are siblings, not parent/child.
+export function AhrefsBar({ job, bridgeReady, onResultChange }) {
   const _detectedUrl = extractWebsiteUrl(job.description_full || job.raw_message || '')
   const [ahrefsDomain, setAhrefsDomain] = useState(
     job.ahrefs_domain || job.website_url || (_detectedUrl ? _detectedUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '') : '') || ''
@@ -4599,11 +4595,20 @@ function ProposalColumn({ job, bridgeReady = false, droppedFiles = [] }) {
   const [websiteLoading, setWebsiteLoading] = useState(false)
   const [websiteText, setWebsiteText] = useState(job.website_summary || null)
   const websiteTimerRef = useRef(null)
+  const [resultsOpen, setResultsOpen] = useState(false)
+
+  // Report results up to App.jsx whenever they change (including on mount,
+  // so a job with a pre-existing ahrefs_summary/website_summary is picked up
+  // immediately by ProposalColumn's generate() without needing a re-scrape).
+  useEffect(() => {
+    onResultChange?.({ ahrefsResult, websiteText })
+  }, [ahrefsResult, websiteText])
 
   // Sync when a different job is selected
   useEffect(() => {
     setAhrefsResult(job.ahrefs_summary || null)
     setWebsiteText(job.website_summary || null)
+    setResultsOpen(false)
     const detected = extractWebsiteUrl(job.description_full || job.raw_message || '')
     const domainFallback = job.ahrefs_domain || job.website_url || (detected ? detected.replace(/^https?:\/\//i, '').replace(/\/+$/, '') : '') || ''
     setAhrefsDomain(d => d || domainFallback)
@@ -4617,6 +4622,7 @@ function ProposalColumn({ job, bridgeReady = false, droppedFiles = [] }) {
       if (ahrefsTimerRef.current) { clearTimeout(ahrefsTimerRef.current); ahrefsTimerRef.current = null }
       setAhrefsLoading(false)
       setAhrefsResult(summary || null)
+      setResultsOpen(true)
     }
     const onError = () => {
       if (ahrefsTimerRef.current) { clearTimeout(ahrefsTimerRef.current); ahrefsTimerRef.current = null }
@@ -4656,6 +4662,7 @@ function ProposalColumn({ job, bridgeReady = false, droppedFiles = [] }) {
       if (websiteTimerRef.current) { clearTimeout(websiteTimerRef.current); websiteTimerRef.current = null }
       setWebsiteLoading(false)
       setWebsiteText(summary || null)
+      setResultsOpen(true)
     }
     const onError = () => {
       if (websiteTimerRef.current) { clearTimeout(websiteTimerRef.current); websiteTimerRef.current = null }
@@ -4685,8 +4692,104 @@ function ProposalColumn({ job, bridgeReady = false, droppedFiles = [] }) {
       setWebsiteText('⚠ Website scrape timed out — check the extension console')
     }, 60000)
   }
-  // ─────────────────────────────────────────────────────────────────────────
 
+  const hasResults = !!(ahrefsResult || websiteText)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, flexShrink: 0 }}>
+          Ahrefs
+        </span>
+        <input
+          type="text"
+          value={ahrefsDomain}
+          onChange={e => setAhrefsDomain(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleAhrefsEnrich() }}
+          placeholder="e.g. soilsynergy.eu"
+          style={{
+            width: 180, background: 'var(--bg)', border: '1px solid var(--border)',
+            borderRadius: 5, padding: '3px 8px', fontSize: 11.5, color: 'var(--text)',
+            fontFamily: 'var(--font-mono)', outline: 'none',
+          }}
+        />
+        <button
+          onClick={handleAhrefsEnrich}
+          disabled={!ahrefsDomain.trim() || ahrefsLoading || websiteLoading}
+          style={{
+            padding: '3px 9px', fontSize: 10.5, fontWeight: 700, borderRadius: 5,
+            background: ahrefsLoading ? 'rgba(14,165,233,0.12)' : 'rgba(14,165,233,0.15)',
+            color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.35)',
+            cursor: ahrefsDomain.trim() && !ahrefsLoading && !websiteLoading ? 'pointer' : 'not-allowed',
+            opacity: !ahrefsDomain.trim() || ahrefsLoading || websiteLoading ? 0.55 : 1,
+            whiteSpace: 'nowrap', flexShrink: 0,
+          }}
+        >
+          {ahrefsLoading ? '⏳…' : '⚡ Ahrefs'}
+        </button>
+        <button
+          onClick={handleWebsiteInspect}
+          disabled={!ahrefsDomain.trim() || websiteLoading || ahrefsLoading}
+          title="Scrape the client's website and use it to personalise the cover letter"
+          style={{
+            padding: '3px 9px', fontSize: 10.5, fontWeight: 700, borderRadius: 5,
+            background: websiteLoading ? 'rgba(234,179,8,0.10)' : 'rgba(234,179,8,0.13)',
+            color: '#a16207', border: '1px solid rgba(234,179,8,0.40)',
+            cursor: ahrefsDomain.trim() && !websiteLoading && !ahrefsLoading ? 'pointer' : 'not-allowed',
+            opacity: !ahrefsDomain.trim() || websiteLoading || ahrefsLoading ? 0.55 : 1,
+            whiteSpace: 'nowrap', flexShrink: 0,
+          }}
+        >
+          {websiteLoading ? '⏳…' : '🔍 Inspect'}
+        </button>
+        {hasResults && (
+          <button
+            onClick={() => setResultsOpen(o => !o)}
+            title={resultsOpen ? 'Hide scrape results' : 'Show scrape results'}
+            style={{
+              padding: '3px 8px', fontSize: 10.5, fontWeight: 600, borderRadius: 5,
+              background: 'none', color: 'var(--text3)', border: '1px solid var(--border2)',
+              cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            {resultsOpen ? '▲ results' : '▼ results'}
+          </button>
+        )}
+      </div>
+      {resultsOpen && hasResults && (
+        <div style={{
+          display: 'flex', flexDirection: 'column', gap: 6,
+          padding: '8px 0 2px', maxHeight: 160, overflowY: 'auto', maxWidth: 640,
+        }}>
+          {ahrefsResult && (
+            <div style={{ fontSize: 11, color: '#0ea5e9', lineHeight: 1.5, fontFamily: 'var(--font-mono)' }}>
+              {ahrefsResult}
+            </div>
+          )}
+          {websiteText && (
+            <div style={{ fontSize: 11, color: '#a16207', lineHeight: 1.5 }}>
+              {websiteText}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Proposal column ────────────────────────────────────────────────────────
+// See DESIGN.md sections 6 and 8 (Phase 5).
+//
+// Two states this column moves through for a given job:
+//   (a) No saved Proposal row yet → Generate flow, then a "Save to KB" button.
+//   (b) Saved Proposal exists → loaded into the textarea; status dropdown,
+//       client-reply paste, and notes are revealed. Edits PUT back.
+function ProposalColumn({ job, bridgeReady = false, droppedFiles = [], ahrefsResult = null, websiteText = null }) {
+  // Same enrichment check the JobDetail/AnalysisColumn use — gate cached
+  // cover-letter output behind this so a stale proposal from a previous
+  // enrichment state doesn't appear on a now-un-enriched job.
+  const hasEnrichment = job.enriched_at || job.connects_required || job.proposals || job.hire_rate
+  const [proposal, setProposal] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showRules, setShowRules] = useState(false)
@@ -8043,65 +8146,6 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         </div>
       )}
 
-      {/* Ahrefs SEO health enrichment — optional, available before/after generate */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-        <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
-          Prospect site (Ahrefs)
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input
-            type="text"
-            value={ahrefsDomain}
-            onChange={e => setAhrefsDomain(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleAhrefsEnrich() }}
-            placeholder="e.g. soilsynergy.eu"
-            style={{
-              flex: 1, background: 'var(--bg)', border: '1px solid var(--border)',
-              borderRadius: 5, padding: '5px 9px', fontSize: 12, color: 'var(--text)',
-              fontFamily: 'var(--font-mono)', outline: 'none',
-            }}
-          />
-          <button
-            onClick={handleAhrefsEnrich}
-            disabled={!ahrefsDomain.trim() || ahrefsLoading || websiteLoading}
-            style={{
-              padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
-              background: ahrefsLoading ? 'rgba(14,165,233,0.12)' : 'rgba(14,165,233,0.15)',
-              color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.35)',
-              cursor: ahrefsDomain.trim() && !ahrefsLoading && !websiteLoading ? 'pointer' : 'not-allowed',
-              opacity: !ahrefsDomain.trim() || ahrefsLoading || websiteLoading ? 0.55 : 1,
-              whiteSpace: 'nowrap', flexShrink: 0,
-            }}
-          >
-            {ahrefsLoading ? '⏳…' : '⚡ Ahrefs'}
-          </button>
-          <button
-            onClick={handleWebsiteInspect}
-            disabled={!ahrefsDomain.trim() || websiteLoading || ahrefsLoading}
-            title="Scrape the client's website and use it to personalise the cover letter"
-            style={{
-              padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
-              background: websiteLoading ? 'rgba(234,179,8,0.10)' : 'rgba(234,179,8,0.13)',
-              color: '#a16207', border: '1px solid rgba(234,179,8,0.40)',
-              cursor: ahrefsDomain.trim() && !websiteLoading && !ahrefsLoading ? 'pointer' : 'not-allowed',
-              opacity: !ahrefsDomain.trim() || websiteLoading || ahrefsLoading ? 0.55 : 1,
-              whiteSpace: 'nowrap', flexShrink: 0,
-            }}
-          >
-            {websiteLoading ? '⏳…' : '🔍 Inspect'}
-          </button>
-        </div>
-        {ahrefsResult && (
-          <div style={{ fontSize: 11, color: '#0ea5e9', lineHeight: 1.5, fontFamily: 'var(--font-mono)' }}>
-            {ahrefsResult}
-          </div>
-        )}
-        {websiteText && (
-          <div style={{ fontSize: 11, color: '#a16207', lineHeight: 1.5, maxHeight: 80, overflow: 'hidden', maskImage: 'linear-gradient(to bottom, black 60%, transparent 100%)' }}>
-            {websiteText}
-          </div>
-        )}
-      </div>
 
       {/* Digit Bomb — pick a real case, arm it, then Generate/Redo opens the
           letter with that case's verified numbers instead of the usual
