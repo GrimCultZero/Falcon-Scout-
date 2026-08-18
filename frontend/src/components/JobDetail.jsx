@@ -5255,8 +5255,11 @@ function ProposalColumn({
     // only" pattern as InlineChat's addlQMode) — the local `_digitBombCase`
     // below stays correct for the rest of THIS call regardless of the React
     // state reset, which only affects the next render/button press. Gated on
-    // options.digitBombCaseId (not the raw digitBombArmed state) so a call that
-    // never passes it — e.g. "Rescan & Re-write" — can't silently disarm it.
+    // options.digitBombCaseId (not the raw digitBombArmed state) so a call
+    // that doesn't pass it through can't silently disarm it. Generate, Redo,
+    // and Rescan & Re-write all pass it through when armed (confirmed bug,
+    // 2026-08-18: Rescan & Re-write originally didn't, so arming and clicking
+    // it silently produced a normal letter with no explanation — fixed).
     const _digitBombCase = options.digitBombCaseId ? CASE_BY_ID[options.digitBombCaseId] : null
     if (options.digitBombCaseId && digitBombArmed) setDigitBombArmed(false)
 
@@ -8347,7 +8350,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             ↺ Redo
           </button>
           <button
-            onClick={() => generate(null, { coreOnly: true })}
+            onClick={() => generate(null, { coreOnly: true, ...(digitBombArmed ? { digitBombCaseId } : {}) })}
             title="Re-pull rules + Core KB entries only, then rewrite the proposal — fast and cheap. Use after adding a new rule or sending an entry to Core."
             className="btn-secondary"
             style={{ minWidth: 140, paddingTop: 2, paddingBottom: 2, paddingLeft: 10, paddingRight: 10, fontSize: 10.5 }}
@@ -8431,7 +8434,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           extraContext=""
           systemSuffix="You are helping Artem refine the cover letter currently shown in the top textarea. Keep his casual voice, stay grounded in KB facts, and never invent case studies. Apply the KB rules, but refer to them by what they say — never cite a rule number (numbers from memory are hallucinated)."
           onMessagesChange={(msgs) => { chatMessagesRef.current = msgs; setChatHasMessages((msgs || []).length > 0) }}
-          onRework={(msgs) => generate(buildAdjustments(msgs))}
+          onRework={(msgs) => generate(buildAdjustments(msgs), digitBombArmed ? { digitBombCaseId } : {})}
           reworkLabel="↺ Rework letter"
           onProposalRewrite={(text) => setProposal(text)}
           currentProposalText={proposal}

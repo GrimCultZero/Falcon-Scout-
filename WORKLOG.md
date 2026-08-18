@@ -4188,3 +4188,34 @@ this also caught a real indentation bug from restructuring `/claude`'s try/excep
 **Revert:** one isolated commit on a clean tree touching only `api/main.py` — `git revert
 <this-commit-hash>` removes the auto-start/self-heal helpers and both retry sites, restoring the
 original "CLI bridge offline — open a terminal and run: node cli-bridge.js" behavior.
+
+## 2026-08-18 — Bug: Digit Bomb silently did nothing on "Rescan & Re-write" (and chat "Rework letter")
+
+Owner: "check if digit bomb works on rescan - I have armed it but it didnt work" + shared job 11993's
+snapshot. Confirmed from the shared draft: the letter opened with a normal diagnostic hook ("wasted spend
+on hvac leads usually traces to..."), not a digit-bomb cold open — the feature genuinely didn't fire.
+
+Root cause, found in the code before touching anything: `generate()`'s Digit Bomb consumption is
+deliberately gated on `options.digitBombCaseId` being present in the call (not the raw `digitBombArmed`
+state) — a prior comment even names "Rescan & Re-write" as the reason for that gate ("so a call that
+never passes it... can't silently disarm it"). That gate itself is correct and still needed, but I never
+actually wired the `digitBombArmed ? { digitBombCaseId } : {}` spread into "Rescan & Re-write"'s onClick
+when Digit Bomb was built (2026-08-13) — it called `generate(null, { coreOnly: true })`, no digit bomb
+option at all, so arming the feature and clicking Rescan produced a completely normal letter with zero
+indication anything was skipped. Auditing all `generate()` call sites turned up a SECOND, identical gap:
+the chat's "↺ Rework letter" trigger (`onRework={(msgs) => generate(buildAdjustments(msgs))}`) had the
+same omission. "Generate Cover Letter" and "Redo" were correct from day one; only these two were missed.
+
+Fixed both: Rescan & Re-write now calls `generate(null, { coreOnly: true, ...(digitBombArmed ? {
+digitBombCaseId } : {}) })`; the chat's onRework now calls `generate(buildAdjustments(msgs), digitBombArmed
+? { digitBombCaseId } : {})`. No changes needed to `generate()` itself, the system-prompt override, or the
+`missingDigitBombFacts` deterministic check — all of that already worked correctly given the right
+options; the bug was purely "two of four buttons never actually passed the arm state through."
+
+Verified via a standalone Node script covering all 4 trigger points (Generate, Redo, Rescan & Re-write,
+chat Rework) crossed with armed/not-armed (10/10 checks): confirms `digitBombCaseId` now flows through on
+all 4 when armed, stays absent on all 4 when not armed (no false-positive triggering), and Rescan's
+`coreOnly: true` option is preserved unchanged in both cases. `esbuild` transform of `JobDetail.jsx` clean.
+
+**Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
+<this-commit-hash>` restores the pre-fix (broken) Rescan & Re-write / chat Rework behavior.
