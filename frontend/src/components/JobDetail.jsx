@@ -5696,10 +5696,11 @@ differently, or add any metric/detail not listed here):
 - What the case actually was: ${_digitBombCase.one_liner}
 
 HOW TO BUILD THE OPENING (1-2 sentences total):
-1. Lead with 1-2 of the metrics above, verbatim (exact numbers and units — never round, alter, or invent a different figure).
-2. Name the case and its attachment note in the same breath (e.g. "${_digitBombCase.name}, ${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'}").
+1. Lead with 1-2 of the metrics above, verbatim (exact numbers and units — never round, alter, or invent a different figure). The metric must be the LITERAL FIRST WORDS — not preceded by the case name, a descriptor, or anything else.
+2. Name the case and its attachment note right after the metrics (e.g. "${_digitBombCase.name}, ${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'}").
 3. In the same sentence or the next one, bridge to what the case actually was (from the facts above) and connect it to THIS client's own situation using something REAL from their job posting (their actual product, vertical, or problem — never invented). This bridge clause is the ONLY place you write fresh prose; the numbers, case name, and case facts must not be altered.
-Illustrative shape only (do not copy verbatim, this is a different case): "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you're dealing with on [client's actual product]."
+Illustrative shape only (do not copy verbatim, this is a different case) — CORRECT order, number first: "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you're dealing with on [client's actual product]."
+WRONG order — do NOT do this (case name/descriptor before the numbers, a real miss that has shipped before): "Skin Reboot (attached as PDF) — a Korean medical-aesthetic ecommerce brand: grew revenue +693.8% at 17.51 ROAS..." — the case name must NEVER come before the first metric.
 
 After this opening, proceed with the rest of the letter NORMALLY per the rules below. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.
 ═══════════════════════════════════════════════════════════════════
@@ -7170,15 +7171,34 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // legitimate rewording ("17.51 ROAS" instead of the ledger's "17.51
             // PMax ROAS") doesn't false-positive — only a genuinely fabricated or
             // dropped figure should fire this.
+            //
+            // ORDER MATTERS, confirmed missed on job 11993 (2026-08-18): the
+            // original version of this check only verified the metric and case
+            // name both appeared SOMEWHERE in the first 400 chars, with no check
+            // on order — so a letter that opened "FridgeFix (attached...): ...
+            // dropped cost per conversion 92%..." (case name FIRST, metric
+            // buried a sentence later) satisfied it, even though that reads as
+            // an ordinary case citation, not the intended numbers-first cold
+            // open. The enforcer had even been told the right shape and still
+            // put the case name first — the instruction alone wasn't enough,
+            // same lesson as every other check in this file. Now requires the
+            // metric to appear EARLY (first 80 chars — "the very first words")
+            // AND strictly before the case name's own first mention.
             let missingDigitBombFacts = false
             if (_digitBombCase) {
               const _dbOpening = text.slice(0, 400)
               const _dbMetricNumbers = _digitBombCase.metrics
                 .map(m => (m.match(/[\d,]+\.?\d*/) || [])[0])
                 .filter(Boolean)
-              const _dbHasMetric = _dbMetricNumbers.some(n => _dbOpening.includes(n))
-              const _dbHasCaseName = _dbOpening.includes(_digitBombCase.name)
-              missingDigitBombFacts = !(_dbHasMetric && _dbHasCaseName)
+              const _dbMetricPositions = _dbMetricNumbers
+                .map(n => _dbOpening.indexOf(n))
+                .filter(pos => pos !== -1)
+              const _dbEarliestMetricPos = _dbMetricPositions.length ? Math.min(..._dbMetricPositions) : -1
+              const _dbCaseNamePos = _dbOpening.indexOf(_digitBombCase.name)
+              const _dbHasCaseName = _dbCaseNamePos !== -1
+              const _dbMetricLeadsEarly = _dbEarliestMetricPos !== -1 && _dbEarliestMetricPos <= 80
+              const _dbMetricBeforeCaseName = _dbEarliestMetricPos !== -1 && _dbHasCaseName && _dbEarliestMetricPos < _dbCaseNamePos
+              missingDigitBombFacts = !(_dbHasCaseName && _dbMetricLeadsEarly && _dbMetricBeforeCaseName)
             }
 
             // ── Wrong audit offer on a LAUNCH / from-scratch job (KB Rule 450) ──
@@ -7869,8 +7889,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (missingDigitBombFacts && _digitBombCase) {
               specificViolations.push(
-                `DIGIT BOMB OPENER — MISSING REAL FACTS (credibility-critical): Artem armed the case "${_digitBombCase.name}" for this letter's cold open, but the opening paragraph doesn't actually contain its real numbers and case name. ` +
-                `REWRITE the opening (first 1-2 sentences only) to lead with 1-2 of these EXACT metrics — ${_digitBombCase.metrics.join(', ')} — then name the case: "${_digitBombCase.name}${_digitBombCase.attachment === 'pdf' ? ' (attached as PDF)' : ' (attached in profile highlights)'}". What the case actually was: ${_digitBombCase.one_liner}. Bridge to the client's real, stated situation from the job posting in the same or next sentence — never invent a detail about their business. Do NOT alter, round, or drop the numbers; do NOT use any other opener style (no "reading your post", no credential lead-in). Leave the rest of the letter untouched.`
+                `DIGIT BOMB OPENER — WRONG ORDER OR MISSING REAL FACTS (credibility-critical): Artem armed the case "${_digitBombCase.name}" for this letter's cold open. Either its real numbers/name are missing entirely, OR — the more common miss — the case name was written FIRST with the metrics folded in afterward (e.g. "${_digitBombCase.name} (attached...): [description], ${_digitBombCase.metrics[0] || ''}..."). That reads as an ORDINARY case-study citation, not a digit-bomb cold open, even though the facts are technically all present. ` +
+                `REWRITE the opening (first 1-2 sentences only) so the LITERAL FIRST CHARACTERS of the entire letter are a number from this list — ${_digitBombCase.metrics.join(', ')} — before any other word. Do NOT open with the case name, a descriptor, or anything else ahead of the number. Immediately after 1-2 metrics, name the case: "${_digitBombCase.name}${_digitBombCase.attachment === 'pdf' ? ' (attached as PDF)' : ' (attached in profile highlights)'}". What the case actually was: ${_digitBombCase.one_liner}. Bridge to the client's real, stated situation from the job posting in the same or next sentence — never invent a detail about their business. Do NOT alter, round, or drop the numbers; do NOT use any other opener style (no "reading your post", no credential lead-in, and no leading with the case name either). Leave the rest of the letter untouched. Example of the WRONG order to avoid: "${_digitBombCase.name} (attached...): [description]. [metric]..." — the metric must come BEFORE "${_digitBombCase.name}", not after.`
               )
             }
             if (missingSeoPlanOffer) {

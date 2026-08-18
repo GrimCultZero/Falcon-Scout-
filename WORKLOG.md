@@ -4219,3 +4219,42 @@ all 4 when armed, stays absent on all 4 when not armed (no false-positive trigge
 
 **Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
 <this-commit-hash>` restores the pre-fix (broken) Rescan & Re-write / chat Rework behavior.
+
+## 2026-08-18 — Digit Bomb "didn't work again": deterministic check was checking presence, not order
+
+Owner re-tested the previous fix (job 11993, same "Audit for Google Ads" HVAC job) and reported "shared,
+didn't work again" with a fresh snapshot. Reading the actual draft revealed a real, different bug — not
+a repeat of the button-wiring miss just fixed.
+
+The BEFORE draft ignored the digit-bomb system prompt entirely (opened with the client's own "650 HVAC
+calls a month..." stat, a normal diagnose-first hook) — the first pass just didn't comply, the same
+"prompt alone isn't reliable" pattern this whole file is built around. The AFTER (post-enforcer) draft is
+the interesting part: it DID pull FridgeFix's real metrics into the opening, so `missingDigitBombFacts`
+technically fired and the enforcer technically responded — but the result read as an ORDINARY case-study
+citation, not a digit-bomb cold open: "FridgeFix (attached in profile highlights) - California
+refrigerator-repair business, local lead gen: dropped cost per conversion 92%..." — the CASE NAME came
+first, the metric was folded into the middle of a sentence afterward. The deterministic check as written
+only verified the metric number and the case name both appeared SOMEWHERE in the first 400 characters —
+it never checked which one came first, so this technically passed even though it's backwards from the
+entire point of the feature ("the very FIRST WORDS of the letter must be this case's real numbers").
+
+Tightened `missingDigitBombFacts` to require the metric's first appearance to (a) land within the first
+80 characters ("the very first words", not just "early in the letter") AND (b) come strictly before the
+case name's own first mention — not just co-occur with it. Also strengthened both prompt-facing texts
+with an explicit right-vs-wrong contrast, since the enforcer had already been told "lead with the
+metrics, then name the case" in the original wording and still put the case name first — a real
+instruction-following miss, the same reason this file defaults to deterministic checks over prompt
+wording alone: the PRIMARY "DIGIT BOMB OPENER MODE" system-prompt section now shows a labeled WRONG-order
+example alongside the correct one, and the enforcer's `specificViolations` message for this check now
+explicitly names "case name written first" as the common failure mode and repeats the ordering
+requirement with a concrete before/after using the real case that shipped wrong.
+
+Verified via a standalone Node script (6/6 checks) built directly from job 11993's real shipped text:
+confirms the exact real draft that shipped now correctly fails the check; the owner's own original
+numbers-first example (and a differently-worded but still-compliant variant) still pass; a case with the
+name but no metric at all still fails; a case where the metric arrives correctly but past the 80-char
+lead window (buried deeper in a longer opening paragraph) still fails; and the check stays inert when no
+case is armed. `esbuild` transform of `JobDetail.jsx` clean.
+
+**Revert:** one isolated commit on a clean tree touching only `JobDetail.jsx` — `git revert
+<this-commit-hash>` restores the presence-only (order-blind) check and the original prompt wording.
