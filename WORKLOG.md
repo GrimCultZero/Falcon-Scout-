@@ -4335,3 +4335,53 @@ end-to-end verification that wasn't possible here.
 **Revert:** one isolated commit on a clean tree touching only the two extension files — `git revert
 <this-commit-hash>` restores both messages-sync tabs to `active: false` with no focus-restore logic and
 the original 12s timeout.
+
+## 2026-08-18 — Generator fabricated a case-study dollar metric (job 12068): deterministic check + prompt fix
+
+Owner shared job 12068 ("Google & Meta Ads Specialist — Local Services Lead Generation") with "analyse,
+problematic to me" and no further guidance. The posting explicitly demanded "Actual cost-per-lead numbers
+you can share from past local-service clients" and "Share one real example of a cost-per-lead result."
+
+Comparing the shipped draft against `caseLedger.js`'s real `CASE_LEDGER` data found a real fabrication:
+the final draft states "Started at **$4.20 cost per lead**" right next to the Atlant case — but Atlant's
+real, approved metrics are only `+56.5% conversions / -31% CPC / +144% clicks`, no dollar figure at all.
+The pre-rewrite draft had the same failure on a different case: "$142 cost per qualified job booking" /
+"$11 cost per conversion" attributed to FridgeFix, whose real metrics are `-92% cost per conversion /
++1,405% conversions / $1.71 CPC` — none of which is $142 or $11. In both cases the client's explicit
+demand for a specific number *type* (cost-per-lead, in dollars) pressured the model into inventing a
+number in that unit rather than reporting the real metric in whatever unit the case actually has.
+
+Owner confirmed ("yes") building a deterministic check for this exact pattern — "a dollar figure stated
+near a case name that isn't a verbatim match to that case's approved metrics" — plus a prompt fix for
+handling "the client wants a number we don't have" honestly.
+
+**Implemented** (`frontend/src/components/JobDetail.jsx`, inside `generate()`):
+- New system-prompt section, "WHEN THE CLIENT ASKS FOR A SPECIFIC NUMBER TYPE A CASE DOESN'T HAVE,"
+  inserted right before the existing "NO FABRICATED DIAGNOSIS" rule. States the job-12068 finding
+  verbatim (both fabricated figures, both real metric sets) and the rule: case metrics are fixed data,
+  never estimated/converted/back-calculated into whatever unit the client asked for; a real metric in
+  the wrong unit (e.g. a percentage when they asked for a dollar figure) is honest and defensible, a
+  fabricated dollar figure that matches the ask is not and collapses the moment the client asks how it
+  was calculated.
+- New deterministic check, `fabricatedCaseMetric` / `_fabricatedCaseMetricInfo`: splits the draft into
+  paragraphs, and for any paragraph that mentions a `CASE_LEDGER` case's name, extracts every `$` figure
+  in that paragraph and flags any that isn't a verbatim substring of one of that case's real metrics.
+  Deliberately scoped to same-paragraph so unrelated dollar figures elsewhere in the letter (the flat-fee
+  quote, the retainer range) never false-positive just because a case name appears somewhere else in the
+  letter — those always live in their own paragraph, never share one with a case-study mention.
+- Wired into all 4 standard sites: the `draftCompliant` gate, the `_recordViolations` telemetry array,
+  the `[Falcon] Rule pre-check` console log, and the enforcer's `specificViolations.push(...)` message
+  (mirrors the `caseMislabeledAsSaas` block immediately above it) — the enforcer message hands the model
+  the exact fabricated figure(s) and the case's real metrics list, with an explicit instruction to state
+  the real metric in its real unit rather than removing the case entirely.
+
+**Verified**: `npx esbuild --jsx=automatic --bundle=false` on the full file (clean). A 6-case standalone
+Node script in the scratchpad directory, copying the exact check logic, covering: job 12068's real
+Atlant/$4.20 text (flags), the earlier FridgeFix/$142/$11 draft text (flags), FridgeFix citing its own
+real $1.71 CPC (does not flag), a case name in one paragraph with unrelated $ figures (flat fee, retainer)
+in a separate paragraph (does not flag), no case mentioned at all (inert), and House Painting citing its
+own real $140 metric (does not flag) — 6/6 passed.
+
+**Revert:** one isolated commit touching only `JobDetail.jsx` (prompt section + one new check + 4 wiring
+sites) — `git revert <this-commit-hash>` removes the check and prompt section cleanly, no other files
+touched.

@@ -5983,6 +5983,8 @@ When a posting's application questions explicitly demand examples, case studies,
 - Relabel an approved case's platform or vertical to fit the question. The OpenCart builds (SMASH, Game-X, GKit) are OpenCart — never "Shopify" or "Webflow". Skin Reboot is medical-aesthetic ecommerce — never "Shopify". Casa Eleganza / Paramus are Shopify; ToTheBeauty / EnvieQ / Redwall Mural are WordPress.
 Instead: cite the REAL approved cases as the examples (SMASH, Game-X, GKit on OpenCart and Casa Eleganza on Shopify for web-dev builds; the Paramus/WordPress live sites; the SEO/PPC cases where relevant), and describe Artem's genuine model honestly — "Artem's team, IT Force, delivers behind agencies' brands: build in staging, hand off for your QA, no end-client contact." If the question asks for something the real cases don't cover, state what IS true and pivot to the closest real proof — do NOT manufacture a track record. Three real builds plus an honest hand-off model beats an invented white-label history that collapses on the client's first follow-up question.
 
+WHEN THE CLIENT ASKS FOR A SPECIFIC NUMBER TYPE A CASE DOESN'T HAVE (confirmed real fabrication, job 12068, 2026-08-18): a posting demanding "actual cost-per-lead numbers" pressured the model into inventing "$4.20 cost per lead" for Atlant and, in an earlier draft, "$142" / "$11 cost per conversion" for FridgeFix — neither figure exists anywhere in either case's real, approved metrics (Atlant has only +56.5% conversions / -31% CPC / +144% clicks; FridgeFix has only -92% cost per conversion / +1,405% conversions / $1.71 CPC). Case-study metrics are FIXED DATA, not something you estimate, translate, or back-calculate into whatever unit the client happened to ask for. If a client asks for "cost per lead" and the closest real case only has a percentage change or a cost-per-CLICK figure, do NOT convert or invent an absolute cost-per-lead dollar amount to match the ask — state the REAL metric, in its REAL unit, exactly as documented (e.g., "cost per conversion dropped 92%" is a real, honest answer to a "what's your cost per lead" question even though it isn't itself a dollar figure). A real percentage that doesn't exactly match the requested unit beats a fabricated dollar figure that does — the client can't disprove the real one, and the invented one collapses the moment they ask how it was calculated.
+
 NO FABRICATED DIAGNOSIS (non-negotiable — credibility-critical):
 You have NOT visited the client's website, looked at their Google Ads account, inspected their analytics, or reviewed their campaigns. You only have the job posting text. Therefore you must NEVER:
 - Claim you inspected anything: NO "i took a look at yoursite.com", "i checked your account", "i reviewed your campaigns", "looking at your setup", "i see that your..." (when "your X" is something only visible by inspecting it).
@@ -6544,6 +6546,41 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _OPENCART_CASE_RE = /\b(?:smash|game-?x|gkit)\b/i
             const _WRONG_PLATFORM_LABEL_RE = /\b(?:recent\s+)?(?:shopify|woo\s?commerce|wordpress)(?:\s*[\/&,]\s*[a-z]+)?\s+(?:work|builds?|projects?|stores?|experience|results?|sites?)\b/i
             const openCartMislabeledAsPlatform = _OPENCART_CASE_RE.test(text) && _WRONG_PLATFORM_LABEL_RE.test(text)
+
+            // ── Fabricated case-study dollar metric (confirmed real bug, job
+            // 12068, 2026-08-18) ──────────────────────────────────────────────
+            // A posting demanding "actual cost-per-lead numbers" pressured the
+            // model into inventing "$4.20 cost per lead" for Atlant (real
+            // metrics: +56.5% conversions / -31% CPC / +144% clicks — no dollar
+            // figure at all) and, in an earlier draft of the same letter,
+            // "$142"/"$11 cost per conversion" for FridgeFix (real metrics:
+            // -92% cost per conversion / +1,405% conversions / $1.71 CPC).
+            // Case metrics are FIXED data (CASE_LEDGER), never something to
+            // estimate or back-calculate into whatever unit the client asked
+            // for. Scoped to the SAME PARAGRAPH as the case name specifically
+            // so unrelated dollar figures elsewhere in the letter (audit price,
+            // retainer quote) can never false-positive — those live in their
+            // own paragraphs, never share one with a case-study mention.
+            let fabricatedCaseMetric = false
+            let _fabricatedCaseMetricInfo = null
+            {
+              const _caseMetricParas = text.split(/\n{2,}/)
+              outer:
+              for (const para of _caseMetricParas) {
+                for (const c of CASE_LEDGER) {
+                  if (!para.includes(c.name)) continue
+                  const _dollarsInPara = para.match(/\$\d[\d,]*\.?\d*/g) || []
+                  if (_dollarsInPara.length === 0) continue
+                  const _realDollarMetrics = c.metrics.filter(m => m.includes('$'))
+                  const _fabricated = _dollarsInPara.filter(d => !_realDollarMetrics.some(m => m.includes(d)))
+                  if (_fabricated.length > 0) {
+                    fabricatedCaseMetric = true
+                    _fabricatedCaseMetricInfo = { caseName: c.name, fabricated: [...new Set(_fabricated)], real: c.metrics }
+                    break outer
+                  }
+                }
+              }
+            }
 
             // ── Echoed-question check (mechanical AI-form-fill tell) ─────────
             // The generator sometimes pastes the client's screening questions
@@ -7362,6 +7399,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !wrongAuditOfferOnLaunch && !irrelevantCaseOnRegulated
               && !launchJobMissingCTA && !vapeOnPpcOnlyJob && !campaignLiveTooFast && !caseStudyToldAsRemediation
               && !hasAssumedBrand && !exactVerticalCaseNotLeading && !wrongVerticalCasePadding && !caseMislabeledAsSaas
+              && !fabricatedCaseMetric
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience && !openerEchoesPostingLine
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
               && !hasBannedOpener && !hasExplainerOpener
@@ -7390,6 +7428,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               exactVerticalCaseNotLeading && 'exactVerticalCaseNotLeading',
               wrongVerticalCasePadding && 'wrongVerticalCasePadding',
               caseMislabeledAsSaas && 'caseMislabeledAsSaas',
+              fabricatedCaseMetric && 'fabricatedCaseMetric',
               openCartMislabeledAsPlatform && 'openCartMislabeledAsPlatform',
               seoLedOnMaintenanceWebdev && 'seoLedOnMaintenanceWebdev',
               hasListyOutline && 'hasListyOutline',
@@ -7556,6 +7595,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (caseMislabeledAsSaas) {
               console.log('[Falcon] Rule pre-check: a non-SaaS case study is described as SaaS/software (business-model fabrication) — firing Claude enforcer.')
             }
+            if (fabricatedCaseMetric) {
+              console.log(`[Falcon] Rule pre-check: fabricated dollar metric near "${_fabricatedCaseMetricInfo?.caseName}" (${_fabricatedCaseMetricInfo?.fabricated?.join(', ')} not in its real metrics) — firing Claude enforcer to remove it.`)
+            }
             if (openCartMislabeledAsPlatform) {
               console.log('[Falcon] Rule pre-check: an OpenCart case (SMASH/Game-X/GKit) is labeled as Shopify/Woo/WP work — platform fabrication, firing Claude enforcer.')
             }
@@ -7688,6 +7730,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 'CASE-STUDY BUSINESS-MODEL FABRICATION (credibility-critical): The draft describes one of Artem\'s case studies as SaaS / software / a subscription product. NONE of his cases is SaaS — Skin Reboot is skincare ECOMMERCE, Nectar Flowers an ecommerce florist, FridgeFix/House Painting local services, etc. ' +
                 'FIX: stop calling the case a SaaS/software case. Either describe it by its REAL business model and bridge the transferable mechanic to the client\'s SaaS context ("same trial-vs-paid ROAS tracking challenge, different business model"), or remove the case and lean on the method + Premier Partner credential. Do NOT relabel a case\'s industry to match the job — the client opens it and sees the truth.'
+              )
+            }
+            if (fabricatedCaseMetric && _fabricatedCaseMetricInfo) {
+              specificViolations.push(
+                `FABRICATED CASE-STUDY DOLLAR FIGURE (credibility-critical): Near the "${_fabricatedCaseMetricInfo.caseName}" case, the draft states ${_fabricatedCaseMetricInfo.fabricated.join(', ')} — this dollar figure is NOT one of that case's real, approved metrics and was invented, likely to match a unit the client asked for (e.g. "cost per lead") that this case doesn't literally have. ` +
+                `The case's REAL metrics are: ${_fabricatedCaseMetricInfo.real.join(', ')}. ` +
+                'FIX: remove the fabricated dollar figure entirely and state the real metric in its real unit instead — a real percentage or cost-per-click figure that doesn\'t exactly match the requested unit is honest; an invented dollar amount that does match is not. Do not estimate, convert, or back-calculate a metric into a unit the case doesn\'t actually report.'
               )
             }
             if (exactVerticalCaseNotLeading && _jobVertical) {
