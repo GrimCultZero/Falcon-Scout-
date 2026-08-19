@@ -4454,3 +4454,45 @@ two bug fixes in `groundingCheck.js` are safe to keep either way, they only chan
 
 Items 2 and 3 of the owner's audit (the still-high-frequency auto-corrected patterns, and the
 "wrong case chosen" manual-flag cluster) are next.
+
+---
+
+## 2026-08-19 — Antifab audit (item 2 of 3): system prompt was telling the model to do the WRONG thing
+
+Investigated the 3 patterns firing at high frequency despite already being auto-corrected
+(`caseHighlightsInlineLabel` 98 total/25 in the last 7d, `caseLeadInHadAttachmentLabel` 62/22,
+`coverHasTimeline` 81/19). Found the root cause for the top two — and it's not a prompt-adherence
+problem at all.
+
+**The generator's system prompt directly contradicted its own deterministic post-processing
+code**, in at least 4 separate places: the case-study formatting intro, PATTERN A's example,
+PATTERN C's example, the RULES list, the pre-emit RULE COMPLIANCE GATE checklist, AND the
+enforcer's own `missingHighlightsPhrase` rewrite instruction — all of them told the model
+"'attached in profile highlights' goes ONCE in the lead-in sentence, never after individual
+entries." But the actual deterministic code (`_ensureCaseStudyHighlightsLeadIn`, fixed earlier this
+session for job 9995) enforces the OPPOSITE convention: the label belongs on EACH case entry,
+lead-in stays plain. The model was reading its own instructions correctly and writing exactly what
+they said — the instructions were just stale, left over from before that convention changed.
+Worse: the enforcer's OWN "fix this" message for a formatting violation was telling the model to
+re-produce the wrong pattern while "fixing" it, which likely explains why this specific pair of
+checks has such high volume — even the correction path reinforced the bug.
+
+**Fixed** (JobDetail.jsx, generator system prompt): updated every location to match the actual
+enforced convention — plain lead-in, per-entry label. Added an explicit WRONG/RIGHT contrast
+example (previously only the "crammed cases in one sentence" mistake had one) since this is now
+confirmed the single most common formatting miss. Also fixed the RULE COMPLIANCE GATE's own
+pre-emit self-check items, which had the model verifying compliance against the WRONG rule.
+
+**`coverHasTimeline` (81/19)**: checked for the same kind of contradiction and didn't find one —
+the detection regex is already thorough (11 distinct patterns covering "week 1", "phase 1",
+turnaround-in-N-weeks phrasing, etc.) and correctly gated off when the client explicitly asked for
+a timeline. This looks like a genuine prompt-adherence gap (the model volunteers scheduling detail
+it wasn't asked for, despite explicit rules against it) rather than a fixable contradiction — left
+as-is rather than force a fix without a clear root cause. It's reliably auto-corrected either way.
+
+No new deterministic logic in this change (pure prompt text, realigned to match code that was
+already tested extensively this session) — verification is `npm run build` clean plus a careful
+re-read of every edited location for consistency, rather than a Node test harness (nothing new to
+unit-test; the target behavior is the code's existing, already-verified convention).
+
+Item 3 (the "wrong case chosen" manual-flag cluster) is next.

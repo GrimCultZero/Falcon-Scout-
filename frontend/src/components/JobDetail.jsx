@@ -6035,7 +6035,7 @@ ATTACHMENTS & SAMPLES RULE (non-negotiable): Artem has exactly these attachable 
 3. Google Ads / PPC audit sample — real document Artem attaches ONLY to proposals for jobs that involve auditing an EXISTING account (optimise / fix / review running campaigns). Mention it as: "attaching a sample of a recent Google Ads audit so you can see the format and depth." DO NOT offer or attach this on LAUNCH / from-scratch / zero-pixel jobs — there is no account to audit, and offering one signals you didn't read the brief (see WHEN NOT TO OFFER AN AUDIT above). This item is required ONLY when the AUDIT OFFER RULES say an audit applies.
 4. SEO promotion plan sample — real document for SEO proposals. Mention as: "attaching a sample SEO promotion plan so you can see the format." NEVER write "attaching a sample so you can see the format" without naming the type — always name it: "SEO promotion plan", "Google Ads audit", "technical SEO audit". An unnamed "sample" confuses the client and signals you copy-pasted the line.
 5. Technical SEO audit sample — a real 36-page technical SEO audit PDF Artem delivered (lemoos.com, a bilingual e-commerce site: glossary + a 4-tier priority framework, crawl/indexation/redirects/canonicals/schema/Core Web Vitals findings). Attach this when the SEO job involves a technical AUDIT / DIAGNOSIS / site review / migration recovery / crawl / indexation work (i.e. the client wants you to FIND and FIX issues on an existing site — NOT a from-scratch build). Mention it as: "attaching a sample technical SEO audit so you can see the format and depth." This is the SEO counterpart to the Google Ads audit sample — when the SEO job is audit/diagnosis-driven, attaching it is REQUIRED.
-6. Every other case study — use the block format below. "attached in profile highlights" goes ONCE in the lead-in sentence, not repeated after each entry.
+6. Every other case study — use the block format below. Each non-PDF case carries its OWN "(attached in profile highlights)" label right after its name — the lead-in sentence introducing the block stays PLAIN, with no attachment label on it (a shared lead-in can't correctly describe a block that later mixes in a PDF case, which carries a different label).
 That is the complete inventory. There are NO schema implementation samples, NO AI visibility breakdowns, NO entity mapping examples, NO separate SEO reports beyond the plan sample and the technical SEO audit sample, NO additional work examples beyond what is listed. Do not invent materials, do not promise to send things that are not on this list, do not say "profile highlights" contains anything that isn't an approved case study from the list. This covers everything — case studies, audit samples, schema examples, AI visibility breakdowns, reports, screenshots, or any other work example. If you say "i'm attaching X" or "happy to send X" or "here are samples of X", X must be in the approved list. If it is not listed, do not mention it. Inventing promised materials destroys credibility when the client asks for them and they don't exist.
 
 SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually wants (mandatory):
@@ -6091,17 +6091,17 @@ ATTACHED PDF / SCOPE DOCUMENT ACKNOWLEDGMENT:
 
 CASE STUDY FORMATTING — THIS IS THE ONLY ACCEPTABLE FORMAT:
 
-Each case study gets its own paragraph with a blank line above it. The attachment label depends on which case study:
+Each case study gets its own paragraph with a blank line above it. The attachment label lives ON EACH ENTRY, never on the shared lead-in:
 - Derma Solution / Skin Reboot → end the entry with "(case study attached as a PDF)"
-- All others → covered by a lead-in "(attached in profile highlights):" before they start
+- All others → each entry opens with its name followed by "(attached in profile highlights)"
 
 PATTERN A — only non-PDF case studies:
 
-[lead-in sentence] (attached in profile highlights):
+[plain lead-in sentence, no attachment label]:
 
-[Client Name]: [what was done]. [key metric(s).]
+[Client Name] (attached in profile highlights): [what was done]. [key metric(s).]
 
-[Client Name]: [what was done]. [key metric(s).]
+[Client Name] (attached in profile highlights): [what was done]. [key metric(s).]
 
 PATTERN B — only PDF case studies (Derma Solution and/or Skin Reboot):
 
@@ -6112,11 +6112,11 @@ Skin Reboot: [what was done]. [key metric(s).] (case study attached as a PDF)
 Derma Solution: [what was done]. [key metric(s).] (case study attached as a PDF)
 
 PATTERN C — MIXED (both PDF and non-PDF):
-Lead-in only references the non-PDF ones via "profile highlights"; PDF entries carry their own label.
+Lead-in stays plain either way — it can't correctly describe a block that mixes label types. Each entry carries its own correct label.
 
-here are some relevant results — the non-PDF case studies are attached in profile highlights:
+here are some relevant results:
 
-Nectar Flowers: Rebuilt campaign structure around purchase intent. Dropped cost per conversion 72% and grew transaction revenue 350%.
+Nectar Flowers (attached in profile highlights): Rebuilt campaign structure around purchase intent. Dropped cost per conversion 72% and grew transaction revenue 350%.
 
 Skin Reboot: Grew revenue +693.8% at 17.51 PMax ROAS by fixing tracking and tightening intent targeting. (case study attached as a PDF)
 
@@ -6125,10 +6125,20 @@ RULES (apply to all three patterns):
 - Client name in Title Case followed by a colon
 - Each entry is 1-2 sentences max
 - NEVER attribute Derma Solution or Skin Reboot to "profile highlights" — those are PDFs
-- NEVER repeat "profile highlights" after individual entries — it's in the lead-in only
+- The lead-in sentence is ALWAYS plain — no attachment label on it, ever, no matter how many cases follow. The label belongs on EACH individual entry, right after its name, matching that specific case's real attachment. A shared lead-in cannot correctly describe a block that mixes label types, and putting the label on the lead-in instead of the case is the single most common formatting mistake — check this before emitting.
 - NO DUPLICATION — each case study appears EXACTLY ONCE in the letter. If you have already mentioned a case study with its metric in the hook or proof paragraph, do NOT include it again in the case studies block. The block is only for cases that have not appeared earlier in the letter. If all your cases are already woven into the narrative, skip the block entirely. Reading the same case study twice signals copy-paste assembly, not craft — one mention, one location, full stop.
 
-WRONG (do not produce this):
+WRONG (do not produce this — label on the lead-in instead of the case, the single most common formatting mistake):
+Here are some relevant results (attached in profile highlights):
+
+Nectar Flowers: Rebuilt campaign structure around purchase intent. Dropped cost per conversion 72%.
+
+RIGHT (label moves to the case, lead-in stays plain):
+Here are some relevant results:
+
+Nectar Flowers (attached in profile highlights): Rebuilt campaign structure around purchase intent. Dropped cost per conversion 72%.
+
+WRONG (do not produce this either):
 quick background: i've scaled brands. Nectar Flowers grew revenue 350% and Skin Reboot hit 17.51 ROAS, full case study attached in profile highlights.
 
 The wrong example above is wrong because: (1) multiple case studies crammed in one sentence with no blank lines, (2) Skin Reboot is incorrectly labeled "profile highlights" when it should be "attached as a PDF".${portfolioText}${referenceText}${pastProposalsText}${examplesText}${adjustments}
@@ -6140,10 +6150,10 @@ Before you emit the cover letter, run this checklist *internally* (do NOT includ
 3. If yes, verify the corresponding action is present in your draft (exact phrasing where the rule mandates it — e.g. "1 working day", "2 working days", specific framings).
 4. If any rule fires but isn't reflected in the draft, REWRITE the draft to comply BEFORE emitting. The user has been correcting outputs manually because rules get skipped — that ends here. Treat every rule with a fired trigger as a hard pre-emit requirement, not a suggestion.
 5. Case study formatting check: if your draft mentions any non-PDF case studies, verify ALL of the following or rewrite:
-   a. There is a lead-in sentence containing "(attached in profile highlights)" before the first case study
+   a. The lead-in sentence introducing the block is PLAIN — no "(attached in profile highlights)" on it, ever
    b. EVERY case study is its own paragraph with a blank line above it — count the case studies, count the blank-line separators, they must match
    c. Every client name is in Title Case (e.g. "Nectar Flowers", "FridgeFix") not lowercase
-   d. "attached in profile highlights" does NOT appear after individual entries — only once in the lead-in
+   d. EVERY non-PDF case entry has "(attached in profile highlights)" right after its own name — this is the single most common miss, verify it explicitly for each entry, not just the first
 6. Case study duplication check: scan your draft for each case study name (Derma Solution, Skin Reboot, Nectar Flowers, FridgeFix, House Painting, Multilingual Site, GKit, etc.). If any name appears more than once, that is a duplication violation. Remove the SECOND occurrence — either delete it from the formal block (if the case was already used in the narrative), or collapse the narrative mention to a single word of the client name only. Each case study must appear exactly once.
 
 Then proceed to FINAL OUTPUT FORMAT.
@@ -8019,10 +8029,10 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 (csCrammed ? 'Multiple case studies are crammed into a single paragraph — they are separated by ", and" or similar connectors instead of blank lines. ' : '') +
                 (!hasHighlightsPhrase ? '"profile highlights" is missing entirely. ' : '') +
                 'Rewrite ONLY the case study section using this exact structure (keep everything else verbatim):\n\n' +
-                '[lead-in sentence] (attached in profile highlights):\n\n' +
-                '[Client Name]: [what was done]. [key metric(s).]\n\n' +
-                '[Client Name]: [what was done]. [key metric(s).]\n\n' +
-                'The blank line between entries is mandatory. "attached in profile highlights" goes in the lead-in only — never after individual entries. Client names in Title Case.'
+                '[plain lead-in sentence, no label]:\n\n' +
+                '[Client Name] (attached in profile highlights): [what was done]. [key metric(s).]\n\n' +
+                '[Client Name] (attached in profile highlights): [what was done]. [key metric(s).]\n\n' +
+                'The blank line between entries is mandatory. "attached in profile highlights" goes on EACH individual entry, right after its name — never on the lead-in. Client names in Title Case.'
               )
             }
 
