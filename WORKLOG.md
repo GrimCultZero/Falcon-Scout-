@@ -4584,3 +4584,40 @@ in production since real `Date.now()` is never `0`, but tightened to an explicit
 `deferredSince != null` check anyway since it removes the footgun for free. All 8 assertions pass
 against the applied file. Manual sync button path (`SYNC_PROPOSAL_STATUSES` handler) deliberately
 left untouched — still opens active immediately, no idle-gating, since that's user-initiated.
+
+## 2026-08-19 — Digit Bomb rewrite pass stacked two case studies instead of just the armed one
+
+**Symptom** (owner report, job 12185, shared via `share-with-claude.md`): "the idea of a digit
+bomb is to place a chosen case in the intro, but briefly, and just the selected one. Here generator
+placed both." Vape Shop was armed as the cold open; the final letter opened with Vape Shop
+correctly — followed immediately by a second full case-study paragraph for Derma Solution.
+
+**Root cause, found by diffing the `preEnforcerDraft` snapshot against the final text**: the first
+pass opened with Derma Solution (missed the digit-bomb requirement entirely). The
+`missingDigitBombFacts` pre-check correctly caught that and fired the Claude enforcer. But the
+enforcer instruction only said "REWRITE the opening (first 1-2 sentences)... Leave the rest of the
+letter untouched" — ambiguous when the existing "rest of the letter" starts with a whole wrong-case
+paragraph. The model played it safe and PREPENDED a new Vape Shop paragraph ahead of the old Derma
+Solution one instead of replacing it. Neither `missingDigitBombFacts` nor any other pre-check
+verifies that the digit-bomb case is the ONLY case in the opening — it only checks that the armed
+case's own name+metric are present and correctly ordered, so this slipped through undetected.
+
+**Fixed at both levels** (this project's now-standard move — prompt text alone has proven
+unreliable all session):
+- Enforcer instruction tightened: explicitly told to REPLACE an existing wrong-case opening
+  paragraph, never prepend on top of it — "the result must have exactly ONE case-study paragraph
+  at the top of the letter, never two stacked back to back."
+- New deterministic backstop, `_stripDigitBombDuplicateCase()`: locates the armed case's own
+  paragraph within the first two paragraphs (it isn't always paragraph 0 — a short bridging
+  lead-in sentence can precede it, confirmed in the actual job-12185 text), and if the paragraph
+  immediately after it names a DIFFERENT ledger case, drops that duplicate paragraph. Wired into
+  both post-processing chains (the enforcer path and the "draft already compliant, skip the
+  enforcer call" fast path). Scoped tight to the immediately-adjacent paragraph only — the design
+  already allows a genuinely different case cited later in the letter's own case-study block
+  (explicitly "zero additional case studies is fine too"), and that's left untouched.
+
+**Verified** with a standalone Node harness against the real `caseLedger.js` and the actual
+job-12185 repro text: strips the duplicate correctly whether or not a bridging lead-in precedes the
+digit-bomb paragraph, no-ops when the draft is already clean or digit bomb isn't armed, and — the
+important negative case — leaves a legitimately later, non-adjacent second case study untouched.
+`npm run build` clean.
