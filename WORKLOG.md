@@ -4496,3 +4496,59 @@ re-read of every edited location for consistency, rather than a Node test harnes
 unit-test; the target behavior is the code's existing, already-verified convention).
 
 Item 3 (the "wrong case chosen" manual-flag cluster) is next.
+
+---
+
+## 2026-08-19 — Antifab audit (item 3 of 3): the "wrong case chosen" manual-flag cluster
+
+Investigated all 4 case-selection-related manual flags (`totally_wrong_cases_choice`,
+`attached_only_one_case_study_and_not_the_best_relevancy`, `how_are_those_cases_multimarket`,
+`fridge_fix_is_a_wrong_choice_here`). First check: 3 of the 4 happened Aug 15-18, AFTER the recent
+case-selection fixes (off-vertical padding fix Aug 13, vertical-filter portfolio blocks Aug 10,
+case-vertical false negative fix Aug 9) — so this cluster is confirmed still-live, not stale
+history from before those landed.
+
+Pulled the actual job + saved-letter content for the 3 jobs still in the DB (job 11746, the
+`totally_wrong_cases_choice` flag, has since been pruned by the retention policy — unrecoverable):
+
+- **Job 12064** (`fridge_fix_is_a_wrong_choice_here`) — kids-luggage Shopify ecommerce brand. The
+  currently-saved letter cites Skin Reboot, not FridgeFix — consistent with the case having been
+  corrected in a later regeneration than whatever draft got flagged. Can't confirm with certainty
+  the current state is representative of what was flagged (no snapshot of the flagged text — see
+  note below), but nothing currently wrong to fix here.
+- **Job 12038** (`attached_only_one_case_study_and_not_the_best_relevancy`) — the currently-saved
+  letter has 3 cases (Skin Reboot, ChronoCash, Nectar Flowers), not 1, so the specific "only one"
+  complaint no longer matches the saved state either. Whether 3 generic-ecommerce cases with no
+  clearly differentiating dimension between them is "the best relevancy" is a judgment call, not a
+  clear-cut bug — noting it, not chasing further without a sharper signal.
+- **Job 12008** (`how_are_those_cases_multimarket`) — CONFIRMED, current, and root-caused. Job
+  explicitly requires Dutch/English/French/German market work. The letter cites Skin Reboot +
+  ChronoCash — neither demonstrates multi-market work at all. Multilingual Site (bilingual
+  Italian+German, 17,100 new monthly visits) is the one ledger case that actually proves this
+  dimension — and it was never used, because it's tagged as an SEO case and the existing "NEVER
+  cite an SEO-only case study in a PPC proposal" channel rule blocks it outright, even though the
+  job's core need here is the multilingual DIMENSION, not the channel.
+
+**Fixed**: added a narrow, explicit exception to the channel-matching rule — when a posting
+explicitly requires multi-language/multi-country work as a core requirement (not just background
+"we're international" color), Multilingual Site may be cited as SUPPORTING proof of the
+multi-market methodology even on a PPC job, bridged explicitly ("same multi-market discipline...
+applied here to PPC"), and only ever supplementing a real PPC case lead, never substituting for
+one. `npm run build` clean.
+
+**Process gap noticed while investigating** (not fixed this session — flagging for later): manual
+flags via the 🚩 button record only `{job_id, check_name, timestamp}`, no snapshot of the letter
+text that was actually flagged. Reconstructing "what did the letter say when this was flagged" for
+2 of the 4 jobs above required guessing from the CURRENT saved state, which may already differ from
+what triggered the flag (as it evidently did for at least the FridgeFix and single-case flags), and
+1 job was unrecoverable entirely once pruned. The `preEnforcerDraft` snapshot mechanism built
+earlier this session (job 10312 review) is a direct precedent for the right fix — capture the
+letter text at flagging time, not just the tag — but scoping and building that is left for next
+time rather than expanding this session's audit further.
+
+**Summary of the full 3-item audit**: (1) GC_ENFORCE flipped after fixing 2 real latent bugs the
+shadow soak couldn't have surfaced; (2) generator system prompt was contradicting its own
+case-label convention in 6 places, now realigned — should measurably cut the two highest-frequency
+violations in the whole telemetry set; (3) the case-selection manual-flag cluster is partially
+already resolved by recent fixes, with one confirmed, root-caused, and fixed gap (multi-market
+case bridging) and a process improvement identified for making future manual flags self-documenting.
