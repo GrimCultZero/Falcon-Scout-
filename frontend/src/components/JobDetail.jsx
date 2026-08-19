@@ -1865,6 +1865,44 @@ function _stripDuplicateCaseBlockLabel(text) {
   return text.replace(/\n*Relevant case studies:\s*\n*/gi, '\n\n')
 }
 
+// Digit Bomb is meant to put JUST the armed case, briefly, at the cold open —
+// not the armed case plus another case study stacked right after it. Job
+// 12185 (2026-08-19) showed the rule-compliance rewrite pass PREPENDING a
+// correct digit-bomb opener ahead of the first pass's own (wrong-case)
+// opener instead of replacing it — the enforcer prompt says "rewrite the
+// opening… leave the rest of the letter untouched", and the model read the
+// pre-existing case paragraph as part of "the rest" rather than as the thing
+// to replace. Result: two case studies stacked as paragraphs 1 and 2. The
+// system prompt already treats zero additional case studies as fine (see
+// the DIGIT BOMB block), so the safe fix is to drop the duplicate paragraph
+// rather than try to relocate it. Scoped tight — only fires when paragraph 1
+// is confirmed to be the armed case's own opener and paragraph 2 names a
+// DIFFERENT ledger case; a legitimate case cited later in the letter's own
+// case-study block is untouched.
+function _stripDigitBombDuplicateCase(text, digitBombCase) {
+  if (!text || !digitBombCase) return text
+  const paras = text.split(/\n\s*\n/)
+  if (paras.length < 2) return text
+  // The digit-bomb paragraph isn't always literally paragraph 0 — a short
+  // bridging lead-in ("Here's direct experience in the same space:") can
+  // sit in front of it as its own paragraph. Find it within the first two
+  // paragraphs (matches the "cold open" window the missingDigitBombFacts
+  // pre-check already uses) rather than assuming a fixed index.
+  let openerIdx = -1
+  for (let i = 0; i < Math.min(paras.length, 2); i++) {
+    if (paras[i].includes(digitBombCase.name)) { openerIdx = i; break }
+  }
+  if (openerIdx === -1) return text
+  const next = paras[openerIdx + 1]
+  if (!next) return text
+  const other = CASE_LEDGER.find(c => c.id !== digitBombCase.id && next.includes(c.name))
+  if (!other) return text
+  console.log(`[Falcon] Digit Bomb armed (${digitBombCase.name}) but "${other.name}" was stacked right after it as a second opener — dropped the duplicate paragraph.`)
+  _recordViolations('generator', null, ['digitBombDuplicateCase'])
+  paras.splice(openerIdx + 1, 1)
+  return paras.join('\n\n').trim()
+}
+
 // Collapse a DUPLICATED attachment label on a case-study line. The generator
 // sometimes emits the attachment phrase twice, e.g.
 //   "Skin Reboot (attached as PDF) (health/wellness ecommerce, attached as PDF):"
@@ -7505,7 +7543,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+              const _finalText = _stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase)
               if (_isStaleGenerate()) {
                 console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
                 if (_jobIdAtCallTime != null) {
@@ -7980,7 +8018,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (missingDigitBombFacts && _digitBombCase) {
               specificViolations.push(
                 `DIGIT BOMB OPENER — WRONG ORDER OR MISSING REAL FACTS (credibility-critical): Artem armed the case "${_digitBombCase.name}" for this letter's cold open. Either its real numbers/name are missing entirely, OR — the more common miss — the case name was written FIRST with the metrics folded in afterward (e.g. "${_digitBombCase.name} (attached...): [description], ${_digitBombCase.metrics[0] || ''}..."). That reads as an ORDINARY case-study citation, not a digit-bomb cold open, even though the facts are technically all present. ` +
-                `REWRITE the opening (first 1-2 sentences only) so the LITERAL FIRST CHARACTERS of the entire letter are a number from this list — ${_digitBombCase.metrics.join(', ')} — before any other word. Do NOT open with the case name, a descriptor, or anything else ahead of the number. Immediately after 1-2 metrics, name the case: "${_digitBombCase.name}${_digitBombCase.attachment === 'pdf' ? ' (attached as PDF)' : ' (attached in profile highlights)'}". What the case actually was: ${_digitBombCase.one_liner}. Bridge to the client's real, stated situation from the job posting in the same or next sentence — never invent a detail about their business. Do NOT alter, round, or drop the numbers; do NOT use any other opener style (no "reading your post", no credential lead-in, and no leading with the case name either). Leave the rest of the letter untouched. Example of the WRONG order to avoid: "${_digitBombCase.name} (attached...): [description]. [metric]..." — the metric must come BEFORE "${_digitBombCase.name}", not after.`
+                `REWRITE the opening (first 1-2 sentences only) so the LITERAL FIRST CHARACTERS of the entire letter are a number from this list — ${_digitBombCase.metrics.join(', ')} — before any other word. Do NOT open with the case name, a descriptor, or anything else ahead of the number. Immediately after 1-2 metrics, name the case: "${_digitBombCase.name}${_digitBombCase.attachment === 'pdf' ? ' (attached as PDF)' : ' (attached in profile highlights)'}". What the case actually was: ${_digitBombCase.one_liner}. Bridge to the client's real, stated situation from the job posting in the same or next sentence — never invent a detail about their business. Do NOT alter, round, or drop the numbers; do NOT use any other opener style (no "reading your post", no credential lead-in, and no leading with the case name either). Leave the rest of the letter untouched. Example of the WRONG order to avoid: "${_digitBombCase.name} (attached...): [description]. [metric]..." — the metric must come BEFORE "${_digitBombCase.name}", not after. IMPORTANT — if the current draft already opens with a DIFFERENT case study (the wrong case, or the right case in the wrong order), REPLACE that entire opening paragraph with the corrected ${_digitBombCase.name} opener. Do NOT leave the old opening paragraph in place and prepend a new one on top of it — the result must have exactly ONE case-study paragraph at the top of the letter, never two stacked back to back.`
               )
             }
             if (missingSeoPlanOffer) {
@@ -8162,7 +8200,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       }
 
       {
-        const _finalText = _gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job)
+        const _finalText = _stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {
