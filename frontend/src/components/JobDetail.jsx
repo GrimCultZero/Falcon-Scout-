@@ -8586,7 +8586,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           onMessagesChange={(msgs) => { chatMessagesRef.current = msgs; setChatHasMessages((msgs || []).length > 0) }}
           onRework={(msgs) => generate(buildAdjustments(msgs), digitBombArmed ? { digitBombCaseId } : {})}
           reworkLabel="↺ Rework letter"
-          onProposalRewrite={(text) => setProposal(text)}
+          onProposalRewrite={(text) => setProposal(_gcShadow(text, job))}
           currentProposalText={proposal}
           fillHeight={true}
           droppedFiles={droppedFiles}

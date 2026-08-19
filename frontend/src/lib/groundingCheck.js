@@ -164,6 +164,22 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
   paraCases.forEach(ids => _uniq(ids).forEach(id => { counts[id] = (counts[id] || 0) + 1 }))
   for (const id of Object.keys(counts)) if (counts[id] > 1) record('caseDuplicated')
 
+  // ── tooManyCaseStudies: many DIFFERENT cases crammed into one letter ──
+  // caseDuplicated (above) catches the SAME case cited twice; this catches
+  // the opposite failure — a screening-question-heavy job pulling in one
+  // fresh case per question until the letter reads as a portfolio dump
+  // instead of 1-2 sharp proof points (confirmed real on job 12185: five
+  // distinct cases — Derma Solution, Vape Shop, Skin Reboot, ChronoCash,
+  // Atlant — stacked into a single sent letter, one per screening
+  // question). Design target elsewhere in this codebase (the
+  // localServiceCaseDisplacedByEcomHealth enforcer instruction) is explicit:
+  // "at most 2 case studies for this job." Shadow-only, like caseDuplicated
+  // — deciding WHICH case(s) to cut needs vertical-relevance judgment a
+  // regex can't safely make; blindly stripping could remove the one case
+  // that's actually on-point for this job.
+  const _allCasesInLetter = _uniq(paraCases.flat())
+  if (_allCasesInLetter.length > 2) record('tooManyCaseStudies')
+
   // ── metricNotInLedger + attachmentUnbacked: scoped to case paragraphs ──
   const newParas = paras.map((para, pi) => {
     const ids = paraCases[pi]

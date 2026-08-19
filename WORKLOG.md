@@ -4652,3 +4652,66 @@ real false-positive/false-negative risk, and there's no telemetry yet showing th
 this after actually being told. Shipping the instruction alone and watching for recurrence is the
 right-sized fix for now; a deterministic check becomes worth building only if this keeps happening
 post-fix. `npm run build` clean.
+
+## 2026-08-19 — Chat-based letter edits were bypassing almost every rule-compliance check
+
+Owner reported the "other instance" session's recent quality fixes (GC_ENFORCE flip, Digit Bomb
+dedup, case-label convention fix, etc. — commits `b8ecf2f` through `6d01192`) weren't visibly
+improving anything: still seeing rule violations and unrelated case-study choices in real output.
+
+Investigated by pulling the actual **sent** proposal for job 12185 straight from the `proposals`
+table (`status='sent'`, not the UI) rather than trusting a share snapshot. What actually reached the
+client:
+- A numbered "1. / 2. / 3. / 4." screening-question list — the listy-outline anti-pattern the rules
+  exist to prevent.
+- **Five** distinct case studies stacked into one letter (Derma Solution, Vape Shop, Skin Reboot,
+  ChronoCash, Atlant) — one per screening question, read as a portfolio dump.
+- A `share-with-claude.md` snapshot taken ~24 minutes *before* the actual send showed a cleaner,
+  flowing, 3-case version — whatever cleanup happened in chat never made it into what got pasted into
+  Upwork. Inside that snapshot, the enforcer pass itself had also flipped a *correct* "5 working days"
+  (first-pass draft, matching the launch-job rule) into an *incorrect* "1 working day" (audit-only
+  timing) — a real regression, not a model error.
+
+Root cause, traced through the code: `InlineChat`'s direct chat-editing path
+(`onProposalRewrite` → `setProposal`, `JobDetail.jsx` ~line 3177) ran only ~11 lightweight
+formatting-cleanup functions and completely skipped the `draftCompliant`/enforcer gate (40+ checks),
+`groundingCheck`/`GC_ENFORCE`, and `_stripDigitBombDuplicateCase`. Only the explicit "↺ Rework letter"
+button routes back through `generate()` and gets the full pipeline. Every fix landed this session
+(this session's and the other instance's) only ever fires on that one button; natural back-and-forth
+chat editing — confirmed to be how job 12185 was actually edited ("embedd all this in the text") — was
+completely unguarded.
+
+Separately, in `groundingCheck.js`: `caseDuplicated` (same case cited twice) already existed, but
+nothing capped the *number of distinct* cases in one letter — exactly the failure mode that put five
+cases into job 12185's letter, one per screening question.
+
+**Implemented**:
+- `frontend/src/lib/groundingCheck.js`: new `tooManyCaseStudies` claim class — flags when a letter
+  names more than 2 distinct `CASE_LEDGER` cases (the existing documented design target elsewhere in
+  the codebase: "the letter should end with at most 2 case studies for this job"). Shadow-only, same
+  as `caseDuplicated` — deciding *which* case(s) to cut needs vertical-relevance judgment a regex can't
+  safely make, so it flags to telemetry rather than blindly stripping (which could remove the one case
+  that's actually on-point for this job).
+- `frontend/src/components/JobDetail.jsx`: the proposal chat's `onProposalRewrite` callback now runs
+  every chat-produced rewrite through `_gcShadow(text, job)` before it lands in the textarea — the
+  same grounding-checker pass `generate()` already applies, now covering `metricNotInLedger`,
+  `attachmentUnbacked`, `marketNotInPosting`, `caseDuplicated`, and the new `tooManyCaseStudies`,
+  with `GC_ENFORCE=true` so the enforceable classes are actually stripped, not just flagged. Violations
+  still land in the same `⚠ Top rule violations` telemetry regardless of which path (generate() or
+  chat) produced them.
+- Deliberately scoped OUT of this change: `_stripDigitBombDuplicateCase` was NOT wired into the chat
+  path. It needs to know which case is "the digit bomb," and the only signal available outside
+  `generate()` is the dropdown's `digitBombCaseId`, which persists after arming auto-disarms — using it
+  would risk stripping an unrelated, legitimate second case paragraph just because that case happens to
+  still be selected in the dropdown. Left for a future pass if this specific duplication resurfaces via
+  chat.
+
+**Verified**: `npx esbuild --jsx=automatic --bundle=false` on both files (clean). A 4-case regression
+script in the scratchpad directory, run against the real `groundingCheck.js` (bundled with esbuild so
+Node can execute its ESM imports directly, not a copy): the actual job-12185 sent text (5 cases) flags
+`tooManyCaseStudies`, a clean 2-case letter does not, a single-case letter does not, and a
+no-case-mentioned letter does not — 4/4 passed.
+
+**Revert:** one isolated commit touching only `groundingCheck.js` (new check) and `JobDetail.jsx` (one
+line, the `onProposalRewrite` wiring) — `git revert <this-commit-hash>` restores chat edits to
+unchecked and drops the case-count check cleanly.
