@@ -110,6 +110,64 @@ const _jumpCaptureTabs = new Set();
 const _SYNC_ALARM_NAME = 'falcon-status-sync';
 const _SYNC_PERIOD_MINUTES = 60;  // hourly
 
+// ── Idle-gating for the unprompted hourly auto-sync (owner request, 2026-08-19) ──
+// The messages leg of the sync MUST open as an active tab to work at all (see
+// the 2026-08-18 comment on _startSync — background tabs get throttled hard
+// enough that the room-walk finds 0/10 job links). That's a real, deliberate
+// trade-off, not a bug — reverting it would silently reintroduce the "losing
+// most client replies" bug it fixed. But an unprompted tab-switch every hour
+// during active work is genuinely disruptive even with focus restored
+// afterward ("force switching me" — confirmed by the owner). The fix is WHEN
+// it runs, not HOW: defer the hourly tick while the owner is actively at the
+// keyboard, recheck periodically, and give up waiting after a bounded max so
+// replies never go stale during one long continuous work session. Only gates
+// the unprompted alarm tick — the manual "sync from Upwork" button still
+// switches immediately, since that's an explicit, expected action the owner
+// just clicked.
+const _SYNC_IDLE_THRESHOLD_SEC = 60;   // chrome.idle's "no input for N seconds" bar
+const _SYNC_RETRY_ALARM_NAME = 'falcon-status-sync-retry';
+const _SYNC_RETRY_INTERVAL_MIN = 5;    // how often to recheck while deferring
+const _SYNC_MAX_DEFER_MIN = 30;        // sync anyway after this long, even if still active
+
+// Deferral start time lives in chrome.storage.session, NOT a plain variable —
+// the MV3 service worker sleeps between alarm ticks (it's woken fresh for
+// each 5-minute retry), so an in-memory `let` would silently reset to null
+// every time, and _SYNC_MAX_DEFER_MIN would never actually trigger. Same
+// durability problem/fix as _persistSyncTab / _persistAhrefsPending above.
+const _SYNC_DEFER_KEY = 'falconSyncDeferredSince';
+async function _getSyncDeferredSince() {
+  try {
+    const v = (await chrome.storage.session.get(_SYNC_DEFER_KEY))[_SYNC_DEFER_KEY];
+    return typeof v === 'number' ? v : null;
+  } catch (_) { return null; }
+}
+async function _setSyncDeferredSince(value) {
+  try {
+    if (value == null) await chrome.storage.session.remove(_SYNC_DEFER_KEY);
+    else await chrome.storage.session.set({ [_SYNC_DEFER_KEY]: value });
+  } catch (_) {}
+}
+
+async function _maybeStartSync(source) {
+  const idle = await new Promise((resolve) => {
+    chrome.idle.queryState(_SYNC_IDLE_THRESHOLD_SEC, (state) => resolve(state !== 'active'));
+  });
+  const deferredSince = await _getSyncDeferredSince();
+  const elapsedMin = deferredSince != null ? (Date.now() - deferredSince) / 60000 : 0;
+  if (idle || elapsedMin >= _SYNC_MAX_DEFER_MIN) {
+    if (!idle) {
+      console.log(`[Cockpit BG] auto-sync: max defer (${_SYNC_MAX_DEFER_MIN}m) reached while still active — syncing anyway so replies don't go stale`);
+    }
+    chrome.alarms.clear(_SYNC_RETRY_ALARM_NAME);
+    await _setSyncDeferredSince(null);
+    _startSync(source);
+    return;
+  }
+  if (deferredSince == null) await _setSyncDeferredSince(Date.now());
+  console.log('[Cockpit BG] auto-sync: owner active at the keyboard, deferring', _SYNC_RETRY_INTERVAL_MIN, 'min');
+  chrome.alarms.create(_SYNC_RETRY_ALARM_NAME, { delayInMinutes: _SYNC_RETRY_INTERVAL_MIN });
+}
+
 // ── Background auto-enrichment ────────────────────────────────────────────
 // Polls the backend for jobs that haven't been enriched yet and silently opens
 // each in a hidden Upwork tab. content.js scrapes on load and POSTs to /enrich;
@@ -237,8 +295,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     _runBidsEnrich();
     return;
   }
-  if (alarm.name !== _SYNC_ALARM_NAME) return;
-  _startSync('chrome.alarms 12h tick');
+  if (alarm.name === _SYNC_ALARM_NAME) {
+    _setSyncDeferredSince(null);  // fresh cycle — don't carry over a stale defer clock
+    _maybeStartSync('chrome.alarms hourly tick');
+    return;
+  }
+  if (alarm.name === _SYNC_RETRY_ALARM_NAME) {
+    _maybeStartSync('chrome.alarms hourly tick (deferred)');
+    return;
+  }
 });
 
 // Fetch the pending-enrich queue and open each job in a hidden tab. The backend
