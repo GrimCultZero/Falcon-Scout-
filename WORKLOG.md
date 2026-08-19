@@ -4552,3 +4552,35 @@ case-label convention in 6 places, now realigned — should measurably cut the t
 violations in the whole telemetry set; (3) the case-selection manual-flag cluster is partially
 already resolved by recent fixes, with one confirmed, root-caused, and fixed gap (multi-market
 case bridging) and a process improvement identified for making future manual flags self-documenting.
+
+## 2026-08-19 — Extension bug: hourly auto-sync was stealing focus during active work
+
+**Symptom** (owner report): "sync tabs are opening not on the background - force switching me" —
+the unprompted hourly messages-sync (`_SYNC_ALARM_NAME` in `background.js`) opens its tab as
+`active: true` (required since the Aug 18 fix — background tabs get throttled by Chrome and silently
+lose most replies). But that means every hourly tick yanks the owner's focus away from whatever
+they're doing, unconditionally, forever. The manual sync button doing the same thing is expected
+(user-initiated); the unprompted hourly one doing it is not.
+
+**Fix**: gated the hourly tick (not the manual button) on `chrome.idle.queryState()`. If the owner
+is active at the keyboard, defer instead of syncing — schedule a 5-min retry via `chrome.alarms`
+rather than syncing immediately. Once idle, or once 30 minutes of continuous activity have elapsed
+(so replies never go stale waiting for idle that may never come), sync anyway. The defer start-time
+is persisted to `chrome.storage.session`, not a plain JS variable — same durability pattern as
+`_persistSyncTab`/`_persistAhrefsPending` — because the MV3 service worker sleeps between
+`chrome.alarms` ticks and an in-memory value would silently reset to null on every check, making
+the 30-minute cap never actually trigger. New permission `"idle"` added to `manifest.json`
+(bumped to v4.8).
+
+**Verified before shipping**, following this session's established pattern of not trusting an
+untested code path (the same category of bug that bit `GC_ENFORCE` earlier today): built a
+standalone Node harness (`idle_gate_test.mjs`) simulating the exact `_maybeStartSync` logic against
+a mock `chrome.storage.session`/`chrome.idle`/clock, with 5 tests / 8 assertions covering
+idle-immediate-sync, active-defers-no-sync, active-for-25-min-then-goes-idle, the 30-minute
+forced-sync cap while STILL active (the durability-critical case), and fresh-tick-resets-the-clock.
+One real bug found via the harness: `const elapsedMin = deferredSince ? (...) : 0` treated a
+legitimate `Date.now()` value of exactly `0` as "unset" (JS falsy-zero) — couldn't actually manifest
+in production since real `Date.now()` is never `0`, but tightened to an explicit
+`deferredSince != null` check anyway since it removes the footgun for free. All 8 assertions pass
+against the applied file. Manual sync button path (`SYNC_PROPOSAL_STATUSES` handler) deliberately
+left untouched — still opens active immediately, no idle-gating, since that's user-initiated.
