@@ -5736,42 +5736,6 @@ function ProposalColumn({
           model: 'claude-sonnet-4-5',
           max_tokens: 2000,
           system: `You write Upwork cover letters for Artem Yatsuk, a Google Ads/PPC/SEO and ecommerce web development specialist (12 years).
-${kbRulesText ? `
-═══════════════════════════════════════════════════════════════════
-PRIMARY DIRECTIVE — KB RULES (these override every other instruction below
-if they conflict on specifics like phrasing, timing, framing, or wording):
-${kbRulesText.replace(/^\n+/, '')}
-═══════════════════════════════════════════════════════════════════
-` : ''}
-${_digitBombCase ? `
-═══════════════════════════════════════════════════════════════════
-DIGIT BOMB OPENER MODE — ACTIVE (owner-armed for this generation only). This
-OVERRIDES the PRIMARY WRITING DIRECTIVE's opener rules below — but ONLY for
-the opening. Everything else in this prompt (case study selection for the
-REST of the letter, rate rules, audit rules, closing, etc.) still applies.
-
-Artem has explicitly picked the case for this letter's cold open: ${_digitBombCase.name}.
-Do NOT diagnose the client's problem first and do NOT use any of the usual
-openers (no "reading your post", no credential lead-in, no rhetorical
-question). Instead, the very FIRST WORDS of the letter must be this case's
-real numbers.
-
-VERIFIED FACTS FOR THIS CASE (use ONLY these — do not invent, embellish, round
-differently, or add any metric/detail not listed here):
-- Case name: ${_digitBombCase.name} (${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'})
-- Real metrics: ${_digitBombCase.metrics.join(', ')}
-- What the case actually was: ${_digitBombCase.one_liner}
-
-HOW TO BUILD THE OPENING (1-2 sentences total):
-1. Lead with 1-2 of the metrics above, verbatim (exact numbers and units — never round, alter, or invent a different figure). The metric must be the LITERAL FIRST WORDS — not preceded by the case name, a descriptor, or anything else.
-2. Name the case and its attachment note right after the metrics (e.g. "${_digitBombCase.name}, ${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'}").
-3. In the same sentence or the next one, bridge to what the case actually was (from the facts above) and connect it to THIS client's own situation using something REAL from their job posting (their actual product, vertical, or problem — never invented). This bridge clause is the ONLY place you write fresh prose; the numbers, case name, and case facts must not be altered.
-Illustrative shape only (do not copy verbatim, this is a different case) — CORRECT order, number first: "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you're dealing with on [client's actual product]."
-WRONG order — do NOT do this (case name/descriptor before the numbers, a real miss that has shipped before): "Skin Reboot (attached as PDF) — a Korean medical-aesthetic ecommerce brand: grew revenue +693.8% at 17.51 ROAS..." — the case name must NEVER come before the first metric.
-
-After this opening, proceed with the rest of the letter NORMALLY per the rules below. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.
-═══════════════════════════════════════════════════════════════════
-` : ''}
 ═══════════════════════════════════════════════════════════════════
 PRIMARY WRITING DIRECTIVE — HOW TO EARN A REPLY (this is the whole job):
 The client is skimming dozens of proposals in seconds. They reply to the ONE
@@ -6183,7 +6147,45 @@ Nectar Flowers (attached in profile highlights): Rebuilt campaign structure arou
 WRONG (do not produce this either):
 quick background: i've scaled brands. Nectar Flowers grew revenue 350% and Skin Reboot hit 17.51 ROAS, full case study attached in profile highlights.
 
-The wrong example above is wrong because: (1) multiple case studies crammed in one sentence with no blank lines, (2) Skin Reboot is incorrectly labeled "profile highlights" when it should be "attached as a PDF".${portfolioText}${referenceText}${pastProposalsText}${examplesText}${adjustments}
+The wrong example above is wrong because: (1) multiple case studies crammed in one sentence with no blank lines, (2) Skin Reboot is incorrectly labeled "profile highlights" when it should be "attached as a PDF".
+
+=== JOB-SPECIFIC CONTENT (uncached) ===
+${kbRulesText ? `
+═══════════════════════════════════════════════════════════════════
+PRIMARY DIRECTIVE — KB RULES (these override every other instruction above
+if they conflict on specifics like phrasing, timing, framing, or wording):
+${kbRulesText.replace(/^\n+/, '')}
+═══════════════════════════════════════════════════════════════════
+` : ''}
+${_digitBombCase ? `
+═══════════════════════════════════════════════════════════════════
+DIGIT BOMB OPENER MODE — ACTIVE (owner-armed for this generation only). This
+OVERRIDES the PRIMARY WRITING DIRECTIVE's opener rules above — but ONLY for
+the opening. Everything else in this prompt (case study selection for the
+REST of the letter, rate rules, audit rules, closing, etc.) still applies.
+
+Artem has explicitly picked the case for this letter's cold open: ${_digitBombCase.name}.
+Do NOT diagnose the client's problem first and do NOT use any of the usual
+openers (no "reading your post", no credential lead-in, no rhetorical
+question). Instead, the very FIRST WORDS of the letter must be this case's
+real numbers.
+
+VERIFIED FACTS FOR THIS CASE (use ONLY these — do not invent, embellish, round
+differently, or add any metric/detail not listed here):
+- Case name: ${_digitBombCase.name} (${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'})
+- Real metrics: ${_digitBombCase.metrics.join(', ')}
+- What the case actually was: ${_digitBombCase.one_liner}
+
+HOW TO BUILD THE OPENING (1-2 sentences total):
+1. Lead with 1-2 of the metrics above, verbatim (exact numbers and units — never round, alter, or invent a different figure). The metric must be the LITERAL FIRST WORDS — not preceded by the case name, a descriptor, or anything else.
+2. Name the case and its attachment note right after the metrics (e.g. "${_digitBombCase.name}, ${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'}").
+3. In the same sentence or the next one, bridge to what the case actually was (from the facts above) and connect it to THIS client's own situation using something REAL from their job posting (their actual product, vertical, or problem — never invented). This bridge clause is the ONLY place you write fresh prose; the numbers, case name, and case facts must not be altered.
+Illustrative shape only (do not copy verbatim, this is a different case) — CORRECT order, number first: "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you're dealing with on [client's actual product]."
+WRONG order — do NOT do this (case name/descriptor before the numbers, a real miss that has shipped before): "Skin Reboot (attached as PDF) — a Korean medical-aesthetic ecommerce brand: grew revenue +693.8% at 17.51 ROAS..." — the case name must NEVER come before the first metric.
+
+After this opening, proceed with the rest of the letter NORMALLY per the rules above. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.
+═══════════════════════════════════════════════════════════════════
+` : ''}${portfolioText}${referenceText}${pastProposalsText}${examplesText}${adjustments}
 ${kbRulesText ? `
 RULE COMPLIANCE GATE (silent, mandatory):
 Before you emit the cover letter, run this checklist *internally* (do NOT include it in your output):

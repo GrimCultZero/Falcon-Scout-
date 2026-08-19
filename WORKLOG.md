@@ -4715,3 +4715,91 @@ no-case-mentioned letter does not — 4/4 passed.
 **Revert:** one isolated commit touching only `groundingCheck.js` (new check) and `JobDetail.jsx` (one
 line, the `onProposalRewrite` wiring) — `git revert <this-commit-hash>` restores chat edits to
 unchecked and drops the case-count check cleanly.
+
+## 2026-08-19 — Architecture discussion: rule violations, growing cost, KB not helping — and two real fixes
+
+Owner asked three connected questions: is there a more solid structure than regex whack-a-mole for
+rule violations/fabrications; why does API cost keep growing (guessed: more KB data = more to scan);
+and does the constantly-growing KB actually help letter quality.
+
+Found that DESIGN.md §21 ("Anti-fabrication rearchitecture") already diagnoses exactly this, almost
+verbatim — a ~40K-char prompt with 312 prohibitions where "rule #313 dilutes #1–312" — and lays out a
+3-step fix (A: structured case ledger, done 2026-07-27; B: deterministic grounding checker, flipped to
+enforce the day before this conversation; C: slim the prompt, blocked until B proves out). Reported
+this to the owner along with real `token_usage` numbers: the generator's per-call cache-creation
+tokens grew from ~3K (mid-May) to ~22K (this week) — a ~7x climb with no plateau — confirming the
+"growing KB / growing cost" instinct with data, not vibes.
+
+Owner said yes to two low-risk, non-prompt-rewrite fixes while §21-B keeps soaking: (1) cut redundant
+KB-fed "case study menu" bloat, (2) wire up real Anthropic prompt caching. Both turned out different
+from how they were pitched, in ways worth recording:
+
+**(1) Turned out NOT to be bloat-cutting — it was a live fabrication source.** Checked the two KB
+"reference template" entries fed into every generate() call as `referenceText` (never filtered by
+job type, unlike `portfolioText` which already gets vertical-tag filtering via
+`_filterCaseStudyBlocks`). KB entry #396 ("Upwork Prompt Gemini + template examples") had two real
+data errors:
+- `"Skin Reboot: ... scaled monthly revenue $12,000→$95,000 (693% increase), 17.51 ROAS."` — the exact
+  fabricated dollar figure `JobDetail.jsx` already has a permanent regex backstop for
+  (`fabricatedSkinRebootRevenue`, real: `+693.8% revenue` / `17.51 PMax ROAS`) — this single KB entry
+  was almost certainly THE root source of that violation firing 32 times all-time, including as
+  recently as the morning of this same conversation. The regex was catching the symptom every time
+  without anyone ever fixing the source teaching it the wrong number.
+- `"Ready for deep-dive audit (1 day), flat fee $200."` — the canonical audit price used everywhere
+  else in the prompt is $300; this stale $200 could silently produce a wrong quote on jobs that
+  happened to draw from this specific template example.
+Fixed both via the app's own `PUT /kb/{id}` endpoint (not raw SQL) — pure data correction, zero
+narrative lost, zero design tradeoff. Read the rest of both reference entries (#396, #419) end-to-end
+looking for more of the same; found none. Did NOT do the originally-planned broad "cut old case-study
+prose" — `portfolioText`'s source entries (#1, #518) turned out to carry real narrative detail (full
+periods, secondary/highlighted-period metrics) beyond what `caseLedger.js`'s terse `metrics` array
+holds, and are already filtered by vertical — cutting them further risked losing real specificity for
+a smaller, less certain win than the two verified data bugs above.
+
+**(2) Turned out prompt caching already existed (`api/main.py`, present since the initial commit) —
+it just never got a cache HIT.** The `/claude` proxy already split the system prompt and added
+`cache_control: {type: "ephemeral"}` to the static portion. The bug: the split point (`"\n\nARTEM'S
+ADJUSTMENTS"` or `"\n---\n"`) sat almost at the END of the ~72K-char prompt, but `kbRulesText` (KB
+rules filtered per job by `rulesForGenerator(allRules, genScopes)` — different set for every job
+vertical) and `_digitBombCase` (only present when armed) were interpolated right after the FIRST
+sentence of the prompt — i.e., inside what the split logic treated as the cacheable "static" prefix.
+Since Anthropic's cache match requires an exact byte-for-byte prefix, and that prefix diverged within
+the first few hundred characters on almost every call (different job → different matched rules), the
+cache was being re-created from scratch on nearly every single call, paying the 25% write surcharge
+with virtually no offsetting 90%-off reads — exactly matching the `cache_read_input_tokens ≈ 0` /
+`cache_creation_input_tokens` climbing-every-week pattern found in `token_usage`.
+
+**Fix:** moved `kbRulesText` and the Digit Bomb block (previously lines ~5739–5774, right after the
+opening sentence) down to immediately before `${portfolioText}` — i.e., AFTER the entire ~400-line
+static rule/pattern wall instead of before it. Reworded 3 phrases that referenced rule position
+("override every instruction below" → "above", "opener rules below" → "above", "per the rules below"
+→ "above" — since the static wall these phrases point to now precedes them instead of following).
+Inserted an unconditional literal marker, `=== JOB-SPECIFIC CONTENT (uncached) ===`, right at the new
+boundary — present on every call regardless of whether KB rules or Digit Bomb are active, so the
+backend always has a reliable split point. Updated `api/main.py`'s split-priority list to check this
+marker FIRST (highest priority), before the existing `ARTEM'S ADJUSTMENTS`/`---` checks.
+
+**Verified end-to-end with real API calls** (not just static analysis): extracted the actual ~72K-char
+static block from the live prompt (confirmed zero `${...}` interpolations remain in it — genuinely
+job-independent now), and fired two real `/claude` calls with that identical static prefix but
+DIFFERENT (simulated) per-job dynamic suffixes, ~2 seconds apart. Call 1 (cold): `cache_creation_
+input_tokens: 18117`, `cache_read_input_tokens: 0`. Call 2 (different simulated job): `cache_creation_
+input_tokens: 0`, `cache_read_input_tokens: 18117` — a full cache hit across what the system treats as
+two different jobs, which never happened before this fix (confirmed 13+ weeks of ~0 cache reads in
+the historical telemetry). Also confirmed via `esbuild`/`py_compile` (both clean) and a Node check
+that the static block contains zero remaining `${...}` markers, and that all four key strings
+(`PRIMARY DIRECTIVE — KB RULES`, `DIGIT BOMB OPENER MODE`, the new marker, `PRIMARY WRITING
+DIRECTIVE`) each appear exactly once — no accidental duplication or loss from the move.
+
+**Scope note:** did not touch the enforcer pass (`proposal_rule_enforce`, `_kind`) — its system prompt
+is a short fixed string well under the 4096-char cache-eligibility floor, so it was never caching
+anything regardless; not part of this fix. Did not start §21-C's actual prompt-rule-count reduction —
+that stays gated on §21-B's enforce soak per DESIGN.md's own acceptance bar.
+
+**Revert:** one isolated commit touching `api/main.py` (marker priority) and `JobDetail.jsx` (block
+move + 3 reworded phrases + new marker) — `git revert <this-commit-hash>` restores the old split
+priority and the pre-move prompt order. The KB entry #396 data fix is a separate DB content change
+(via `/kb/396`, not in git) — to revert, PUT the original `$12,000→$95,000 (693% increase)` / `$200`
+text back (saved at
+`C:\Users\syzov\AppData\Local\Temp\claude\...\scratchpad\kb396_original.txt` this session, not in the
+repo).

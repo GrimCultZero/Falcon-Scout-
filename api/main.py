@@ -5156,11 +5156,24 @@ async def claude_proxy(request: dict):
         # No beta header needed — caching is GA.  TTL: 5 min ephemeral.
         #
         # Split priority (first match wins):
-        #   1. "\n\nARTEM'S ADJUSTMENTS" — chat-transcript adjustments injected
+        #   1. "=== JOB-SPECIFIC CONTENT (uncached) ===" — the generator's own
+        #      unconditional marker (JobDetail.jsx). Everything above it is
+        #      the ~400-line rule/pattern wall, byte-identical across every
+        #      job and every call — the part actually worth caching. Everything
+        #      from the marker onward (KB rules filtered by job vertical,
+        #      Digit Bomb facts, case portfolio, past-proposal examples) varies
+        #      per job/call and must never be inside the cached prefix.
+        #      (Confirmed via token_usage telemetry 2026-08-19: before this
+        #      marker existed, job-varying KB-rules text sat near the START of
+        #      the prompt, so the cached "prefix" diverged on almost every call
+        #      and cache_read_input_tokens stayed ~0 for 13+ weeks while
+        #      cache_creation_input_tokens climbed 7x — paying the 25% write
+        #      surcharge on every call with virtually no offsetting reads.)
+        #   2. "\n\nARTEM'S ADJUSTMENTS" — chat-transcript adjustments injected
         #      by the frontend start here; everything above is the static KB.
-        #   2. "\n---\n"                 — stats-injection separator appended
+        #   3. "\n---\n"                 — stats-injection separator appended
         #      server-side; KB content lives above it.
-        #   3. No separator              — entire system is static (e.g. first
+        #   4. No separator              — entire system is static (e.g. first
         #      call, no adjustments, stats gate hasn't fired yet).
         #
         # Caching only saves money when the same prefix is re-used within 5 min
@@ -5172,7 +5185,9 @@ async def claude_proxy(request: dict):
         _sys = request.get("system")
         if isinstance(_sys, str):
             # Try splits in order of precision
-            _split = _sys.find("\n\nARTEM'S ADJUSTMENTS")   # chat transcript marker
+            _split = _sys.find("=== JOB-SPECIFIC CONTENT (uncached) ===")
+            if _split == -1:
+                _split = _sys.find("\n\nARTEM'S ADJUSTMENTS")   # chat transcript marker
             if _split == -1:
                 _split = _sys.find("\n---\n")               # stats separator
             if _split != -1:

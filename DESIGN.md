@@ -565,6 +565,14 @@ Both call the same `/chat` endpoint with different `context` payloads.
 - `GET /usage-stats` aggregates rolling 24h and current-calendar-month windows, returning per-kind breakdowns and total USD.
 - Header chip polls every 30s and shows `24h $X.XX · mo $X.XX`. Click for the per-kind breakdown.
 - Pricing rates live in `_MODEL_PRICING` and are USD per 1M tokens — update there when Anthropic changes prices.
+- **Prompt caching (fixed 2026-08-19):** the generator's system prompt has a fixed, job-independent
+  rule/pattern wall FIRST, then the unconditional literal marker `=== JOB-SPECIFIC CONTENT (uncached)
+  ===`, then everything that varies per job (KB rules, Digit Bomb, case portfolio, examples,
+  adjustments). `api/main.py`'s `/claude` proxy splits on that marker (highest priority) and caches
+  everything before it. Keep new job-varying interpolations AFTER the marker, never before it — putting
+  one before it silently breaks cross-job cache hits again (confirmed: before this fix, cache reads were
+  ~0 for 13+ weeks because job-varying KB-rules text sat near the top of the prompt). See WORKLOG.md
+  2026-08-19.
 
 ### Rule numbering
 - Rules are sorted by `id` ASC in both the backend `/chat` system prompt and the frontend My Rules panel. Display is `Rule N` where N = position in that sorted list.
