@@ -4803,3 +4803,21 @@ priority and the pre-move prompt order. The KB entry #396 data fix is a separate
 text back (saved at
 `C:\Users\syzov\AppData\Local\Temp\claude\...\scratchpad\kb396_original.txt` this session, not in the
 repo).
+
+## 2026-08-19 — Decision: hold §21-C, soak first
+
+Discussed timing for §21-C (the prompt slim-down) right after the caching/KB-data fixes above landed.
+Recommendation given: don't gate 21-C on a calendar date alone — two conditions first. (1) A real
+stretch of clean `GC_ENFORCE=true` telemetry collected AFTER today's fixes (the chat-bypass and
+caching bugs muddied the last day's readings, so the clock effectively restarts from today). (2) The
+case-relevance pre-filter (using `CASE_LEDGER`'s existing `vertical`/`service` fields) needs to exist
+first — §21-C's own plan replaces the 312 prohibitions with "structured inputs (ledger case list for
+this job's domain)," and that pre-filter IS that structured input. Cutting the prohibition text before
+it exists removes whatever guardrail currently exists for the biggest recurring manual-flag theme
+(wrong/irrelevant case choice) with nothing built to replace it.
+
+Owner chose to hold and let telemetry soak rather than start the pre-filter now. Recorded both gates
+in DESIGN.md §21.10 so the next session (or a different account) doesn't need to re-derive this
+reasoning — check the `⚠ Top rule violations (30d)` panel for a clean stretch since 2026-08-19, and
+confirm the case-relevance pre-filter exists, before touching the prompt for 21-C. No code changed
+this entry — documentation/decision only.
