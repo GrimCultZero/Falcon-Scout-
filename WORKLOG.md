@@ -4621,3 +4621,34 @@ job-12185 repro text: strips the duplicate correctly whether or not a bridging l
 digit-bomb paragraph, no-ops when the draft is already clean or digit bomb isn't armed, and — the
 important negative case — leaves a legitimately later, non-adjacent second case study untouched.
 `npm run build` clean.
+
+## 2026-08-19 — Same job (12185): generator silently dropped an inline screening question
+
+**Symptom** (owner, same `share-with-claude.md` share): "looks to me that generator ignored
+screening questions." The posting's own "Screening questions" section (plain text in the job
+description, no attachment) asked 4 things: (1) regulated-category experience, (2) advertised into
+Australia/UK/EU, (3) cross-domain conversion tracking, (4) comfortable with client owning the Ads
+account. The final letter answered (3) and (4) directly in their own sentences, and implied (1)
+through the case studies — but (2) was never addressed anywhere in the letter.
+
+**Root cause**: not a compliance failure — there was no rule to fail. Grepped every "screening
+question" reference in the generator prompt: one covers questions inside an ATTACHED file, the
+other covers questions a client pastes separately into chat (`addlQMode`). Neither one covers
+questions that are already sitting in the job posting's own description text, which is exactly
+this job's shape and a very common Upwork posting pattern generally.
+
+**Fixed**: added an explicit rule for that third, previously-uncovered case — address every inline
+screening question somewhere in the letter, via a case study for experience questions or a direct
+sentence for fact questions a case study can't answer (market/geography, tools, arrangement — same
+treatment already given billing/tracking questions when asked directly). Kept the existing
+fabrication-avoidance carve-out: skip only a question whose true answer is a fact solely Artem would
+know and isn't in the KB.
+
+**Scope call**: unlike the Digit Bomb bug earlier today, no deterministic backstop added. That fix
+targeted a proven prompt-adherence failure (the model was told the right thing and still got it
+wrong) where a regex-based check was reliable to write. This one is a genuine open-ended semantic
+coverage question — "was this question addressed" isn't reliably checkable by keyword/regex without
+real false-positive/false-negative risk, and there's no telemetry yet showing the model still misses
+this after actually being told. Shipping the instruction alone and watching for recurrence is the
+right-sized fix for now; a deterministic check becomes worth building only if this keeps happening
+post-fix. `npm run build` clean.
