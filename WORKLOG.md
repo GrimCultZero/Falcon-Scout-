@@ -4385,3 +4385,72 @@ own real $140 metric (does not flag) — 6/6 passed.
 **Revert:** one isolated commit touching only `JobDetail.jsx` (prompt section + one new check + 4 wiring
 sites) — `git revert <this-commit-hash>` removes the check and prompt section cleanly, no other files
 touched.
+
+---
+
+## 2026-08-19 — Antifab system audit (item 1 of 3): flipped GC_ENFORCE after fixing 2 real bugs
+
+Owner asked whether the rule-violation collection system had been running long enough to audit and
+act on. Pulled the real numbers: 946 total telemetry events, 151 distinct jobs, Jul 27 - Aug 19
+(3.5 weeks) — a real sample, not thin. Owner: "let's do all of them in order," starting with the
+most concrete open item: `GC_ENFORCE` (Step 21-B grounding checker) had been shadow-only since it
+shipped, the original "flip after the soak + check-in" question never revisited.
+
+**Case for flipping:** 60 grounding-checker events across ~35 jobs, still firing weekly. Strongest
+evidence: job 12068 (Aug 18) — `metricNotInLedger` fired in shadow mode on a fabricated `$4.20 cost
+per lead` claim the SAME DAY another session had to hand-discover that exact fabrication and build
+a brand-new check (`fabricatedCaseMetric`) to catch it going forward. The shadow checker had
+already caught it independently; shadow mode just never acted on what it found. That's the concrete
+cost of staying in shadow mode indefinitely.
+
+**Before flipping, built a real test harness (Node, ESM, importing the actual modules) and found 2
+bugs that shadow mode could never have surfaced** — shadow never exercises the `enforce:true` code
+path at all, so these were latent since the file was written:
+
+1. **Attachment-label fix fired on every case paragraph with a label, not just wrong ones.** The
+   gate was `enforce && (pdfN + phN) > 0` — true for nearly every case paragraph, since they always
+   carry a label. Flipping GC_ENFORCE as-was would have silently rewritten every letter's case
+   labels, including fully correct ones. Also left a stray space behind ("Name (label) :" instead
+   of "Name (label):") because stripping the old label consumed the parenthetical but not the space
+   before it. Caught by testing a zero-violation letter and finding `output === input` failed
+   anyway — the tell that something was firing when nothing should have been.
+2. **metricNotInLedger / marketNotInPosting enforcement bare-deleted just the fabricated token**,
+   leaving a glaringly broken fragment: `"Started at cost per lead, then optimised targeting."` /
+   `"launch campaigns in [market] and expand to the [market] market"`. A visible gap or literal
+   `[market]` bracket in a sent proposal is an obvious auto-generation tell — arguably worse than
+   the fabrication it replaced.
+
+**Fix for #2** (the substantial part): added `_removeEnclosingSentences()`, a decimal-safe
+sentence-boundary helper (`.!?` counts as a sentence end only when followed by whitespace + an
+uppercase letter or end-of-string — so real metrics like "693.8%" are never mistaken for a
+boundary, since "8" isn't uppercase). Both `metricNotInLedger` and `marketNotInPosting` now collect
+violation spans first without mutating text, then remove the full enclosing sentence(s) via this
+shared helper — the letter loses one sentence and reads naturally instead of showing a repair scar.
+Also: if sentence-removal happens to empty a paragraph out entirely (the fabrication was that
+case's only sentence), the paragraph is dropped from the joined letter rather than left as an
+orphan blank line; and the label-fix now checks the case name still exists in the paragraph before
+trying to re-label it (in case sentence-removal deleted it).
+
+**Verified** with a 7-case pass/fail suite run against the actual applied file (not a scratch copy):
+clean fully-grounded letter → byte-identical + zero violations; a job-12068-style fabricated dollar
+figure → sentence cleanly removed, no dangling fragment; decimal-heavy real metrics (693.8%, 17.51
+ROAS, etc.) → completely untouched, confirming the boundary detector doesn't false-split on
+decimals; a fabrication that's a case paragraph's ONLY sentence → paragraph dropped entirely, no
+orphan blank line, surrounding paragraphs correctly rejoined; wrong attachment label → fixed to the
+correct one with no stray space; unauthorized market claim → whole sentence removed, no `[market]`
+placeholder; `caseDuplicated` → confirmed still flag-only (dedup handled elsewhere, unchanged
+behavior). All 7/7. Also re-confirmed `seoAuditTurnaround` still fires correctly and doesn't
+false-positive on the legitimate PPC 1-working-day audit (unchanged code path, regression check
+only). `npm run build` clean throughout.
+
+**Flipped `GC_ENFORCE = true`** (frontend/src/components/JobDetail.jsx). The generator now actively
+strips/reverts untraceable case metrics, mislabeled/duplicated attachment labels, and unauthorized
+market claims instead of just logging them — closing exactly the gap that let job 12068's
+fabrication ship in the first place.
+
+**Revert:** to go back to shadow mode, set `GC_ENFORCE = false` in JobDetail.jsx (one line) — the
+two bug fixes in `groundingCheck.js` are safe to keep either way, they only change behavior when
+`enforce:true` is actually invoked.
+
+Items 2 and 3 of the owner's audit (the still-high-frequency auto-corrected patterns, and the
+"wrong case chosen" manual-flag cluster) are next.

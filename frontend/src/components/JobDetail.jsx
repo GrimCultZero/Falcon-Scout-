@@ -2397,10 +2397,39 @@ function _recordViolations(surface, jobId, checks) {
 // Step 21-B — grounding checker on the finished letter.
 // GC_ENFORCE is the single flip: false = SHADOW (record violations to the
 // `⚠ Top rule violations` panel, return the letter UNCHANGED); true = ENFORCE
-// (also strip/revert untraceable claims). SHIP AS SHADOW. Flip to true ONLY after
-// the ~1-week shadow soak confirms the telemetry matches hand-review AND after
-// checking in with the owner (ANTIFAB_HANDOFF.md §0/§8, DESIGN.md §21.6).
-const GC_ENFORCE = false
+// (also strip/revert untraceable claims).
+//
+// FLIPPED TO TRUE 2026-08-19 after a 3.5-week shadow soak (946 total telemetry
+// events, 60 grounding-checker events across ~35 distinct jobs, Jul 27 - Aug 19)
+// confirmed the checker's accuracy — including independently catching the job
+// 12068 fabricated-dollar-metric case (metricNotInLedger fired in shadow mode
+// the same day another session had to hand-discover and fix it separately,
+// proving shadow mode was already costing real value by not acting).
+//
+// Before flipping, found and fixed two real bugs the shadow-mode telemetry
+// couldn't have surfaced, because SHADOW never exercises the enforce code
+// path at all:
+//   1. The attachment-label fix fired unconditionally on every case
+//      paragraph with a label (not just wrong ones), rewriting every clean
+//      letter's labels too — and left a stray space behind ("Name (label) :"
+//      instead of "Name (label):"). Caught by testing a zero-violation
+//      letter and finding `text === input` failed anyway.
+//   2. metricNotInLedger / marketNotInPosting enforcement used to bare-
+//      delete just the fabricated number/place, leaving a glaringly broken
+//      fragment ("Started at cost per lead," / "launch campaigns in
+//      [market]") — an obvious auto-generation artifact, arguably worse
+//      than the claim it replaced. Rewrote both to remove the WHOLE
+//      enclosing sentence instead (decimal-safe boundary detection — real
+//      metrics like "693.8%" are never mistaken for a sentence break), so
+//      the result reads naturally with one fewer sentence rather than a
+//      visible gap or placeholder.
+// Both fixes verified with a 7-case suite (clean letter unchanged, real
+// fabrication removed cleanly, decimal-heavy real metrics untouched,
+// whole-paragraph fabrication drops without an orphan blank paragraph, wrong
+// label fixed with no stray space, market fabrication removed without a
+// bracket, caseDuplicated stays flag-only) run against the actual applied
+// file, not just a scratch copy.
+const GC_ENFORCE = true
 function _gcShadow(finalText, jobObj) {
   try {
     const posting = (jobObj && (jobObj.description_full || jobObj.description_snippet || jobObj.raw_message)) || ''

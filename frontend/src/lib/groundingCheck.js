@@ -94,6 +94,61 @@ const _gazetteerHit = (raw) => {
 
 function _uniq(arr) { return [...new Set(arr)] }
 
+// Decimal-safe sentence-boundary finder: a .!? is a sentence end only when
+// followed by whitespace + an uppercase letter, or end of string — so
+// "693.8%" never splits mid-number (the char after "693." is "8", not
+// uppercase). Returns the start offset of every sentence.
+function _sentenceStarts(text) {
+  const starts = [0]
+  const re = /[.!?](?=\s+[A-Z]|\s*$)/g
+  let m
+  while ((m = re.exec(text))) {
+    let end = m.index + 1
+    while (end < text.length && /\s/.test(text[end])) end++
+    if (end > starts[starts.length - 1]) starts.push(end)
+  }
+  return starts
+}
+
+// Remove the whole sentence(s) enclosing each [start,end) span. Bare-deleting
+// a fabricated number/place leaves a glaringly broken fragment ("Started at
+// cost per lead," / "launch campaigns in [market]") — an obvious
+// auto-generation artifact, arguably worse than the claim it replaced. A
+// missing sentence reads naturally; a mid-sentence gap or bracket does not.
+// (Confirmed necessary before ever flipping enforce on: testing the previous
+// bare-token-deletion approach against a real fabrication produced exactly
+// that kind of visibly broken output.)
+function _removeEnclosingSentences(text, spans) {
+  if (!spans.length) return text
+  const starts = _sentenceStarts(text)
+  const boundsFor = (pos) => {
+    let idx = 0
+    for (let i = 0; i < starts.length; i++) {
+      if (starts[i] <= pos) idx = i
+      else break
+    }
+    const s = starts[idx]
+    const e = idx + 1 < starts.length ? starts[idx + 1] : text.length
+    return [s, e]
+  }
+  let ranges = spans.map(([s]) => boundsFor(s))
+  ranges.sort((a, b) => a[0] - b[0])
+  const merged = []
+  for (const r of ranges) {
+    if (merged.length && r[0] <= merged[merged.length - 1][1]) {
+      merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], r[1])
+    } else merged.push([...r])
+  }
+  let out = ''
+  let cursor = 0
+  for (const [s, e] of merged) {
+    out += text.slice(cursor, s)
+    cursor = e
+  }
+  out += text.slice(cursor)
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/\n[ \t]+/g, '\n').trim()
+}
+
 // Main entry. `enforce:false` (default) = SHADOW: returns text unchanged, only reports.
 export function groundingCheck(text, { postingText = '', enforce = false } = {}) {
   const violations = []
@@ -118,14 +173,22 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
     // metrics must trace (by number) to one of the cases named in this paragraph
     const allowed = new Set()
     ids.forEach(id => _caseNumbers(id).forEach(n => allowed.add(n)))
+    const badSpans = []
     for (const re of _METRIC_RES) {
-      p = p.replace(re, (tok) => {
-        const n = _numOf(tok)
-        if (!n) return tok
-        if (allowed.has(n)) return tok
-        record('metricNotInLedger')
-        return enforce ? '' : tok   // shadow: keep; enforce: strip the number token
-      })
+      const re2 = new RegExp(re.source, re.flags)
+      let m
+      while ((m = re2.exec(p))) {
+        const n = _numOf(m[0])
+        if (n && !allowed.has(n)) {
+          record('metricNotInLedger')
+          badSpans.push([m.index, m.index + m[0].length])
+        }
+      }
+    }
+    if (enforce && badSpans.length) {
+      // Remove the whole sentence(s) carrying the fabricated number(s) rather
+      // than just the number token — see _removeEnclosingSentences above.
+      p = _removeEnclosingSentences(p, badSpans)
     }
 
     // attachment label must match the (single) cited case's ledger attachment,
@@ -134,46 +197,76 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
       const want = _expectedLabel(ids[0])
       const pdfN = (p.match(_PDF_LABEL_RE) || []).length
       const phN = (p.match(_PH_LABEL_RE) || []).length
-      if (pdfN + phN > 1) { record('attachmentUnbacked') /* duplicate label */ }
-      if (want === 'pdf' && phN > 0) record('attachmentUnbacked')          // should be PDF, labelled highlights
-      if (want === 'profile-highlights' && pdfN > 0) record('attachmentUnbacked') // vice-versa
-      if (want === 'none' && (pdfN + phN) > 0) record('attachmentUnbacked')
-      if (enforce && (pdfN + phN) > 0) {
-        // collapse to exactly one correct label
-        p = p.replace(_PDF_LABEL_RE, '').replace(_PH_LABEL_RE, '')
+      // Track whether a REAL violation fired — the enforce branch below must
+      // only touch paragraphs that are actually wrong. It used to gate on
+      // "a label exists at all" (pdfN + phN > 0), which is true for nearly
+      // every case paragraph, so it silently rewrote every letter's labels
+      // even on fully correct ones — caught before ever flipping enforce on
+      // in production by testing a clean, zero-violation letter and finding
+      // the "text unchanged" check failed anyway.
+      let attachBad = false
+      if (pdfN + phN > 1) { record('attachmentUnbacked'); attachBad = true } /* duplicate label */
+      if (want === 'pdf' && phN > 0) { record('attachmentUnbacked'); attachBad = true }          // should be PDF, labelled highlights
+      if (want === 'profile-highlights' && pdfN > 0) { record('attachmentUnbacked'); attachBad = true } // vice-versa
+      if (want === 'none' && (pdfN + phN) > 0) { record('attachmentUnbacked'); attachBad = true }
+      // Guard against the sentence-removal above having deleted the case
+      // name itself (e.g. the fabrication WAS the case's only sentence) —
+      // don't try to re-insert a label onto a name that's no longer there.
+      if (enforce && attachBad && _NAME_RES[ids[0]].test(p)) {
+        // Collapse to exactly one correct label. Strip WITH the leading
+        // whitespace (the space originally between the case name and the
+        // label) — stripping only the "(...)" part left a stray space
+        // behind ("Name (label) : text" instead of "Name (label): text")
+        // once the fresh label was re-inserted after the name.
+        p = p.replace(new RegExp('\\s*' + _PDF_LABEL_RE.source, 'gi'), '')
+              .replace(new RegExp('\\s*' + _PH_LABEL_RE.source, 'gi'), '')
         const label = want === 'pdf' ? ' (attached as PDF)' : want === 'profile-highlights' ? ' (attached in profile highlights)' : ''
         if (label) p = p.replace(_NAME_RES[ids[0]], (m) => `${m}${label}`)
       }
     }
     return p
   })
-  if (enforce) out = newParas.join('\n\n')
+  // Drop any paragraph that sentence-removal emptied out entirely (the
+  // fabrication was that case's only sentence) rather than leaving an
+  // orphan blank paragraph in the joined letter.
+  if (enforce) out = newParas.filter(p => p && p.trim()).join('\n\n')
 
   // ── marketNotInPosting: a geo/market claim not authorised by the posting body ──
+  // Collected first (not mutated in-place) so enforcement can remove the
+  // whole enclosing sentence via the same helper as the metric check, instead
+  // of leaving a visible "[market]" placeholder bracket in a sent letter.
+  const marketSpans = []
   // (a) "launch/expand/target/scale/roll out/enter/go live ... in|to|for <Place>"
   const _VERB = '(?:launch(?:ing)?|expand(?:ing)?|target(?:ing)?|scal(?:e|ing)|roll(?:ing)?\\s+out|enter(?:ing)?|go(?:ing)?\\s+live|breaking\\s+into|entering)'
   const marketRe = new RegExp(`\\b${_VERB}\\b[^.\\n]{0,24}?\\b(?:in|into|to|for|across)\\s+(?:the\\s+)?([A-Za-z][A-Za-z.\\- ]{1,26}?)(?=[\\s.,;:)\\n]|$)`, 'gi')
-  out = out.replace(marketRe, (full, place) => {
+  let mm
+  while ((mm = marketRe.exec(out))) {
+    const place = mm[1]
     const canon = _gazetteerHit(place.split(/\s+(?:market|region|audience|customers?|keywords?|shoppers?)\b/i)[0])
-    if (!canon) return full
-    if (posting.includes(canon) || posting.includes(place.trim().toLowerCase())) return full  // authorised
+    if (!canon) continue
+    if (posting.includes(canon) || posting.includes(place.trim().toLowerCase())) continue  // authorised
     record('marketNotInPosting')
-    return enforce ? full.replace(new RegExp('\\b' + place.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b'), '[market]') : full
-  })
+    marketSpans.push([mm.index, mm.index + mm[0].length])
+  }
   // (b) "<demonym> (market|keywords|brand|audience|customers|shoppers|targeting)"
   const demonymRe = new RegExp(`\\b(${Object.keys(_DEMONYMS).join('|')})\\s+(?:market|keywords?|brand|audience|customers?|shoppers?|targeting|consumers?|buyers?)\\b`, 'gi')
-  out.replace(demonymRe, (full, dem) => {
-    const canon = _DEMONYMS[dem.toLowerCase()]
-    if (canon && !posting.includes(canon) && !posting.includes(dem.toLowerCase())) record('marketNotInPosting')
-    return full
-  })
+  while ((mm = demonymRe.exec(out))) {
+    const canon = _DEMONYMS[mm[1].toLowerCase()]
+    if (canon && !posting.includes(canon) && !posting.includes(mm[1].toLowerCase())) {
+      record('marketNotInPosting')
+      marketSpans.push([mm.index, mm.index + mm[0].length])
+    }
+  }
   // (c) "<CC> targeting/market/keywords/ads" e.g. "IL targeting"
   const codeRe = new RegExp(`\\b(${Object.keys(_CODES).join('|').toUpperCase()})\\s+(?:targeting|market|keywords?|ads?|campaigns?)\\b`, 'g')
-  out.replace(codeRe, (full, cc) => {
-    const canon = _CODES[cc.toLowerCase()]
-    if (canon && !posting.includes(canon) && !posting.includes(cc.toLowerCase())) record('marketNotInPosting')
-    return full
-  })
+  while ((mm = codeRe.exec(out))) {
+    const canon = _CODES[mm[1].toLowerCase()]
+    if (canon && !posting.includes(canon) && !posting.includes(mm[1].toLowerCase())) {
+      record('marketNotInPosting')
+      marketSpans.push([mm.index, mm.index + mm[0].length])
+    }
+  }
+  if (enforce && marketSpans.length) out = _removeEnclosingSentences(out, marketSpans)
 
   // ── seoAuditTurnaround: a non-PPC audit given a day-count turnaround (defect #6) ──
   // The GOOGLE ADS / PPC / paid audit's 1-working-day turnaround IS required (Rule 402),
