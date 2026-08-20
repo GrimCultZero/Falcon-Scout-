@@ -2832,6 +2832,32 @@ function _restoreProperNounCasing(text, protectedTerms) {
   return out
 }
 
+// LAST-MILE fix: re-assert a client-mandated literal opener phrase's exact
+// casing no matter what upstream processing did to it. Real bug found on job
+// 12477: the posting demanded the letter open with "I KNOW GOOGLE ADS" (a
+// verbatim attention-check), but _restoreProperNounCasing above — earlier in
+// this same cleanup pipe — treats "Google Ads" as a protected proper noun and
+// case-INSENSITIVELY normalizes every occurrence to the posting's DOMINANT
+// casing (Title Case, since "Google Ads" appears many times in the body vs.
+// ALL CAPS just once inside the quoted instruction). That silently undid an
+// enforcer-regression guard added earlier the same day, which was watching
+// the wrong layer — the downcasing turned out to happen in this deterministic
+// cleanup step, not the enforcer's own LLM rewrite. Runs as the OUTERMOST
+// wrapper on _finalText (after every other step, including
+// _restoreProperNounCasing) so nothing later in the pipe can disturb it
+// again. Scoped to the first 200 chars so it can't misfire on some unrelated
+// later mention of the same words.
+function _restoreRequiredOpenerCasing(text, requiredOpenerPhrase) {
+  if (!text || !requiredOpenerPhrase) return text
+  const WINDOW = 200
+  if (text.slice(0, WINDOW).includes(requiredOpenerPhrase)) return text // already exact
+  const escaped = requiredOpenerPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(escaped, 'i')
+  const m = text.slice(0, WINDOW).match(re)
+  if (!m || m.index == null) return text // instruction wasn't followed at all — not this function's job to add it
+  return text.slice(0, m.index) + requiredOpenerPhrase + text.slice(m.index + m[0].length)
+}
+
 // Strip any stray three-tag-protocol markup from text that ends up in a chat
 // bubble. Safety net for when the model emits malformed tags (e.g. a closing
 // </remarks> with no opening tag, or an unclosed <chat_reply>) — the regex
@@ -7592,7 +7618,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             if (draftCompliant) {
               console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              const _finalText = _stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase)
+              const _finalText = _restoreRequiredOpenerCasing(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase), _requiredOpenerPhrase)
               if (_isStaleGenerate()) {
                 console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
                 if (_jobIdAtCallTime != null) {
@@ -8282,7 +8308,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       }
 
       {
-        const _finalText = _stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase)
+        const _finalText = _restoreRequiredOpenerCasing(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase), _requiredOpenerPhrase)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {

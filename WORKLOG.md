@@ -5113,3 +5113,55 @@ caps), so a genuine fix is never blocked. 4/4 passed.
 **Revert:** one isolated addition (an extraction regex + a computed const near `applicationChecklist`,
 plus one new guard condition + `else if` branch in the enforcer chain) in `JobDetail.jsx` — `git revert
 <this-commit-hash>` removes it cleanly, no other guards touched.
+
+## 2026-08-20 — Follow-up: the job-12477 fix above was necessary but NOT sufficient — found and fixed the real root cause
+
+Owner regenerated job 12477 after the fix above and shared it again — same bug, "I KNOW GOOGLE ADS"
+still downcased to "I KNOW Google Ads" in the final letter. The enforcer-regression guard added
+earlier today didn't fire.
+
+**Didn't guess twice — reproduced it live instead.** Rather than re-theorize from the shared snapshot,
+opened the real app in the browser, captured console output, and ran an actual fresh Generate for job
+12477 (real API cost, worth it here). Confirmed via `localStorage`'s `preEnforcerDraft` cache that the
+pre-enforcer draft genuinely had "I KNOW GOOGLE ADS" correct — so this was a real regression, not a
+first-pass mistake the guard was never meant to catch. But none of the 5 enforcer-guard `console.warn`
+lines fired either. The guard itself was watching the right SYMPTOM but the wrong LAYER.
+
+**Real root cause:** `_restoreProperNounCasing` — a deterministic step deep in the SAME cleanup pipe
+that runs unconditionally on `text` regardless of the enforcer-guard chain's decision — extracts
+proper nouns from the posting and case-INSENSITIVELY normalizes every occurrence in the letter to
+whatever casing the posting uses MOST OFTEN. The posting says "Google Ads" in Title Case many times in
+its body, and "GOOGLE ADS" in all-caps exactly once, inside the quoted attention-check. The extractor
+picked Title Case as the "correct form" and force-normalized the deliberately-all-caps opener back down
+— completely bypassing yesterday's new enforcer-regression guard, because that guard only compares the
+enforcer's raw output; it has no visibility into what happens to `text` in the standard cleanup chain
+that runs AFTER it, whether the enforcer's rewrite was accepted or rejected.
+
+**Fix:** added `_restoreRequiredOpenerCasing(text, requiredOpenerPhrase)` — a small function that
+re-asserts the exact required phrase (case-sensitive) within the first 200 characters, no-ops if it's
+already correct, and deliberately does NOT inject the phrase if the model never wrote it at all (not
+this function's job to invent compliance). Wired as the OUTERMOST wrapper around `_finalText` at BOTH
+call sites (first-pass and enforcer-pass — this cleanup chain is duplicated at two identical-shaped
+call sites in this file), so it's the literal last thing that touches the letter before `setProposal`,
+immune to anything else added to the pipe later. Left this morning's enforcer-guard in place too — it's
+not what fixes THIS bug, but it's still valid defense against a different failure shape (the enforcer's
+raw rewrite itself dropping the phrase, not cleanup re-casing it).
+
+**Verified properly this time — unit test AND live reproduction, in that order:**
+- 4-case Node script against the exact real downcased text: restores correctly, no-ops when already
+  correct, does NOT inject the phrase when the model never wrote it, stays inert with no required
+  phrase — 4/4.
+- Fetched the live served bundle to confirm the fix was actually in the code Vite was serving (not
+  trusting HMR blindly after the previous fix's false confidence).
+- Triggered a REAL fresh Generate for job 12477 in the browser and read the resulting textarea directly:
+  **"I KNOW GOOGLE ADS" — correct, end to end, in the actual running app**, not just in isolated test
+  logic.
+
+**Lesson for next time, written down so it isn't relearned the hard way again:** when a fix targets "the
+enforcer changed X," verify the actual FINAL text after the FULL cleanup pipe, not just the enforcer's
+raw response — this codebase's cleanup chain has plenty of steps AFTER the enforcer decision that can
+independently re-introduce the same symptom from a completely different cause.
+
+**Revert:** one isolated addition (`_restoreRequiredOpenerCasing` + wiring it into both `_finalText`
+computations) in `JobDetail.jsx` — `git revert <this-commit-hash>` removes it cleanly. This morning's
+enforcer-guard commit is unaffected and still valid on its own.
