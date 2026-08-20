@@ -4968,3 +4968,50 @@ no campaign-live claim at all (inert) — 6/6 passed.
 **Revert:** one isolated addition (a new regex + boolean + one `else if` branch) inside the enforcer
 guard chain in `JobDetail.jsx` — `git revert <this-commit-hash>` removes it cleanly, no other guards
 touched.
+
+## 2026-08-20 — Usage counter: calendar-day reset instead of rolling 24h, plus a real backend outage mid-fix
+
+Owner: after checking the header cost chip, wanted the "24h" window to reset at local midnight (owner's
+own example: "00:00 Thursday... until Friday 00:00 comes") instead of being a rolling lookback that
+drifts forward every second.
+
+**Implemented** (`api/main.py`): `/usage-stats`'s "24h" cutoff is now the start of the owner's current
+calendar day in `Europe/Kyiv` (via `zoneinfo.ZoneInfo`, DST-aware), not `now - timedelta(hours=24)`.
+Converts `now` to Kyiv local time, zeroes the clock, converts back to UTC for the DB comparison (`ts` is
+stored as UTC throughout, same convention `cutoff_month` already uses — left unchanged, still UTC-based
+calendar month, owner didn't ask to change that one). Frontend label changed from "24h" to "today" in
+both the collapsed chip and the expanded per-kind breakdown (`App.jsx`) — the underlying response key
+(`last_24h`) and internal variable names were left alone to keep the change scoped to what actually
+needed to change.
+
+**A real dependency gap found and fixed along the way:** Python's `zoneinfo` needs the IANA tz database,
+which Windows doesn't ship — needs the `tzdata` PyPI package. It's a pure-Python data package (no
+compiled deps), added to `requirements.txt`. Confirmed via `netstat`/PowerShell which of the two Python
+installs on this machine (`C:\Python314\python.exe` vs a separate `pythoncore-3.14-64` alias that
+`python3` resolves to in this session's shell) is the one ACTUALLY running the backend (PID owning port
+8000) before trusting any test result — `tzdata` was already present for the real one, absent for the
+other. Verified the boundary logic with 5 cases (summer/DST, winter/no-DST, just-after-UTC-midnight,
+and both sides of the exact local-midnight boundary) — all correct.
+
+**A real backend outage happened during this fix, unrelated to the timezone logic itself** — after
+saving the `api/main.py` edit, uvicorn's `--reload` picked it up but the server went completely
+unresponsive (every endpoint timed out, not just `/usage-stats`), while the OLD worker process
+(PID 65116) stayed bound to the port without answering anything. A direct `python -c "import api.main"`
+of the exact same code completed instantly with no error, so the hang was in uvicorn's reload
+supervision, not the new code. Force-stopped the stuck process and started a fresh
+`uvicorn api.main:app --reload --port 8000` — came up clean on the first try, immediately serving real
+requests from the owner's own browser. Flagging this plainly rather than glossing over it: the app was
+genuinely down for a few minutes during this change. If `--reload` hangs like this again after a save,
+it's worth knowing this isn't a first occurrence.
+
+**Verified**: live `curl` against the restarted backend confirms the new cutoff — total dropped from the
+prior rolling-24h read (~$0.91, spanning back into yesterday afternoon Kyiv time) to ~$0.46 for
+"today so far" (~16.5 hours elapsed since local midnight at the time of testing), consistent with a
+calendar-day window being narrower than a rolling 24h one at that point in the day. Chip in the live
+app renders "today $0.461 · mo $26.971" correctly. `npx esbuild` clean on `App.jsx`, `py_compile` clean
+on `api/main.py`.
+
+**Revert:** one isolated commit touching `api/main.py` (cutoff logic + comment), `App.jsx` (label text
+only), and `requirements.txt` (`tzdata` addition) — `git revert <this-commit-hash>` restores the rolling
+24h window and the old "24h" label. The backend restart is operational, not part of the diff — nothing
+to revert there.

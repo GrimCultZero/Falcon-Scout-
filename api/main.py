@@ -3,6 +3,7 @@ import sys
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -4691,14 +4692,26 @@ def api_feed_prune():
     return {"ok": True, "removed": removed, "kept": kept, "protected_with_proposals": protected}
 
 
+_OWNER_TZ = ZoneInfo("Europe/Kyiv")
+
+
 @app.get("/usage-stats")
 def usage_stats():
     """
-    Aggregate token usage and estimated cost over rolling 24h and current
-    calendar month windows, broken out by `kind`. Used by the header chip.
+    Aggregate token usage and estimated cost over the current calendar day
+    (owner's local time) and current calendar month, broken out by `kind`.
+    Used by the header chip.
     """
     now = datetime.now(timezone.utc)
-    cutoff_24h = now - timedelta(hours=24)
+    # "Today" means the owner's calendar day, not a rolling 24h lookback
+    # (owner request, 2026-08-20: reset at local midnight, e.g. Thursday
+    # 00:00 through Friday 00:00, not "whatever happened in the last 24
+    # hours" drifting forward every second). Find local midnight by
+    # converting `now` to Europe/Kyiv, zeroing the clock, then converting
+    # back to UTC for the DB comparison — ts is stored as UTC throughout,
+    # same convention cutoff_month below already uses.
+    now_local = now.astimezone(_OWNER_TZ)
+    cutoff_24h = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     cutoff_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     def _bucket(rows):

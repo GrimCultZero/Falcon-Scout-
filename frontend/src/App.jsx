@@ -1238,7 +1238,9 @@ function ShareWithClaudeButton({ job }) {
 
 // ── Usage chip ───────────────────────────────────────────────────────────
 // Polls /usage-stats every 30s and shows compact tokens + estimated USD for
-// last 24h and this month. Click to expand the per-kind breakdown.
+// today (owner's local calendar day, resets at midnight Europe/Kyiv -- not a
+// rolling 24h lookback, owner request 2026-08-20) and this month. Click to
+// expand the per-kind breakdown.
 function UsageChip() {
   const [stats, setStats] = useState(null)
   const [status, setStatus] = useState('loading') // 'loading' | 'ok' | 'err'
@@ -1312,7 +1314,7 @@ function UsageChip() {
           lineHeight: 1.1,
         }}
       >
-        <span><span style={{ color: 'rgba(255,255,255,0.50)' }}>24h</span> <strong style={{ color: '#00c8d4' }}>{fmtUsd(d.cost_usd)}</strong></span>
+        <span><span style={{ color: 'rgba(255,255,255,0.50)' }}>today</span> <strong style={{ color: '#00c8d4' }}>{fmtUsd(d.cost_usd)}</strong></span>
         <span style={{ opacity: 0.4 }}>·</span>
         <span><span style={{ color: 'rgba(255,255,255,0.50)' }}>mo</span> <strong style={{ color: '#00c8d4' }}>{fmtUsd(m.cost_usd)}</strong></span>
       </button>
@@ -1330,7 +1332,7 @@ function UsageChip() {
           }}
         >
           {[
-            { label: 'Last 24 hours', data: d },
+            { label: 'Today', data: d },
             { label: 'This month', data: m },
           ].map(({ label, data }) => (
             <div key={label} style={{ marginBottom: 12 }}>
