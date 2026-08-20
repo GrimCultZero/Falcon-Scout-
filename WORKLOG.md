@@ -5015,3 +5015,67 @@ on `api/main.py`.
 only), and `requirements.txt` (`tzdata` addition) — `git revert <this-commit-hash>` restores the rolling
 24h window and the old "24h" label. The backend restart is operational, not part of the diff — nothing
 to revert there.
+
+## 2026-08-20 — Real bug: CLI bridge crashed on Unicode in print(), root-caused to a stdout-reset in `watchfiles` reload — plus the `.venv` discovery
+
+Owner screenshotted a live error: `CLI bridge failed (analysis): UnicodeEncodeError: 'charmap' codec
+can't encode character '\u2192' in position 35`. Real, reproducible, not cosmetic.
+
+**Root cause, in two parts.** (1) `api/main.py:5138` prints `f"[CLI bridge] {kind}: {len(prompt_text)}
+chars → http://127.0.0.1:27182/ai"` — a literal Unicode arrow, not `->`. Windows' default console
+codepage (cp1252/"charmap") can't encode it, and non-interactive Python processes (stdout piped/
+redirected rather than a real console) default to that codepage. (2) The SAME arrow pattern also
+appears in the proposal-status-promotion logging (`print(f"...promoted proposal {id} → {status}...")`,
+lines ~3681/3701) — meaning this exact class of crash could have been silently affecting other features
+too (e.g. reply-sync's status promotion), not just analysis.
+
+**First fix attempt — `sys.stdout.reconfigure(encoding="utf-8")` at the top of `api/main.py`, before any
+other import.** Verified instantly via a direct `python -c "import api.main; print('→')"` — worked
+perfectly. Restarted the live backend the same way as an earlier fix today (bare
+`C:\Python314\python.exe -m uvicorn api.main:app --reload`) — **the exact same crash still happened,
+verified live against the running server.** Confusing: the fix worked standalone but not in the actual
+process.
+
+**Root-caused properly instead of guessing twice.** Tried `PYTHONUTF8=1`/`PYTHONIOENCODING=utf-8` env
+vars — same crash, still. Isolated the variable by running the exact same code WITHOUT `--reload` —
+and separately discovered, via `Get-Process python | Select Path`, that there is a **second, completely
+separate Python environment** at `.venv\Scripts\python.exe` that `falconscout.bat` actually uses
+(`.\.venv\Scripts\uvicorn`) — distinct from the bare `C:\Python314\python.exe` and from the
+`pythoncore-3.14-64` alias found in an earlier session's investigation. Multiple processes from
+different environments had been racing for port 8000 across several restart attempts today, which is
+why `netstat`'s reported owning PID kept appearing stale/wrong (`Get-Process` on that PID returning
+nothing) — a real Windows TCP-table quirk under this much process churn, not a tooling bug.
+
+**The actual root cause**, once isolated: uvicorn's `--reload` has two reload backends — `watchfiles`
+(used automatically if the `watchfiles` package is installed — it is, in the bare `C:\Python314`
+environment) and a built-in `StatReload` fallback (used when it isn't — `.venv` doesn't have
+`watchfiles`). `watchfiles`' subprocess-spawn model resets the worker's `sys.stdout` encoding back to
+cp1252 on Windows regardless of what the module-level `reconfigure()` call does, silently undoing the
+fix on every reload. `StatReload` does not have this problem. Confirmed directly: same code, same
+`--reload` flag, `.venv`'s uvicorn (StatReload) → real CLI-bridge round trip succeeded; bare
+`C:\Python314` uvicorn (watchfiles) → same crash every time.
+
+**Fix, final state:** kept the `sys.stdout`/`sys.stderr` UTF-8 reconfigure in `api/main.py` (still
+correct and harmless), installed `tzdata` into `.venv`'s own site-packages too (it only existed in the
+two bare system Pythons before — `.venv` would have crashed on yesterday's timezone fix the moment
+anyone ran the app through `falconscout.bat` as normally intended), and restarted the backend through
+`.venv\Scripts\python.exe -m uvicorn` — matching how `falconscout.bat` actually runs it. Documented in
+`CLAUDE.md`'s quick-start section so this isn't rediscovered the hard way again: **the backend must run
+from `.venv`, not a bare system Python** — that's not a style preference, it's what avoids this exact
+crash class.
+
+**Honest accounting of the mess this session made along the way:** two more brief backend outages
+happened during this investigation (killing/restarting processes while isolating the variable) — the
+app came back up clean each time once the actual fix landed, but it was down intermittently for a
+while during the debugging itself. Genuinely necessary given the crash was live and real, but flagging
+plainly rather than glossing over the disruption.
+
+**Verified**: live `curl` against the `.venv`-run backend with the exact arrow-containing payload that
+crashed before — real successful response through the full CLI-bridge round trip (backend → cli-
+bridge.js → `claude` CLI → response), confirming both the crash is fixed AND the CLI bridge itself is
+genuinely working end to end. `/usage-stats` and the live app's chip both confirmed still correct
+post-restart.
+
+**Revert:** the `sys.stdout`/`stderr` reconfigure block in `api/main.py` is one isolated addition —
+revertable on its own, though there's no reason to (it's inert and correct regardless of which reload
+backend runs). The `.venv` `tzdata` install and the `CLAUDE.md` note aren't code changes to revert.

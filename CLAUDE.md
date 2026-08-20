@@ -86,7 +86,18 @@ paste raw secrets — distill, don't copy.
 ## Quick start
 ```bash
 falconscout.bat              # everything
-uvicorn api.main:app --reload --port 8000   # backend only
+.\.venv\Scripts\uvicorn api.main:app --reload --port 8000   # backend only
 cd frontend && npm run dev                  # frontend only
 python listener.py                          # listener only
 ```
+
+**Backend must run from `.venv`, not a bare system Python** (confirmed 2026-08-20, after a real
+multi-restart debugging session): `.venv`'s uvicorn falls back to its built-in `StatReload` (no
+`watchfiles` package installed there). A bare `C:\Python314\python.exe -m uvicorn ... --reload` instead
+uses `watchfiles`-based reload, whose subprocess-spawn model on Windows resets `sys.stdout`'s encoding
+back to `cp1252` on every reload — even though `api/main.py` explicitly reconfigures stdout to UTF-8 at
+import time — causing every `print()` containing a non-ASCII character (→, ✓, ⚠, emoji — this file has
+plenty) to crash the request with `UnicodeEncodeError`. `.venv` doesn't have `watchfiles`, so it doesn't
+hit this. If the backend is ever started outside `.venv`, watch for `UnicodeEncodeError: 'charmap' codec
+can't encode character` in CLI-bridge or capture-logging responses — that's this exact issue recurring,
+not a new bug.

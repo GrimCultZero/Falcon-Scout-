@@ -2,6 +2,23 @@ from pathlib import Path
 import sys
 import os
 import re
+
+# Force UTF-8 stdout/stderr regardless of how this process gets launched.
+# Windows' default console codepage (cp1252/"charmap") can't encode most of
+# the Unicode this file prints in debug logs (→, ✓, ⚠, emoji, etc.) — normally
+# invisible because an interactive `cmd /k` window often has a UTF-8-capable
+# codepage, but a non-interactive launch (output piped/redirected rather than
+# a real console — confirmed via a background-process restart, 2026-08-20)
+# defaults stdout.encoding to cp1252 and any print() with one of those
+# characters crashes the whole request with UnicodeEncodeError. This must run
+# before any other import that might print. errors='replace' rather than a
+# bare reconfigure so a genuinely unencodable byte degrades to '?' instead of
+# still crashing.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional
