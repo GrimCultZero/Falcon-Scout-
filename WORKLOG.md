@@ -4821,3 +4821,40 @@ in DESIGN.md §21.10 so the next session (or a different account) doesn't need t
 reasoning — check the `⚠ Top rule violations (30d)` panel for a clean stretch since 2026-08-19, and
 confirm the case-relevance pre-filter exists, before touching the prompt for 21-C. No code changed
 this entry — documentation/decision only.
+
+## 2026-08-20 — Bug: AI Analysis panel scroll kept snapping back to the top
+
+Owner reported: scrolling down in the Analyser tab, after 1-2 seconds it jumps back up.
+
+Reproduced live in the browser via a direct DOM scroll-monitor (set `scrollTop`, poll it every 300ms):
+confirmed the AI Analysis panel's scroll position really was getting force-reset to 0 automatically,
+roughly on the cadence of the existing 10-second job-list poll (`App.jsx` — `fetchSelectedJob` on an
+interval). Compared two consecutive `/jobs/12185` responses 3 seconds apart — byte-identical, so the
+job data genuinely wasn't changing.
+
+Root cause: the analysis-hydration `useEffect` in `JobDetail.jsx` (the one that resets `scrollRef.
+current.scrollTop = 0` on job change) listed `job?.last_analysis` in its dependency array. The backend
+(`api/main.py`) does `json.loads(j.last_analysis_json)` fresh on every single request, and the
+frontend does `.json()` on every fetch — so `last_analysis` is a brand-new object reference on every
+10-second poll even when its content is byte-identical. React's dependency comparison is reference-
+based for objects, so `Object.is(oldRef, newRef)` was always `false`, and the effect (including the
+scrollTop reset) re-ran on every poll regardless of whether anything actually changed.
+
+**Fix:** dropped `job?.last_analysis` from the effect's dependency array. The effect body still reads
+its current value via closure when it DOES run — this only stops the object-reference from falsely
+triggering the effect. `job?.last_analysis_at` (a stable string timestamp that only changes when a
+NEW analysis is actually saved server-side) was already in the array and is the correct, sufficient
+trigger. Added an inline comment + `eslint-disable-next-line` explaining the deliberate omission so a
+future exhaustive-deps autofix doesn't quietly reintroduce the bug.
+
+Checked the Proposal column's equivalent job-change reset effect for the same anti-pattern — it only
+depends on `[job?.id]`, so it was never affected; this bug was isolated to the Analyser panel exactly
+as reported.
+
+**Verified**: `npx esbuild --jsx=automatic --bundle=false` clean. Live before/after test in the running
+app: set the AI Analysis panel's `scrollTop` to 200 and polled it every 300ms. Before the fix, it held
+for ~5 readings then dropped to 0 (mid-poll-cycle). After the fix, it held at 200 for a full 12-second
+window (spanning a complete 10-second poll cycle) with zero resets. No new console errors introduced.
+
+**Revert:** one isolated one-line dependency-array change (plus a comment) in `JobDetail.jsx` — `git
+revert <this-commit-hash>` restores the old (buggy) dependency array.

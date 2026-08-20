@@ -3796,7 +3796,17 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
     }
     setError(null)
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [job?.id, job?.enriched_at, job?.last_analysis, job?.last_analysis_at])
+  // job?.last_analysis is deliberately NOT a dependency here even though the
+  // effect body reads it: the backend re-parses last_analysis_json fresh on
+  // every request (json.loads() server-side, .json() client-side), so it's a
+  // brand-new object reference on every single poll even when the content is
+  // byte-identical. Including it caused this effect (and the scrollTop reset)
+  // to fire every ~10s poll cycle -- confirmed live (scrollRef.scrollTop kept
+  // getting yanked back to 0 while reading the analysis). job?.last_analysis_at
+  // is a stable string that only actually changes when a NEW analysis is
+  // saved server-side, which is the real signal this effect needs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, job?.enriched_at, job?.last_analysis_at])
 
   // Persist to memory + localStorage whenever analysis/feedback changes
   useEffect(() => {
