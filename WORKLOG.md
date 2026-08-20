@@ -5079,3 +5079,37 @@ post-restart.
 **Revert:** the `sys.stdout`/`stderr` reconfigure block in `api/main.py` is one isolated addition —
 revertable on its own, though there's no reason to (it's inert and correct regardless of which reload
 backend runs). The `.venv` `tzdata` install and the `CLAUDE.md` note aren't code changes to revert.
+
+## 2026-08-20 — Fourth enforcer-overreach guard: client-mandated literal opener silently downcased
+
+Owner shared job 12477 (UK agency, Google Ads). The posting has an explicit attention-check: "Start
+your proposal with "I KNOW GOOGLE ADS" so we know you've actually read the job post." — a literal,
+client-mandated verbatim string, not a style choice. The first-pass draft got it exactly right ("I KNOW
+GOOGLE ADS"). The rule-compliance enforcer's rewrite silently changed it to "I KNOW Google Ads" —
+downcasing the client's required all-caps phrase, almost certainly because the enforcer's own general
+"casual voice" instincts (this codebase is full of "avoid shouting", "casual lowercase voice" guidance)
+overrode a screening requirement nothing in its listed violations asked it to touch.
+
+This is the fourth confirmed instance today of the same meta-bug: the enforcer changing something
+outside its assigned violations while fixing something else (dropped pricing, added a wrong launch
+offer, flipped launch timing, and now this). Extended the same established "MUST-KEEP" guard chain
+rather than inventing a new mechanism.
+
+**Fix:** added a generic extractor, `_REQUIRED_OPENER_RE`, that detects "start your proposal/cover
+letter/application/response/it with '<phrase>'"-style instructions in the posting (handles both
+straight and curly/typographic quotes — this exact posting uses curly ones) and captures the exact
+required phrase, computed once alongside the existing `applicationChecklist` extraction. Added
+`_regressedRequiredOpener` to the enforcer-guard chain: case-SENSITIVE check (casing is exactly what
+regresses) that the phrase was present in the first 150 chars pre-enforcer and is now missing
+post-enforcer — if so, discard the rewrite and keep the pre-enforcer draft, same as the other three
+guards.
+
+**Verified**: `npx esbuild --jsx=automatic --bundle=false` clean. A 4-case Node script using the real
+posting text (curly quotes and all): correctly extracts "I KNOW GOOGLE ADS", flags the real regression,
+does NOT flag when the phrase survives unchanged, and — the case that matters most — does NOT flag when
+the enforcer is legitimately fixing a real first-pass mistake in the other direction (lowercase → correct
+caps), so a genuine fix is never blocked. 4/4 passed.
+
+**Revert:** one isolated addition (an extraction regex + a computed const near `applicationChecklist`,
+plus one new guard condition + `else if` branch in the enforcer chain) in `JobDetail.jsx` — `git revert
+<this-commit-hash>` removes it cleanly, no other guards touched.

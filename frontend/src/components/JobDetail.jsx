@@ -5633,6 +5633,22 @@ function ProposalColumn({
       // present, otherwise leaves a clearly-marked [[ ARTEM: … ]] placeholder.
       const applicationChecklist = extractApplicationChecklist(fullDescription)
 
+      // ── Required literal opener phrase ("Start your proposal with 'X'") ──
+      // Some postings use a literal quoted attention-check string the proposal
+      // MUST open with, verbatim, to prove the applicant actually read the post
+      // (confirmed real, job 12477: 'Start your proposal with "I KNOW GOOGLE
+      // ADS" so we know you've actually read the job post.'). This is fixed,
+      // client-mandated content — not prose subject to the "casual lowercase
+      // voice" style rule — but the enforcer's own general style instinct
+      // apparently overrode it anyway on that job: the first pass correctly
+      // opened "I KNOW GOOGLE ADS", the enforcer's rewrite silently downcased
+      // it to "I KNOW Google Ads". Extract the exact phrase (any common quote
+      // style — postings use straight or curly quotes) so its survival through
+      // the enforcer pass can be checked below.
+      const _REQUIRED_OPENER_RE = /\bstart\s+(?:your\s+)?(?:proposal|cover\s+letter|application|response|it)\s+with\s*[:\-]?\s*["“”'‘’]([^"“”'‘’\n]{2,80})["“”'‘’]/i
+      const _requiredOpenerMatch = fullDescription.match(_REQUIRED_OPENER_RE)
+      const _requiredOpenerPhrase = _requiredOpenerMatch ? _requiredOpenerMatch[1].trim() : null
+
       // Does the POSTING explicitly ask for a rate / budget / quote / pricing? If not,
       // a volunteered rate is stripped from the letter (Artem never quotes a price
       // upfront — the hourly bid lives in the Upwork application form, not the body).
@@ -8223,6 +8239,19 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 const _regressedLaunchTiming = jobIsPaidLaunch &&
                   !_campaignLiveTooFastRe.test(_preEnforcerSnapshot) &&
                   _campaignLiveTooFastRe.test(correctedText)
+                // ENFORCER SILENTLY ALTERED A CLIENT-MANDATED LITERAL OPENING
+                // PHRASE (confirmed real, job 12477): the posting demanded the
+                // proposal literally open with "I KNOW GOOGLE ADS" as an
+                // attention-check. The pre-enforcer draft got it exactly
+                // right; the enforcer's rewrite changed the casing to "I KNOW
+                // Google Ads" — likely its own general "casual voice, avoid
+                // shouting" instinct overriding a screening requirement it was
+                // never asked to touch. Fixed, client-specified text is not
+                // subject to a style pass. Case-SENSITIVE comparison since
+                // casing is exactly what regresses here.
+                const _regressedRequiredOpener = _requiredOpenerPhrase &&
+                  _preEnforcerSnapshot.slice(0, 150).includes(_requiredOpenerPhrase) &&
+                  !correctedText.slice(0, 150).includes(_requiredOpenerPhrase)
                 if (_looksGarbled(correctedText) && !_looksGarbled(_preEnforcerSnapshot)) {
                   console.warn('[Falcon] Rule-compliance rewrite looked garbled (orphaned punctuation / unbalanced parens) — discarding it and keeping the pre-enforcer draft.')
                   _recordViolations('generator', job?.id, ['enforcerGarbledRewrite'])
@@ -8235,6 +8264,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 } else if (_regressedLaunchTiming) {
                   console.warn('[Falcon] Rule-compliance rewrite swapped the correct "5 working days" launch timing for a false "1 working day" campaign-live claim — discarding it and keeping the pre-enforcer draft.')
                   _recordViolations('generator', job?.id, ['enforcerRegressedLaunchTiming'])
+                } else if (_regressedRequiredOpener) {
+                  console.warn(`[Falcon] Rule-compliance rewrite altered the client-mandated opening phrase "${_requiredOpenerPhrase}" — discarding it and keeping the pre-enforcer draft.`)
+                  _recordViolations('generator', job?.id, ['enforcerRegressedRequiredOpener'])
                 } else {
                   text = correctedText
                 }
