@@ -4929,3 +4929,42 @@ owner's screen).
 
 **Revert:** one isolated commit touching only `upwork-enricher/background.js` and `manifest.json`'s
 version bump — `git revert <this-commit-hash>` restores the active-tab-with-focus-restore behavior.
+
+## 2026-08-20 — Enforcer regression, confirmed a SECOND time: "5 working days" flipped to false "1 working day"
+
+Owner shared job 12392 ("Google Ads" — Swiss client, from-scratch setup + launch). Pre-enforcer draft
+correctly closed with "campaigns live and approved within **5 working days**" (Rule 450 — this is a
+launch-from-scratch job, no existing account). The rule-compliance enforcer's rewrite — fixing some
+other, unrelated listed violation — silently swapped it to "within **1 working day**", the Google Ads
+*audit* turnaround, which is false here since there's no account to audit.
+
+This is the exact same enforcer-overreach pattern found this morning on job 12185 (investigated during
+the "why isn't quality improving" aggregate review) — but that one was traced to a different bug (the
+chat-rewrite bypass, since fixed). This one is different: it happened inside `generate()`'s own
+enforcer call, the fully-instrumented path that already has a whole family of "MUST-KEEP" regression
+guards (`_regressedAuditPrice`, `_regressedComplimentary`, `_addedWrongLaunchOffer` — all built after
+job 10609 taught this codebase that the enforcer can silently destroy correct content while fixing an
+unrelated violation). None of those existing guards covered THIS specific regression shape — they
+watch pricing and launch-offer additions, not the launch-timing phrase itself. Two independent real
+occurrences (12185, 12392) of the identical "5 days → false 1 day" swap is enough to call this a
+confirmed, recurring failure mode rather than a one-off, matching this codebase's own standing bar for
+promoting a pattern from "noticed" to "worth a deterministic guard."
+
+**Fix:** added `_regressedLaunchTiming` to the same guard chain, following the established pattern
+exactly: reuses the existing `campaignLiveTooFast` detection regex (the same one already used to catch
+this claim when the FIRST pass makes the mistake), but applied comparatively — pre-enforcer snapshot
+did NOT have the false claim, post-enforcer text DOES — so it only fires on the *regression* case, never
+on the case where the enforcer is legitimately asked to fix a real first-pass violation. When it fires,
+the whole enforcer rewrite is discarded and the pre-enforcer draft is kept, same as every other guard
+in this chain.
+
+**Verified**: `npx esbuild --jsx=automatic --bundle=false` clean. A 6-case Node regression script:
+both real confirmed regressions (job 12392's and job 12185's actual text, both correctly flagged),
+the enforcer legitimately fixing a real "1 day" mistake into the correct "5 days" (correctly NOT
+flagged — the guard must never block a genuine fix), pre/post both already correct (inert), a
+non-launch job with the pattern present (inert — gated on `jobIsPaidLaunch`), and unrelated text with
+no campaign-live claim at all (inert) — 6/6 passed.
+
+**Revert:** one isolated addition (a new regex + boolean + one `else if` branch) inside the enforcer
+guard chain in `JobDetail.jsx` — `git revert <this-commit-hash>` removes it cleanly, no other guards
+touched.

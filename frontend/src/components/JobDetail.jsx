@@ -8209,6 +8209,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 const _addedWrongLaunchOffer = jobIsPpcAuditExisting &&
                   !_LAUNCH_FROM_SCRATCH_OFFER_RE.test(_preEnforcerSnapshot) &&
                   _LAUNCH_FROM_SCRATCH_OFFER_RE.test(correctedText)
+                // ENFORCER INTRODUCED THE FALSE "CAMPAIGN LIVE IN 1 DAY" CLAIM
+                // (confirmed TWICE: job 12185 and job 12392, 2026-08-20). On a
+                // from-scratch launch job the pre-enforcer draft correctly said
+                // "campaigns live and approved within 5 working days" (Rule
+                // 450) — the enforcer's rewrite, fixing some UNRELATED listed
+                // violation, silently swapped it for "within 1 working day",
+                // the audit-only turnaround, false here since there's no
+                // existing account to audit. Same pure-overreach shape as the
+                // regressions above: the false claim wasn't there pre-enforcer
+                // and no listed violation asked for this change.
+                const _campaignLiveTooFastRe = /\bcampaigns?\b[^.\n]{0,45}\b(?:live|launch(?:ed|ing)?|running|ready|up\s+and\s+running)\b[^.\n]{0,30}\b(?:within|in)\s+(?:1|one|a|1\s*[-–]\s*2|two|2)\s*(?:working\s+|business\s+)?days?\b/i
+                const _regressedLaunchTiming = jobIsPaidLaunch &&
+                  !_campaignLiveTooFastRe.test(_preEnforcerSnapshot) &&
+                  _campaignLiveTooFastRe.test(correctedText)
                 if (_looksGarbled(correctedText) && !_looksGarbled(_preEnforcerSnapshot)) {
                   console.warn('[Falcon] Rule-compliance rewrite looked garbled (orphaned punctuation / unbalanced parens) — discarding it and keeping the pre-enforcer draft.')
                   _recordViolations('generator', job?.id, ['enforcerGarbledRewrite'])
@@ -8218,6 +8232,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 } else if (_addedWrongLaunchOffer) {
                   console.warn('[Falcon] Rule-compliance rewrite added an unrelated "launch your campaigns from scratch" offer on an existing-account audit job — discarding it and keeping the pre-enforcer draft.')
                   _recordViolations('generator', job?.id, ['enforcerAddedWrongLaunchOffer'])
+                } else if (_regressedLaunchTiming) {
+                  console.warn('[Falcon] Rule-compliance rewrite swapped the correct "5 working days" launch timing for a false "1 working day" campaign-live claim — discarding it and keeping the pre-enforcer draft.')
+                  _recordViolations('generator', job?.id, ['enforcerRegressedLaunchTiming'])
                 } else {
                   text = correctedText
                 }
