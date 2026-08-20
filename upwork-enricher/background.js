@@ -10,16 +10,11 @@ const _manualBidsTabs = new Map();
 const _ahrefsPending = new Map();
 // Track pending website inspections: tabId → { job_id, url }
 const _inspectPending = new Map();
-// Track the tab that was focused right before we opened the messages-sync
-// tab as ACTIVE (owner request, 2026-08-18: background tabs are throttled
-// enough that the room-walk's job-link lookup found 0/10 links in a real
-// sync — same failure mode already documented once before for the
-// proposals list, "we only ever scraped ~7/30" — so the messages leg now
-// opens active instead). Restored once the sync tab closes, so the
-// disruption is a brief flash rather than a lasting focus-steal. Best-
-// effort/in-memory only (unlike _syncTabs) — losing this mapping to an
-// MV3 worker restart just means we skip the refocus, never a functional bug.
-const _msgTabPrevActive = new Map();
+// (No more _msgTabPrevActive — see _openMessagesSyncWindow below. The
+// messages-sync leg used to open as the active tab of the current window and
+// restore focus afterward; owner feedback 2026-08-20 was that even that
+// brief flash was an unwanted interruption, so it now opens in its own
+// unfocused window instead and never takes focus in the first place.)
 // Track tabs opened by the "Sync from Upwork" flow — proposal.js asks us
 // whether it should auto-trigger the list scrape, and we answer yes for
 // these tab ids (then remove them so subsequent loads don't re-fire).
@@ -189,43 +184,57 @@ const _AUTO_BIDS_ALARM = 'falcon-auto-bids';
 const _AUTO_BIDS_PERIOD_MINUTES = 30;
 let _autoBidsInFlight = false;
 
+// Opens the messages-sync leg in its own window that never takes OS focus
+// and is positioned off any real monitor, instead of as the active tab of
+// the current window (owner request, 2026-08-20: "I want to stay in Falcon
+// Scout at all times" — even the previous active:true-then-restore fix still
+// caused a brief visible flash to the messages tab, which was itself already
+// a compromise for an EARLIER real bug: background TABS get throttled hard
+// enough that the room-walk's job-link lookup found 0/10 links (2026-08-18
+// debug dump) — the same failure mode already documented once before for
+// the proposals list ("we only ever scraped ~7/30"). The hope is that the
+// active tab of a separate, unfocused, off-screen window renders/executes
+// normally (not minimized, not a background tab within the focused window)
+// without ever stealing input focus or becoming visible. This is UNVERIFIED
+// against a real Upwork session as of writing — Chrome's occlusion-based
+// throttling behavior for this exact case wasn't testable from here. Watch
+// messages_sync_debug.json's walk_info.links_found after the next real sync;
+// if it's back to 0/N, this off-screen-window approach doesn't dodge the
+// throttling and needs a different fix (e.g. accepting a brief flash again).
+function _openMessagesSyncWindow(cb) {
+  chrome.windows.create({
+    url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1',
+    focused: false,
+    type: 'normal',
+    state: 'normal',
+    left: -3000, top: -3000, width: 1280, height: 900,
+  }, (win) => {
+    const tab = win && Array.isArray(win.tabs) ? win.tabs[0] : null;
+    if (tab && tab.id) {
+      _persistSyncTab(tab.id);        // durable across MV3 worker restarts
+      _scheduleTabCleanup(tab.id, 4);  // failsafe — never leave a zombie tab/window
+      console.log('[Cockpit BG] messages-sync window opened (unfocused, off-screen):', tab.id);
+    } else {
+      console.warn('[Cockpit BG] messages-sync window creation returned no tab:', win);
+    }
+    if (cb) cb(tab);
+  });
+}
+
 async function _startSync(source) {
   console.log('[Cockpit BG] auto-sync triggered:', source);
-  // Open BOTH the proposals list (for view-status detection) AND the
-  // messages inbox (for reply detection). Each content script asks us via
-  // ASK_AUTO_SYNC whether to fire — we say yes for tracked tabs only.
-  // Same v2 URL-marker pattern as the manual sync button, so both paths behave
-  // identically (marker survives MV3 worker death; ASK_AUTO_SYNC is the fallback).
-  //
-  // The messages leg opens ACTIVE, not background (owner request, 2026-08-18):
-  // confirmed via a real sync's debug dump that background tabs are throttled
-  // enough for the room-walk's job-link lookup to find 0/10 links — the exact
-  // same failure mode already documented once before for the proposals list
-  // ("we only ever scraped ~7/30" in background tabs). Restored to whatever
-  // tab was active beforehand once the sync tab closes (see
-  // MESSAGES_LIST_SCRAPE_DONE), so this is a brief flash, not a lasting
-  // focus-steal. The proposals leg stays background — untouched, out of scope
-  // for this fix.
-  let _prevActiveTabId = null;
-  try {
-    const [_active] = await chrome.tabs.query({ active: true, currentWindow: true });
-    _prevActiveTabId = _active ? _active.id : null;
-  } catch (_) {}
-
-  const SYNC_URLS = [
-    { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
-    { url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1', active: true },
-  ];
-  for (const { url, active } of SYNC_URLS) {
-    chrome.tabs.create({ url, active }, (tab) => {
-      if (tab && tab.id) {
-        _persistSyncTab(tab.id);   // durable across MV3 worker restarts
-        _scheduleTabCleanup(tab.id, 4);  // failsafe — never leave a zombie tab
-        if (active && _prevActiveTabId != null) _msgTabPrevActive.set(tab.id, _prevActiveTabId);
-        console.log('[Cockpit BG] auto-sync tab opened:', tab.id, url, active ? '(active)' : '(background)');
-      }
-    });
-  }
+  // Proposals list: unchanged, stays a plain background tab in the current
+  // window — never implicated in the tab-switch complaint, out of scope here.
+  chrome.tabs.create({ url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false }, (tab) => {
+    if (tab && tab.id) {
+      _persistSyncTab(tab.id);
+      _scheduleTabCleanup(tab.id, 4);
+      console.log('[Cockpit BG] auto-sync tab opened:', tab.id, 'proposals (background)');
+    }
+  });
+  // Messages inbox: its own unfocused off-screen window (see
+  // _openMessagesSyncWindow above), not an active tab in the current window.
+  _openMessagesSyncWindow();
 }
 
 // (Re)create the alarm on extension start. chrome.alarms.create overwrites
@@ -266,15 +275,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name.startsWith(_TAB_CLEANUP_PREFIX)) {
     const tabId = parseInt(alarm.name.slice(_TAB_CLEANUP_PREFIX.length), 10);
     if (!Number.isNaN(tabId)) {
-      // If this was the messages-sync tab (opened active) and it hung badly
-      // enough to hit the failsafe instead of the normal
-      // MESSAGES_LIST_SCRAPE_DONE completion path, still restore focus —
-      // a no-op Map lookup for every other tab type this failsafe also covers.
-      const prevActiveTabId = _msgTabPrevActive.get(tabId);
-      _msgTabPrevActive.delete(tabId);
-      if (prevActiveTabId != null) {
-        chrome.tabs.update(prevActiveTabId, { active: true }, () => { void chrome.runtime.lastError; });
-      }
+      // If this was the messages-sync tab it lives in its own window (see
+      // _openMessagesSyncWindow) — no focus was ever taken, so nothing to
+      // restore here, just close it like any other stuck tab.
       chrome.tabs.remove(tabId, () => {
         if (chrome.runtime.lastError) {
           // Already closed (the normal case) — nothing to do.
@@ -767,33 +770,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // virtualised list itself (repeated full-height scroll sweeps — see
     // waitForListContent) instead of relying on being the foreground tab.
     //
-    // The MESSAGES leg now opens ACTIVE (owner request, 2026-08-18): a real
-    // sync's debug dump confirmed the room-walk's job-link lookup found 0/10
-    // links when backgrounded — the exact same throttling failure already
-    // documented once before for the proposals list ("we only ever scraped
-    // ~7/30"). We restore focus to whatever tab was active beforehand once
-    // this tab closes (see MESSAGES_LIST_SCRAPE_DONE), so it's a brief flash,
-    // not a lasting focus-steal.
-    chrome.tabs.query({ active: true, currentWindow: true }, (activeTabs) => {
-      const prevActiveTabId = (activeTabs && activeTabs[0]) ? activeTabs[0].id : null;
+    // The MESSAGES leg opens in its own unfocused, off-screen window (see
+    // _openMessagesSyncWindow) instead of an active tab in the current
+    // window — never takes focus, so there's nothing to restore afterward.
+    _openMessagesSyncWindow((mtab) => {
+      if (mtab && mtab.id) openedTabIds.push(mtab.id);
       chrome.tabs.create(
-        { url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1', active: true },
-        (mtab) => {
-          // Messages leg may walk up to 10 rooms (~15s budget each) — give it
-          // a longer leash before the failsafe kills it.
-          if (mtab && mtab.id) {
-            _persistSyncTab(mtab.id); openedTabIds.push(mtab.id); _scheduleTabCleanup(mtab.id, 4);
-            if (prevActiveTabId != null) _msgTabPrevActive.set(mtab.id, prevActiveTabId);
-          }
-          console.log('[Cockpit BG] sync messages tab opened (active):', mtab && mtab.id);
-          chrome.tabs.create(
-            { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
-            (tab) => {
-              if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 4); }
-              console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
-              sendResponse({ ok: true, tabIds: openedTabIds });
-            }
-          );
+        { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
+        (tab) => {
+          if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 4); }
+          console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
+          sendResponse({ ok: true, tabIds: openedTabIds });
         }
       );
     });
@@ -850,21 +837,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (tabId != null) {
       if (_syncTabs.has(tabId)) _syncTabs.delete(tabId);
       if (_bgTabs.has(tabId))   _bgTabs.delete(tabId);
-      // Restore focus to whatever was active before we opened this tab as
-      // active (see SYNC_PROPOSAL_STATUSES / _startSync) — best-effort, the
-      // tab may have been closed by the owner in the meantime, in which case
-      // chrome.tabs.update just fails via lastError, same as chrome.tabs.remove.
-      const prevActiveTabId = _msgTabPrevActive.get(tabId);
-      _msgTabPrevActive.delete(tabId);
-      if (prevActiveTabId != null) {
-        chrome.tabs.update(prevActiveTabId, { active: true }, () => {
-          if (chrome.runtime.lastError) {
-            console.warn('[Cockpit BG] restore-focus failed (tab likely closed):', chrome.runtime.lastError.message);
-          } else {
-            console.log('[Cockpit BG] restored focus to tab', prevActiveTabId);
-          }
-        });
-      }
+      // This tab lives in its own unfocused window (see
+      // _openMessagesSyncWindow) — no focus was ever taken from the owner's
+      // window, so there's nothing to restore. Closing the tab closes that
+      // window too, since it's the only tab in it.
       try {
         chrome.tabs.remove(tabId, () => {
           if (chrome.runtime.lastError) {

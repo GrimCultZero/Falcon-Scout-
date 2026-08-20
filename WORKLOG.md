@@ -4890,3 +4890,42 @@ case-study block label (unchanged), and no-case-mentioned text (inert) — 5/5 p
 **Revert:** one isolated addition (a new regex + one `.replace()` call) inside
 `_stripDuplicateAttachmentLabel` in `JobDetail.jsx` — `git revert <this-commit-hash>` removes step 0b
 cleanly, no other steps touched.
+
+## 2026-08-20 — Unprompted messages-sync tab-switch still bothering the owner: moved to an unfocused window
+
+Owner: "sync is forcing the tab switch again" — after the 2026-08-18 fix (messages leg opens
+`active:true`, restores focus once done) and the 2026-08-19 idle-gating fix (defers the hourly tick
+while the owner's at the keyboard, forces anyway after 30 min so replies don't go stale), the owner
+was still hitting a real, visible tab-switch — almost certainly the 30-min forced-sync case, since the
+idle-gating code's own comment already says this exact tradeoff was "confirmed by the owner" as
+disruptive once before. Clarified with the owner: they don't mind sync firing as often as it wants —
+they specifically don't want to ever be switched away from Falcon Scout's own window, for ANY sync
+(hourly or manual).
+
+**Implemented**: the messages-sync leg now opens in its own **unfocused, off-screen browser window**
+(`chrome.windows.create({ focused: false, left: -3000, top: -3000, ... })`) instead of as the active
+tab of the current window. `focused: false` means it never takes OS input focus — Falcon Scout's own
+window stays exactly where the owner left it, both visually and for keyboard/mouse focus. Off-screen
+positioning means even though the window technically exists and isn't minimized, it never appears
+on any real monitor. Applied to both the hourly auto-sync (`_startSync`) and the manual "Sync from
+Upwork" button (`SYNC_PROPOSAL_STATUSES`) via one shared helper, `_openMessagesSyncWindow()`. Removed
+the now-unnecessary `_msgTabPrevActive` focus-restore machinery entirely (three call sites) — there's
+no focus to restore when none was ever taken. The proposals-list leg is untouched, unaffected, stays a
+plain background tab as before (it was never implicated in the tab-switch complaint).
+
+**Honest caveat — this is UNVERIFIED against a real Upwork session.** The entire reason the messages
+leg was made `active:true` in the first place (2026-08-18) was a confirmed real bug: background TABS
+get throttled by Chrome hard enough that the room-walk's job-link lookup found 0/10 links. Whether the
+active tab of a separate, *unfocused* window gets the same throttling treatment as a background tab
+within the *focused* window is a genuine Chrome-internals question this session's tools can't test —
+that needs the owner's real Chrome + real Upwork login. `node --check` passes and the logic is sound,
+but the one thing that actually matters (does the room-walk still find real job links) can only be
+confirmed live. **After reloading the unpacked extension (manifest bumped to 4.9) and letting a real
+sync run** (hourly, or click "Sync from Upwork"), check `messages_sync_debug.json`'s
+`walk_info.links_found` — if it's back to 0/N, the off-screen-window approach doesn't dodge the
+throttling and this needs a different fix (possibly accepting the original brief-flash tradeoff, or
+finding another way to keep the tab genuinely "visible" from Chrome's perspective without covering the
+owner's screen).
+
+**Revert:** one isolated commit touching only `upwork-enricher/background.js` and `manifest.json`'s
+version bump — `git revert <this-commit-hash>` restores the active-tab-with-focus-restore behavior.
