@@ -1925,6 +1925,25 @@ function _stripDuplicateAttachmentLabel(text) {
   let out = text
   // 0) "(attached as PDF), attached as PDF:" → "(attached as PDF):"
   out = out.replace(_DUPLICATE_LABEL_BEFORE_COLON_RE, '$1:')
+  // 0b) NESTED duplicate: an attach-labelled case name gets a SECOND, trailing
+  //     attach phrase appended right after the inner parenthetical closes --
+  //     e.g. "(Skin Reboot (attached as PDF), attached as PDF)" (confirmed
+  //     real, job 12388 -- the Digit Bomb opener's inline case mention; the
+  //     first-pass draft correctly wrote "(Skin Reboot, attached as PDF)",
+  //     the enforcer's rewrite pass corrupted it into this nested shape).
+  //     Step 2 below can't reach this: its regex only matches non-nested
+  //     "(...)" groups, and the "(" right after the case name means it can
+  //     only ever see the INNER "(attached as PDF)" as its own complete
+  //     match, never the outer parenthetical as one unit. Flatten the nesting
+  //     before that step runs.
+  const _NESTED_DUPLICATE_LABEL_RE = new RegExp(
+    `\\(([^()]*?)\\s*\\(\\s*${_ATTACH_PHRASE_RE.source}\\s*\\)\\s*,\\s*${_ATTACH_PHRASE_RE.source}\\s*\\)`,
+    'gi'
+  )
+  out = out.replace(_NESTED_DUPLICATE_LABEL_RE, (full, name) => {
+    const phrase = (full.match(_ATTACH_PHRASE_RE) || [''])[0]
+    return `(${name.trim()}, ${phrase})`
+  })
   // 1) Two adjacent parentheticals that BOTH carry an attachment phrase → merge.
   out = out.replace(/\(([^()]*)\)\s*\(([^()]*)\)/g, (full, a, b) => {
     if (!_ATTACH_PHRASE_RE.test(a) || !_ATTACH_PHRASE_RE.test(b)) return full

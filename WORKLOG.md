@@ -4858,3 +4858,35 @@ window (spanning a complete 10-second poll cycle) with zero resets. No new conso
 
 **Revert:** one isolated one-line dependency-array change (plus a comment) in `JobDetail.jsx` — `git
 revert <this-commit-hash>` restores the old (buggy) dependency array.
+
+## 2026-08-20 — Bug: enforcer pass nested a duplicate attachment label on the Digit Bomb opener
+
+Owner shared job 12388's snapshot flagging garbled text: "(attached as PDF), attached as PDF) - issue".
+The real text (share-with-claude.md): first-pass draft correctly opened "...(Skin Reboot, attached as
+PDF) - that jump came from..."; after the rule-compliance rewrite, the SAME sentence read "...(Skin
+Reboot (attached as PDF), attached as PDF) - that jump came from..." — the enforcer introduced a
+nested, duplicated label the first pass never had.
+
+Traced why the existing `_stripDuplicateAttachmentLabel` cleanup (which already handles several
+duplicate-label shapes) didn't catch this one: its "same phrase twice inside ONE parenthetical" step
+matches `/\(([^()]*)\)/g` — content with NO parens allowed inside. Given `(Skin Reboot (attached as
+PDF), attached as PDF)`, that regex can only ever match the INNER `(attached as PDF)` — a `(` sitting
+right after "Skin Reboot" makes it impossible for `[^()]*` to ever reach the outer parenthetical as one
+unit, so the outer nesting was invisible to every existing dedup step (all of them are non-nesting by
+construction, deliberately, to avoid false positives on complex text — this shape just fell outside
+their scope entirely).
+
+**Fix:** added a new step (0b) to `_stripDuplicateAttachmentLabel` — a targeted regex specifically for
+`(<name> (<attach phrase>), <attach phrase>)`, collapsing it to `(<name>, <attach phrase>)`. Doesn't
+attempt general nested-paren parsing (unnecessary and riskier); scoped narrowly to this exact shape,
+consistent with the file's established discipline of narrow, false-positive-safe patterns over
+clever general-purpose ones.
+
+**Verified**: `npx esbuild --jsx=automatic --bundle=false` clean. A 5-case Node regression script:
+the real job-12388 garbled text (collapses correctly to the clean first-pass form), a profile-
+highlights variant of the same nested shape, a clean single-label sentence (unchanged), a clean
+case-study block label (unchanged), and no-case-mentioned text (inert) — 5/5 passed.
+
+**Revert:** one isolated addition (a new regex + one `.replace()` call) inside
+`_stripDuplicateAttachmentLabel` in `JobDetail.jsx` — `git revert <this-commit-hash>` removes step 0b
+cleanly, no other steps touched.
