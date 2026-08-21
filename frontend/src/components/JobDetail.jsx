@@ -2100,15 +2100,30 @@ function _splitCrammedCaseStudies(text) {
   if (!text) return text
   const alreadyHasPhrase = /profile\s+highlights?/i.test(text)
   const paras = text.split(/\n{2,}/)
+  // A case only counts toward "crammed" in the paragraph where it FIRST appears
+  // anywhere in the letter. A later paragraph that merely refers back to a case
+  // already cited earlier (e.g. "the Multilingual Site above covers…", answering
+  // a second client ask like "examples of multilingual projects") must NOT be
+  // treated as a fresh multi-case citation and re-split/re-labeled — that
+  // duplicates the case block a second time (confirmed on job 12556: "Golden
+  // State Trailers" and "Multilingual Site" each got cited in full twice, once
+  // in the main proof section and again in a later recap paragraph).
+  const firstParaForCase = new Map()
+  paras.forEach((para, pIdx) => {
+    for (const meta of _CASE_META) {
+      if (!firstParaForCase.has(meta.name) && meta.re.test(para)) firstParaForCase.set(meta.name, pIdx)
+    }
+  })
   let changed = false
   const result = []
-  for (const para of paras) {
+  paras.forEach((para, pIdx) => {
     const hits = []
     for (const meta of _CASE_META) {
       const m = para.match(meta.re)
       if (m) hits.push({ idx: m.index, len: m[0].length, meta })
     }
-    if (hits.length < 2) { result.push(para); continue }  // not a crammed block
+    const newHits = hits.filter(h => firstParaForCase.get(h.meta.name) === pIdx)
+    if (newHits.length < 2) { result.push(para); return }  // not a crammed block of NEW cases
     hits.sort((a, b) => a.idx - b.idx)
     // Only split a period-separated case LIST — each case (after the first) preceded
     // by a sentence boundary (.!?). If the cases are joined by a conjunction into ONE
@@ -2118,7 +2133,7 @@ function _splitCrammedCaseStudies(text) {
     for (let i = 1; i < hits.length; i++) {
       if (!/[.!?]$/.test(para.slice(0, hits[i].idx).replace(/\s+$/, ''))) { isList = false; break }
     }
-    if (!isList) { result.push(para); continue }
+    if (!isList) { result.push(para); return }
     changed = true
     // Keep substantial non-lead-in prefix text (a full sentence, not "Recent examples:").
     const prefix = para.slice(0, hits[0].idx).trim()
@@ -2148,7 +2163,7 @@ function _splitCrammedCaseStudies(text) {
         : 'Here are some relevant results:')
     }
     for (const e of entries) result.push(e)
-  }
+  })
   if (changed) {
     console.log('[Falcon] Split crammed case-study paragraph into separate labelled entries.')
     _recordViolations('generator', null, ['splitCrammedCaseStudies'])
@@ -2182,6 +2197,15 @@ function _ensureCaseStudyHighlightsLeadIn(text) {
   // Split a crammed one-paragraph case block into separate labelled entries (this
   // also adds the lead-in when it fires).
   text = _splitCrammedCaseStudies(text)
+  // Normalize a case name's casing wherever it appears in prose, even when it's
+  // NOT a fresh citation -- e.g. a later recap paragraph that refers back to an
+  // already-cited case by name ("the multilingual site above covers…", left
+  // alone by the crammed-study split above precisely because it's a recap, not
+  // a fresh citation) would otherwise keep whatever casing the model happened
+  // to write, which reads as an unprofessional lowercase mid-sentence mention.
+  for (const meta of _CASE_META) {
+    text = text.replace(new RegExp(meta.re.source, 'gi'), meta.name)
+  }
   const paras = text.split(/\n{2,}/)
   const hasNonPdf = paras.some(p => _NON_PDF_CASE_NAME_RE.test(p.trim()))
   if (!hasNonPdf) return text  // only PDF cases → they carry their own label

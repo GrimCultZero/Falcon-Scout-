@@ -5259,3 +5259,60 @@ inputs to detect.
 and adding the `_baseText` fallback — `git revert <this-commit-hash>` removes it cleanly; yesterday's
 original safety-net commit is unaffected and still valid on its own (it's just no longer the only path
 in).
+
+## 2026-08-21 — Same case study cited TWICE in one letter (job 12556, third bug from this thread) — root cause in `_splitCrammedCaseStudies`
+
+Owner: "not the first time I see duplications within cover letter" — a broader, recurring complaint,
+not job-12556-specific. Re-shared job 12556 (a fresh Generate, third base draft in this thread). Both
+the "before" and "after rule-compliance rewrite" drafts showed **Golden State Trailers** and
+**Multilingual Site** each cited in full TWICE: once properly, in the "Here's relevant proof:" section,
+and again later in a "multilingual / international SEO projects" paragraph responding to the posting's
+separate ask for "examples of multilingual or international SEO projects" — reasonable for the model to
+reference the same two cases again there (it only has two that qualify), but it re-emitted them as full
+`Case Name (label): description` citations instead of a plain back-reference sentence.
+
+**Root cause:** `_splitCrammedCaseStudies` (shared by all three cleanup-pipe call sites — chat rewrite,
+generate first-pass, generate enforcer-pass) treats ANY paragraph containing 2+ known case names as a
+"crammed" block that needs splitting into separate labelled citations. It has no concept of a case
+having already been formally introduced earlier in the SAME letter. The recap paragraph — "the
+multilingual site above covers italian + german markets... golden state trailers is us-only but
+demonstrates..." — is a single paragraph mentioning two case names separated by a sentence boundary, so
+it satisfied the exact same "crammed list" shape the function is designed to unpack, and got mechanically
+rewritten into a second full citation of both cases (with the label glued onto whatever word followed,
+producing "Multilingual Site (attached in profile highlights): above covers..." — a giveaway that this
+was a back-reference, not a citation, since a real citation doesn't start its description with "above").
+
+**Fix, two parts:**
+1. In `_splitCrammedCaseStudies`, track the FIRST paragraph (by index) each case name appears in
+   anywhere in the letter. A paragraph's case-name hits now only count toward "crammed" if THIS is the
+   first paragraph mentioning that case — a later paragraph that only re-mentions already-introduced
+   cases is left alone entirely (pushed through unchanged), instead of being split and re-labelled as a
+   fresh citation. A paragraph genuinely introducing 2+ NEW cases for the first time still splits exactly
+   as before.
+2. Leaving the recap paragraph untouched exposed a second-order issue: its case names keep whatever
+   casing the model happened to write ("multilingual site", "golden state trailers") — the existing
+   `_restoreProperNounCasing` step only re-cases proper nouns pulled from the JOB POSTING, not Artem's own
+   case names, so it wouldn't fix this. Added a small normalization loop right after the split, inside
+   `_ensureCaseStudyHighlightsLeadIn` (so all three call sites get it for free): replace every
+   case-insensitive, whole-word match of a `_CASE_META` name anywhere in the text with its canonical
+   casing. Caught one bug while writing this: the first version used `text.replace(meta.re, meta.name)`
+   without a global flag, which only fixes the FIRST occurrence in the whole letter (already correctly
+   cased, since that's the real citation) and leaves the later lowercase mention untouched — exactly the
+   spot that needed fixing. Fixed by constructing a fresh `new RegExp(meta.re.source, 'gi')` per case.
+
+**Verified:** 4-case Node test against the real job-12556 "before rewrite" text (the exact paragraph
+structure from the share) plus a synthetic genuinely-crammed-new-case control (two brand-new cases
+introduced together in one sentence-separated paragraph, e.g. "SMASH: ... Game-X: ...") — confirms (a)
+Multilingual Site and Golden State Trailers now each appear exactly once instead of twice, (b) the recap
+paragraph reads "the Multilingual Site above covers... Golden State Trailers is US-only..." instead of
+lowercase, (c) a genuine crammed block of brand-new cases still splits and labels correctly, unaffected
+by the new gate — 4/4. `esbuild` syntax check clean. Fetched the live-served bundle twice (once per
+sub-fix) to confirm HMR picked up each change. Checked for interaction with the two other
+duplicate-related functions in this file (`_stripDuplicateCaseBlockLabel` — a literal "Relevant case
+studies:" header pattern; `_stripDigitBombDuplicateCase` — the Digit Bomb opener stacking a second case
+right after it) — both operate on unrelated, non-overlapping text shapes, no interaction.
+
+**Revert:** two related changes in `_splitCrammedCaseStudies` and `_ensureCaseStudyHighlightsLeadIn` in
+`JobDetail.jsx` (the `firstParaForCase` gate + the case-name casing normalization loop) — `git revert
+<this-commit-hash>` removes both cleanly in one step; no other function in the cleanup chain depends on
+either change.
