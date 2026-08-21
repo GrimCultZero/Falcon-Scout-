@@ -5217,3 +5217,45 @@ necessary because the wrong architectural layer was involved.
 **Revert:** one isolated addition in `InlineChat.send()` in `JobDetail.jsx` (the `_finalNewProposal`
 block plus its downstream use in `letterUpdated`/`onProposalRewrite`) — `git revert
 <this-commit-hash>` removes it cleanly, no other chat logic touched.
+
+## 2026-08-21 — Follow-up: the job-12556 safety net above was necessary but NOT sufficient — the model can skip `<proposal>` entirely
+
+Owner re-shared job 12556 (a fresh Generate + fresh chat session, different base draft this time —
+Multilingual Site + Golden State Trailers survived the rule-compliance rewrite, Skin Reboot and Derma
+Solution got stripped out by it for not matching the B2B-tech vertical). Same request pattern: "add
+derma and skin reboot cases" → model claims added; two turns later, "add derma solution and skin
+reboot" → model replies **"Both Derma Solution and Skin Reboot are already present in the current
+draft — Skin Reboot is the first case, Derma Solution is the second case."** They were not present in
+the actual letter at all — the model was trusting its own earlier (also wrong) self-report instead of
+looking at the real text.
+
+**Why yesterday's fix didn't catch this one:** the safety net only ran `if (newProposal && text &&
+...)` — `newProposal` comes from matching a `<proposal>...</proposal>` block in the model's raw reply
+(`JobDetail.jsx` ~3214). On a turn where the model believes nothing needs to change, it doesn't emit a
+`<proposal>` block at all, so `newProposal` is `null` and the entire safety net was skipped by its own
+guard condition — the exact "nothing to change" self-report failure mode the fix was built for, just
+one layer further back than where it was checking.
+
+**Fix:** dropped the `newProposal &&` prerequisite from the outer guard, and introduced `_baseText =
+newProposal || currentProposalText`. `currentProposalText` is the live letter state passed into
+`InlineChat` as a prop (`proposal` at the parent level) — i.e. the letter exactly as it stands right
+now, independent of whether this turn produced a rewrite. The missing-case check and the deterministic
+append now run against `_baseText` instead of `newProposal` directly, so a "the model decided there's
+nothing to do" turn is checked against reality exactly the same way a real rewrite is. Everything else
+(strict/lenient name matching, the generic-word stoplist, the removal-request exclusion) is unchanged.
+
+**Verified:** expanded the Node test from 5 to 7 cases, adding the exact real turn-6 message
+("add derma solution and skin reboot") with `newProposal: null` to reproduce the no-rewrite-emitted
+path, plus a matching "already present in current letter, no rewrite emitted" negative case (must NOT
+double-append when there's truly nothing to fix) — 7/7. `esbuild` syntax check clean. Fetched the live
+bundle to confirm HMR served the new `_baseText` line before considering this done.
+
+**Lesson for next time:** a safety net that checks "did X happen" needs to handle "the system that was
+supposed to attempt X didn't even try" as its own case, not just "it tried and got it wrong" — the two
+failure shapes look identical from the user's side (the case is still missing) but need different
+inputs to detect.
+
+**Revert:** one change in `InlineChat.send()` in `JobDetail.jsx` — dropping the `newProposal &&` guard
+and adding the `_baseText` fallback — `git revert <this-commit-hash>` removes it cleanly; yesterday's
+original safety-net commit is unaffected and still valid on its own (it's just no longer the only path
+in).

@@ -3223,20 +3223,26 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // SAFETY NET: verify a chat-requested case actually landed in the
-        // rewrite. Real bug (job 12556): the model's <remarks> claimed
-        // "Added Derma Solution..." THREE separate times across one chat
-        // session, while its own <proposal> block never actually included
-        // it — a genuine LLM self-report/output inconsistency (none of the
-        // cleanup functions above delete a named case, so this isn't a
-        // deterministic-code bug). Detect an explicit "add <case>" request
-        // in the message just sent; if the named case still isn't in the
-        // rewrite, insert it deterministically from CASE_LEDGER's canonical
-        // rendering instead of silently repeating the same failure a 4th
-        // time. Skipped entirely if the message also reads as a removal
-        // request ("remove"/"drop"/"without" etc.) so this never fights an
+        // letter. Real bug (job 12556): the model's <remarks> claimed
+        // "Added Derma Solution..." repeatedly across one chat session,
+        // while its own <proposal> block never actually included it, and on
+        // a later turn it stopped emitting a <proposal> at all ("Both Derma
+        // Solution and Skin Reboot are already present in the current
+        // draft") because it trusted its own earlier (wrong) self-report
+        // instead of the real letter — a genuine LLM self-report/output
+        // inconsistency (none of the cleanup functions above delete a named
+        // case, so this isn't a deterministic-code bug). Detect an explicit
+        // "add <case>" request in the message just sent; if the named case
+        // isn't actually present — checking the model's rewrite if it made
+        // one, otherwise falling back to the letter as it stands right now,
+        // since a "nothing to change" turn produces no <proposal> at all —
+        // insert it deterministically from CASE_LEDGER's canonical
+        // rendering instead of trusting the model's claim again. Skipped
+        // entirely if the message also reads as a removal request
+        // ("remove"/"drop"/"without" etc.) so this never fights an
         // intentional cut.
         let _finalNewProposal = newProposal
-        if (newProposal && text && !/\b(remove|drop|delete|take\s+out|without)\b/i.test(text) &&
+        if (text && !/\b(remove|drop|delete|take\s+out|without)\b/i.test(text) &&
             /\b(add(?:ed|ing)?|include|insert|bring\s+back|put\s+back|(?:still\s+)?(?:don'?t|do\s+not)\s+see|didn'?t\s+add|missing|make\s+sure)\b/i.test(text)) {
           // Chat messages reference cases informally ("add derma case", not
           // "add Derma Solution") — match the FULL name OR its first word for
@@ -3247,20 +3253,23 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
           // ("House", "Site", "Shop") from matching on their own.
           const _GENERIC_CASE_WORD = new Set(['house', 'site', 'shop', 'game'])
           const _esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*')
-          for (const c of CASE_LEDGER) {
-            const words = c.name.split(/\s+/)
-            const strictRe = new RegExp(`\\b${_esc(c.name)}\\b`, 'i')
-            const altAlts = (words.length > 1 && words[0].length >= 4 && !_GENERIC_CASE_WORD.has(words[0].toLowerCase()))
-              ? `${_esc(c.name)}|${_esc(words[0])}` : _esc(c.name)
-            const lenientRe = new RegExp(`\\b(?:${altAlts})\\b`, 'i')
-            if (lenientRe.test(text) && !strictRe.test(newProposal)) {
-              const line = renderCaseLine(c.id)
-              if (line) {
-                _finalNewProposal = `${newProposal.trim()}\n\n${line}`
-                console.warn(`[Falcon] Chat rewrite claimed to add "${c.name}" but it wasn't actually in the output — appended it deterministically.`)
-                _recordViolations('generator', job?.id, ['chatClaimedCaseAddButMissing'])
+          const _baseText = newProposal || currentProposalText || ''
+          if (_baseText) {
+            for (const c of CASE_LEDGER) {
+              const words = c.name.split(/\s+/)
+              const strictRe = new RegExp(`\\b${_esc(c.name)}\\b`, 'i')
+              const altAlts = (words.length > 1 && words[0].length >= 4 && !_GENERIC_CASE_WORD.has(words[0].toLowerCase()))
+                ? `${_esc(c.name)}|${_esc(words[0])}` : _esc(c.name)
+              const lenientRe = new RegExp(`\\b(?:${altAlts})\\b`, 'i')
+              if (lenientRe.test(text) && !strictRe.test(_baseText)) {
+                const line = renderCaseLine(c.id)
+                if (line) {
+                  _finalNewProposal = `${_baseText.trim()}\n\n${line}`
+                  console.warn(`[Falcon] Chat claimed "${c.name}" was added/present but it wasn't actually in the letter — appended it deterministically.`)
+                  _recordViolations('generator', job?.id, ['chatClaimedCaseAddButMissing'])
+                }
+                break
               }
-              break
             }
           }
         }
