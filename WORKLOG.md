@@ -5165,3 +5165,55 @@ independently re-introduce the same symptom from a completely different cause.
 **Revert:** one isolated addition (`_restoreRequiredOpenerCasing` + wiring it into both `_finalText`
 computations) in `JobDetail.jsx` — `git revert <this-commit-hash>` removes it cleanly. This morning's
 enforcer-guard commit is unaffected and still valid on its own.
+
+## 2026-08-21 — Chat-requested case study silently never landed (job 12556) — LLM self-report bug, not a code regression
+
+Owner: "I've asked generator in the chat to add derma case 3 times with no result." Read the shared
+transcript for job 12556 (SEO agency posting) — the InlineChat exchange showed the model's own
+`<remarks>` claiming success three separate times ("Added Derma Solution and Skin Reboot...", "Added
+Derma Solution as the third case...", "Added Derma Solution as the second case between Skin Reboot and
+Golden State...") while the actual `<proposal>` text it returned each time never contained Derma
+Solution at all — only Skin Reboot and Golden State Trailers ever made it into the letter.
+
+**Root cause is NOT in this codebase's cleanup chain.** Grepped every function in the chat-rewrite
+cleanup pipe (`_humanizeCasing`, `_stripKbLeak`, `_stripDuplicateCaseBlockLabel`, etc.) — none of them
+delete or filter a named case out of the proposal text. This is the model's own generation being
+internally inconsistent between what it narrates in `<remarks>` and what it actually writes in
+`<proposal>` — a real LLM self-report/output mismatch, not a deterministic bug we introduced. Since we
+can't fix the model's own honesty about its output, the fix is a deterministic safety net that checks
+the claim against the actual result and corrects it if they disagree.
+
+**Fix:** in `InlineChat`'s `send()`, right after `newProposal` is computed from the model's `<proposal>`
+tag, added a check: if the just-sent user message reads as an add/include request (and NOT also a
+removal request, so this never fights an intentional cut) naming one of the `CASE_LEDGER` cases —
+matched leniently, since chat messages are informal ("add derma case", not "add Derma Solution") — but
+that case's full proper name is NOT actually present in `newProposal`, append `renderCaseLine(c.id)`
+(the ledger's own canonical rendering) directly, deterministically, instead of trusting the model's
+self-report a 4th time. Lenient matching uses the full case name OR its first word (gated by a small
+generic-word stoplist — `house`/`site`/`shop`/`game` — so a bare first word can't false-positive-match
+on its own); the presence check inside the letter stays strict (full name only, since a real case entry
+always uses the proper name). This runs on `_finalNewProposal`, which now feeds `onProposalRewrite`
+instead of the raw `newProposal`.
+
+**Two rounds of test-driven correction before this was right:**
+1. First version required the FULL case name in the user's own message to detect intent — failed
+   against the real chat text ("add derma case" has no "Solution"). Caught by a 5-case Node test using
+   the exact real turns from job 12556's transcript: 3/5 passed, both real-world cases failing. Fixed by
+   splitting into a strict regex (checks the letter) and a separate lenient regex (checks intent).
+2. Second version's intent regex still missed real turn 5 verbatim — "i dont see that you added derma,
+   check" — because `\badd\b` doesn't match "added" (no word boundary between "add" and "ed"), and the
+   "don't see" alternative only fired after the word "still". Fixed by widening to `add(?:ed|ing)?` and
+   dropping the "still" requirement before "don't/do not see". Re-ran the same 5-case test: 5/5.
+
+**Verified:** Node test against the two real job-12556 chat turns plus three edge cases (case already
+present — must not double-append; explicit removal naming the same case — must not force it back;
+unrelated rework request with no case name — must stay inert) — 5/5. `esbuild` syntax check clean after
+both edits. Fetched the live-served bundle twice (once per fix round) to confirm Vite's HMR actually
+picked up each change before re-testing. Did not spend a real API call on a live end-to-end chat replay
+for this one — the safety net is a small, self-contained deterministic block with no other pipeline
+stage that touches `newProposal` before it, unlike the job-12477 bug where a live reproduction was
+necessary because the wrong architectural layer was involved.
+
+**Revert:** one isolated addition in `InlineChat.send()` in `JobDetail.jsx` (the `_finalNewProposal`
+block plus its downstream use in `letterUpdated`/`onProposalRewrite`) — `git revert
+<this-commit-hash>` removes it cleanly, no other chat logic touched.
