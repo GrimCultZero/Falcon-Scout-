@@ -6326,9 +6326,10 @@ differently, or add any metric/detail not listed here):
 HOW TO BUILD THE OPENING (1-2 sentences total):
 1. Lead with 1-2 of the metrics above, verbatim (exact numbers and units — never round, alter, or invent a different figure). The metric must be the LITERAL FIRST WORDS — not preceded by the case name, a descriptor, or anything else.
 2. Name the case and its attachment note right after the metrics (e.g. "${_digitBombCase.name}, ${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'}").
-3. In the same sentence or the next one, bridge to what the case actually was (from the facts above) and connect it to THIS client's own situation using something REAL from their job posting (their actual product, vertical, or problem — never invented). This bridge clause is the ONLY place you write fresh prose; the numbers, case name, and case facts must not be altered.
-Illustrative shape only (do not copy verbatim, this is a different case) — CORRECT order, number first: "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you're dealing with on [client's actual product]."
+3. MANDATORY, not optional — in the same sentence or the next one, bridge to THIS client's own situation using something REAL and SPECIFIC from their job posting (their actual product, vertical, market, or the exact problem they described — never invented). The numbers alone do not make the case relevant to THIS client; this bridge is what does. Do not stop the opener right after describing what the case was — a bare "[metrics] — Case Name (attached...): [generic description of the case]." with nothing connecting it to the client reads as an ordinary case citation with the numbers moved to the front, not a cold open that resonates with them. The thesis of the whole opener is "I have exactly this experience — here's a real result — and here's why it applies directly to your situation," and the bridge clause is where that last part actually gets said. This bridge clause is the ONLY place you write fresh prose; the numbers, case name, and case facts must not be altered.
+Illustrative shape only (do not copy verbatim, this is a different case) — CORRECT, includes the bridge: "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you're dealing with on [client's actual product]."
 WRONG order — do NOT do this (case name/descriptor before the numbers, a real miss that has shipped before): "Skin Reboot (attached as PDF) — a Korean medical-aesthetic ecommerce brand: grew revenue +693.8% at 17.51 ROAS..." — the case name must NEVER come before the first metric.
+WRONG — missing bridge, do NOT do this (a real miss that has shipped before, job 12755): "+56.5% conversions, -31% CPC, +144% clicks - Atlant (attached in profile highlights): residential property developer lead gen via branded per-complex campaigns + PMax + DSA." — numbers are correctly first, but it stops there; nothing connects it to this client's actual business, so it reads out of context. It needed one more clause, e.g. "...same tire-kicker-vs-genuine-lead problem you'll be fighting across your five real estate markets."
 
 After this opening, proceed with the rest of the letter NORMALLY per the rules above. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.
 ═══════════════════════════════════════════════════════════════════
@@ -7468,6 +7469,28 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingDigitBombFacts = !(_dbHasCaseName && _dbMetricLeadsEarly && _dbMetricBeforeCaseName)
             }
 
+            // DIGIT BOMB — MISSING RESONANCE BRIDGE (owner feedback, 2026-08-23):
+            // the opener can satisfy missingDigitBombFacts (numbers first, case
+            // name right after) while still skipping the REQUIRED bridge to the
+            // client's own situation — job 12755 opened "+56.5% conversions,
+            // -31% CPC, +144% clicks - Atlant (attached in profile highlights):
+            // residential property developer lead gen via branded per-complex
+            // campaigns + PMax + DSA." and stopped there, with zero connection to
+            // Zion Home Buyers' actual "we buy houses" business. Reads as an
+            // ordinary case citation with the numbers moved to the front, not a
+            // cold open that resonates with THIS client. Can't verify semantic
+            // relevance deterministically, so this uses a narrow, low-false-
+            // positive proxy instead: the prompt's own correct-shape example
+            // always addresses the client directly ("you're dealing with...",
+            // "your five real estate markets") — its total absence from the
+            // opening paragraph is a reliable signal the bridge was skipped
+            // entirely, not just phrased differently.
+            let missingDigitBombResonance = false
+            if (_digitBombCase && !missingDigitBombFacts) {
+              const _dbFirstPara = text.split(/\n{2,}/)[0] || ''
+              missingDigitBombResonance = !/\byou(?:'re|r|'ll)?\b/i.test(_dbFirstPara)
+            }
+
             // ── Wrong audit offer on a LAUNCH / from-scratch job (KB Rule 450) ──
             // When the client is launching a Google Ads account FROM SCRATCH
             // (zero pixel data, $0 to scale, no existing campaigns), there is
@@ -7621,7 +7644,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming && !missingAuditPriceEntirely
               && !wrongOngoingManagementFee && !wrongLaunchOfferOnExistingAccount && !wrongHourlyRateAboveCeiling
               && !missingSeoAuditPriceEntirely && !wrongSeoAuditPrice && !wrongSeoRetainerFee && !missingManualAuditClaim
-              && !missingDigitBombFacts
+              && !missingDigitBombFacts && !missingDigitBombResonance
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
               && !regulatedJobMissingVape && !vapeFabrication
@@ -7685,6 +7708,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingSeoAuditPriceEntirely && 'missingSeoAuditPriceEntirely',
               missingManualAuditClaim && 'missingManualAuditClaim',
               missingDigitBombFacts && 'missingDigitBombFacts',
+              missingDigitBombResonance && 'missingDigitBombResonance',
               wrongSeoAuditPrice && 'wrongSeoAuditPrice',
               wrongSeoRetainerFee && 'wrongSeoRetainerFee',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
@@ -7788,6 +7812,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (missingDigitBombFacts) {
               console.log(`[Falcon] Rule pre-check: Digit Bomb armed (${_digitBombCase?.name}) but the opening doesn't contain its real numbers/name — firing Claude enforcer to fix it.`)
+            }
+            if (missingDigitBombResonance) {
+              console.log(`[Falcon] Rule pre-check: Digit Bomb opener (${_digitBombCase?.name}) has the numbers right but never bridges to the client's own situation — firing Claude enforcer to add it.`)
             }
             if (coverHasTimeline) {
               console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
@@ -8170,6 +8197,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               specificViolations.push(
                 `DIGIT BOMB OPENER — WRONG ORDER OR MISSING REAL FACTS (credibility-critical): Artem armed the case "${_digitBombCase.name}" for this letter's cold open. Either its real numbers/name are missing entirely, OR — the more common miss — the case name was written FIRST with the metrics folded in afterward (e.g. "${_digitBombCase.name} (attached...): [description], ${_digitBombCase.metrics[0] || ''}..."). That reads as an ORDINARY case-study citation, not a digit-bomb cold open, even though the facts are technically all present. ` +
                 `REWRITE the opening (first 1-2 sentences only) so the LITERAL FIRST CHARACTERS of the entire letter are a number from this list — ${_digitBombCase.metrics.join(', ')} — before any other word. Do NOT open with the case name, a descriptor, or anything else ahead of the number. Immediately after 1-2 metrics, name the case: "${_digitBombCase.name}${_digitBombCase.attachment === 'pdf' ? ' (attached as PDF)' : ' (attached in profile highlights)'}". What the case actually was: ${_digitBombCase.one_liner}. Bridge to the client's real, stated situation from the job posting in the same or next sentence — never invent a detail about their business. Do NOT alter, round, or drop the numbers; do NOT use any other opener style (no "reading your post", no credential lead-in, and no leading with the case name either). Leave the rest of the letter untouched. Example of the WRONG order to avoid: "${_digitBombCase.name} (attached...): [description]. [metric]..." — the metric must come BEFORE "${_digitBombCase.name}", not after. IMPORTANT — if the current draft already opens with a DIFFERENT case study (the wrong case, or the right case in the wrong order), REPLACE that entire opening paragraph with the corrected ${_digitBombCase.name} opener. Do NOT leave the old opening paragraph in place and prepend a new one on top of it — the result must have exactly ONE case-study paragraph at the top of the letter, never two stacked back to back.`
+              )
+            }
+            if (missingDigitBombResonance && _digitBombCase) {
+              specificViolations.push(
+                `DIGIT BOMB OPENER — MISSING RESONANCE BRIDGE TO THIS CLIENT (credibility-critical): the opening correctly leads with ${_digitBombCase.name}'s real numbers, but it stops right after describing what the case was, with nothing connecting it to THIS client's own posting. That reads as an ordinary case citation with the numbers moved to the front, not a cold open that resonates with them — the whole point of the opener is "I have exactly this experience, here's a real result, and here's why it applies directly to your situation," and that last part is missing. ` +
+                `ADD one clause (same sentence or the next) that bridges to something REAL and SPECIFIC from this job's own posting — their actual product, vertical, market, or the exact problem they described — never an invented detail. Do NOT touch the numbers, the case name, or anything else in the opener; add ONLY the bridge clause. Example of the missing shape: "...same tire-kicker-vs-genuine-lead problem you'll be fighting across your own market." Leave the rest of the letter untouched.`
               )
             }
             if (missingSeoPlanOffer) {

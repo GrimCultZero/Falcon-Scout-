@@ -5316,3 +5316,61 @@ right after it) — both operate on unrelated, non-overlapping text shapes, no i
 `JobDetail.jsx` (the `firstParaForCase` gate + the case-name casing normalization loop) — `git revert
 <this-commit-hash>` removes both cleanly in one step; no other function in the cleanup chain depends on
 either change.
+
+## 2026-08-23 — Digit Bomb cold open reads out of context: numbers correct, but never bridges to the client (job 12755)
+
+Owner: "When we are making digit bomb intro is should say something besides actual numbers, cause it
+looks out of context. It should also when possible to resonate with job posting." Shared job 12755
+(Zion Home Buyers, real-estate lead gen), Digit Bomb armed on Atlant. Actual opener: "+56.5%
+conversions, -31% CPC, +144% clicks - Atlant (attached in profile highlights): residential property
+developer lead gen via branded per-complex campaigns + PMax + DSA." — numbers correctly lead, case name
+correctly follows, but the opener stops there. Zero connection to Zion Home Buyers' actual "we buy
+houses" cash-buying business, despite the posting offering an obvious hook (motivated/distressed
+sellers, "sell my house" landing pages).
+
+**Why the existing guard didn't catch it:** the Digit Bomb prompt (`generate()`, the
+`DIGIT BOMB OPENER MODE` block) already had a step 3 asking the model to "bridge to THIS client's own
+situation" — but it was phrased as one bullet among three, easy to satisfy steps 1-2 (numbers first,
+case name after) and silently drop step 3 under whatever pressure the model is under. The deterministic
+pre-check (`missingDigitBombFacts`) only verifies the numbers appear early and before the case name — it
+has no concept of "bridge present or not," so a technically-compliant-but-context-free opener like this
+one sailed through with zero enforcer intervention. Same root shape as every other bug in this file this
+month: a soft prompt instruction alone isn't enough; it needs a deterministic check backing it up.
+
+**Fix, two parts:**
+1. Strengthened the prompt instruction itself — step 3 is now explicitly marked MANDATORY, states the
+   opener's whole thesis directly ("I have exactly this experience — here's a real result — and here's
+   why it applies to your situation"), and added a WRONG example using this exact job's real failure
+   text so the model has a concrete negative example matching what actually shipped, not just an
+   abstract description.
+2. Added `missingDigitBombResonance` — a new deterministic pre-check, gated to only run when
+   `missingDigitBombFacts` is already false (so it doesn't pile a second violation onto an opener that's
+   already broken in a more basic way). Can't verify semantic relevance deterministically ("does this
+   sentence meaningfully connect to the client's business" isn't a regex), so it uses a narrow, honestly-
+   imperfect proxy: the prompt's own correct-shape examples always address the client directly
+   ("you're dealing with...", "your five real estate markets...") — total absence of "you/your/you're"
+   from the opening paragraph is a reliable signal the bridge was skipped entirely, not just phrased
+   differently. Wired into `draftCompliant`, telemetry, and `specificViolations` exactly like every other
+   guard in this chain — when it fires, the enforcer gets a targeted instruction to add ONLY the missing
+   bridge clause, leaving the numbers/case name untouched.
+
+**Verified:** 4-case Node test — the real job-12755 opener (fires true), the same opener with a bridge
+clause added (fires false), a case where `missingDigitBombFacts` is already true (resonance check must
+not also fire, stays false), and no case armed at all (stays inert on every normal job) — 4/4. `esbuild`
+syntax check clean. Fetched the live-served bundle to confirm HMR picked up the change (7 occurrences of
+the new identifier, matching the guard/telemetry/console.log/specificViolations wiring).
+
+**Separately investigated, no fix needed:** the same message also mentioned the InlineChat "lies about
+what it fixed" pattern (already fixed once this week for case-study additions — see the two 2026-08-21
+entries above), pointing at this same job's chat transcript ("audit samples?" → "Adding that line" when
+the draft already said "Attaching a sample Google Ads audit"). Checked whether this could produce a
+visible duplicate: `_stripDuplicateAuditSampleMention` is already wired into the chat-rewrite cleanup
+chain and specifically collapses multiple audit-sample mentions down to one, so this specific exchange's
+self-report inaccuracy is very unlikely to have produced a duplicate in the actual letter — didn't chase
+it further without a concrete example of what the resulting text looked like (the current live-chat state
+isn't visible outside the owner's own browser session).
+
+**Revert:** one change in the DIGIT BOMB prompt block plus the `missingDigitBombResonance` guard (and its
+three wiring points: `draftCompliant`, telemetry, `specificViolations`) in `JobDetail.jsx` — `git revert
+<this-commit-hash>` removes all of it cleanly; `missingDigitBombFacts` and everything else in the
+Digit Bomb feature is untouched.
