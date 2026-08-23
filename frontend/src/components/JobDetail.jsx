@@ -7440,7 +7440,16 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // "is the audit present" signals the price checks above already use)
             // — never forces the claim onto a letter that isn't offering an audit.
             const _MANUAL_AUDIT_CLAIM_RE = /\b(?:entirely|100\s?%|completely|fully|all)\s+manual(?:ly)?\b|\bmanual(?:ly)?\b[^.\n]{0,60}\bno\s+automat|\bby\s+hand\b[^.\n]{0,60}\baudit\b|\baudit\b[^.\n]{0,60}\bby\s+hand\b|\bno\s+automat\w*[^.\n]{0,60}\bmanual(?:ly)?\b/i
-            const _ppcAuditOfferedInDraft = jobIsPpcAuditExisting && draftOffersPpcAudit
+            // Same root cause as missingAuditSampleMention above (job 12766, same
+            // session): gating on jobIsPpcAuditExisting means the posting itself
+            // must use audit/review/analysis vocabulary, but the $300 PPC audit is
+            // routinely Artem's OWN sales move on a posting that never asks for one
+            // ("build and run PPC campaigns for local service" — no audit language
+            // at all). Use draftOffersPpcAudit directly — the draft stating "$300"
+            // is decisive proof the audit deliverable is being offered, regardless
+            // of what the posting says. jobIsPpcAuditExisting is used nowhere else
+            // for this variable, so this is a self-contained fix.
+            const _ppcAuditOfferedInDraft = draftOffersPpcAudit
             const _seoAuditOfferedInDraft = _jobIsSeoAuditContext && _seoAuditPricesNearby.length > 0
             const missingManualAuditClaim = (_ppcAuditOfferedInDraft || _seoAuditOfferedInDraft) && !_MANUAL_AUDIT_CLAIM_RE.test(text)
 

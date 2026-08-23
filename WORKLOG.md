@@ -5423,3 +5423,44 @@ nothing caught it.
 `isAuditJob`-only gate with `draftOffersAuditDeliverable`, changed from `let` to `const` since it's no
 longer conditionally reassigned) — `git revert <this-commit-hash>` removes it cleanly; the
 `specificViolations` message text (which already correctly branches PPC vs SEO wording) is untouched.
+
+## 2026-08-23 — Same job, next guard in the same family: "done by hand" claim had the identical structural gap
+
+Owner regenerated job 12766 after the audit-sample fix above landed: the letter now correctly said
+"I'm attaching a sample of a recent Google Ads audit" (fix confirmed working), but "forgetting to tell
+that audit is done by hand" — `missingManualAuditClaim` never fired either.
+
+**Root cause — identical shape to the fix two entries above, one variable further upstream:**
+`missingManualAuditClaim` depended on `_ppcAuditOfferedInDraft = jobIsPpcAuditExisting &&
+draftOffersPpcAudit`. `jobIsPpcAuditExisting` requires the POSTING itself to contain audit/review/
+assessment/analysis vocabulary (`_PPC_AUDIT_EXISTING_RE`) — job 12766's posting ("build and run PPC
+campaigns for local service") has none of that, so `jobIsPpcAuditExisting` was false, `_ppcAuditOfferedInDraft`
+was false, and the manual-claim requirement never got checked — regardless of the draft plainly offering
+the $300 audit.
+
+**Fix:** `_ppcAuditOfferedInDraft` now equals `draftOffersPpcAudit` directly (drops the
+`jobIsPpcAuditExisting` dependency entirely) — confirmed via grep this variable has exactly one
+consumer (`missingManualAuditClaim` itself), so this is a fully self-contained, zero-ripple change. The
+SEO half of the same check (`_seoAuditOfferedInDraft`) was untouched — it was already keyed off
+`_jobIsSeoAuditContext` + an actual price match in the draft, not posting classification, so it never
+had this problem.
+
+**Verified:** 4-case Node test — the real job-12766 draft (v2, post-first-fix) fires true, the same
+draft with the manual claim added fires false, a job genuinely not offering any PPC audit stays inert,
+and the pre-existing SEO path is unaffected — 4/4. `esbuild` clean. Live bundle confirmed.
+
+**Flagged, not fixed — same family, no concrete failure seen yet:** `jobIsPpcAuditExisting` still gates
+several sibling checks the exact same way — `wrongAuditPrice` (extracts/validates the audit's stated
+price only when the posting used audit vocabulary), `missingComplimentaryAuditOffer` /
+`wrongComplimentaryOfferOnAuditOnly` (via `jobHasOngoingSignal` / `jobIsAuditOnlyExplicit`), and
+`missingAuditPriceEntirely`. The first two (`wrongAuditPrice`, `missingComplimentaryAuditOffer`) are
+"if the draft already offers an audit, is X correct" questions — the same shape as the two bugs just
+fixed, and plausibly have the identical gap. The latter two (`missingAuditPriceEntirely`,
+`wrongComplimentaryOfferOnAuditOnly`) are genuinely different — they ask "should an audit/complimentary
+offer exist AT ALL," which legitimately depends on reading the posting, not the draft, so they're less
+likely to share this exact bug shape. Didn't touch any of these without a real, observed failure to
+verify against — noting them here so the next one that surfaces gets recognized immediately instead of
+re-diagnosed from scratch.
+
+**Revert:** one line in `JobDetail.jsx` (`_ppcAuditOfferedInDraft`'s definition) — `git revert
+<this-commit-hash>` removes it cleanly; nothing else in the file references this variable.
