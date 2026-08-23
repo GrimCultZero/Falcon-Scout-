@@ -7364,20 +7364,34 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // — gates ONLY the audit-sample requirement below. jobIsAuditOnly (which
             // correctly suppresses the SEO PROMOTION PLAN requirement, since this
             // still isn't a growth/ongoing job) is untouched.
-            let missingAuditSampleMention = false
-            if (isAuditJob) {
-              // Check that the draft contains both "attach" and "sample" (in any
-              // order) — this covers "attach a sample audit", "sample attached",
-              // "i'm attaching a recent audit sample", etc.
-              const hasAttach = /\battach/i.test(text)
-              const hasSampleRef = /\bsample/i.test(text)
-              // Require the audit sample ONLY on audit-only (technical/diagnosis)
-              // jobs, and only when there's no other deliverable. Growth/ongoing
-              // SEO jobs get the 3-month plan instead (missingSeoPlanOffer) — never
-              // force BOTH the plan and the audit offer in the same letter. Also
-              // never force it when the client already has an audit done.
-              missingAuditSampleMention = !(hasAttach && hasSampleRef) && !hasSeoPlanMention && jobIsAuditOnly && !clientAlreadyAudited
-            }
+            //
+            // Real gap (jobs 12755, 12766 — "third time in a row" per the owner):
+            // this whole check used to require jobIsAuditOnly, which is ONLY ever
+            // computed inside the `jobIsSeo && !jobIsPpc && !jobIsWebdev` block
+            // above — so it was structurally IMPOSSIBLE for a pure-PPC job to ever
+            // trip this guard, no matter what the draft said. The $300 flat Google
+            // Ads audit is routinely Artem's OWN sales move on a plain PPC posting
+            // that never mentions "audit" at all (job 12766: "build and run PPC
+            // campaigns for local service" — zero audit language, yet the draft
+            // offered "a Google Ads account audit within 1 working day ($300 flat)"
+            // with no sample-attached mention anywhere). Decide "is an audit being
+            // offered" from what the DRAFT ITSELF states — the fixed $300 PPC or
+            // $700 SEO audit price — not from posting-side classification, so this
+            // fires regardless of jobIsPpc/jobIsSeo/jobIsAuditOnly.
+            const _draftStatesPpcAuditPrice = /\$300\b/.test(text)
+            const _draftStatesSeoAuditPrice = /\$700\b/.test(text) && /\baudit\b/i.test(text)
+            const draftOffersAuditDeliverable = (isAuditJob && jobIsAuditOnly) || _draftStatesPpcAuditPrice || _draftStatesSeoAuditPrice
+            // Check that the draft contains both "attach" and "sample" (in any
+            // order) — this covers "attach a sample audit", "sample attached",
+            // "i'm attaching a recent audit sample", etc.
+            const hasAttach = /\battach/i.test(text)
+            const hasSampleRef = /\bsample/i.test(text)
+            // Require the audit sample whenever an audit deliverable is being
+            // offered, and only when there's no other deliverable. Growth/ongoing
+            // SEO jobs get the 3-month plan instead (missingSeoPlanOffer) — never
+            // force BOTH the plan and the audit offer in the same letter. Also
+            // never force it when the client already has an audit done.
+            const missingAuditSampleMention = !(hasAttach && hasSampleRef) && !hasSeoPlanMention && draftOffersAuditDeliverable && !clientAlreadyAudited
 
             // SEO AUDIT FEE STRUCTURE (owner correction, 2026-08-08, job
             // 10659; verified against KB Rule 426, kb_entries id=426, via a

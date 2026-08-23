@@ -5374,3 +5374,52 @@ isn't visible outside the owner's own browser session).
 three wiring points: `draftCompliant`, telemetry, `specificViolations`) in `JobDetail.jsx` — `git revert
 <this-commit-hash>` removes all of it cleanly; `missingDigitBombFacts` and everything else in the
 Digit Bomb feature is untouched.
+
+## 2026-08-23 — "Third time in a row": the audit-sample-mention guard was structurally incapable of firing on PPC jobs (job 12766)
+
+Owner: "Third time in a row generator is violating the same rule - not attaching audit samples." Shared
+job 12766 ("Google Ads Manager" for a mobile detailing company — a bare, one-line posting with zero
+"audit" language anywhere: "I need a Google ads manager to build and run PPC campaigns for local
+service"). The draft offered "I can deliver a Google Ads account audit within 1 working day ($300
+flat)..." — Artem's standard PPC sales move — but never once mentioned attaching a sample, on either the
+before- or after-rewrite draft.
+
+**Root cause — not a model miss, a structurally broken guard:** `missingAuditSampleMention` required
+`jobIsAuditOnly` to be true. `jobIsAuditOnly` is a variable that is ONLY EVER COMPUTED inside a block
+gated on `jobIsSeo && !jobIsPpc && !jobIsWebdev` (its declared default, `false`, is what a pure-PPC job
+keeps forever). That means this guard was **structurally impossible to trigger on any PPC job**,
+regardless of what the draft actually said — not an occasional model slip, a backstop that could never
+have caught this on a Google Ads job in the first place. Compounding it, the OUTER gate (`isAuditJob`)
+only recognized SEO-flavored posting vocabulary (`technical seo`, `crawl`, `schema`, `indexation`, etc.)
+— nothing PPC-shaped — so even a posting that explicitly asked for an "account audit" wouldn't have
+tripped it unless it happened to also use SEO words. Likely explains all three misses the owner saw:
+the check exists and works correctly for SEO audit jobs (confirmed still passing in the test below), but
+had zero live coverage for the PPC side of the exact same feature.
+
+**Fix:** stopped deciding "is an audit being offered" from posting-side classification and started
+deciding it from what the DRAFT ITSELF states — Artem's two fixed audit prices are decisive, unambiguous
+signals that an audit deliverable is genuinely on offer: `$300` flat (PPC/Google Ads) or `$700` flat +
+the word "audit" nearby (technical SEO, slightly more conservative since `$700` alone is less
+distinctive than `$300`). `missingAuditSampleMention` now fires whenever `(isAuditJob && jobIsAuditOnly)
+|| draftStatesPpcAuditPrice || draftStatesSeoAuditPrice` is true and the draft doesn't mention
+attaching a sample — the original SEO-only path is kept (so nothing regresses there), and the new PPC
+path is additive, independent of `jobIsPpc`/`jobIsSeo`/`jobIsAuditOnly` classification entirely.
+
+**Verified:** 6-case Node test — the real job-12766 draft (fires true, was false before the fix), the
+same draft with the sample line added (fires false), the pre-existing SEO audit-only path (still fires
+true, unchanged), client-already-audited suppression (still fires false), SEO-plan-already-offered
+suppression (still fires false), and a normal non-audit job with neither price mentioned (stays inert,
+no false positive) — 6/6. `esbuild` syntax check clean. Fetched the live-served bundle to confirm HMR
+picked up the change.
+
+**Why job 12755 (a couple turns earlier, also PPC, also had a `$300` audit offer) didn't show this same
+symptom:** its base draft already included the sample line on the FIRST generate() pass — this
+deterministic guard is a backstop for when the model skips the rule on its own, not the only path to
+getting it right; job 12755's first pass evidently followed the prompt's own KB Rule 10 correctly by
+itself, so the (broken) backstop was never actually needed there. Job 12766's first pass didn't, and
+nothing caught it.
+
+**Revert:** one change to `missingAuditSampleMention`'s gate condition in `JobDetail.jsx` (replaced the
+`isAuditJob`-only gate with `draftOffersAuditDeliverable`, changed from `let` to `const` since it's no
+longer conditionally reassigned) — `git revert <this-commit-hash>` removes it cleanly; the
+`specificViolations` message text (which already correctly branches PPC vs SEO wording) is untouched.
