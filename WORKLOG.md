@@ -5572,3 +5572,62 @@ session.
 **Revert:** one new const (`_CLIENT_OWN_PORTFOLIO_RE`) plus one `.replace()` call at the single affected
 site in `JobDetail.jsx` — `git revert <this-commit-hash>` removes it cleanly; `_PROOF_REQUEST_RE` itself
 and the `InlineChat` call site are untouched.
+
+## 2026-08-24 — Two bugs on job 12904: enforcer deleted the whole Digit Bomb opener, and the audit CTA was buried before the case studies
+
+Owner: "I have armed digit bomb and pressed Redo but it didnt fire at all. Also there is no CTA — offering
+audit should be a CTA, last paragraph, not in the middle." (Also noted being on CLI mode — kept in mind
+but neither bug below is CLI-specific; both are guard gaps that would reproduce on direct API too.)
+
+**Bug 1 — Digit Bomb opener silently deleted by the enforcer, no guard caught it.** Comparing the
+before/after rewrite drafts for job 12904: the FIRST-PASS draft correctly opened "+693.8% revenue at
+17.51 PMax ROAS scaling a Korean medical-aesthetic ecommerce brand (Skin Reboot, attached as PDF)...
+Same scaling-without-losing-efficiency problem you're solving across 5,000 SKUs on the way to
+$100k/month." — numbers first, case name right after, AND a genuinely resonant bridge (the
+`missingDigitBombResonance` fix from two days ago working exactly as intended). But the AFTER-rewrite
+draft opens directly with "12 years running Google Ads..." — the entire digit-bomb paragraph is gone.
+Root cause: `missingDigitBombFacts`/`missingDigitBombResonance` only check the FIRST-PASS text to decide
+whether the enforcer needs to run at all — they don't re-verify the ENFORCER's output. Some OTHER,
+unrelated violation on the first pass triggered the enforcer call, and while rewriting to fix that,
+the enforcer silently dropped the entire opening paragraph — exactly the "enforcer overreach" shape this
+file has hit repeatedly (audit price, complimentary offer, launch timing, required-opener casing all
+already have a MUST-KEEP post-enforcer regression guard) — except the digit bomb never got one.
+
+**Fix 1:** added `_regressedDigitBombOpener` to the MUST-KEEP enforcer-regression guard chain, same
+pattern as `_regressedRequiredOpener` right above it: compares `_preEnforcerSnapshot` (had the case name
+in the first 400 chars) against `correctedText` (doesn't), and if the case name vanished, discards the
+enforcer's rewrite and keeps the pre-enforcer draft instead. Verified with a 4-case Node test against the
+real pre/post-enforcer text — fires on the real regression, stays silent when the opener survives intact,
+stays inert with no case armed, and doesn't false-positive when the case name is present in both
+(reworded, not deleted) — 4/4.
+
+**Bug 2 — audit offer (the CTA) buried before the case-study block instead of closing the letter.** The
+letter's actual paragraph order was: credential line → diagnosis → **audit offer + $300/$700 pricing** →
+case studies (ChronoCash, Nectar Flowers) → sign-off. The audit offer IS the call to action — what the
+client should do next — and it read as a mid-letter aside with the letter ending on case-study bragging
+instead of a concrete next step. Checked the prompt: rule #5 already said "it's good to close with the
+concrete first step" — a soft suggestion with no deterministic backstop, and no explicit instruction that
+the deliverable offer specifically (not just "a" first step) belongs LAST, after any case studies.
+
+**Fix 2, two parts:** (1) strengthened rule #5 to explicitly name the deliverable offer as the call to
+action and require it as the literal last substantive paragraph before the sign-off, with case studies
+(if any) placed before it. (2) added `auditOfferNotClosingCta` — a deterministic check (reusing
+`draftOffersAuditDeliverable`, `_draftStatesPpcAuditPrice`/`_draftStatesSeoAuditPrice` from the
+audit-sample-mention fix) that splits the letter into paragraphs, finds the first paragraph stating the
+audit price and the LAST paragraph naming a `CASE_LEDGER` case, and fires if the audit-price paragraph
+comes before the last case-study paragraph. Wired into `draftCompliant`/telemetry/`specificViolations`
+like every other guard in this chain, with an instruction to the enforcer to REORDER ONLY (move the
+case-study block before the audit-offer paragraph(s), no wording changes). Verified with a 4-case Node
+test against the real job-12904 letter — fires on the real ordering, stays silent once reordered
+correctly, stays silent when there are no case studies to reorder against (nothing to fix), and stays
+inert when no audit price is stated at all — 4/4.
+
+**Not yet verified live** (both are pre-check/enforcer-instruction guards — confirming they work
+end-to-end needs a real regenerate on an armed-digit-bomb / audit-offer job, not just the unit tests
+above). `esbuild` clean, both fixes confirmed present in the live-served bundle.
+
+**Revert:** two independent additions in `JobDetail.jsx` — `_regressedDigitBombOpener` (guard chain +
+one `else if` branch) and `auditOfferNotClosingCta` (check + `draftCompliant`/telemetry/console.log/
+`specificViolations` wiring + the rule #5 prompt strengthening) — `git revert <this-commit-hash>` removes
+both; they don't depend on each other and could be reverted independently by hand if only one needs to
+go.

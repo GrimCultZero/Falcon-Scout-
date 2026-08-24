@@ -6073,8 +6073,15 @@ long-form.)
 
 5. WRITE LIKE THE FIRST MESSAGE IN A CHAT. This IS the first message the client
    replies to: conversational, direct, human — not a formal essay, not third
-   person. It's good to close with the concrete first step or one sharp question
-   that invites a reply.
+   person. Close with the concrete first step or one sharp question that invites
+   a reply.
+   THE DELIVERABLE OFFER (the $300/$700 audit, the SEO promotion plan, the launch
+   commitment — whichever applies) IS THE CALL TO ACTION, not a mid-letter aside.
+   It belongs as the LAST substantive paragraph, immediately before the sign-off
+   — never sandwiched before the case-study block with case studies tacked on
+   after it. The letter should end on the concrete next step the client can act
+   on, not on bragging about past results. If case studies are cited, put them
+   BEFORE the deliverable offer, so the offer is the actual last word.
 
 (The KB RULES block above still overrides these on any specific phrasing, timing,
 or framing conflict.)
@@ -7473,6 +7480,30 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // never force it when the client already has an audit done.
             const missingAuditSampleMention = !(hasAttach && hasSampleRef) && !hasSeoPlanMention && draftOffersAuditDeliverable && !clientAlreadyAudited
 
+            // AUDIT OFFER BURIED BEFORE CASE STUDIES, NOT THE CLOSING CTA (owner
+            // feedback, 2026-08-24, job 12904): the audit offer functions as the
+            // letter's call to action — what the client should actually do next.
+            // It reads far stronger as the LAST substantive paragraph, right
+            // before the sign-off, than sandwiched in the middle with case
+            // studies tacked on after it — the letter then ends on bragging
+            // about past results instead of the concrete next step. Detect the
+            // audit-price paragraph appearing structurally BEFORE the last
+            // case-study paragraph. Reuses draftOffersAuditDeliverable (already
+            // computed above) so this only fires when an audit is genuinely
+            // being offered, same as the sample-mention check right above it.
+            let auditOfferNotClosingCta = false
+            if (draftOffersAuditDeliverable) {
+              const _ctaParas = text.split(/\n\s*\n/)
+              const _allCaseNameRe = new RegExp(`\\b(?:${CASE_LEDGER.map(c => c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i')
+              let _auditParaIdx = -1
+              let _lastCaseParaIdx = -1
+              _ctaParas.forEach((p, i) => {
+                if (_auditParaIdx === -1 && (_draftStatesPpcAuditPrice && /\$300\b/.test(p) || _draftStatesSeoAuditPrice && /\$700\b/.test(p) && /\baudit\b/i.test(p))) _auditParaIdx = i
+                if (_allCaseNameRe.test(p)) _lastCaseParaIdx = i
+              })
+              auditOfferNotClosingCta = _auditParaIdx !== -1 && _lastCaseParaIdx !== -1 && _auditParaIdx < _lastCaseParaIdx
+            }
+
             // SEO AUDIT FEE STRUCTURE (owner correction, 2026-08-08, job
             // 10659; verified against KB Rule 426, kb_entries id=426, via a
             // direct DB query): Artem's real technical SEO audit price is a
@@ -7747,6 +7778,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !localServiceCaseDisplacedByEcomHealth && !wrongOngoingRateFraming && !missingAuditPriceEntirely
               && !wrongOngoingManagementFee && !wrongLaunchOfferOnExistingAccount && !wrongHourlyRateAboveCeiling
               && !missingSeoAuditPriceEntirely && !wrongSeoAuditPrice && !wrongSeoRetainerFee && !missingManualAuditClaim
+              && !auditOfferNotClosingCta
               && !missingDigitBombFacts && !missingDigitBombResonance
               && !coverHasTimeline && !hasFabricatedDiagnosis
               && !hasUnsolicitedLogistics && !hasFillerCloser
@@ -7810,6 +7842,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               wrongHourlyRateAboveCeiling && 'wrongHourlyRateAboveCeiling',
               missingSeoAuditPriceEntirely && 'missingSeoAuditPriceEntirely',
               missingManualAuditClaim && 'missingManualAuditClaim',
+              auditOfferNotClosingCta && 'auditOfferNotClosingCta',
               missingDigitBombFacts && 'missingDigitBombFacts',
               missingDigitBombResonance && 'missingDigitBombResonance',
               wrongSeoAuditPrice && 'wrongSeoAuditPrice',
@@ -7912,6 +7945,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             }
             if (missingManualAuditClaim) {
               console.log('[Falcon] Rule pre-check: audit is offered but the draft never states it is performed entirely manually — firing Claude enforcer to add it.')
+            }
+            if (auditOfferNotClosingCta) {
+              console.log('[Falcon] Rule pre-check: audit offer sits before the case-study block instead of closing the letter — firing Claude enforcer to reorder.')
             }
             if (missingDigitBombFacts) {
               console.log(`[Falcon] Rule pre-check: Digit Bomb armed (${_digitBombCase?.name}) but the opening doesn't contain its real numbers/name — firing Claude enforcer to fix it.`)
@@ -8296,6 +8332,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 'MISSING MANUAL-AUDIT CLAIM — OWNER HARD RULE: an audit (the $300 flat Google Ads audit or the $700 flat technical SEO audit) is being offered in this letter, but the draft never states that the audit itself is performed entirely manually — no automated tools, no templated/auto-generated report. This is a required trust/differentiation signal (many competing "audits" are auto-generated by SEO/PPC tools or AI). ADD one sentence conveying this, woven naturally into the audit description near the price/sample mention — do NOT drop it as an isolated boilerplate line. Example: "every audit I run is done entirely by hand — no automated tools, no templated report." Keep the rest of the letter untouched.'
               )
             }
+            if (auditOfferNotClosingCta) {
+              specificViolations.push(
+                'AUDIT OFFER NOT THE CLOSING CTA (owner feedback — the audit offer IS the call to action, it should read as the last word, not buried mid-letter): the draft currently states the audit/pricing offer BEFORE the case-study block, so the letter ends on case studies (past results) instead of the concrete next step you want the client to act on. REORDER ONLY — move the case-study block (its lead-in line plus every case-study paragraph) to sit BEFORE the audit/pricing offer paragraph(s), so the audit offer becomes the last substantive paragraph immediately before the sign-off. Do NOT alter the wording of either block — this is a pure reordering, not a rewrite.'
+              )
+            }
             if (missingDigitBombFacts && _digitBombCase) {
               specificViolations.push(
                 `DIGIT BOMB OPENER — WRONG ORDER OR MISSING REAL FACTS (credibility-critical): Artem armed the case "${_digitBombCase.name}" for this letter's cold open. Either its real numbers/name are missing entirely, OR — the more common miss — the case name was written FIRST with the metrics folded in afterward (e.g. "${_digitBombCase.name} (attached...): [description], ${_digitBombCase.metrics[0] || ''}..."). That reads as an ORDINARY case-study citation, not a digit-bomb cold open, even though the facts are technically all present. ` +
@@ -8490,6 +8531,19 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 const _regressedRequiredOpener = _requiredOpenerPhrase &&
                   _preEnforcerSnapshot.slice(0, 150).includes(_requiredOpenerPhrase) &&
                   !correctedText.slice(0, 150).includes(_requiredOpenerPhrase)
+                // ENFORCER DELETED THE ENTIRE DIGIT BOMB OPENER (confirmed real,
+                // job 12904): the pre-enforcer draft correctly opened with the
+                // armed case's numbers (missingDigitBombFacts / missingDigitBomb-
+                // Resonance both check the FIRST-PASS text and pass, so no digit-
+                // bomb violation ever asked for a rewrite here) — the enforcer,
+                // fixing some UNRELATED listed violation, silently dropped the
+                // whole opening paragraph, including the metrics and the case
+                // name, instead of leaving it untouched. Unlike the other
+                // MUST-KEEP checks above, there was no post-enforcer regression
+                // guard for the digit bomb at all — this closes that gap.
+                const _regressedDigitBombOpener = _digitBombCase &&
+                  _preEnforcerSnapshot.slice(0, 400).includes(_digitBombCase.name) &&
+                  !correctedText.slice(0, 400).includes(_digitBombCase.name)
                 if (_looksGarbled(correctedText) && !_looksGarbled(_preEnforcerSnapshot)) {
                   console.warn('[Falcon] Rule-compliance rewrite looked garbled (orphaned punctuation / unbalanced parens) — discarding it and keeping the pre-enforcer draft.')
                   _recordViolations('generator', job?.id, ['enforcerGarbledRewrite'])
@@ -8505,6 +8559,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 } else if (_regressedRequiredOpener) {
                   console.warn(`[Falcon] Rule-compliance rewrite altered the client-mandated opening phrase "${_requiredOpenerPhrase}" — discarding it and keeping the pre-enforcer draft.`)
                   _recordViolations('generator', job?.id, ['enforcerRegressedRequiredOpener'])
+                } else if (_regressedDigitBombOpener) {
+                  console.warn(`[Falcon] Rule-compliance rewrite deleted the Digit Bomb opener (${_digitBombCase?.name}'s numbers/name) that was correctly present pre-enforcer — discarding it and keeping the pre-enforcer draft.`)
+                  _recordViolations('generator', job?.id, ['enforcerRegressedDigitBombOpener'])
                 } else {
                   text = correctedText
                 }
