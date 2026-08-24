@@ -5464,3 +5464,59 @@ re-diagnosed from scratch.
 
 **Revert:** one line in `JobDetail.jsx` (`_ppcAuditOfferedInDraft`'s definition) — `git revert
 <this-commit-hash>` removes it cleanly; nothing else in the file references this variable.
+
+## 2026-08-24 — Chat added off-domain web-dev case studies on a Merchant Center specialist job (job 12883) — the chat path has no case-relevance guard at all
+
+Owner shared job 12883 ("Google Merchant Center Manager" — owns MC end-to-end for an existing 30-50
+store Shopify portfolio, gets accounts approved, fixes feed/policy issues; explicitly "not a general PPC
+role"; nowhere asks for a build). A chat request as generic as "add ecommerce case studies" added SMASH,
+Game-X, and GKit — three `service: 'web-dev'` cases (custom OpenCart theme/module builds) — as "relevant
+results." Owner's read, which matches the actual scope: these prove "I can build ecommerce stores from
+scratch," a completely different deliverable from managing an existing store's Merchant Center feed —
+generic padding, not relevant expertise, and a real Upwork risk (reads as not having understood the
+brief).
+
+**Root cause:** confirmed the `InlineChat.send()` rewrite path has ZERO case-relevance/vertical-mismatch
+guards — none of the Generate/Redo pipeline's `wrongVerticalCasePadding`, `caseStudyDomainMismatch`,
+`exactVerticalCaseNotLeading` equivalents are wired into the chat cleanup chain at all (an architectural
+gap flagged earlier this session as the "chat-rewrite bypass"). Also discovered, while designing the
+fix, that even the Generate/Redo pipeline's own `caseStudyDomainMismatch` only checks PPC-vs-SEO — it has
+no web-dev axis either, so this specific mismatch shape (web-dev case cited on a non-webdev specialist
+job) was actually uncovered on BOTH paths. Scoped this fix to the chat path per the owner's explicit ask;
+noted the Generate/Redo gap for later, not fixed now (no confirmed failure there yet).
+
+**Fix:** new deterministic strip function `_stripOffDomainWebDevCases(text, jobContextLower)` —
+fires only when the job posting is clearly a marketing/feed specialist role (`merchant center`, `product
+feed`, `shopping ads`, `ppc`, `google ads`, `seo`, etc.) AND has no build ask anywhere (ambiguous/mixed
+jobs that DO ask for a build are left untouched, same discipline as the existing domain-mismatch guard).
+When both hold and the letter cites any `CASE_LEDGER` case tagged `service: 'web-dev'` (currently SMASH,
+Game-X, GKit, Casa Eleganza), it strips: (a) every paragraph naming one of those cases, (b) any paragraph
+SANDWICHED between two removed ones with no case name of its own and no attachment label (handles an
+ANONYMIZED case — Game-X's own paragraph in the real letter never named it: "Built a 6-step configurator
++ compatibility engine + smart cart from scratch..." — a separate, real defect worth its own
+investigation later, flagged but not fixed here), and (c) an immediately-preceding short colon-ending
+lead-in sentence with no case name of its own, so nothing is left dangling. Wired as an additional
+wrapper in `InlineChat.send()`'s cleanup chain, fed a fresh `_chatJobContextLower` built from `job.title`
++ `job.description_full`/`description_snippet` (the same pattern `InlineChat` already uses elsewhere for
+job-context blobs, since it doesn't have access to `generate()`'s internal `jobContextLower`).
+
+**Two bugs caught by testing against the real text before this was right:**
+1. First version of `_WEBDEV_BUILD_ASK_RE` included a bare `\bnew\s+(?:site|store|website)\b`
+   alternative — false-matched job 12883's OWN posting ("Google Merchant Center end to end for **new
+   store launches**" — describing the recurring business process, not a build ask directed at Artem),
+   causing an early return that skipped the strip entirely. Fixed by requiring the build VERB
+   (build/develop/create/design) directly attached to the site/store noun, dropping the bare "new
+   store"/"from scratch" alternatives since both are too ambiguous standalone.
+2. A parenthesization slip while wiring the new wrapper into the existing 12-function chat cleanup
+   chain — one closing paren short, caught immediately by `esbuild` before it ever reached the test
+   stage.
+
+**Verified:** 8-case Node test against the real job-12883 posting and the real chat-produced letter —
+SMASH/GKit/orphaned-Game-X-paragraph/dangling-lead-in all removed, the legitimate Merchant Center
+paragraphs and opener preserved untouched, a build-ask control job left completely alone, and a
+no-web-dev-case-cited control left completely alone — 8/8. `esbuild` clean. Live bundle confirmed (2
+occurrences: definition + the one call site).
+
+**Revert:** one new function (`_stripOffDomainWebDevCases` + its two regex consts) plus one wrapper call
+in `InlineChat.send()`'s cleanup chain in `JobDetail.jsx` — `git revert <this-commit-hash>` removes both
+cleanly; nothing else in the file depends on either.

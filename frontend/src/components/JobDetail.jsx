@@ -1611,6 +1611,74 @@ function _stripGenericCaseParagraphs(text, isRegulated) {
   return kept.join('\n\n')
 }
 
+// Deterministic removal of an off-domain WEB-DEV case study. Real bug (job
+// 12883, "Google Merchant Center Manager" — own MC end-to-end for a
+// portfolio of existing Shopify stores, get accounts approved, fix feed/
+// policy issues; explicitly "not a general PPC role", and nowhere asks for
+// a build). A chat request as generic as "add ecommerce case studies" had
+// NO case-relevance check on the InlineChat rewrite path (unlike the
+// Generate/Redo pipeline's wrongVerticalCasePadding/caseStudyDomainMismatch
+// guards) and picked three `service: 'web-dev'` cases — SMASH, Game-X, GKit
+// — proof of building custom OpenCart/Shopify STORES, a different
+// deliverable than managing an existing store's feed/PPC/SEO. Reads as
+// generic ecommerce padding, not relevant expertise.
+//
+// Only fires when the job is CLEARLY a marketing/feed specialist role with
+// no build ask anywhere — ambiguous/mixed jobs (anything that asks to
+// build/redesign a site) are left alone, same discipline as
+// caseStudyDomainMismatch above.
+// Requires the build VERB directly attached to a site/store noun — a bare
+// "new store" or "from scratch" is too ambiguous on its own (confirmed on
+// job 12883's own posting: "new store launches" describes a recurring
+// business process, not a build ask directed at Artem, and false-matched
+// an earlier looser version of this regex).
+const _WEBDEV_BUILD_ASK_RE = /\b(?:build|develop|create|design)\s+(?:a|an|our|my|the)\s+(?:new\s+)?(?:website|site|online\s+store|ecommerce\s+(?:store|site)|shopify\s+store|store)\b|\bredesign\b|\brebuild\b|\bcustom\s+theme\b|\btheme\s+customi[sz]ation\b|\bweb\s*(?:site|store)?\s*(?:developer|development|design(?:er)?)\b/i
+const _NON_WEBDEV_SPECIALIST_RE = /\bmerchant\s+center\b|\bproduct\s+feed\b|\bshopping\s+ads?\b|\bgoogle\s+shopping\b|\bppc\b|\bgoogle\s+ads\b|\bpaid\s+(?:search|media|ads?)\b|\bseo\b|\bsearch\s+engine\s+optimi[sz]ation\b/i
+function _stripOffDomainWebDevCases(text, jobContextLower) {
+  if (!text || !jobContextLower) return text
+  if (_WEBDEV_BUILD_ASK_RE.test(jobContextLower)) return text
+  if (!_NON_WEBDEV_SPECIALIST_RE.test(jobContextLower)) return text
+  const webDevCases = CASE_LEDGER.filter(c => c.service === 'web-dev')
+  if (!webDevCases.length) return text
+  const _escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const webDevNameRe = new RegExp(`\\b(?:${webDevCases.map(c => _escRe(c.name)).join('|')})\\b`, 'i')
+  if (!webDevNameRe.test(text)) return text
+  const allCaseNameRe = new RegExp(`\\b(?:${CASE_LEDGER.map(c => _escRe(c.name)).join('|')})\\b`, 'i')
+  const paras = text.split(/\n\s*\n/)
+  const toRemove = new Array(paras.length).fill(false)
+  paras.forEach((p, i) => { if (webDevNameRe.test(p)) toRemove[i] = true })
+  // Orphan pass: a paragraph sandwiched between two removed paragraphs, with
+  // no case name of its own and no attachment label, is very likely an
+  // ANONYMIZED case belonging to the same removed block (observed on job
+  // 12883: Game-X's own paragraph never named it — "Built a 6-step
+  // configurator + compatibility engine + smart cart from scratch..." — a
+  // separate, real defect worth its own investigation, but left as-is here
+  // would strip its neighbors and leave this orphaned, unattributed
+  // paragraph floating in the middle of the letter).
+  for (let i = 1; i < paras.length - 1; i++) {
+    if (toRemove[i]) continue
+    if (toRemove[i - 1] && toRemove[i + 1] && !allCaseNameRe.test(paras[i]) && !/attached/i.test(paras[i])) {
+      toRemove[i] = true
+    }
+  }
+  // Lead-in pass: a short, colon-ending paragraph with no case name of its
+  // own, immediately before the first removed paragraph, is that block's
+  // intro sentence — remove it too so nothing dangles (a promise like
+  // "...so I know what breaks at the feed level:" with no case studies
+  // following it reads worse than no intro at all).
+  const firstRemoved = toRemove.indexOf(true)
+  if (firstRemoved > 0) {
+    const prev = paras[firstRemoved - 1].trim()
+    if (prev.length <= 250 && /:$/.test(prev) && !allCaseNameRe.test(prev)) {
+      toRemove[firstRemoved - 1] = true
+    }
+  }
+  if (!toRemove.some(Boolean)) return text
+  console.log('[Falcon] Stripped off-domain web-dev case study padding — job is a PPC/SEO/feed specialist role with no build ask.')
+  _recordViolations('generator', null, ['offDomainWebDevCasePadding'])
+  return paras.filter((_, i) => !toRemove[i]).join('\n\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
 // Deterministic removal of a fabricated "I inspected your site" opening
 // sentence. The generator likes to open with "I took a look at <domain> -
 // <invented business description>", which (a) claims a site visit that never
@@ -3243,7 +3311,8 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // Run the chat-reworked letter through the same deterministic cleaning
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
-        const newProposal  = proposalMatch ? _humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1])))))))))))) : null
+        const _chatJobContextLower = `${job?.title || ''} ${job?.description_full || job?.description_snippet || ''}`.toLowerCase()
+        const newProposal  = proposalMatch ? _humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))), _chatJobContextLower)))))) : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // SAFETY NET: verify a chat-requested case actually landed in the
