@@ -5520,3 +5520,55 @@ occurrences: definition + the one call site).
 **Revert:** one new function (`_stripOffDomainWebDevCases` + its two regex consts) plus one wrapper call
 in `InlineChat.send()`'s cleanup chain in `JobDetail.jsx` — `git revert <this-commit-hash>` removes both
 cleanly; nothing else in the file depends on either.
+
+## 2026-08-24 — Follow-up on job 12883: why were Casa Eleganza/Paramus URLs even mentioned on a Merchant Center job?
+
+Owner asked directly: the regenerated letter for job 12883 (case-selection now correctly citing
+ChronoCash + Skin Reboot — the fix above worked) still had a line claiming Artem "runs
+casaeleganza.com and paramusmegafurniture.com on Shopify day to day." Two separate questions:
+(1) is that specific claim accurate, and (2) why are these specific portfolio URLs being mentioned at
+all on a Merchant Center job that never asked for a Shopify-store portfolio?
+
+**(1) Not accurate as worded.** These two URLs are logged (`WORKLOG.md`, `ARTEM_PORTFOLIO`) as
+proof/portfolio sites — "share ONLY when asked for examples/proof/portfolio" — and Casa Eleganza's own
+case-ledger entry describes it as a one-time "Custom Shopify 2.0 build," not an ongoing operational
+role. "I run these day to day" claims continuous hands-on commerce management, which isn't backed by
+anything on record — and it near-verbatim echoes the posting's own required bullet ("Hands-on Shopify
+experience: product data, variants, shipping profiles, markets, tax settings"), the classic shape of an
+answer-shaped fabrication.
+
+**(2) Traced the actual injection path — a real, confirmed bug, not a one-off model choice.**
+`ARTEM_PORTFOLIO`'s URLs only reach the model via `buildArtemFactsBlock`, gated in `generate()` by
+`(applicationChecklist || _PROOF_REQUEST_RE.test(fullDescription))`. Job 12883's posting has no "To
+Apply"/"Send:"-style trigger (`applicationChecklist` is null) and no screening questions, and manually
+checking `_PROOF_REQUEST_RE` against every one of its required-skill bullets found no genuine proof
+request — EXCEPT the posting's own opening sentence: **"We run a portfolio of 30-50 fashion e-commerce
+stores on Shopify"** — the client describing THEIR OWN multi-store business, using the word
+"portfolio" in a completely different sense than "show me your portfolio." `_PROOF_REQUEST_RE`'s bare
+`\bportfolio\b` alternative doesn't distinguish the two, so it fired, `buildArtemFactsBlock` (URLs and
+all) got injected into the letter-writing prompt, and the model used them anyway to answer the
+Shopify-hands-on bullet — even though the facts block's own instruction says "share ONLY when asked...
+never paste links unprompted." The instruction was right there; the trigger for having the facts in
+context at all was wrong.
+
+**Fix:** added `_CLIENT_OWN_PORTFOLIO_RE`, a narrow pattern matching "run/manage/own/have/operate/
+maintain **a portfolio of**" — the specific shape of a client describing their own business — and strip
+it from a COPY of `fullDescription` before testing `_PROOF_REQUEST_RE` at the `generate()` call site.
+Confirmed via the same investigation that `InlineChat`'s own `_PROOF_REQUEST_RE` check (line ~3282) only
+tests the user's own chat message, not the job description, so it was never exposed to this specific
+bug — only `generate()`'s check needed the fix.
+
+**Verified:** 5-case Node test — the real job-12883 posting no longer fires the gate, a genuine "please
+share your portfolio" request still fires, a posting with BOTH a client-owned-portfolio mention AND a
+separate genuine ask still fires (the other alternative catches it), a bare "Portfolio required" line
+(not the "run a portfolio of" shape) still fires, and an unrelated posting with neither pattern stays
+inert — 5/5. `esbuild` clean. Live bundle confirmed.
+
+**Flagged, not fixed:** `examples?\b` in the same regex has an analogous risk shape (a posting could say
+"for example, focus on high-intent keywords" without asking for Artem's examples) — no confirmed failure
+observed yet, so left alone per the same discipline as the audit-price siblings flagged earlier this
+session.
+
+**Revert:** one new const (`_CLIENT_OWN_PORTFOLIO_RE`) plus one `.replace()` call at the single affected
+site in `JobDetail.jsx` — `git revert <this-commit-hash>` removes it cleanly; `_PROOF_REQUEST_RE` itself
+and the `InlineChat` call site are untouched.

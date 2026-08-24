@@ -201,6 +201,17 @@ const ARTEM_PORTFOLIO = {
 // Fires the facts block when a posting/question asks for proof, portfolio, team
 // size, turnaround, or pricing.
 const _PROOF_REQUEST_RE = /\b(portfolio|examples?\b|case\s+stud|\bproof\b|sites?\s+you(?:'?ve)?\s*(?:manage|run|built|worked|maintain)|websites?\s+you|links?\s+to|show\s+(?:us|me)|references?|team\s+size|how\s+many\s+(?:people|staff)|retainer|turn[-\s]?around|monthly\s+(?:budget|fee|rate|retainer))\b/i
+// A posting describing the CLIENT's OWN portfolio ("we run a portfolio of
+// 30-50 stores/accounts/brands") is not a request to see ARTEM's portfolio —
+// strip that specific phrase before testing _PROOF_REQUEST_RE against a job
+// posting, so the bare "portfolio" alternative above doesn't misfire on it.
+// Confirmed on job 12883 ("Google Merchant Center Manager"): the posting
+// opens "We run a portfolio of 30-50 fashion e-commerce stores" (describing
+// their OWN multi-store business, nothing to do with Artem's work), which
+// triggered buildArtemFactsBlock — and with it, Artem's real portfolio URLs
+// (casaeleganza.com, paramusmegafurniture.com) — even though the client
+// never asked to see Artem's proof/portfolio anywhere in the posting.
+const _CLIENT_OWN_PORTFOLIO_RE = /\b(?:run|runs|running|manage|manages|managing|own|owns|owning|have|has|having|operate|operates|operating|maintain|maintains|maintaining)\s+a\s+portfolio\s+of\b/gi
 
 function buildArtemFactsBlock(contextText) {
   const t = (contextText || '').toLowerCase()
@@ -5896,7 +5907,7 @@ function ProposalColumn({
 - MATCH THE HANDOFF LANGUAGE TO THE DOMAIN (critical): for SEO / PPC / analytics / reporting work the handoff is client-ready audits, decks and commentary under their brand, plus a named point of contact. It is NOT "I work in staging and hand off for your QA" — that is BUILD-work language and reads as nonsense on an SEO or reporting retainer. Reserve staging/QA framing for actual web-development jobs.`
           : `CLIENT TYPE: DIRECT end client. Address them as the business that will actually use the work. Do NOT frame yourself as a white-label provider, subcontractor, or someone "working behind another agency/developer," and do NOT describe this as a white-label engagement — EVEN IF the posting says they already have a developer/team or want an "additional person/resource." That just means you would join their team directly. White-label framing is ONLY correct when the posting explicitly says white-label / reseller / "for our clients."`,
         applicationChecklist ? applicationChecklist.promptBlock : '',
-        (applicationChecklist || _PROOF_REQUEST_RE.test(fullDescription))
+        (applicationChecklist || _PROOF_REQUEST_RE.test(fullDescription.replace(_CLIENT_OWN_PORTFOLIO_RE, '')))
           ? buildArtemFactsBlock(`${job.title || ''}\n${fullDescription}`)
           : '',
         job.hire_rate ? `Client hire rate: ${job.hire_rate}%` : '',
