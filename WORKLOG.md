@@ -5740,3 +5740,32 @@ rather than holding for a check-in.
 
 **Revert:** one line (`JobDetail.jsx`, the new `LAUNCH_FROM_SCRATCH_RE` alternative + its comment) —
 `git revert <this-commit-hash>` removes it cleanly; nothing else depends on it.
+
+## 2026-08-26 — §21-C gate 1 (enforce soak) hand-review pass — evidence, not just absence of complaints
+
+Owner asked whether the ~1-week `GC_ENFORCE=true` soak (clock restarted 2026-08-19 per the entry above)
+has actually soaked enough to start 21-C. Queried `rule_violations` directly instead of guessing:
+
+- **No new/unrecognized violation codes since 08-19.** Every `generator`-surface firing in the six
+  `groundingCheck.js` classes (`metricNotInLedger`, `caseDuplicated`, `attachmentUnbacked`,
+  `marketNotInPosting`, `tooManyCaseStudies`; `seoAuditTurnaround` simply didn't fire) is one of the known
+  set — nothing new.
+- **Zero `groundingCheck`/`GC_ENFORCE`/`_gcShadow` mentions anywhere in this file between 08-19 and today**
+  — confirms none of the fixes shipped in that window (job 12477's "I KNOW GOOGLE ADS" enforcer bug on
+  08-20; job 12556's three chat/proposal-tag/dup-case bugs on 08-21; the digit-bomb + audit-CTA fixes on
+  08-24) touched the grounding checker itself. Spot-verified the one function name that sounded closest
+  (`_splitCrammedCaseStudies`, from the 08-21 thread) — it lives in `JobDetail.jsx`, not
+  `frontend/src/lib/groundingCheck.js`. The soak clock genuinely wasn't reset again.
+- **Two days ran hot** (17 checker-violations/5 generations on 08-21; 10/2 on 08-24) — both concentrated on
+  a single job each (12556, 12883) rather than spread across independent letters. Cross-checked against
+  this file: **both jobs already have full documented debugging threads from those exact sessions** — job
+  12883 is literally the "off-domain web-dev cases on a Merchant Center job" entry two above this one,
+  independently confirming a real case-relevance problem was present, not a checker false-positive. Same
+  pattern for 12556's three-bug thread. The repeated firings during those storms are the checker correctly
+  flagging real, already-documented problems while they were being actively fixed — not evidence of
+  misbehavior.
+
+**Read on gate 1: clear**, on evidence rather than "nothing was reported." **Gate 2 (case-relevance
+pre-filter) is unchanged — confirmed still not started** (last touched: the 08-24 chat-path-only patch,
+which that entry itself scopes narrowly, not the structured pre-filter §21-C needs). Both gates still
+required before starting 21-C; this only closes gate 1. No code changed — verification only.
