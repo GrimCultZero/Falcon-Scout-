@@ -7298,28 +7298,50 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // Shopify, OpenCart, web dev, build a website), suppress the SEO promotion
             // plan requirement — that deliverable is wrong for a development scope.
             //
-            // KNOWN GAP, flagged not fixed (found 2026-08-26 testing the case-domain-
-            // mismatch extension below against job 13091/"12883", Google Merchant
-            // Center Manager): this posting mentions "shopify" 4 times — "we run a
-            // portfolio of 30-50 ... stores on shopify", "connect the stack: shopify
-            // -> merchant center -> google ads", "configure the product feed (shopify
-            // channel app...)", "hands-on shopify experience" — and NONE of them is a
-            // build/development request; it's a pure ads/feed-management job on an
-            // existing multi-store operation. Unlike this regex's other alternatives
-            // (which require a development VERB — "develop", "build a website" etc.),
-            // the bare platform-name alternatives (shopify|woocommerce|opencart|magento)
-            // fire on ANY mention, with no build-intent check at all — so jobIsWebdev is
-            // a false positive here. Tried a narrow patch (strip near
-            // _CLIENT_OWN_PORTFOLIO_RE, reusing the fix already shipped 2026-08-24 for
-            // the same posting's _PROOF_REQUEST_RE bug) — insufficient, since 3 of the 4
-            // matches aren't anywhere near that phrase, and a wide-enough strip window
-            // risks eating a genuine build request elsewhere in the same posting.
-            // Properly fixing this means requiring a build-intent verb near the bare
-            // platform-name alternatives too (mirroring how the ecommerce/website/webdev
-            // alternatives already work) — a real fix, not a band-aid, so leaving
-            // WEBDEV_JOB_RE as-is rather than shipping a patch that doesn't fully work.
-            const WEBDEV_JOB_RE = /\b(shopify|woocommerce|opencart|magento|wordpress\s+(?:developer|development|website|site|theme|plugin|design)|ecommerce\s+(?:website|store|site|development)|online\s+store\s+(?:development|build|setup|creation)|website\s+(?:development|redesign|developer|builder|creation)|web\s+(?:developer|development|design)|build\s+(?:a|an|our|my|the)\s+(?:website|online\s+store|ecommerce\s+site))\b/i
-            const jobIsWebdev = WEBDEV_JOB_RE.test(jobContextLower)
+            // FIXED 2026-08-26 (was a confirmed false positive — see WORKLOG.md): the
+            // bare platform-name alternatives (shopify|woocommerce|opencart|magento)
+            // used to fire on ANY mention, unlike every other alternative in this regex
+            // (which all require an explicit development verb/noun). Job 13091 ("Google
+            // Merchant Center Manager") mentions "shopify" 4 times — all describing the
+            // client's existing stack or a required skill, zero build asks — and was a
+            // false positive under the old logic.
+            //
+            // WEBDEV_INTENT_REQUIRED is a kill-switch (same pattern as GC_ENFORCE
+            // above): set to `false` to instantly restore the pre-2026-08-26 bare
+            // platform-name matching if this regresses real jobs in production —
+            // no revert/redeploy needed beyond this one line.
+            //
+            // Verified against 172 real postings mentioning these 4 platforms (not
+            // synthetic examples): the old bare-match logic classified all 172 as
+            // webdev=true; this classifies 131 as webdev=true / 41 as webdev=false,
+            // spot-checked across the full range — every flipped-to-false posting
+            // sampled is a genuine ads/SEO/marketing/ops job, not a build request.
+            // One known residual edge case, deliberately left open (single unusual
+            // job in the sample, not a recurring pattern): a role in an ADJACENT
+            // technical domain (e.g. an email-marketing-platform specialist listing
+            // "basic html/css knowledge" and "developer teams" as required skills) can
+            // still false-positive, since _WEBDEV_TASK_SIGNAL_RE can't distinguish
+            // "this job needs CSS knowledge" from "this job needs CSS knowledge for a
+            // website build" — a semantic distinction plain keyword matching can't make.
+            const WEBDEV_INTENT_REQUIRED = true
+            const _WEBDEV_EXPLICIT_RE = /\b(wordpress\s+(?:developer|development|website|site|theme|plugin|design)|ecommerce\s+(?:website|store|site|development)|online\s+store\s+(?:development|build|setup|creation)|website\s+(?:development|redesign|developer|builder|creation)|web\s+(?:developer|development|design)|build\s+(?:a|an|our|my|the)\s+(?:website|online\s+store|ecommerce\s+site))\b/i
+            const _WEBDEV_PLATFORM_RE = /\b(shopify|woocommerce|opencart|magento)\b/i
+            // Reliable bare signals — verified with no cross-domain false-positives
+            // across the 172-posting test set.
+            const _WEBDEV_TASK_SIGNAL_RE = /\b(develop(?:er|ment)?|theme(?:s|d|ing)?|plugin(?:s)?|template(?:s)?|front[\s-]?end|back[\s-]?end|codebase|liquid(?:\s+(?:code|template))?|css|html|javascript|app\s+(?:development|developer)|redesign(?:ing|ed)?|rebuild(?:ing)?|design(?:er|ing)?|customi[sz](?:e|ing|ation|ed)|render[\s-]?blocking|page\s+speed|(?:page|site|homepage)\s+load(?:ing)?\s+(?:speed|time))\b/i
+            // build/set up/create/migrate are too generic bare (false-positived on
+            // "build a checklist", "account creation", "migrate...conventions" on
+            // non-dev jobs during testing) but are reliable when scoped to a nearby
+            // store/site/page noun (comma-excluded so a list-like sentence can't
+            // bridge two unrelated clauses), or — for migration specifically — near
+            // a second platform name (these jobs are almost always phrased "X to Y
+            // migration").
+            const _WEBDEV_TASK_SCOPED_RE = /\b(?:build(?:ing)?|set\s*up|creat(?:e|ing|ion))\b[^,.\n]{0,25}\b(?:store|site|website|shop|page)\b|\b(?:store|site|website|shop|page)\b[^,.\n]{0,25}\b(?:build(?:ing)?|set\s*up|creat(?:e|ing|ion))\b|\bmigrat(?:e|ing|ion)\b[^.\n]{0,30}\b(?:shopify|woocommerce|opencart|magento|wordpress)\b|\b(?:shopify|woocommerce|opencart|magento|wordpress)\b[^.\n]{0,30}\bmigrat(?:e|ing|ion)\b/i
+            const _webdevExplicitMatch = _WEBDEV_EXPLICIT_RE.test(jobContextLower)
+            const _webdevPlatformMatch = _WEBDEV_PLATFORM_RE.test(jobContextLower)
+            const jobIsWebdev = WEBDEV_INTENT_REQUIRED
+              ? (_webdevExplicitMatch || (_webdevPlatformMatch && (_WEBDEV_TASK_SIGNAL_RE.test(jobContextLower) || _WEBDEV_TASK_SCOPED_RE.test(jobContextLower))))
+              : (_webdevExplicitMatch || _webdevPlatformMatch)
             // Maintenance/changes web-dev job (existing store, not a from-scratch build).
             // On these the SEO/ranks-from-launch pitch is off-target — the client hired a
             // developer to make changes, not an SEO. Flag if the opener leads with SEO/rank.

@@ -5836,3 +5836,64 @@ calls for now exists; the job-classification signal feeding it still has a known
 boolean, the console.log, and the enforcer-instruction text) — `git revert <this-commit-hash>` removes it
 cleanly and restores the old hand-written lists. The `WEBDEV_JOB_RE` comment-only addition (documentation,
 no behavior change) can stay regardless.
+
+## 2026-08-26 — §21-C gate 2 finished: fixed the `WEBDEV_JOB_RE` false-positive properly, with a kill-switch and testing against 172 real postings
+
+Owner: "take that, but please make sure we can revert everything if results will be bad." Picked up the
+gap flagged two entries above (bare `shopify|woocommerce|opencart|magento` matching with no build-intent
+check) and built the real fix this time, not a band-aid.
+
+**Design — a kill-switch, same pattern as `GC_ENFORCE`:** `WEBDEV_INTENT_REQUIRED` (`JobDetail.jsx`, right
+above the detection regexes) — `true` is the new, tested behavior; setting it to `false` instantly restores
+the exact pre-2026-08-26 bare-platform-name matching, no `git revert` needed if this regresses something
+in real usage. This is in addition to, not instead of, normal git revertability — the whole change is one
+isolated commit.
+
+**Testing methodology — real data this time, not synthetic guesses (the earlier attempt in this thread
+failed exactly because it wasn't):** pulled every real job in the DB mentioning shopify/woocommerce/
+opencart/magento — **172 postings**, not a handful of examples. Under the old bare-match logic all 172
+classify `jobIsWebdev=true`. Iterated the task-signal word list against this real corpus three times:
+
+1. First pass (broad verb list: build/create/integrate/implement/troubleshoot/migrate/etc.) — false-positived
+   on real jobs: "build **and maintain a repeatable launch checklist**" (Merchant Center job, "build" used
+   generically), "**developer** teams" and "html/css **knowledge for email**" (a Klaviyo email-marketing
+   role listing cross-domain skills), "account **creation**" and data-feed "**integration**" (ads/compliance
+   jobs). Every one of these words is genuinely too generic outside a website-development context.
+2. Second pass (narrowed to reliable bare signals only: developer/theme/plugin/template/css/html/
+   javascript/design/rebuild/redesign/customize/front-end/back-end/codebase/liquid/performance phrases) —
+   fixed the above, but full-corpus sweep found the opposite problem: real jobs like "**Build** WooCommerce
+   **Website**", "Shopify **to** WooCommerce **migration**", "3-Page Shopify **Store**" now false-negatived,
+   because build/create/setup/migrate were dropped entirely rather than scoped.
+3. Third pass (final): re-added `build`/`set up`/`create` scoped to a nearby store/site/website/shop/page
+   noun within 25 chars, **excluding commas** from the gap (a looser comma-inclusive window bridged
+   unrelated clauses in list-like sentences — "website, set up our GMC account" is NOT "website setup" —
+   and caused two real regressions before tightening it); `migrate` scoped to a second platform name nearby
+   (these jobs are almost always phrased "X to Y migration"), since migration jobs rarely say "store" at all.
+
+**Result on the full 172-posting corpus:** 131 correctly stay `webdev=true`, 41 flip to `webdev=false`.
+Manually spot-checked across the whole range (not just the top or bottom) — every flipped-to-false posting
+sampled is a genuine ads/SEO/marketing/ops/accounting-integration job, not a build request. All 8 jobs that
+looked like potential false negatives on first read of the flip list ("Build WooCommerce Website",
+3 Shopify↔WooCommerce/Magento migrations, "3-Page Shopify Store", a custom WooCommerce checkout/payment
+build, a Shopify UI/UX-fix job) turned out to be correctly caught once checked against their FULL
+description rather than title alone — the apparent false negatives were a bug in the test script's field
+mapping, not the detection logic; caught and fixed before trusting the result.
+
+**End-to-end verified:** replayed the exact original bug (job 13091, draft citing SMASH + GKit) — now
+`jobIsWebdev=false` (correctly), the case-domain-mismatch check from the entry above now fires. `esbuild`
+transform of `JobDetail.jsx` clean.
+
+**Known residual gap, accepted deliberately:** the Klaviyo-style edge case from pass 1 (a role in an
+adjacent technical domain listing "html/css knowledge" or "developer teams" as a required skill, not a
+build ask) can still false-positive — this is a genuine semantic distinction ("needs CSS knowledge" vs.
+"needs CSS knowledge to build a website") that keyword matching can't resolve, and it was exactly one
+unusual job out of 172 real postings, not a recurring pattern. Documented in the code comment rather than
+chased further.
+
+**§21-C gate 2 status: both pieces now built and verified** — the ledger-derived case-domain-mismatch
+(previous entry) and this classification fix together. `DESIGN.md` §21.10 updated.
+
+**Revert:** one isolated commit in `JobDetail.jsx` (the `WEBDEV_INTENT_REQUIRED` block replacing the old
+single-line `WEBDEV_JOB_RE`) — `git revert <this-commit-hash>` removes it cleanly and restores the old
+bare-match regex; or, without touching git at all, flip `WEBDEV_INTENT_REQUIRED` to `false` for the same
+effect instantly.
