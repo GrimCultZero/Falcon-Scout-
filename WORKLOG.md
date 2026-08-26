@@ -5679,3 +5679,38 @@ change), (2) have `scrapeProposalsList()` pull each row's numeric id from its `/
 instead of/alongside the title, (3) add it as the first-choice match in `/proposal-status-sync`, ahead
 of the title fallback. Touches frontend scraper + backend + schema — multi-file, so not started without
 a check-in first.
+
+## 2026-08-26 — Job 13240 letter attaches an audit sample on a job that never mentions "audit" — confirms the sibling gap flagged 2026-08-24, root cause traced
+
+Owner shared job 13240 ("Google Ad Account Management" — brand new account, $1,000/mo budget, explicitly
+"starting from zero," 3 direct screening questions) for review. Both generation passes introduced
+audit-flavored language the posting never asked for: the first-pass draft closed with "audit delivered
+within 5 working days of account access"; the rewrite swapped that for "I'm attaching a sample of a
+recent Google Ads audit so you can see the format and depth" — right after the letter's OWN preceding
+line, "The $300 audit doesn't apply here since you're starting from zero." Neither pass is internally
+consistent, and the rewrite didn't fix the defect, just relabeled it.
+
+**Root cause, traced:** every existing audit-consistency guard (`missingComplimentaryAuditOffer`,
+`wrongComplimentaryOfferOnAuditOnly`, `missingAuditPriceEntirely`, `wrongAuditPrice` — `JobDetail.jsx
+:7240,7241,7264,7273`) is gated behind `jobIsPpcAuditExisting` (`:7232`), which requires the **posting**
+to match `_PPC_AUDIT_EXISTING_RE` (`audit|review|assessment|health check|analysis|analyze`, `:7230`).
+Job 13240's posting contains none of those words at all — it's a plain "manage a new account" brief, no
+audit language anywhere in the brief. So `jobIsPpcAuditExisting` is `false` and the entire guard family
+never evaluates. This is the mirror image of what those checks actually cover: they all ask "the posting
+IS audit-relevant — is the draft's audit claim correct for it," never "the posting has ZERO audit
+language — did the draft invent an audit mention anyway." Confirms, with a real fixture, the sibling gap
+flagged but unconfirmed in the 2026-08-24 entry above (`_ppcAuditOfferedInDraft` fix) — same family, this
+is the concrete failure that entry was watching for.
+
+**Not fixed** — reviewed as part of a cover-letter read for the owner, not a build session. A fix needs a
+new check, inverse of the existing family: draft mentions/attaches an audit deliverable
+(`_stripDuplicateAuditSampleMention`'s attach-pattern at `:7407` is the closest existing detector to
+reuse) while the posting matches none of `_PPC_AUDIT_EXISTING_RE` — flag or strip. Small, single-file
+(`JobDetail.jsx`), looks tactical, but flagging rather than building since it wasn't scoped/verified
+against other jobs first.
+
+**Also checked while reviewing this letter (both clean):** the two case studies cited (FridgeFix, House
+Painting) — both metrics and attachment labels match `caseLedger.js` exactly, including catching that the
+first-pass draft's "profitable at $25/day" for House Painting wasn't a real ledger figure and the rewrite
+correctly replaced it with the real one (`$140 avg cost per conversion`) — grounding checker working as
+intended there.
