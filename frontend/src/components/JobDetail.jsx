@@ -7043,8 +7043,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 // chronocash added: an approved high-ticket ecommerce case
                 // (luxury watch dealer, EUR0.52 CPC, +42% conversions) that
                 // should count as on-vertical proof for this job type.
+                //
+                // oxytec REMOVED (2026-08-26, found during a system-wide audit):
+                // Oxytec is a B2B water/air-purification EQUIPMENT SUPPLIER
+                // (CASE_LEDGER: vertical 'b2b-equipment') — it doesn't fit this
+                // bucket's DTC/consumer-store signal (shopify/product feed/
+                // shopping ads). Its presence here meant a letter citing Oxytec
+                // on a Shopify/DTC job was silently treated as correctly
+                // "on-vertical and leading" by exactVerticalCaseNotLeading, which
+                // is wrong. No replacement bucket exists yet for B2B jobs (a real
+                // gap — Golden State Trailers has no vertical-lead protection at
+                // all) — flagging that rather than guessing at a new bucket
+                // without testing it against real B2B postings first.
                 jobRe: /\b(e-?commerce|online\s+store|shopify|woocommerce|magento|product\s+feed|merchant\s+center|shopping\s+ads?|\bdtc\b|\bd2c\b)\b/i,
-                caseRe: /\b(nectar\s*flowers|skin\s*reboot|smash|game-?x|oxytec|chronocash)\b/i,
+                caseRe: /\b(nectar\s*flowers|skin\s*reboot|smash|game-?x|chronocash)\b/i,
                 lead: 'an ecommerce case (Nectar Flowers -72% CPA / +350% revenue, Skin Reboot 17.51 ROAS, or ChronoCash luxury-watch high-ticket)' },
             ]
             const _jobVertical = _VERTICAL_LEAD_CASES.find(v => v.jobRe.test(_jobVerticalBlob)) || null

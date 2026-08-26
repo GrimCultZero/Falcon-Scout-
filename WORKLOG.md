@@ -5940,3 +5940,63 @@ name the way `/messages-status-sync`'s fallback does. Strengthens the case for t
 long-term answer here rather than patching `_greeting_name()`'s regex (which can't be patched into working
 against letters that never contain a name at all — no regex fixes a signal that isn't there). Not built —
 schema + multi-file, same as before, flagging rather than starting without a check-in.
+
+## 2026-08-26 — System-wide audit: why does the generator still hallucinate/break rules after all these fixes?
+
+Owner asked the real question directly, after the job-13231 rent-a-car letter review (previous entries)
+surfaced yet another posting-classification bug: why does this keep happening, and can the current rule
+set be cross-checked systematically instead of one incident at a time. Read all 56 checks feeding
+`draftCompliant` plus the 6 `groundingCheck.js` classes. Findings:
+
+**The pattern:** §21 (case ledger + grounding checker) fixed case-citation fabrication specifically — real,
+confirmed progress. But ~50 other checks still run on the pre-§21 pattern: classify the job posting with a
+keyword regex, gate a rule on that classification. That's the exact "enumerate possible phrasings" problem
+§21 was built to escape from the *output* side, just moved to the *input* side — equally unbounded, as
+proven by finding two fresh gaps in two days of review (`LAUNCH_FROM_SCRATCH_RE`, `isAuditJob`).
+
+Three recurring failure shapes, each with multiple confirmed instances:
+1. **Negation-blindness** — `isAuditJob` (`:7449`) is bare `/\baudit\b/i`, no sentiment. Same shape as
+   `_PROOF_REQUEST_RE` (fixed 08-24 via `_CLIENT_OWN_PORTFOLIO_RE`).
+2. **Phrasing-completeness gaps** — `LAUNCH_FROM_SCRATCH_RE` missed "brand new google ads account"
+   (fixed two entries above); its own comment history shows this is at least its second documented gap.
+3. **Parallel sources of truth never migrated to the ledger** — `_VERTICAL_LEAD_CASES` (hand-written,
+   `:7025`) and `fabricatedCaseMetric` (`:6868`, dollar-only, duplicates `groundingCheck.js`'s
+   `metricNotInLedger`) are both still live, hand-maintained, independent of `CASE_LEDGER`.
+
+Categorized all 56: ~24 gated on job-posting classification (highest risk, same shape as every bug found
+this week), ~13 scan draft *output* for known-bad phrasings (bounded but open-ended — comments in the code
+itself admit "the model dodges narrow regexes by rewording"), ~6 ledger/structured-data-derived (lowest
+risk, though `groundingCheck.js`'s own metric regex still missed "15.4K" — see two entries above), 2
+confirmed duplicate mechanisms.
+
+**Attempted the highest-leverage single fix (`isAuditJob` negation) — investigated, did NOT ship it.**
+Pulled all 136 real postings mentioning "audit" and found 13 with a negation nearby. Only 1–2 are true
+rejections like job 13231's. The other 11 negate something else while still genuinely wanting an audit —
+*"strictly for an independent audit - not ongoing management"*, *"a clear actionable audit, not just a
+list of problems"*, *"a fixed rate, not hourly, for this audit"*, and — the sharpest case — *"not looking
+for a generic SEO audit or a standard checklist"* from a job titled **"SEO Forensic Audit Specialist"**,
+i.e. the exact phrase job 13231 used, on a job that DOES want an audit. A negation regex tuned to catch
+13231 would misfire on most of these 11. The real distinguishing signal is deliverable-scope-fit (does
+this job match Artem's productized $700-flat-audit offering, or does it want something bespoke), not
+keyword negation — not solvable with the `_CLIENT_OWN_PORTFOLIO_RE`-style fix that worked for the sibling
+bug. Not attempting a regex fix without a better signal than this.
+
+**`_VERTICAL_LEAD_CASES` — smaller in scope than assumed, one confirmed error, fixed.** The table only
+covers 3 of the ledger's ~12 verticals (real-estate, medical/YMYL, ecommerce) — B2B, construction, luxury,
+restricted, fashion, furniture, and local-service get no "must-lead" ordering protection at all. Found and
+fixed one real miscategorization: **Oxytec** (`CASE_LEDGER`: `vertical: 'b2b-equipment'`, a water/air-
+purification equipment supplier) was listed as valid "ecommerce" proof, whose trigger is Shopify/DTC/
+product-feed language — Oxytec doesn't fit a consumer DTC store, so a letter citing it on a Shopify job was
+being silently treated as correctly on-vertical. Removed it from that bucket (`:7047`). Did NOT build the
+missing ~9 verticals' worth of coverage — that means writing and real-data-testing a job-detection regex
+per vertical, the same multi-round effort `WEBDEV_JOB_RE` took (previous entries), at roughly 3x the scale.
+`esbuild` transform of `JobDetail.jsx` clean.
+
+**Bottom line for whoever picks this up:** the fastest way to keep finding these is exactly what happened
+this session — review a real letter, trace any defect to its actual root cause instead of patching the
+symptom, and check whether the SAME root cause has other victims. Don't build speculative fixes for
+classification gaps that haven't been confirmed against real data first (see the isAuditJob attempt above)
+— every fix shipped this session that skipped that step needed a second pass to get right.
+
+**Revert:** one line (`JobDetail.jsx:7047`, the `caseRe` for the 'ecommerce' vertical bucket) —
+`git revert <this-commit-hash>` restores oxytec to that list; nothing else depends on it.
