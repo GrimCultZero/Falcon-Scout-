@@ -138,6 +138,18 @@ class Job(Base):
     last_analysis_json = Column(Text, nullable=True)
     last_analysis_at   = Column(DateTime, nullable=True)
 
+    # ── Job classification cache (pilot, 2026-08-26) ─────────────────────
+    # Deterministic regex classifiers (isAuditJob, _postingAsksRate, etc.)
+    # match keyword presence, not meaning — proven unreliable on negation
+    # ("not looking for a generic audit" still matches /\baudit\b/) and on
+    # novel phrasing. This caches a narrow, forced-choice LLM classification
+    # of the posting instead: {"asks_for_rate": bool, "is_audit_request": bool}.
+    # One call per job (cached here), not per generation. Updated by
+    # POST /jobs/{id}/classification; read via GET /jobs/{id}/classification
+    # (NOT via the `job` prop — see JobDetail.jsx generate() for why).
+    job_classification_json = Column(Text, nullable=True)
+    job_classification_at   = Column(DateTime, nullable=True)
+
 
 class KBEntry(Base):
     """

@@ -6069,3 +6069,81 @@ nullable, unused by old code paths); the four capture/scrape edits are independe
 removed. No single-line kill switch this time (unlike `WEBDEV_INTENT_REQUIRED`) since there's no
 existing-behavior risk to gate — step 0 only ever narrows matches to cases the old steps already
 couldn't handle, or matches identically to what step 1 would have found anyway.
+
+## 2026-08-26 — Pilot shipped: LLM job classification replaces isAuditJob/_postingAsksRate, validated on real data, live-verified
+
+Owner's framing after the rent-a-car `_stripUnaskedRate` bug: not "fix this one carve-out," but "why do
+rules keep breaking, should the system be different at its core." Diagnosis (matches DESIGN.md §21.1's
+original diagnosis of the *output* side, now confirmed on the *input* side too): regex classifiers match
+keyword presence, not meaning — proven across five bugs this session (negation-blindness, phrasing gaps,
+scope-disambiguation). The Haiku "enforcer" already proved free-text rewriting under compound rules is
+unreliable — so the fix isn't "more regex" or "let AI rewrite more," it's separating **narrow classification**
+(a task LLMs are good at, if kept small and forced-schema) from **rewriting** (proven unreliable), the same
+"checker not rewriter" discipline §21-B already validated for claim verification, extended to job inputs.
+
+Piloted narrowly on exactly the two classifiers that have bitten twice: `isAuditJob`'s audit-request signal
+and `_postingAsksRate`. `jobIsPpc`/`jobIsSeo`/`jobIsWebdev` (30+ combined consumers) deliberately untouched —
+prove it small first. Planned via `EnterPlanMode`/`ExitPlanMode` given the architectural scope; plan agent
+review caught two real issues before any code was written (see below).
+
+**Built (6 pieces):**
+1. `db.py` — `Job.job_classification_json` / `job_classification_at`, mirrors the existing
+   `last_analysis_json` cache pattern exactly.
+2. `api/main.py` — added both new columns to the EXISTING self-healing `_ensure_job_columns()` migration
+   (`:50-119`) instead of a one-off manual `ALTER TABLE` like earlier fixes this session — found this is
+   the established pattern and retroactively added the missing `upwork_proposal_id` migration to it too
+   (that column existed only via a manual script until now; a fresh clone or restored backup wouldn't have
+   had it).
+3. `api/main.py` — `POST`/`GET /jobs/{id}/classification`. The GET route is the deliberate difference from
+   the analysis cache it mirrors: investigation (via a Plan-mode review agent) confirmed `/jobs/{id}/analysis`
+   has **no GET route at all** — `generate()`'s existing `fetch()` there silently 405s, and the SKIP-gate it's
+   meant to feed has been dead code. Real, separate bug — logged here, deliberately NOT fixed in this pilot
+   (would confound before/after comparison) — flagging for its own follow-up commit.
+4. `JobDetail.jsx` — `classifyJobShape()`, modeled on the existing `checkRuleConflict()` (a small, narrow,
+   forced-JSON `/claude` call already proven in this file) rather than the analyser's bigger prompt+parse
+   pattern. Explicitly did NOT migrate to Anthropic tool-use/forced-schema as originally drafted — the
+   review agent found `_flatten_for_cli` silently drops `tools`/`tool_choice` entirely (CLI-bridge mode
+   would get zero classification, not just untracked cost), and pointed out it would've conflated two
+   experiments (LLM-vs-regex, and tool-use-vs-prompt-extraction) in one pilot. Prompt explicitly encodes
+   the negation lesson from the regex investigation: "a posting that rejects a 'generic' audit but still
+   wants a custom one still counts as true."
+5. `JobDetail.jsx` — session-local `jobClassificationCacheRef` (mirrors the existing `kbContextCacheRef`
+   pattern), NOT the `job` prop — the review agent caught that the prop is stale for the rest of the
+   session (same root cause as #3: nothing refetches `job` after the fire-and-forget cache POST), which
+   would've silently defeated the caching on every Redo/Rescan.
+6. `JobDetail.jsx` — `isAuditJob` and `_postingAsksRate` definitions changed to
+   `classification?.<field> ?? <existing regex>`; their combined 5 consumer call sites needed zero changes.
+
+**Validated on real data before trusting either model** (mirrors the `WEBDEV_JOB_RE` methodology — 172 real
+postings, iterative refinement — from earlier this session): built a 13-job labeled set from postings already
+hand-reviewed this session (the 13 real "negated audit" mentions found while investigating the `isAuditJob`
+bug, plus job 13231 the original motivating case, plus a few fresh rate-ask/plain-hourly examples), ran the
+actual production prompt against all 13 with both Haiku and Sonnet via direct calls to the live `/claude`
+endpoint. Result: **Haiku matched or beat Sonnet** — zero confirmed Haiku misses (one apparent miss, job
+11169, turned out to be MY ground-truth label being wrong — the posting says "please propose your rate
+based on scope" and both models correctly caught it, I'd missed it on a shallow grep); Sonnet had one
+confirmed miss (job 914, title literally "Technical SEO Audit & Full Execution," Sonnet said
+`is_audit_request: false`). One case (13285) genuinely ambiguous by the classification question's own
+definition — bundled audit-language inside an ongoing-management scope — not counted against either model.
+**Model: Haiku (`claude-haiku-4-5-20251001`)** — cheaper AND at least as accurate on this narrow task, exactly
+what the plan said to decide from evidence rather than assume (this file already has one precedent of a
+"cheap Haiku pass looked fine, then wasn't" — this time it held up under real testing).
+
+**Live end-to-end verified, not just unit-level:**
+- `POST`/`GET /jobs/13231/classification` round-trip confirmed correct via direct curl.
+- Opened the real running app, clicked "Generate Cover Letter" on a live job (fresh capture, 3 min old) —
+  console showed `[Falcon] Job classification hit: {asks_for_rate: false, is_audit_request: false}`, a
+  reasonable read for an ongoing VA-style website job with no audit/rate language.
+- Clicked Redo on the same job — console showed the identical classification hit again, but **confirmed via
+  `token_usage` ground truth (not just log-reading) that only ONE `job_classify` row was ever recorded**
+  despite two generate calls — the ref-cache genuinely prevented a second paid call, not just returned a
+  correct-looking value that happened to also refire.
+- `python -m py_compile` + `esbuild` transform clean throughout.
+
+**Explicitly not done (per plan, on purpose):** `jobIsPpc`/`jobIsSeo`/`jobIsWebdev` untouched. The
+`/jobs/{id}/analysis` GET-route bug not fixed (flagged above). Tool-use/forced-schema migration not
+attempted (flagged above, reasoned out during planning, not during a failed attempt).
+
+**Revert:** six pieces, all additive/backward-compatible individually — `git revert <this-commit-hash>`
+removes the whole pilot cleanly; the `db.py` columns and self-healing migration are safe to leave in place
+regardless since nothing else depends on them existing.

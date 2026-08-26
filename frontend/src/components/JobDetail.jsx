@@ -1423,6 +1423,42 @@ async function checkRuleConflict(newRuleText) {
   } catch { return null }
 }
 
+// ── Job-shape classification (pilot, 2026-08-26 — see WORKLOG.md) ──────────
+// Regex classifiers (isAuditJob, _postingAsksRate) match keyword PRESENCE,
+// not meaning — proven unreliable on negation ("we are not looking for a
+// generic audit" still matches /\baudit\b/i the same as "we want an audit")
+// and on novel phrasing, across five separate confirmed bugs this session.
+// This replaces just those two signals with a narrow, forced-choice LLM
+// classification instead — modeled on checkRuleConflict() above, the same
+// "small mechanical JSON call" pattern already proven in this file. Returns
+// null on ANY failure so callers always fall back to the regex — this must
+// never become a hard dependency that blocks generation.
+async function classifyJobShape(jobTitle, jobDescription, model) {
+  try {
+    const res = await fetch('/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        _kind: 'job_classify',
+        model: model || 'claude-haiku-4-5-20251001',
+        max_tokens: 150,
+        system: 'You classify Upwork job postings for a freelance proposal tool. Answer exactly two yes/no questions about what the posting ITSELF says — do not infer or guess beyond the text. Respond ONLY with valid JSON, no markdown: {"asks_for_rate":true/false,"is_audit_request":true/false}\n\nasks_for_rate: does the posting explicitly ask the freelancer to state their rate, price, budget, or a quote?\nis_audit_request: does the posting ask for a one-time audit, analysis, review, or diagnostic engagement (as opposed to ongoing hands-on management)? A posting that rejects a "generic" or "templated" audit but still wants a custom/bespoke one still counts as true — it is asking for audit-shaped work, just not a canned version of it.',
+        messages: [{ role: 'user', content: `Job title: ${jobTitle || '(none)'}\n\nJob description:\n${(jobDescription || '').slice(0, 4000)}` }],
+      }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const text = (data.content || []).map(b => b.text || '').join('').trim()
+    const match = text.match(/\{[\s\S]*\}/)
+    if (!match) return null
+    const parsed = JSON.parse(match[0])
+    if (typeof parsed.asks_for_rate !== 'boolean' || typeof parsed.is_audit_request !== 'boolean') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 // ── Rule conflict modal ────────────────────────────────────────────────────
 function ConflictModal({ newRuleText, conflictingRule, explanation, onKeepNew, onKeepExisting, onSaveBoth, onClose }) {
   const [editNew, setEditNew] = useState(newRuleText)
@@ -5328,6 +5364,13 @@ function ProposalColumn({
   // feel snappy.
   const kbContextCacheRef = useRef({}) // { [`${jobId}_core|all`]: { kbRulesText, examplesText, pastProposalsText, portfolioText, cachedAt } }
 
+  // Job-shape classification cache (pilot, 2026-08-26 — see classifyJobShape
+  // above). Keyed by job id, no TTL — unlike KB context, a job posting's text
+  // never changes, so once classified it's valid for the rest of the session.
+  // Session-local by design: reading the `job` prop instead would be stale
+  // (nothing refetches `job` after the fire-and-forget cache POST).
+  const jobClassificationCacheRef = useRef({}) // { [jobId]: { asks_for_rate, is_audit_request } }
+
   // Chat section height — user-resizable via the drag handle between the
   // cover-letter section and the chat. Persisted to localStorage so the layout
   // sticks across reloads. Clamped to a sensible range.
@@ -5591,6 +5634,40 @@ function ProposalColumn({
       // On a DIRECT job, drop white-label examples so they can't be emulated.
       const _filterWhiteLabel = (text) => (isAgencyClient || !text) ? text : (_WHITELABEL_EXAMPLE_RE.test(text) ? '' : text)
 
+      // ── Job-shape classification kickoff (pilot, 2026-08-26) ─────────────────
+      // Started here so it runs CONCURRENTLY with the KB fetches below, not
+      // serially before them — awaited only at first use (_postingAsksRate,
+      // further down). Ref cache first (free), then the server cache (GET
+      // /jobs/{id}/classification — a real route, unlike the analysis one),
+      // then a fresh classify call only if neither has it. Never throws —
+      // classifyJobShape() and the fetches below all resolve to null on
+      // failure, so downstream code always has a clean fallback to the regex.
+      const _classificationPromise = (async () => {
+        if (!job?.id) return null
+        const cached = jobClassificationCacheRef.current[job.id]
+        if (cached) return cached
+        try {
+          const getRes = await fetch(`/jobs/${job.id}/classification`)
+          if (getRes.ok) {
+            const { classification } = await getRes.json()
+            if (classification) {
+              jobClassificationCacheRef.current[job.id] = classification
+              return classification
+            }
+          }
+        } catch {}
+        const fresh = await classifyJobShape(job.title, _earlyDesc)
+        if (fresh) {
+          jobClassificationCacheRef.current[job.id] = fresh
+          fetch(`/jobs/${job.id}/classification`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...fresh, model: 'claude-haiku-4-5-20251001' }),
+          }).catch(() => {})
+        }
+        return fresh
+      })()
+
       // Fetch KB rules, liked-feedback examples, sent proposals, and portfolio in parallel
       let kbRulesText = ''
       let examplesText = ''
@@ -5831,11 +5908,24 @@ function ProposalColumn({
       const _requiredOpenerMatch = fullDescription.match(_REQUIRED_OPENER_RE)
       const _requiredOpenerPhrase = _requiredOpenerMatch ? _requiredOpenerMatch[1].trim() : null
 
+      // Resolve the job-shape classification kicked off earlier (concurrent
+      // with the KB fetches above — should already be settled by now). Reused
+      // below at isAuditJob too, so it's only awaited/logged once per generate().
+      const _jobClassification = await _classificationPromise
+      if (_jobClassification) {
+        console.log('[Falcon] Job classification hit:', _jobClassification)
+      } else {
+        console.log('[Falcon] Job classification unavailable — falling back to regex (isAuditJob / _postingAsksRate).')
+      }
+
       // Does the POSTING explicitly ask for a rate / budget / quote / pricing? If not,
       // a volunteered rate is stripped from the letter (Artem never quotes a price
       // upfront — the hourly bid lives in the Upwork application form, not the body).
       // Defined here in the outer generate scope so BOTH emit paths can see it.
-      const _postingAsksRate = /\b(?:your\s+(?:hourly\s+|desired\s+|expected\s+|proposed\s+)?rate|rate\s+expectation|expected\s+rate|what(?:'?s| is)\s+your\s+(?:rate|price|pricing|budget)|how\s+much\s+(?:do|would|will)\s+you\s+(?:charge|cost)|what\s+do\s+you\s+charge|(?:provide|share|include|state|send|give|quote|let\s+me\s+know)\s+(?:a\s+|an\s+|your\s+|us\s+|me\s+)?(?:rate|quote|pricing|price|estimate)|pricing\s+structure|monthly\s+(?:rate|retainer|fee)|management\s+fee|day\s+rate|project\s+(?:rate|price|quote))\b/i.test(`${job.title || ''} ${fullDescription}`)
+      // Classification-first (pilot, 2026-08-26), falls back to the regex when
+      // unavailable — see classifyJobShape() and WORKLOG.md for why.
+      const _postingAsksRateRegex = /\b(?:your\s+(?:hourly\s+|desired\s+|expected\s+|proposed\s+)?rate|rate\s+expectation|expected\s+rate|what(?:'?s| is)\s+your\s+(?:rate|price|pricing|budget)|how\s+much\s+(?:do|would|will)\s+you\s+(?:charge|cost)|what\s+do\s+you\s+charge|(?:provide|share|include|state|send|give|quote|let\s+me\s+know)\s+(?:a\s+|an\s+|your\s+|us\s+|me\s+)?(?:rate|quote|pricing|price|estimate)|pricing\s+structure|monthly\s+(?:rate|retainer|fee)|management\s+fee|day\s+rate|project\s+(?:rate|price|quote))\b/i.test(`${job.title || ''} ${fullDescription}`)
+      const _postingAsksRate = _jobClassification ? _jobClassification.asks_for_rate : _postingAsksRateRegex
 
       // Client-type guard. `isAgencyClient` is computed once near the top of
       // generate() (it also gates white-label few-shot filtering). The prompt
@@ -7527,7 +7617,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // MUST still carry the audit-sample mention. (Gap that silently
             // produced letters with no deliverable at all.)
             const _AUDIT_SIGNAL_RE = /\b(technical\s+seo|crawl(?:ing|ability|\s+budget)?|index(?:ing|ation)|faceted\s+nav(?:igation)?|structured\s+data|schema(?:\s+markup)?|site\s+speed|core\s+web\s+vitals|site\s+review|search\s+console|\bgsc\b|canonical|redirect\s+chain|migration|traffic\s+drop|ranking\s+drop|diagnos)/i
-            const isAuditJob = /\baudit\b/i.test(jobContextLower) || _AUDIT_SIGNAL_RE.test(jobContextLower)
+            // Classification-first (pilot, 2026-08-26) — _jobClassification was
+            // already resolved once, earlier in generate() (see _postingAsksRate).
+            // Regex fallback confirmed negation-blind on real data (11 of 13 real
+            // "not looking for a generic audit"-style postings still wanted one —
+            // see WORKLOG.md) and stays only for when classification is unavailable.
+            const _isAuditJobRegex = /\baudit\b/i.test(jobContextLower) || _AUDIT_SIGNAL_RE.test(jobContextLower)
+            const isAuditJob = _jobClassification ? _jobClassification.is_audit_request : _isAuditJobRegex
             // clientAlreadyAudited is hoisted above (before the plan-vs-audit block)
             // — gates ONLY the audit-sample requirement below. jobIsAuditOnly (which
             // correctly suppresses the SEO PROMOTION PLAN requirement, since this

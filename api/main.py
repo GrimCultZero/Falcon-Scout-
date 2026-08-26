@@ -66,6 +66,10 @@ def _ensure_job_columns():
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN last_analysis_json TEXT")
         if "last_analysis_at" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN last_analysis_at DATETIME")
+        if "job_classification_json" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN job_classification_json TEXT")
+        if "job_classification_at" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN job_classification_at DATETIME")
         if "source" not in existing:
             # Backfill existing rows to 'bot' (all jobs so far came via Telegram).
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN source TEXT DEFAULT 'bot'")
@@ -116,6 +120,11 @@ def _ensure_job_columns():
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_submitted_at ON proposals(submitted_at)")
         if "analysis_json" not in proposals_cols:
             conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN analysis_json TEXT")
+        if "upwork_proposal_id" not in proposals_cols:
+            # Added 2026-08-26 directly against the live DB (see WORKLOG.md); added
+            # here retroactively so a fresh clone / restored backup self-heals too.
+            conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN upwork_proposal_id TEXT")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_upwork_proposal_id ON proposals(upwork_proposal_id)")
 _ensure_job_columns()
 
 
@@ -867,6 +876,15 @@ def _serialize(j: Job) -> dict:
             if j.last_analysis_json else None
         ),
         "last_analysis_at": j.last_analysis_at.isoformat() if j.last_analysis_at else None,
+        # Job classification cache (POST/GET /jobs/{id}/classification) — display/
+        # debugging only. generate() must NOT read classification from this prop;
+        # it's stale for the rest of the session (nothing refetches `job` after the
+        # fire-and-forget POST) — it uses a session-local ref cache + the GET route.
+        "job_classification": (
+            _json_mod.loads(j.job_classification_json)
+            if j.job_classification_json else None
+        ),
+        "job_classification_at": j.job_classification_at.isoformat() if j.job_classification_at else None,
         # Boost bid competition captured from the /apply/ page
         "boost_bids": (
             _json_mod.loads(j.boost_bids_json)
@@ -1506,6 +1524,45 @@ def save_job_analysis(job_id: int, data: dict):
         job.last_analysis_at = datetime.now(timezone.utc)
         session.commit()
     return {"ok": True}
+
+
+@app.post("/jobs/{job_id}/classification")
+def save_job_classification(job_id: int, data: dict):
+    """
+    Upsert the cached job-shape classification (pilot, 2026-08-26 — see
+    WORKLOG.md). Called by generate() after a fresh classification call, so
+    later regenerations of the same job reuse it instead of re-classifying.
+
+    Body: { asks_for_rate: bool, is_audit_request: bool, model: str }
+    """
+    with Session(engine) as session:
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job.job_classification_json = _json_mod.dumps(data, ensure_ascii=False)
+        job.job_classification_at = datetime.now(timezone.utc)
+        session.commit()
+    return {"ok": True}
+
+
+@app.get("/jobs/{job_id}/classification")
+def get_job_classification(job_id: int):
+    """
+    Read back the cached classification. Unlike GET /jobs/{id}/analysis (which
+    does not exist — a confirmed, separate bug, not fixed here, see WORKLOG.md),
+    this route is deliberately provided so generate()'s cache-hit check actually
+    works instead of silently 405ing.
+    """
+    with Session(engine) as session:
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if not job.job_classification_json:
+            return {"classification": None, "classified_at": None}
+        return {
+            "classification": _json_mod.loads(job.job_classification_json),
+            "classified_at": job.job_classification_at.isoformat() if job.job_classification_at else None,
+        }
 
 
 @app.post("/enrich")

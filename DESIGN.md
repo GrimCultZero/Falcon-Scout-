@@ -1411,3 +1411,35 @@ Not "zero bugs" — the honest target is: **the fabrication/structural-bug rate 
   1. **Enforce soak** (§21.6) — **CLEAR as of 2026-08-26** (WORKLOG.md, "gate 1 hand-review pass" entry). Verified against real `rule_violations` telemetry: no new/unrecognized violation shapes since the 2026-08-19 fixes, no `groundingCheck.js` changes in that window, and the two high-volume days both traced to already-documented real bugs (not checker false-positives) — evidence-based, not just absence of complaints.
   2. **Case-relevance pre-filter — BUILT as of 2026-08-26** (WORKLOG.md, two entries: "gate 2: started the case-relevance pre-filter" then "gate 2 finished"). `caseStudyDomainMismatch` (`JobDetail.jsx`) is now fully derived from `CASE_LEDGER.service` instead of three hand-written name lists that had drifted badly out of sync with the ledger, and covers all three service axes (PPC/SEO/web-dev) instead of just PPC-vs-SEO — the ledger-matching mechanism §21-C's own plan calls for ("structured inputs — ledger case list for this job's domain"). The job-classification signal feeding it (`jobIsWebdev`) was also fixed: the old bare platform-name matching (shopify/woocommerce/opencart/magento firing on any mention, no build-intent check) is now gated behind `WEBDEV_INTENT_REQUIRED` — verified against all 172 real postings in the DB mentioning these platforms, not synthetic examples. End-to-end verified against the original motivating bug (job 13091, "Google Merchant Center Manager" citing SMASH/GKit) — now correctly caught. `WEBDEV_INTENT_REQUIRED` is a kill-switch (same pattern as `GC_ENFORCE`): flip to `false` to instantly restore the old bare-match behavior if it regresses something in real usage, no revert needed. One known residual edge case (an adjacent-technical-domain role listing "html/css knowledge" as a skill, not a build ask) deliberately left open — documented in the code comment, affected exactly 1 of 172 real postings tested.
   Both gates are now clear — 21-C can start whenever the owner is ready to check in on it.
+
+## 22. Classification vs. rewriting — the architectural principle behind the job-classification pilot (2026-08-26)
+
+**Decision:** deterministic regex is the wrong tool for classifying a job posting's *meaning* (does it ask
+for a rate? does it want an audit?) — it can only match keyword presence, and natural language has no
+ceiling on how many ways to phrase "no." Confirmed across five separate bugs in one session: negation
+blindness (`isAuditJob`), phrasing-completeness gaps (`LAUNCH_FROM_SCRATCH_RE`, `WEBDEV_JOB_RE` — each
+needed multiple real-data-tested rounds), and scope-disambiguation failure (`_stripUnaskedRate`'s carve-out
+can't separate an exempt sentence from a non-exempt one sharing a paragraph). This is the *input*-side
+version of the exact disease §21.1 diagnosed on the *output* side.
+
+**The principle, not just this one fix:** the axis that matters is **classification vs. rewriting**, not
+"regex vs. AI." The Haiku enforcer already proved free-text rewriting under compound instructions is
+unreliable (§21.1) — that's not in question, and swapping regex for an LLM *rewriter* would repeat it. But
+a narrow, forced-choice classification question ("does this posting ask for a rate — yes/no") is a
+different, far more tractable task — the same "checker, not rewriter" discipline §21-B already proved
+works for verifying claims against ledger data, extended to classifying job *inputs* instead of just
+checking generated *outputs*.
+
+**Piloted narrowly, validated before trusting it** (WORKLOG.md, "Pilot shipped" entry): replaced only
+`isAuditJob`'s audit-signal and `_postingAsksRate` — a cached, once-per-job Haiku call (`classifyJobShape()`
+in `JobDetail.jsx`, modeled on the existing `checkRuleConflict()` pattern), forced JSON, never touching
+generated text. Validated on 13 real postings against both Haiku and Sonnet before picking a model — Haiku
+matched or beat Sonnet (cheaper AND at least as accurate on this narrow task). Live-verified: the cache
+genuinely prevents a second paid call on regeneration (confirmed via `token_usage` row counts, not just
+log output).
+
+**`jobIsPpc`/`jobIsSeo`/`jobIsWebdev` and the rest of the ~24 job-classification checks found in the
+2026-08-26 system-wide audit (WORKLOG.md) are deliberately NOT migrated yet** — prove the pattern small
+before extending it. If a future session wants to extend this, the two real gotchas already found (the
+`job` prop being stale — use a session-local ref cache; `/jobs/{id}/analysis` having no GET route, a
+separate pre-existing bug, still open) apply to every future classification field, not just this one.
