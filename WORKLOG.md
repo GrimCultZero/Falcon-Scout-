@@ -5769,3 +5769,70 @@ has actually soaked enough to start 21-C. Queried `rule_violations` directly ins
 pre-filter) is unchanged — confirmed still not started** (last touched: the 08-24 chat-path-only patch,
 which that entry itself scopes narrowly, not the structured pre-filter §21-C needs). Both gates still
 required before starting 21-C; this only closes gate 1. No code changed — verification only.
+
+## 2026-08-26 — §21-C gate 2: started the case-relevance pre-filter — `caseStudyDomainMismatch` now ledger-derived and covers all three service axes
+
+Owner asked to build gate 2. Scoped to the highest-value, lowest-risk first slice: `CASE_LEDGER.service`
+is already flagged in the ledger's own header comment as "the PRIMARY domain for matching" for exactly
+this — so rather than building a new system from scratch, extended the one check that already exists for
+this purpose (`caseStudyDomainMismatch`, `JobDetail.jsx`) to be fully ledger-driven instead of three
+hand-written, badly-drifted name lists.
+
+**What was wrong with the old lists**, discovered while reading them closely: `PPC_ONLY_NAMES` covered
+only 3 of the ledger's 6 real PPC-service cases (missing skin-reboot, chronocash, atlant); `SEO_ONLY_NAMES`
+covered only 1 of 7 SEO-service cases (missing golden-state-trailers, oxytec, luxury-parfums, vape-shop,
+derma-solution); there was no web-dev list at all, so a PPC/SEO-only job citing SMASH/Game-X/GKit/Casa
+Eleganza (or the reverse) was invisible to this check regardless of the job's domain — the exact gap
+already flagged 2026-08-24 for the chat path, and independently rediscovered today reviewing job 13240
+(see two entries above).
+
+**Fix:** `PPC_ONLY_NAMES` / `SEO_ONLY_NAMES` / (new) `WEBDEV_ONLY_NAMES` are now generated from
+`CASE_LEDGER.filter(c => c.service === X)` — can't drift out of sync with the ledger again. skin-reboot
+and derma-solution (ledger's own noted dual PPC+SEO "21-C matching concern") are excluded from both
+single-service lists so they're never wrongly flagged on either. `caseStudyDomainMismatch` extended from a
+2-way (PPC vs SEO) to a proper 3-way check; the Haiku-enforcer instruction text (`wrongCases`/`rightCases`)
+is now generated from the same ledger data instead of separately hand-written prose that could drift
+independently of the detection logic.
+
+**Verified** (isolated Node script against the real `caseLedger.js` + a real job posting, mirroring this
+file's usual claim-checker testing pattern):
+- The previously-invisible gap is now caught: Golden State Trailers (SEO-only) cited on a synthetic
+  pure-PPC job → now flags (was silently missed before this fix).
+- Regression-safe: FridgeFix-on-SEO-job and Multilingual-Site-on-PPC-job (the two cases the old lists
+  already covered) still flag correctly.
+- SMASH cited on a genuine web-dev job → correctly does NOT flag (real, valid citation).
+- skin-reboot cited on a PPC-only or SEO-only job → correctly never flags either way (dual-service
+  respected).
+- Mixed/ambiguous jobs (both PPC and SEO signal) → check still skips, matching the pre-existing
+  conservative design ("mixed jobs skip the check").
+- `esbuild` transform of `JobDetail.jsx` clean.
+
+**Tried and reverted — a real, deeper gap found, not fixed:** re-tested against the actual job 13091
+("Google Merchant Center Manager," the posting WORKLOG calls "job 12883") citing SMASH+GKit — the exact
+real bug that motivated this work — and the new check still didn't fire. Root cause: `jobIsWebdev` is
+itself a false positive on this posting. It mentions "shopify" 4 times ("we run a portfolio of 30-50 ...
+stores on shopify", "connect the stack: shopify → merchant center → google ads", "configure the product
+feed (shopify channel app...)", "hands-on shopify experience") — every one describing the client's
+existing operational stack or a required skill, never a build/development ask — but `WEBDEV_JOB_RE`'s bare
+platform-name alternatives (`shopify|woocommerce|opencart|magento`) fire on ANY mention, with no
+build-intent check, unlike its other alternatives which all require a development verb. Tried reusing
+`_CLIENT_OWN_PORTFOLIO_RE` (shipped 2026-08-24 for this exact posting's `_PROOF_REQUEST_RE` bug) to strip
+near the "portfolio of" phrase before testing `WEBDEV_JOB_RE` — insufficient, since 3 of the 4 matches
+aren't near that phrase, and a wide-enough strip window risks eating a genuine build request elsewhere in
+the same posting (confirmed with a synthetic mixed-signal fixture: the patch suppressed a real "build a
+brand new flagship store from scratch" ask in the same text). Reverted the patch; left a full evidence
+trail as a code comment at `WEBDEV_JOB_RE`'s definition. **Real fix**, not built: require a build-intent
+verb near the bare platform-name alternatives too, same as the regex's other alternatives already do —
+needs its own dedicated pass verified against more than one real posting, not a same-session patch.
+
+**Net effect:** gate 2's core mechanism (ledger-driven, 3-way domain matching) is built and shipping now —
+it will correctly catch this failure shape on any job where `jobIsPpc`/`jobIsSeo`/`jobIsWebdev` classify
+correctly, which is most jobs. Job 13091 specifically stays uncaught until the separate `WEBDEV_JOB_RE`
+gap above is fixed. Gate 2 is partially cleared, not fully — the ledger-matching mechanism §21-C's own plan
+calls for now exists; the job-classification signal feeding it still has a known hole.
+
+**Revert:** the ledger-derived `caseStudyDomainMismatch` change is one contiguous block in `JobDetail.jsx`
+(the `PPC_ONLY_NAMES`/`SEO_ONLY_NAMES`/`WEBDEV_ONLY_NAMES` definitions, the `caseStudyDomainMismatch`
+boolean, the console.log, and the enforcer-instruction text) — `git revert <this-commit-hash>` removes it
+cleanly and restores the old hand-written lists. The `WEBDEV_JOB_RE` comment-only addition (documentation,
+no behavior change) can stay regardless.

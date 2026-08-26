@@ -7196,17 +7196,40 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // regulated/vape/premier guards that also use it.)
 
             // ── Case-study domain-match check ────────────────────────────────
-            // PPC-only case studies in an SEO job (or vice versa) is a hard
-            // disqualifier — cite a Google Ads result in an SEO pitch and
-            // credibility tanks.
-            const PPC_ONLY_NAMES = [
-              /fridgefix|refrigerat(?:or|ion)\s+repair/i,
-              /house\s+paint/i,
-              /nectar\s+flowers?/i,
-            ]
-            const SEO_ONLY_NAMES = [
-              /multilingual\s+site/i,
-            ]
+            // A case study from the wrong service domain — PPC cited in an SEO
+            // pitch, an organic-SEO result cited in PPC, or a web-dev build
+            // cited on a paid-media/organic job (or vice versa) — is a hard
+            // disqualifier: credibility tanks immediately.
+            //
+            // Derived from CASE_LEDGER.service (§21-C gate 2, case-relevance
+            // pre-filter — caseLedger.js's own header flags `service` as "the
+            // PRIMARY domain for matching" for exactly this). Replaces three
+            // hand-written name lists that had drifted badly out of sync with
+            // the ledger: the old PPC_ONLY_NAMES covered only 3 of 6 real PPC
+            // cases, the old SEO_ONLY_NAMES only 1 of 7 SEO cases, and there
+            // was no web-dev list at all (confirmed missing on job 13240,
+            // 2026-08-26 — same gap already flagged 2026-08-24 for the
+            // chat-rewrite path, WORKLOG.md). skin-reboot / derma-solution are
+            // genuinely dual PPC+SEO (ledger's own noted "21-C matching
+            // concern") — excluded from both single-service lists so neither
+            // is ever wrongly flagged on a PPC or SEO job. (Known remaining
+            // gap, not built: a dual-service case cited on a pure WEB-DEV job
+            // isn't caught either way — no confirmed failure of that specific
+            // shape yet, flagging rather than guessing at it.)
+            const _DUAL_SERVICE_CASE_IDS = new Set(['skin-reboot', 'derma-solution'])
+            const _escCaseRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const _caseNameRes = (c) => {
+              const res = [new RegExp(`\\b${_escCaseRe(c.name)}\\b`, 'i')]
+              if (c.id === 'fridgefix') res.push(/refrigerat(?:or|ion)\s+repair/i)
+              return res
+            }
+            const _casesByService = (svc) => CASE_LEDGER.filter(c => c.service === svc && !_DUAL_SERVICE_CASE_IDS.has(c.id))
+            const PPC_ONLY_CASES = _casesByService('ppc')
+            const SEO_ONLY_CASES = _casesByService('seo')
+            const WEBDEV_ONLY_CASES = _casesByService('web-dev')
+            const PPC_ONLY_NAMES = PPC_ONLY_CASES.flatMap(_caseNameRes)
+            const SEO_ONLY_NAMES = SEO_ONLY_CASES.flatMap(_caseNameRes)
+            const WEBDEV_ONLY_NAMES = WEBDEV_ONLY_CASES.flatMap(_caseNameRes)
             const PPC_JOB_KEYWORDS = /\b(?:google\s+ads|google\s+ppc|ppc|p(?:erformance)?\s*max|pmax|shopping\s+ads?|adwords|cpc|cpa|roas|paid\s+ads?|ad\s+spend|ad\s+(?:campaigns?|account)|meta\s+ads|facebook\s+ads)\b/i
             const SEO_JOB_KEYWORDS = /\b(?:seo\b|search\s+engine\s+optimi[sz]ation|organic\s+(?:traffic|search)|google\s+rank|ranking|backlinks?|schema(?:\s+markup)?|ai\s+overviews?|aeo|geo\s+(?:seo|search)|content\s+strategy|technical\s+seo|onpage\s+seo|off[\s-]page\s+seo)\b/i
             const jobIsPpc = PPC_JOB_KEYWORDS.test(jobContextLower)
@@ -7274,6 +7297,27 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // Webdev detection: if the job is about building a site (WordPress dev,
             // Shopify, OpenCart, web dev, build a website), suppress the SEO promotion
             // plan requirement — that deliverable is wrong for a development scope.
+            //
+            // KNOWN GAP, flagged not fixed (found 2026-08-26 testing the case-domain-
+            // mismatch extension below against job 13091/"12883", Google Merchant
+            // Center Manager): this posting mentions "shopify" 4 times — "we run a
+            // portfolio of 30-50 ... stores on shopify", "connect the stack: shopify
+            // -> merchant center -> google ads", "configure the product feed (shopify
+            // channel app...)", "hands-on shopify experience" — and NONE of them is a
+            // build/development request; it's a pure ads/feed-management job on an
+            // existing multi-store operation. Unlike this regex's other alternatives
+            // (which require a development VERB — "develop", "build a website" etc.),
+            // the bare platform-name alternatives (shopify|woocommerce|opencart|magento)
+            // fire on ANY mention, with no build-intent check at all — so jobIsWebdev is
+            // a false positive here. Tried a narrow patch (strip near
+            // _CLIENT_OWN_PORTFOLIO_RE, reusing the fix already shipped 2026-08-24 for
+            // the same posting's _PROOF_REQUEST_RE bug) — insufficient, since 3 of the 4
+            // matches aren't anywhere near that phrase, and a wide-enough strip window
+            // risks eating a genuine build request elsewhere in the same posting.
+            // Properly fixing this means requiring a build-intent verb near the bare
+            // platform-name alternatives too (mirroring how the ecommerce/website/webdev
+            // alternatives already work) — a real fix, not a band-aid, so leaving
+            // WEBDEV_JOB_RE as-is rather than shipping a patch that doesn't fully work.
             const WEBDEV_JOB_RE = /\b(shopify|woocommerce|opencart|magento|wordpress\s+(?:developer|development|website|site|theme|plugin|design)|ecommerce\s+(?:website|store|site|development)|online\s+store\s+(?:development|build|setup|creation)|website\s+(?:development|redesign|developer|builder|creation)|web\s+(?:developer|development|design)|build\s+(?:a|an|our|my|the)\s+(?:website|online\s+store|ecommerce\s+site))\b/i
             const jobIsWebdev = WEBDEV_JOB_RE.test(jobContextLower)
             // Maintenance/changes web-dev job (existing store, not a from-scratch build).
@@ -7291,11 +7335,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const seoLedOnMaintenanceWebdev = jobIsWebdevMaintenance && (_openerSeoPitch || _seoBuildDifferentiatorAnywhere)
             const ppcCaseInDraft = PPC_ONLY_NAMES.some(re => re.test(text))
             const seoCaseInDraft = SEO_ONLY_NAMES.some(re => re.test(text))
-            // Mismatch only fires when job is clearly ONE domain and a case
-            // study from the OTHER appears. Mixed/ambiguous jobs skip the check.
+            const webdevCaseInDraft = WEBDEV_ONLY_NAMES.some(re => re.test(text))
+            // Mismatch only fires when job is clearly ONE domain (of the three
+            // service types) and a case study from a DIFFERENT domain appears.
+            // Mixed/ambiguous jobs skip the check.
             const caseStudyDomainMismatch =
-              (jobIsSeo && !jobIsPpc && ppcCaseInDraft) ||
-              (jobIsPpc && !jobIsSeo && seoCaseInDraft)
+              (jobIsSeo && !jobIsPpc && !jobIsWebdev && (ppcCaseInDraft || webdevCaseInDraft)) ||
+              (jobIsPpc && !jobIsSeo && !jobIsWebdev && (seoCaseInDraft || webdevCaseInDraft)) ||
+              (jobIsWebdev && !jobIsPpc && !jobIsSeo && (ppcCaseInDraft || seoCaseInDraft))
 
             // LOCAL-SERVICE CASE PILE-UP (confirmed on job 10609 — tattoo studio):
             // the draft correctly led with a local-service case (FridgeFix/House
@@ -7901,7 +7948,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               console.log(`[Falcon] Rule pre-check: case study format issue (highlights=${hasHighlightsPhrase}, crammed=${csCrammed}) — firing Claude enforcer.`)
             }
             if (caseStudyDomainMismatch) {
-              console.log(`[Falcon] Rule pre-check: case study domain mismatch (jobIsSeo=${jobIsSeo}, jobIsPpc=${jobIsPpc}, ppcInDraft=${ppcCaseInDraft}, seoInDraft=${seoCaseInDraft}) — firing Claude enforcer.`)
+              console.log(`[Falcon] Rule pre-check: case study domain mismatch (jobIsSeo=${jobIsSeo}, jobIsPpc=${jobIsPpc}, jobIsWebdev=${jobIsWebdev}, ppcInDraft=${ppcCaseInDraft}, seoInDraft=${seoCaseInDraft}, webdevInDraft=${webdevCaseInDraft}) — firing Claude enforcer.`)
             }
             if (missingSeoPlanOffer) {
               console.log('[Falcon] Rule pre-check: SEO job but no SEO promotion plan offered — firing Claude enforcer.')
@@ -8384,18 +8431,32 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               )
             }
             if (caseStudyDomainMismatch) {
-              const jobDomain = jobIsSeo ? 'SEO' : 'PPC / Google Ads'
-              const wrongDomain = jobIsSeo ? 'PPC / Google Ads' : 'SEO'
-              const wrongCases = jobIsSeo
-                ? 'FridgeFix, House Painting, Nectar Flowers (PPC-only — do not cite in SEO proposals)'
-                : 'Multilingual Site, Derma Solution organic-traffic results (SEO-only — do not cite in PPC proposals)'
-              const rightCases = jobIsSeo
-                ? 'Derma Solution (+1,861% organic traffic, +14,342% conv — PDF), Skin Reboot SEO angle (+91.58% traffic, +693% revenue — PDF), Multilingual Site (17,100 new monthly visits)'
-                : 'FridgeFix (-92% cost/conv, +1,405% conv), House Painting (2,100+ clicks, 7.3% CTR), Nectar Flowers (-72% CPA, +350% income), ChronoCash (luxury watches — €0.52 CPC, +42% conv), Skin Reboot PPC angle (17.51 PMax ROAS, +693.8% revenue — PDF)'
+              // Fully ledger-derived (§21-C gate 2) so this can never drift out
+              // of sync with CASE_LEDGER again the way the old hand-written
+              // lists did. skin-reboot/derma-solution (dual PPC+SEO) are
+              // offered as "right" answers on EITHER a PPC or SEO job.
+              const _shortCase = (c) => `${c.name} (${(c.metrics || []).slice(0, 2).join(', ')}${c.attachment === 'pdf' ? ' — PDF' : ''})`
+              const _dualCases = CASE_LEDGER.filter(c => _DUAL_SERVICE_CASE_IDS.has(c.id))
+              const jobDomain = jobIsSeo ? 'SEO' : jobIsPpc ? 'PPC / Google Ads' : 'web development'
+              const wrongParts = []
+              const rightCases = []
+              if (jobIsSeo) {
+                if (ppcCaseInDraft) wrongParts.push(`PPC-only: ${PPC_ONLY_CASES.map(c => c.name).join(', ')}`)
+                if (webdevCaseInDraft) wrongParts.push(`web-dev-only: ${WEBDEV_ONLY_CASES.map(c => c.name).join(', ')}`)
+                rightCases.push(...SEO_ONLY_CASES, ..._dualCases)
+              } else if (jobIsPpc) {
+                if (seoCaseInDraft) wrongParts.push(`SEO-only: ${SEO_ONLY_CASES.map(c => c.name).join(', ')}`)
+                if (webdevCaseInDraft) wrongParts.push(`web-dev-only: ${WEBDEV_ONLY_CASES.map(c => c.name).join(', ')}`)
+                rightCases.push(...PPC_ONLY_CASES, ..._dualCases)
+              } else {
+                if (ppcCaseInDraft) wrongParts.push(`PPC-only: ${PPC_ONLY_CASES.map(c => c.name).join(', ')}`)
+                if (seoCaseInDraft) wrongParts.push(`SEO-only: ${SEO_ONLY_CASES.map(c => c.name).join(', ')}`)
+                rightCases.push(...WEBDEV_ONLY_CASES)
+              }
               specificViolations.push(
-                `CASE STUDY DOMAIN MISMATCH: This is a ${jobDomain} job, but the draft cites a ${wrongDomain} case study. ` +
-                `Wrong (remove): ${wrongCases}. ` +
-                `Right (use one of these instead): ${rightCases}. ` +
+                `CASE STUDY DOMAIN MISMATCH: This is a ${jobDomain} job, but the draft cites a case study from a different service domain (${jobIsSeo ? 'PPC/Google-Ads or web-dev' : jobIsPpc ? 'SEO or web-dev' : 'PPC or SEO'} — those don't belong here). ` +
+                `Wrong (remove): ${wrongParts.join('; ')} — do not cite these in a ${jobDomain} proposal. ` +
+                `Right (use one of these instead): ${rightCases.map(_shortCase).join(', ')}. ` +
                 `Replace the mismatched case study entirely — keep the same paragraph format and "attached in profile highlights" / "attached as a PDF" labels, just swap in a domain-appropriate case study with its real metrics.`
               )
             }
