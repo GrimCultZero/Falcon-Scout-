@@ -5631,3 +5631,51 @@ one `else if` branch) and `auditOfferNotClosingCta` (check + `draftCompliant`/te
 `specificViolations` wiring + the rule #5 prompt strengthening) — `git revert <this-commit-hash>` removes
 both; they don't depend on each other and could be reverted independently by hand if only one needs to
 go.
+
+## 2026-08-26 — Job 12755 stuck on "sent" despite a real "Viewed by client" on Upwork — title-fallback match broken by a client-edited job title, no code fix yet
+
+Owner showed a side-by-side: Upwork's own Submitted-proposals page has "Google Ads & Pay Per Click
+Advertising — Real Estate Lead Generation" (Initiated Aug 23, 2026) marked **Viewed by client**, but
+the Outcomes tab still had it under SENT — 29 minutes after the last "Sync from Upwork."
+
+**Root cause, traced end to end:**
+- `proposal.js`'s `scrapeProposalsList()` reads each row's title **live off the current Upwork page**
+  (`proposal.js:1042-1063`) and, separately, whether that row's own container contains "Viewed by
+  client" (`VIEWED_RE`, conservative/per-row-only per the design note at `proposal.js:985-993`). For
+  this row `viewed` was almost certainly detected correctly client-side — the title text it sent to the
+  backend was the **current** (edited) title, "Google Ads & Pay Per Click Advertising — Real Estate Lead
+  Generation."
+- The stored `jobs.title` for this job (id 12755, `upwork_job_id=022091471106922583396`) is what the
+  Telegram listener captured at posting time and never refreshed: "Google Ads & Funnel Specialist —
+  Real Estate Lead Generation." The client evidently edited the Upwork post title sometime between
+  capture and now.
+- `api/main.py`'s `/proposal-status-sync` (`:3214`) matches `upwork_job_id` → `Job` first; only falls
+  back to `Job.title.ilike(job_title)` / `ilike(f"%{job_title[:60]}%")` (`:3254-3294`) when no id was
+  found in the scraped row. Per the comment at `proposal.js:879-882`, Upwork's Nuxt SPA usually **doesn't**
+  expose the `~hex` job id in a proposals-list row's DOM at all — title is the only fallback key, and
+  that key had drifted out from under it. Neither `ilike` variant matches "...Pay Per Click
+  Advertising..." against a stored "...Funnel Specialist...", so the row landed in `not_matched` and the
+  view was silently dropped — no error, nothing in `not_matched_sample` gets surfaced to the UI today.
+
+**Considered and rejected: a same-day fallback (match the row's scraped `initiated_at` date against
+`Proposal.submitted_at`).** Checked live: 2026-08-23 alone has **four** promotable (`sent`/`draft`)
+proposals (ids 198–201). Day-granularity isn't unique enough to satisfy this file's own "under-detect,
+never corrupt" rule (`proposal.js:985-993`) — genuinely ambiguous days would just be silently skipped,
+so it wouldn't have recovered this row either. Not built.
+
+**Immediate fix (data only, no code changed):** replayed the missed sync as a single-row POST to the
+real `/proposal-status-sync` endpoint using the correct `upwork_job_id` (bypasses the broken title path
+entirely — matches step 1, unambiguous): `{"upwork_job_id":"022091471106922583396","viewed":true,...}`
+→ `{"updated":1,"newly_viewed":1}`. Proposal 198 now correctly shows `status=viewed`.
+
+**Real fix, not built — flagging per this repo's "strategic: check in first" rule:** the durable
+correlation key is Upwork's own **numeric proposal id** (the `/nx/proposals/<numeric_id>` links the
+comment at `proposal.js:879-882` already notes exist next to each title in the list DOM) — it doesn't
+change when a client edits the job title, unlike everything the sync currently tries. `DESIGN.md` §13
+Chunk 1 already captures this numeric id transiently today (`falcon_last_submit` stash, read by
+`handlePostSubmitCapture()`) but only to pair a bid with a job at submit time — it's never persisted on
+the `Proposal` row. Fixing this properly means: (1) persist that numeric id on `proposals` (schema
+change), (2) have `scrapeProposalsList()` pull each row's numeric id from its `/nx/proposals/` link
+instead of/alongside the title, (3) add it as the first-choice match in `/proposal-status-sync`, ahead
+of the title fallback. Touches frontend scraper + backend + schema — multi-file, so not started without
+a check-in first.
