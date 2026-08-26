@@ -5897,3 +5897,46 @@ chased further.
 single-line `WEBDEV_JOB_RE`) — `git revert <this-commit-hash>` removes it cleanly and restores the old
 bare-match regex; or, without touching git at all, flip `WEBDEV_INTENT_REQUIRED` to `false` for the same
 effect instantly.
+
+## 2026-08-26 — Job 13251 (Abdel Ben / Google Business Profile & Local SEO) had a real client reply that never synced — two separate findings, one fixed live
+
+Owner shared a screenshot: Abdel Ben replied on Upwork with a detailed set of questions (white-label terms,
+monthly capacity, France experience) and Artem had already answered in the thread — but proposal 205
+(job 13251) was still sitting at `status=viewed` in Falcon Scout, `client_reply_text` empty.
+
+**Immediate fix (data only, no code changed):** replayed the missed sync as a single-row POST to the real
+`/messages-status-sync` endpoint using `upwork_job_id` (the strongest match path — same approach as the
+job-12755 viewed-sync fix earlier this month) → `{"updated":1,"newly_replied":1}`. Proposal 205 now
+correctly shows `status=replied` with the client's reply text captured.
+
+**Finding 1 — the messages-inbox sync hadn't produced output in 6 days.** `messages_sync_debug.json`
+(written fresh on every `/messages-status-sync` call, `api/main.py:3529`) was last modified **2026-08-20**,
+even though the proposals-list ("viewed") sync clearly ran today (proposal 205's `status_updated_at` shows
+a same-day promotion to `viewed`). These are two separate scraper flows under "Sync from Upwork" — one ran
+today, the other apparently hasn't completed in nearly a week. Not root-caused further this session
+(would need live reproduction with the extension's debug console open); flagging the staleness as the
+first thing to check next time a reply goes missing.
+
+**Finding 2 — bigger: `_greeting_name()`'s matching path is nearly non-functional against real data.**
+`messages_status_sync()`'s own docstring calls the greeting-name match "the reliable path" (`api/main.py
+:3465-3469`) — it extracts a first name from the cover letter's opening ("Hi Susie…" → "susie") and matches
+it against name tokens scraped from the inbox row. Checked it against every proposal with a captured
+`sent_text` (205 rows): **203 of 205 (99%) have no extractable greeting name at all** — `_greeting_name()`
+requires the letter to open with a literal "hi/hello/hey/dear <Name>" immediately followed by whitespace,
+and Artem's letters essentially never do that (his established rule is a hook/credential opener, not a
+pleasantry — confirmed by real samples: "i ran a luxury perfume e-commerce site to +79%…", "i run white
+label for agencies…"). Job 13251 itself is a clean example: `sent_text` opens "I run a small team (it
+force) and we've delivered white-label SEO…" — no name, so `_greeting_name()` returns `None` and the
+proposal never enters `greet_index`, regardless of what the inbox scraper captured. This "reliable path"
+is carrying almost none of the real matching weight — paths 0 (`upwork_job_id`) and 1 (`job_title`) are
+doing nearly all of it in practice, which is exactly why job 13251 (whose scraped row apparently didn't
+carry a working `upwork_job_id` or matchable title this cycle) fell through everything and landed in
+`not_matched`.
+
+**Connects to the still-open recommendation from the viewed-sync fix earlier this month:** persisting
+Upwork's own numeric proposal id would fix *both* gaps at once — it's immune to the job-title drift that
+broke `/proposal-status-sync`, and it doesn't depend on whether a cover letter happens to open with a
+name the way `/messages-status-sync`'s fallback does. Strengthens the case for that fix being the actual
+long-term answer here rather than patching `_greeting_name()`'s regex (which can't be patched into working
+against letters that never contain a name at all — no regex fixes a signal that isn't there). Not built —
+schema + multi-file, same as before, flagging rather than starting without a check-in.
