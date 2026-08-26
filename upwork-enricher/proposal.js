@@ -565,6 +565,16 @@
     return m ? m[1] : null;
   }
 
+  // Upwork's own numeric proposal id — only present when the post-submit
+  // redirect lands on the specific-proposal URL (/nx/proposals/<id>) rather
+  // than the bare list (/nx/proposals/). Not always available, but when it
+  // is, it's a stable, title-drift-immune identifier for this exact proposal
+  // — see the upwork_proposal_id column comment in db.py for why this matters.
+  function extractProposalIdFromUrl(pathname) {
+    const m = (pathname || '').match(/^\/nx\/proposals\/(\d+)\/?$/);
+    return m ? m[1] : null;
+  }
+
   // ── Step 1: hook Submit button on the application form ────────────────────
   function setupSubmitListener() {
     if (window.__falconSubmitHooked) return;
@@ -673,6 +683,7 @@
       bid_currency:  bidCurrency,
       submitted_at:  stash.timestamp,
       sent_text:     coverLetter || null,
+      upwork_proposal_id: extractProposalIdFromUrl(window.location.pathname),
     };
 
     console.log('[Cockpit Proposal] Capturing submission:', payload);
@@ -1072,6 +1083,14 @@
       const html = rowContainer.outerHTML || '';
       const idMatch = html.match(ID_RE);
       const upwork_job_id = idMatch ? idMatch[1] : null;
+      // Upwork links each row's title to its OWN numeric proposal id
+      // (/nx/proposals/2061...), separate from the job's ~hex id — a stable
+      // identifier immune to the client editing the job post title after
+      // submission (see db.py's upwork_proposal_id comment, WORKLOG.md job
+      // 12755). Best match key when present; the backend still falls back
+      // to upwork_job_id then title when it isn't found in this row's DOM.
+      const proposalIdMatch = html.match(/\/nx\/proposals\/(\d+)/);
+      const upwork_proposal_id = proposalIdMatch ? proposalIdMatch[1] : null;
 
       // Layer 0 cross-check: title-scan matched viewed titles from the HTML.
       if (!viewed && job_title && viewedTitleSet.size > 0) {
@@ -1093,8 +1112,8 @@
       }
 
       // Push only if we have SOMETHING to match on (title or id).
-      if (!job_title && !upwork_job_id) continue;
-      rows.push({ upwork_job_id, job_title, initiated_at, viewed });
+      if (!job_title && !upwork_job_id && !upwork_proposal_id) continue;
+      rows.push({ upwork_job_id, upwork_proposal_id, job_title, initiated_at, viewed });
     }
 
     // Diagnostic: per-row viewed flags so the user can verify what was scraped.

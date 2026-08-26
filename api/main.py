@@ -146,7 +146,7 @@ async def _ping_cli_bridge() -> bool:
     import httpx as _httpx_ping
     try:
         async with _httpx_ping.AsyncClient(timeout=1.0) as c:
-            r = await c.get("http://127.0.0.1:27182/ping")
+            r = await c.get("http://127.0.0.1:27183/ping")
         return r.status_code == 200
     except Exception:
         return False
@@ -258,7 +258,7 @@ def _flatten_for_cli(request: dict) -> str:
 
 async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
     """Route a Messages-API-shaped {system?, messages} request through the local
-    CLI bridge (cli-bridge.js, port 27182) instead of api.anthropic.com.
+    CLI bridge (cli-bridge.js, port 27183) instead of api.anthropic.com.
 
     Mirrors the CLI branch in /claude (below) so every Claude-calling endpoint
     honors the API/CLI provider toggle — not just the main analyse/generate proxy.
@@ -266,17 +266,17 @@ async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
     it identically (parsed["content"][0]["text"], etc)."""
     import httpx as _httpx_cli
     prompt_text = _flatten_for_cli(request)
-    print(f"[CLI bridge] {kind}: {len(prompt_text)} chars -> http://127.0.0.1:27182/ai")
+    print(f"[CLI bridge] {kind}: {len(prompt_text)} chars -> http://127.0.0.1:27183/ai")
     try:
         async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-            br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text, "model": model})
+            br_resp = await br.post("http://127.0.0.1:27183/ai", json={"prompt": prompt_text, "model": model})
     except _httpx_cli.ConnectError:
         # Self-heal: the bridge may have been closed or never started this
         # session — spawn it and retry the SAME request once before giving up.
         if await _ensure_cli_bridge_running(wait_for_ready=True):
             try:
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-                    br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text, "model": model})
+                    br_resp = await br.post("http://127.0.0.1:27183/ai", json={"prompt": prompt_text, "model": model})
             except _httpx_cli.ConnectError:
                 raise HTTPException(
                     status_code=502,
@@ -2767,6 +2767,7 @@ def _serialize_proposal(p: Proposal) -> dict:
         "job_snapshot": snapshot,
         "bid_amount": p.bid_amount,
         "bid_currency": p.bid_currency,
+        "upwork_proposal_id": p.upwork_proposal_id,
         "submitted_at": p.submitted_at.isoformat() if p.submitted_at else None,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
@@ -3127,11 +3128,16 @@ def record_proposal_submitted(data: dict):
         bid_currency (str): Currency code, e.g. "USD"
         submitted_at (str): ISO 8601 timestamp of submission
         sent_text (str): (optional) The proposal cover letter text
+        upwork_proposal_id (str): (optional) Upwork's own numeric proposal id,
+            when the post-submit redirect landed on /nx/proposals/<id> — the
+            durable match key for /proposal-status-sync, immune to the job
+            title drift that breaks the title fallback.
     """
     job_id = data.get("job_id")
     bid_amount = (data.get("bid_amount") or "").strip()
     bid_currency = (data.get("bid_currency") or "").strip()
     submitted_at_str = (data.get("submitted_at") or "").strip()
+    upwork_proposal_id = (data.get("upwork_proposal_id") or "").strip() or None
 
     if not job_id or not bid_amount or not bid_currency or not submitted_at_str:
         raise HTTPException(
@@ -3156,6 +3162,8 @@ def record_proposal_submitted(data: dict):
             existing.bid_amount = bid_amount
             existing.bid_currency = bid_currency
             existing.submitted_at = submitted_at
+            if upwork_proposal_id:
+                existing.upwork_proposal_id = upwork_proposal_id
             # Overwrite the cover letter with the actual submitted text when
             # the scraper found one — the in-app draft may be slightly older
             # than what was finally sent on Upwork.
@@ -3192,6 +3200,7 @@ def record_proposal_submitted(data: dict):
             bid_amount=bid_amount,
             bid_currency=bid_currency,
             submitted_at=submitted_at,
+            upwork_proposal_id=upwork_proposal_id,
             job_snapshot_json=_snapshot_job(job),
         )
         session.add(p)
@@ -3216,16 +3225,20 @@ def proposal_status_sync(data: dict):
     """
     Batch-update Proposal statuses from a scrape of Upwork's /nx/proposals/
     "Submitted proposals" page. Each row has:
+      - upwork_proposal_id (optional — Upwork's own numeric proposal id, from
+        the row's /nx/proposals/<id> link — the durable match key, immune to
+        job-title drift; only present when captured at submit time)
       - upwork_job_id (optional — extracted from the job-link href)
       - job_title     (used as fallback match key)
       - viewed        (boolean — true if "Viewed by client" was shown)
       - initiated_at  (string, currently informational only)
 
-    For each row we match a Proposal in our DB by upwork_job_id (Job → Proposal)
-    first, then by job title. When viewed=true AND the Proposal's status is
-    'sent' or 'draft', we promote it to 'viewed'. Existing 'replied' /
-    'hired' / etc. statuses are NOT downgraded — the user (or the scrape of
-    later tabs) handles those independently.
+    For each row we match a Proposal in our DB by upwork_proposal_id (direct)
+    first, then upwork_job_id (Job → Proposal), then by job title. When
+    viewed=true AND the Proposal's status is 'sent' or 'draft', we promote it
+    to 'viewed'. Existing 'replied' / 'hired' / etc. statuses are NOT
+    downgraded — the user (or the scrape of later tabs) handles those
+    independently.
     """
     rows = data.get("rows") or []
     if not isinstance(rows, list):
@@ -3245,13 +3258,29 @@ def proposal_status_sync(data: dict):
             if not isinstance(row, dict):
                 continue
             upwork_job_id = (row.get("upwork_job_id") or "").lstrip("~").strip()
+            upwork_proposal_id = (row.get("upwork_proposal_id") or "").strip()
             job_title = (row.get("job_title") or "").strip()
             viewed = bool(row.get("viewed"))
 
-            # 1) Match by upwork_job_id → Job → Proposal
+            # 0) Strongest possible match: Upwork's own numeric proposal id,
+            #    direct to Proposal — no Job lookup, no title involved at all.
+            #    Immune to the client editing the job post title after
+            #    submission (the exact failure mode that broke steps 1/2 for
+            #    job 12755 — see WORKLOG.md). Only populated for proposals
+            #    submitted since this field was added and where Upwork's
+            #    post-submit redirect happened to land on the specific-
+            #    proposal URL — most rows still fall through to steps 1/2.
             matched_proposal = None
             matched_job = None
-            if upwork_job_id:
+            if upwork_proposal_id:
+                matched_proposal = (
+                    session.query(Proposal)
+                    .filter_by(upwork_proposal_id=upwork_proposal_id)
+                    .first()
+                )
+
+            # 1) Match by upwork_job_id → Job → Proposal
+            if not matched_proposal and upwork_job_id:
                 matched_job = session.query(Job).filter(
                     or_(
                         Job.upwork_job_id == upwork_job_id,
@@ -5127,7 +5156,7 @@ async def claude_proxy(request: dict):
         # ── CLI bridge routing ──────────────────────────────────────────────
         # When the user has switched to CLI mode, flatten the request into a
         # plain text prompt and pipe it through the local cli-bridge.js server
-        # (port 27182) instead of calling api.anthropic.com.
+        # (port 27183) instead of calling api.anthropic.com.
         if _get_ai_provider() == "cli":
             import httpx as _httpx_cli
             import traceback as _tb
@@ -5135,11 +5164,11 @@ async def claude_proxy(request: dict):
             while True:
               try:
                 prompt_text = _flatten_for_cli(request)
-                print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27182/ai")
+                print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27183/ai")
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
                     # Pass the requested model so the bridge forces it via --model
                     # (else the CLI uses its default — often Opus, the slowest).
-                    br_resp = await br.post("http://127.0.0.1:27182/ai", json={"prompt": prompt_text, "model": model})
+                    br_resp = await br.post("http://127.0.0.1:27183/ai", json={"prompt": prompt_text, "model": model})
                 if br_resp.status_code != 200:
                     raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")
                 text = br_resp.json().get("content", "")

@@ -1018,7 +1018,7 @@ async function handleProposalEnriched(tabId, data, url) {
 }
 
 async function recordProposalSubmitted(data) {
-  const { upwork_job_id, bid_amount, bid_currency, submitted_at, sent_text } = data;
+  const { upwork_job_id, bid_amount, bid_currency, submitted_at, sent_text, upwork_proposal_id } = data;
   console.log('[Cockpit BG] Recording proposal submission for job:', upwork_job_id);
 
   // Look up the job by upwork_job_id directly — far cheaper than fetching all jobs.
@@ -1044,6 +1044,7 @@ async function recordProposalSubmitted(data) {
       bid_currency,
       submitted_at,
       sent_text: sent_text || null,
+      upwork_proposal_id: upwork_proposal_id || null,
     }),
   });
 

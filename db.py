@@ -203,6 +203,14 @@ class Proposal(Base):
     # Auto-captured from Upwork submit: bid amount (e.g. "4500") and currency (e.g. "USD")
     bid_amount         = Column(String, nullable=True)
     bid_currency       = Column(String, nullable=True)
+    # Upwork's own numeric proposal id (from /nx/proposals/<id> — distinct from
+    # the job's ~hex id). Captured when available at submit time (the post-
+    # submit redirect sometimes lands on this exact URL) and used as the
+    # primary, title-drift-immune match key for /proposal-status-sync — a
+    # client editing the job post title after submission broke the title
+    # fallback (see WORKLOG.md, job 12755). Nullable: older proposals and any
+    # submit where Upwork redirected to the bare list instead won't have it.
+    upwork_proposal_id = Column(String, nullable=True, index=True)
     # When proposal was submitted on Upwork (captured from submit button detection)
     submitted_at       = Column(DateTime, nullable=True, index=True)
     # Point-in-time snapshot of the analyser's verdict at proposal creation.

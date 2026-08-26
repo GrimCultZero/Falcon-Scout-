@@ -6000,3 +6000,72 @@ classification gaps that haven't been confirmed against real data first (see the
 
 **Revert:** one line (`JobDetail.jsx:7047`, the `caseRe` for the 'ecommerce' vertical bucket) —
 `git revert <this-commit-hash>` restores oxytec to that list; nothing else depends on it.
+
+## 2026-08-26 — Built: Upwork's numeric proposal id, persisted and used as the primary sync match key
+
+Owner picked this over starting §21-C: it fixes confirmed, currently-recurring bugs (the job-12755
+viewed-sync title-drift, flagged multiple times this month) rather than a theoretical risk, and it's
+fully scoped. Six touch points, all now live:
+
+1. **`db.py`** — new `Proposal.upwork_proposal_id` column (String, indexed, nullable — most historical
+   proposals and any submit where Upwork redirected to the bare list won't have it). Migrated the live
+   `upwork_jobs.db` directly (`ALTER TABLE` + index) since SQLAlchemy's `create_all()` doesn't retrofit
+   existing tables.
+2. **`proposal.js` `handlePostSubmitCapture()`** — new `extractProposalIdFromUrl()` pulls the numeric id
+   from `window.location.pathname` when the post-submit redirect happens to land on
+   `/nx/proposals/<id>` (not guaranteed — Upwork sometimes redirects to the bare list instead); included
+   in the `PROPOSAL_SUBMITTED` payload.
+3. **`background.js` `recordProposalSubmitted()`** — forwards `upwork_proposal_id` through to
+   `/proposal-submitted`.
+4. **`api/main.py` `/proposal-submitted`** — accepts and persists `upwork_proposal_id` on both the
+   create and update paths. Also added it to `_serialize_proposal()` (`:2769`) — found missing during
+   verification; it was saving correctly but invisible to any API/frontend consumer.
+5. **`proposal.js` `scrapeProposalsList()`** — each row now also extracts its numeric id from
+   `/nx/proposals/(\d+)` in the row's own outerHTML (Upwork links titles to these per the existing
+   comment at `:879-882`), sent alongside `upwork_job_id`.
+6. **`api/main.py` `/proposal-status-sync`** — new step 0, tried before the existing `upwork_job_id`
+   and title-fallback steps: direct `Proposal.filter_by(upwork_proposal_id=...)` match, no `Job` table
+   lookup involved at all. Docstring updated to describe the new 3-step match order.
+
+**A live incident happened mid-build, worth recording:** the backend went unresponsive for a real
+stretch after these edits triggered a reload — confirmed via `netstat` it was still listening (PID
+30664, correct `.venv` process) but not answering any request, and confirmed the DB file itself was
+still independently readable, so it wasn't a SQLite lock. Root cause not confirmed (a stuck
+`--reload`/StatReload cycle is the leading theory, but unproven). **Real cost:** a live proposal
+submission for job 13231 during the outage was captured client-side (`proposal.js` logged "Capturing
+submission") but never reached the backend — confirmed via direct DB query, zero proposals existed for
+that job while the backend was down. Owner restarted the backend manually; the submission was recovered
+automatically on the next capture attempt (now proposal id 209) — no manual data reconstruction needed,
+and none was attempted (didn't have the real bid amount or cover letter text to safely fabricate a
+recovery). Flagging for whoever hits this again: `netstat -ano | grep :8000` to check if the process is
+listening-but-hung vs. actually dead before assuming a normal crash-and-restart will be needed.
+
+**Verified end-to-end, live, after the restart** (not just the earlier isolated-copy test):
+- `/proposal-status-sync` with a non-matching `upwork_proposal_id` → clean `not_matched`, no crash.
+- `/proposal-submitted` with proposal 205's real existing bid/currency/submitted_at values (unchanged)
+  plus a synthetic `upwork_proposal_id` → persisted correctly in the DB (confirmed by direct query, since
+  the API response was missing the field until fix #4 above landed).
+- `/proposal-status-sync` re-run with that same synthetic id → `not_matched_count: 0` (found via the new
+  step 0), `updated: 0` (correctly did NOT touch it — proposal 205 is already `replied`, past the
+  promotable `draft`/`sent` states, matching the existing never-downgrade rule). Synthetic test value
+  cleaned up afterward — proposal 205's `upwork_proposal_id` is back to `NULL`, its real state.
+- **Real-world data point, not fully explained:** the recovered job-13231 submission (proposal 209) has
+  `upwork_proposal_id = NULL` — this specific capture didn't land on the numeric-id URL, or came through
+  a retry path where it wasn't available. Not a regression (the existing `upwork_job_id`/title fallbacks
+  still worked, which is exactly why 209 exists at all) — just confirms this field is genuinely
+  best-effort, not guaranteed every submission, as designed. `esbuild`/`py_compile` clean throughout.
+
+**Known limitation, unchanged from when this was first proposed:** confirmed `messages-list.js` has zero
+awareness of proposal ids (grepped — no matches for anything proposal/numeric-id related). This fix
+directly and only addresses `/proposal-status-sync` (viewed). Whether Upwork's `/nx/messages/` page
+independently exposes a link back to `/nx/proposals/<id>` per conversation — which would let this same
+column also fix the reply-sync `_greeting_name()` problem — is unconfirmed; would need inspecting a real
+conversation's DOM to know. Correcting the overclaim from when this fix was first recommended: it fixes
+the viewed-sync gap for certain, the reply-sync gap only *possibly*, pending that check.
+
+**Revert:** six-file change, but cleanly separable — the `db.py` column can stay regardless (additive,
+nullable, unused by old code paths); the four capture/scrape edits are independent per-file diffs; the
+`/proposal-status-sync` step 0 addition is one `if` block that falls through to existing behavior if
+removed. No single-line kill switch this time (unlike `WEBDEV_INTENT_REQUIRED`) since there's no
+existing-behavior risk to gate — step 0 only ever narrows matches to cases the old steps already
+couldn't handle, or matches identically to what step 1 would have found anyway.
