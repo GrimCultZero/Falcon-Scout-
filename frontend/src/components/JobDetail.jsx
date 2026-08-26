@@ -7653,6 +7653,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\bcampaign\s+set[-\s]?up\b/i,
               /\bbuild\s+[^.]{0,30}\bgoogle\s+ads?\b[^.]{0,15}\b(?:setup|campaign|account)\b/i,
               /\bset\s*up\s+and\s+launch\b/i,
+              // Confirmed on job 13240 (2026-08-26): "a brand new google ads
+              // account" wasn't caught by the (?:new|brand-new)(ad )?account
+              // alternative above — "google ads" sits between "new" and
+              // "account", and "ads" (plural) doesn't match "ad" (singular)
+              // there. wrongAuditOfferOnLaunch (Rule 450) already exists for
+              // exactly this shape and never fired, because this detector
+              // never matched the posting in the first place.
+              /\b(?:new|brand[-\s]?new)\s+google\s+ads?\s+account\b/i,
             ]
             const jobIsLaunchFromScratch = LAUNCH_FROM_SCRATCH_RE.some(re => re.test(jobContextLower))
             // Draft "offers an audit": attach+audit in proximity, "audit sample",

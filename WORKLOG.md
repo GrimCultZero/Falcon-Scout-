@@ -5714,3 +5714,29 @@ Painting) — both metrics and attachment labels match `caseLedger.js` exactly, 
 first-pass draft's "profitable at $25/day" for House Painting wasn't a real ledger figure and the rewrite
 correctly replaced it with the real one (`$140 avg cost per conversion`) — grounding checker working as
 intended there.
+
+**Correction to the above, same session:** the "not fixed, no existing check" claim was wrong — checked
+too narrow a slice of the guard family the first time. `wrongAuditOfferOnLaunch` (Rule 450,
+`JobDetail.jsx:7670`) already exists for exactly this shape, and its violation message even names the
+letter's literal wording ("attaching a sample of a recent Google Ads audit", `:8252`) — this has clearly
+bitten before (comment at `:7648-7651` references a prior near-identical miss on job unknown, patched by
+widening the same regex array). It didn't fire because `jobIsLaunchFromScratch`'s detector
+(`LAUNCH_FROM_SCRATCH_RE`, `:7635-7656`) never matched job 13240's posting at all — none of its 16
+alternatives cover "a brand **new** google **ads** account" (the `(?:new|brand-new)\s+(?:ad\s+)?account`
+alternative at `:7646` needs "new"/"brand-new" immediately before "(ad )?account"; "google ads" sitting in
+between, plus "ads" (plural) vs. its "ad" (singular), broke the match). Verified against the real posting
+text in an isolated Node check: current regex set — no match; adding
+`/\b(?:new|brand[-\s]?new)\s+google\s+ads?\s+account\b/i` — matches the real posting, and two negative
+controls (an existing-account job, an audit job — both mentioning "new" and "account" unrelatedly) stay
+clean. Confirmed the rest of the chain fires correctly once the posting is recognized:
+`isAuditJob`=false (no audit language in this posting) and `draftOffersAudit`=true (the real letter's
+"attaching...audit" line matches `AUDIT_OFFER_IN_DRAFT_RE`) — so `wrongAuditOfferOnLaunch` would have
+fired end-to-end on the real letter.
+
+**Fixed:** added the missing alternative to `LAUNCH_FROM_SCRATCH_RE` (`JobDetail.jsx:7635-7656`, new
+entry after `:7655`). `esbuild` transform of `JobDetail.jsx` clean. Single line, additive, only widens an
+existing from-scratch detector — same shape as the precedent at `:7648-7651`, so treating as tactical
+rather than holding for a check-in.
+
+**Revert:** one line (`JobDetail.jsx`, the new `LAUNCH_FROM_SCRATCH_RE` alternative + its comment) —
+`git revert <this-commit-hash>` removes it cleanly; nothing else depends on it.
