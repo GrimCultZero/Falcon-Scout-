@@ -6147,3 +6147,1745 @@ attempted (flagged above, reasoned out during planning, not during a failed atte
 **Revert:** six pieces, all additive/backward-compatible individually — `git revert <this-commit-hash>`
 removes the whole pilot cleanly; the `db.py` columns and self-healing migration are safe to leave in place
 regardless since nothing else depends on them existing.
+
+## 2026-08-27 — Nested attachment-label duplicate reintroduced by a LATER strip-chain step (job 13388)
+
+Owner flagged real output on job 13388 (Veevo Health): `"...store (Skin Reboot (attached as PDF),
+attached as PDF) - restricted YMYL niche..."` — the exact nested-duplicate shape a fix already committed
+2026-08-20 (`_stripDuplicateAttachmentLabel`'s `_NESTED_DUPLICATE_LABEL_RE`, for job 12388) was supposed to
+have eliminated permanently.
+
+**Root cause — confirmed, not assumed.** Tested `_NESTED_DUPLICATE_LABEL_RE` against the exact real text
+first: it matches and correctly strips to `"(Skin Reboot, attached as PDF)"` in isolation — the dedup fix
+itself is NOT broken. Empirically traced the actual execution order of the 23-function strip chain at
+`JobDetail.jsx:8779` (stubbed every function, evaled the real expression, logged call order — hand-counting
+20 layers of nested parens is too error-prone to trust by eye). `_stripDuplicateAttachmentLabel` runs 8th;
+`_fixPdfCaseLabelMisattribution` (`:2550`) runs 14th — six steps *later*, on the already-cleaned text.
+
+`_fixPdfCaseLabelMisattribution`'s own job is "ensure every PDF case-name mention carries its attachment
+label," skipping mentions that already have one via `(?!\s*\(attached)` — a lookahead for a *fresh
+parenthetical* immediately following the name. But `_stripDuplicateAttachmentLabel` (running earlier, same
+chain) normalizes a nested duplicate down to a *comma-joined* form inside the SAME parenthetical:
+`"Skin Reboot, attached as PDF)"`. The two functions disagree on what "already labelled" looks like — the
+lookahead doesn't recognize the comma form, sees `"Skin Reboot"` as bare, and appends a fresh
+`" (attached as PDF)"` right after it — reconstructing the exact nested duplicate the earlier function had
+just removed, one step earlier in the very same chain.
+
+Verified the reintroduction directly: ran the real `_stripDuplicateAttachmentLabel` step on the real
+job-13388 text (clean output confirmed), then ran the real (pre-fix) `_fixPdfCaseLabelMisattribution` logic
+on that clean output — reproduced the identical corrupted string byte-for-byte.
+
+**Fix** (`JobDetail.jsx:2563`): broadened the negative lookahead from `(?!\s*\(attached)` to
+`(?!\s*[,(]\s*attached)` so it recognizes both labelled shapes — a fresh `(attached...)` parenthetical AND
+the comma-joined `, attached...)` form. Minimal, single-line change to the lookahead only; the function's
+own stated intent (label unlabelled mentions, skip labelled ones) is unchanged.
+
+**Verified**, 5 cases via isolated script (real job-13388 text + Derma Solution equivalent + the two
+pre-existing working shapes, so the original bug this function was built for doesn't regress):
+1. Comma-form (post-dedup) stays clean after this step — the actual bug — PASS
+2. A genuinely unlabelled mention elsewhere in a letter still gets labelled — PASS
+3. Already fresh-paren-labelled text (`"Skin Reboot (attached as PDF):"`) untouched — PASS (no regression)
+4. Comma-form with the "attached in profile highlights" phrase variant stays clean — PASS
+5. Derma Solution, same bug shape — PASS
+
+`esbuild` transform of `JobDetail.jsx` clean after the edit.
+
+**Why this survived the original job-12388 fix's own verification**: that fix was tested against the
+dedup function in isolation (correctly — it works). Nothing at the time re-ran the *rest* of the strip
+chain against the fix's own output to check whether a later step would re-corrupt it. The lesson generalizes
+beyond this one pair: any strip-chain function that "ensures X is present" needs its presence-check kept in
+sync with every OTHER function upstream that changes what a correctly-formed X looks like, or re-verify
+new dedup fixes against the full chain's output, not just the fixing function's own output.
+
+**Revert:** single-line regex change, `JobDetail.jsx:2563`. Fully backward compatible — strictly widens
+what counts as "already labelled," never narrows it.
+
+## 2026-08-27 — Digit Bomb case re-cited a second time in its own case-study block (job 13388)
+
+Same job as the entry above, next regen after that fix. Owner: "digi bomb opener fires correctly, but
+further in text generator mentions it again - pure duplication." Confirmed via `share-with-claude.md`: the
+cold open correctly cited Skin Reboot's real numbers (+693.8% revenue, 17.51 ROAS) — the previous fix held.
+But "Two campaigns I managed:" then cited **Skin Reboot again**, a few paragraphs later, as a full
+case-study entry with the *same* real metrics.
+
+**Root cause.** The system prompt's DIGIT BOMB block (`:6522`) already tells the first-pass generator not
+to re-cite the armed case later ("zero additional case studies is fine too") — but the first pass doesn't
+reliably obey it (this file's core, repeated finding all session). Compared the BEFORE/AFTER drafts in the
+snapshot: the pre-enforcer draft already had this duplicate, with a *fabricated* metric ("$12k to $95k
+monthly revenue" — confirmed separately in `rule_violations` as `fabricatedCaseMetric`, 2026-08-27
+11:42:51). The enforcer was told to fix the fabricated number and did — swapped it for the correct
+693.8%/17.51 ROAS from the ledger — but nothing told it the *entire mention* was a forbidden repeat, so
+fixing the number just made the duplication look intentional instead of catching it.
+
+The one existing guard for this shape, `_stripDigitBombDuplicateCase` (`:1997`), didn't catch it: it only
+ever inspects the single paragraph immediately after the opener, and only for a *different* ledger case —
+by design, per its own comment, "a legitimate case cited later in the letter's own case-study block is
+untouched." That assumption held until the first pass started citing the *same* case again, which the
+function was never scoped to see (it doesn't look past paragraph index `openerIdx + 1`, and the actual
+duplicate here was two paragraphs later with an unrelated lead-in line in between).
+
+**Fix** (`JobDetail.jsx:1997-2065`): extended `_stripDigitBombDuplicateCase` with a second shape — after the
+existing stacked-different-case check, scan every paragraph after the opener (not just the next one) for
+one whose first line starts with the *armed case's own name*, reusing the `^Name\b` anchor pattern already
+established by `_ANY_CASE_NAME_RE` elsewhere in this file. Drop that paragraph. A genuine passing
+mid-sentence reference to the case elsewhere (not a paragraph functioning as that case's own block header)
+is left untouched, since the match is anchored at the paragraph start.
+
+**Handled the knock-on effect, not just the duplicate itself**: dropping the paragraph left "Two campaigns
+I managed:" claiming a count one higher than what remained — a new, smaller defect in place of the old one.
+Rather than pattern-match this letter's specific wording (confirmed via grep this phrasing isn't KB
+boilerplate — it's freely generated, closely echoing this posting's own "1–2 relevant campaigns" checklist
+ask, so exact phrasing will vary letter to letter), strip a leading count word/digit
+(`one|two|three|.../\d+`) from a short colon-terminated paragraph immediately before the drop, degrading it
+to an uncounted plural ("Campaigns I managed:") — true regardless of how many case paragraphs remain, no
+grammar-patching or noun-singularizing needed.
+
+**Verified**, 4 cases via isolated script against the exact real job-13388 text plus fabricated edge cases:
+1. Existing Shape 1 (different case stacked right after opener) still fires — PASS, no regression
+2. Clean letter, digit-bomb case not repeated anywhere — returned byte-for-byte unchanged — PASS
+3. Mid-sentence passing reference to the case name (not its own paragraph) — left untouched — PASS
+4. Real bug shape (job 13388, full text) — Skin Reboot drops to exactly 1 mention (the opener), Atlant
+   Real Estate preserved, "Two campaigns I managed:" correctly degrades to "Campaigns I managed:" — PASS
+
+`esbuild` transform of `JobDetail.jsx` clean after the edit.
+
+**Revert:** additive-only change inside `_stripDigitBombDuplicateCase` — the existing Shape-1 branch is
+untouched, the new Shape-2 branch only fires when its own anchor match is found. Safe to revert by removing
+the new block; the original stacked-different-case guard keeps working standalone.
+
+## 2026-08-27 — Missing manual-audit claim: enforcer told explicitly, didn't comply (job 13388)
+
+Third finding on this same job's regen cycle. Owner: "shared. violating the rule that audit is done by
+hand." Confirmed via `share-with-claude.md`: the $300 audit offer paragraph never states the audit is
+performed manually, in either the pre- or post-enforcer draft.
+
+**Ground-truthed before concluding anything** (`rule_violations` table, not just re-reading the regex):
+`missingManualAuditClaim` DID fire for this exact generation (id 1415, ts 2026-08-27 12:21:19, same batch as
+`fabricatedCaseMetric`/`missingDigitBombResonance`/6 others — 9 violations fired simultaneously). So the
+pre-check is not the bug. The enforcer instruction it sends (`specificViolations`, `:8565` at time of
+writing) is unambiguous and even hands the model an exact sentence to use: *"ADD one sentence... Example:
+'every audit I run is done entirely by hand — no automated tools, no templated report.'"* Also checked
+whether this was a strip-chain collision like the two bugs above — grepped every occurrence of
+manual/hand/automat across the file; nothing in the ~15 functions running after the enforcer call touches
+that language. Conclusion: neither the pre-check nor a downstream strip step is at fault — the enforcer was
+told plainly, as one of nine simultaneous asks in a single call, and didn't add it. A genuine free-text
+compliance miss, the same category this session's whole classification-vs-rewriting pilot exists to route
+around — just not yet extended to this specific claim.
+
+**Fix, same principle as `_fixPdfCaseLabelMisattribution`**: don't ask the enforcer to comply a second time
+— ensure the claim deterministically. Added `_ensureManualAuditClaim(text)` (`JobDetail.jsx:2647`): if an
+audit ($300 or $700, whichever this project already treats as the two valid flat prices) is being offered
+and `_MANUAL_AUDIT_CLAIM_RE` doesn't match anywhere, append one of three interchangeable phrasings to the
+end of the paragraph that carries the audit price (own small pool, same reasoning as the existing
+`_HIGHLIGHTS_LEADINS`, so a fallback insertion doesn't read identically across every non-compliant letter —
+picked deterministically by `text.length`, not `Math.random`, since this file's strip functions are pure and
+a resumed/replayed generation should resolve the same way twice).
+
+Moved `_MANUAL_AUDIT_CLAIM_RE` itself from a local `const` inside `generate()` to module scope (next to
+`_fixPdfCaseLabelMisattribution`) so the existing pre-check and the new deterministic fallback share one
+definition instead of two copies that can silently drift apart — the same class of bug as the first fix
+logged today, avoided pre-emptively here instead of discovered after the fact.
+
+**Found and deliberately did NOT fix**: while wiring the new function into the strip chain, discovered the
+chain actually exists as **two** separate, near-duplicate copies — one inside the `if (draftCompliant)` fast
+path (`:8136`, enforcer skipped entirely), one after the enforcer call (`:8873`). They've already drifted:
+the fast-path copy includes `_stripSeoAuditTurnaround`, the enforcer-path copy doesn't. Added
+`_ensureManualAuditClaim` to **both** (it's provably a no-op on the fast path in practice —
+`missingManualAuditClaim` is itself one of `draftCompliant`'s AND-chain conditions, so that branch is only
+reachable when the claim is already present — but didn't want a future refactor of `draftCompliant` to
+silently break that invariant). The `_stripSeoAuditTurnaround` divergence itself is untouched — a real,
+separate finding, flagged here for its own follow-up rather than bundled into this fix.
+
+**Verified**, 8 cases via isolated script against the real job-13388 "after" draft text:
+1. Claim present after insertion (matches `_MANUAL_AUDIT_CLAIM_RE`) — PASS
+2. Original audit-paragraph content fully preserved, not rewritten — PASS
+3. Case-study block untouched (only the audit paragraph is touched) — PASS
+4. Exactly one claim sentence inserted, not duplicated — PASS
+5. Paragraph count unchanged (appended INTO the existing paragraph, not as a new one) — PASS
+6. Idempotent — running twice does not insert a second claim — PASS
+7. Already-compliant text (claim present pre-enforcer style) returned byte-for-byte unchanged — PASS
+8. No audit offered at all — text unchanged, no false positive — PASS
+
+Also confirmed the wrapped call-site expressions are syntactically valid and execute in the intended order
+(stubbed all 24 functions, evaled the real expressions from both `:8136` and `:8873`, logged call order —
+same empirical method as the digit-bomb fix above, not hand-counted). `esbuild` transform clean.
+
+**Revert:** four pieces — the module-scope regex move, the new function, and the two one-line call-site
+wraps. All additive; removing the wraps reverts to enforcer-only compliance (the pre-existing, unreliable
+behavior), and the regex move is a pure relocation with no behavior change to the existing pre-check.
+
+## 2026-08-27 — "Website scrape timed out": Inspect never got the Ahrefs MV3-durability fix
+
+Owner screenshot: Inspect on Scilumen.com (a science/education content site) showed "⚠ Website scrape
+timed out — check the extension console" after 60s.
+
+**Root cause.** Directly the same failure shape as the Ahrefs bug fixed 2026-07-15 (`WORKLOG.md` that date,
+"THREE compounding bugs"), just never ported to this sibling feature. `INSPECT_WEBSITE` opens a background
+tab (`background.js:472`, `chrome.tabs.create`) and tracks it in `_inspectPending`, a **plain in-memory
+`Map()`** keyed by `tab.id`. A separate `chrome.tabs.onUpdated` listener waits for that tab to reach
+`status: 'complete'` before scraping — page-load time is unbounded (a content-heavy site like a science
+publication can easily run past it), which routinely exceeds MV3's ~30s service-worker idle timeout. If the
+worker gets killed and restarted in that window, the in-memory Map is wiped — top-level `const` reinitializes
+empty on restart. The `onUpdated` event firing wakes the worker back up (any tabs event does), finds
+`_inspectPending` empty, and silently returns: no scrape, no fetch, no `WEBSITE_INSPECT_COMPLETE` — the
+dashboard just sits until its own 60s client-side timeout, with nothing in the console at all despite the
+UI's own hint to check it. Ahrefs had this exact bug and was already fixed by mirroring the pending entry
+into `chrome.storage.session` (survives worker restarts, cleared on browser close) — `_inspectPending` never
+received the equivalent treatment.
+
+**Fix** (`background.js`): added `_persistInspectPending`/`_consumeInspectPending` (`:94-125`), mirroring
+`_persistAhrefsPending`/`_consumeAhrefsPending` exactly — same storage key pattern, same
+fast-in-memory-then-durable-fallback read order. Updated both call sites: the `INSPECT_WEBSITE` handler now
+calls `_persistInspectPending(tab.id, job_id, url)` instead of a bare `.set()`, and the `chrome.tabs.onUpdated`
+listener is now `async` and awaits `_consumeInspectPending(tabId)` instead of a synchronous `.has()/.get()/.delete()`
+— `onUpdated` doesn't need the `onMessage`-style IIFE-plus-`return true` trick since there's no response
+channel to keep open, so making the listener itself `async` is sufficient (verified this is a legal,
+standard pattern for this listener type).
+
+**Also fixed** (`bridge.js`, found while tracing the same call path): both `INSPECT_WEBSITE` and
+`ENRICH_AHREFS`'s `chrome.runtime.sendMessage` callbacks only checked `chrome.runtime.lastError` (a
+messaging-channel failure) and never checked `response.ok` (an application-level failure — e.g.
+`chrome.tabs.create` itself failing, which `background.js` already reports via `sendResponse({ ok: false,
+error: 'tab create failed' })`). A `response.ok === false` with no channel error fell through doing nothing
+in both — same symmetric gap in both siblings, so fixed both consistently rather than singling one out.
+Now checks `chrome.runtime.lastError?.message || (response?.ok === false ? response.error : null)` and
+dispatches the error event either way, so a real failure surfaces to the console immediately instead of
+silently waiting out the full 60s timeout with nothing logged.
+
+**Verified**: `node --check` clean on both files. Isolated logic test (mock `chrome.storage.session`, 6
+cases) including the actual worker-restart scenario — persist, wipe the in-memory Map to simulate a worker
+restart, confirm consume still recovers the entry from the durable copy and cleans it up afterward; plus
+double-consume, no-pending, and concurrent-entries isolation checks. All 6 pass.
+
+**Not yet live-verified against the real Scilumen.com case** — this is a background-script change, so it
+needs an extension reload (`chrome://extensions` → reload Falcon Scout) before it takes effect; Vite HMR
+does not reach the extension. Ask the owner to reload and retry Inspect on the same job to confirm.
+
+**Revert:** additive in both files — the two new background.js functions plus two call-site edits, and the
+two bridge.js response checks. No behavior change for the success path in either file.
+
+## 2026-08-27 — Scraped site content had no connection to "please review our site" screening asks
+
+Owner question, not a bug report: "when we are inspecting the site - are we doing it in relation to what's
+written in the job posting?" — quoting job 13394's (Scilumen.com) actual ask: "Please visit Scilumen.com and
+review the homepage and at least one article. In 2-3 sentences, tell us which area you would investigate
+first technical SEO, content quality, internal linking, or site structure—and briefly explain why."
+
+**Traced it rather than assumed.** Pulled job 13394's real `description_full` from the DB. It has TWO
+related asks: the detailed prose paragraph above (with the specific four-option menu), and separately a
+numbered "When applying, please include:" checklist whose item #1 is the vaguer "Your short observation
+after reviewing Scilumen.com." Ran the real text through `extractApplicationChecklist` (exact function +
+regexes copied from source, not reimplemented) — confirmed it correctly finds the 5-item numbered checklist,
+but captures only the vague restatement; the four-option menu from the earlier paragraph is never captured
+anywhere (checklist extraction is strategy-1 list-item/short-plain-line based, and that paragraph is neither
+— it's a multi-sentence prose block). `fullDescription` still carries the full paragraph verbatim, so the
+model isn't blind to the menu, but the two pieces of information that together would answer this ask
+correctly — the specific ask, and the scraped site content that could ground a real answer to it — were
+never explicitly connected anywhere in the prompt. `websiteText`'s only instruction (`JobDetail.jsx:6103`
+before this fix) was the fully generic "use specific details about their business, products, and audience,"
+with no signal that a site-review ask is a screening filter, or that a menu-style ask needs one specific,
+defensible pick rather than a generic best-practice answer.
+
+**Fix**: added `_POSTING_ASKS_TO_REVIEW_SITE_RE` (`JobDetail.jsx`, local const near the other job-context
+detection regexes like `_caseSeoSignal`/`_casePpcSignal`) — detects "visit/review/check out/browse/go to +
+homepage/website/site" generically, independent of the checklist extractor and not tied to this job's
+domain name, so it fires for any posting that asks the applicant to look at the CLIENT's own site (verified
+it does NOT fire on "review your portfolio" — about Artem's own work, not the client's site — or unrelated
+"visit our office" phrasing). When it matches AND `websiteText` (scraped content) is present, appends an
+explicit bridging instruction to the CLIENT WEBSITE CONTENT block: frame it as a screening filter, require
+1-2 concrete observations grounded in the actual scraped content, and — since this exact job phrases it as a
+menu — pick exactly ONE option and justify it with something pointed to in the scrape, not a generic
+best-practice line.
+
+**Verified**: 8 cases for the detection regex (real Scilumen.com text, 4 plausible common phrasings, 3
+control cases that must NOT match) — all pass. Assembled the full prompt block with realistic scraped
+content and confirmed it reads cleanly, no malformed spacing. `esbuild` transform clean.
+
+**Scope note**: deliberately did NOT touch `extractApplicationChecklist` itself — making its list-parsing
+smarter/broader risks regressions across every OTHER job posting that already relies on its current
+behavior. This fix is additive and narrowly scoped to the one place that actually needed the missing
+connection: the scraped-content block, only when a site-review ask is independently detected.
+
+**Revert:** one new regex + one prompt-block edit, both additive. Removing the regex reference reverts
+`websiteText`'s prompt block to its prior, fully generic instruction.
+
+## 2026-08-27 — "Website scrape timed out" root cause found: SQLite lock contention, not the extension
+
+Continuation of the two Inspect fixes above. Owner reloaded the extension and re-ran on the same Scilumen.com
+job — same symptom. Rather than keep hypothesizing, got the owner to pull the actual extension SERVICE
+WORKER console (not the page console — a real point of confusion, `chrome://extensions` → the extension's
+"service worker" link) filtered for "INSPECT", which gave direct, conclusive evidence:
+
+```
+[Cockpit BG] INSPECT_WEBSITE tab 128545748 → https://Scilumen.com
+[Cockpit BG] INSPECT_WEBSITE scraped https://Scilumen.com | len: 674
+[Cockpit BG] website-inspect save error: SyntaxError: Unexpected token 'I', "Internal S"... is not valid JSON (at VM6:1:1)
+```
+
+**The message pipeline and the scrape itself both worked correctly** — both fixes from earlier today are
+doing their job. The failure is a THIRD, separate issue: the POST to `/jobs/{id}/website-inspect` came back
+with a body starting "Internal S..." — plain TEXT, not JSON. That's Starlette's default unhandled-exception
+response (`PlainTextResponse("Internal Server Error", 500)`), not a normal FastAPI `HTTPException` (which
+would already be JSON). `response.json()` throwing on that is exactly the SyntaxError logged, which happens
+INSIDE the `.then(r => r.json())` step of `background.js`'s fetch chain — before `.then(() => notifyCockpit(...))`
+ever runs, so the dashboard never learns the save happened (or half-happened) and just sits out its own 60s
+timeout, even though the scrape genuinely succeeded server-adjacent.
+
+**Root-caused the unhandled exception itself.** `db.py`'s `init_db()` calls bare `create_engine(database_url)`
+— no `connect_args`, no journal-mode tuning. Confirmed on the LIVE database: `PRAGMA journal_mode` = `delete`
+(SQLite's default rollback-journal mode, not WAL), `PRAGMA busy_timeout` = 5000ms (Python sqlite3's own
+default, since nothing overrides it). This app has real concurrent write load — background auto-enrichment
+(confirmed via the SAME console session: dozens of "auto-enrich: opening N hidden tab(s)" / "Enrichment
+successful" lines firing continuously) writes to the SAME database file while the user interacts with it.
+Verified the actual failure mode is reproducible, not theoretical: isolated two-thread test against a COPY of
+the real DB (never touched production data) — one thread holds a write transaction open longer than the
+default 5s busy_timeout, a second thread's write during that window raises
+`sqlite3.OperationalError: database is locked`, confirmed exactly reproduced.
+
+**Fix, two layers:**
+1. `db.py` — `init_db()` now registers a SQLAlchemy `event.listens_for(engine, "connect")` hook (applies to
+   every pooled connection, not just the first) that sets `PRAGMA journal_mode=WAL` (persists in the DB file
+   itself, so re-applying on every startup is a no-op once already set — same self-healing-on-every-boot
+   philosophy as `_ensure_job_columns()`) and `PRAGMA busy_timeout=15000` (3x the previous implicit default,
+   giving genuine headroom under the auto-enrichment write load this app actually has). WAL mode is SQLite's
+   own recommended mode for exactly this access pattern (concurrent readers alongside a writer) and reduces
+   contention systemically — this fix isn't scoped to just website-inspect, every write path in the app
+   benefits.
+2. `api/main.py` — `save_website_inspect` now wraps its DB work in `try`/`except OperationalError`, raising
+   a proper `HTTPException(503, ...)` instead of letting the exception escape unhandled. Even if contention
+   ever outlasts the new 15s timeout under heavier load, the extension gets back real, parseable JSON — a
+   503 it can at least log meaningfully — instead of an opaque SyntaxError that looks like a client-side
+   parsing bug and gives no hint what actually failed.
+
+**Verified**: `python -m py_compile` clean on both files. Re-ran the exact same two-thread contention test
+against the SAME database copy, this time through the actual fixed PRAGMA sequence (WAL + 15s timeout) — the
+previously-failing writer now succeeds cleanly (confirmed the elapsed time crosses the OLD 5s failure
+boundary and still resolves without error, proving the fix — not just a timing fluke — is what changed the
+outcome).
+
+**Why the extension fixes from earlier today weren't sufcient by themselves**: they were both real, confirmed
+bugs (MV3 pending-state durability, bridge.js swallowing tab-create failures) and both are still correct,
+needed fixes — but neither of them was THE bug causing this specific "same bug" report. This is a good
+illustration of why chasing a symptom (a generic timeout message) can lead to fixing real-but-adjacent
+issues before finding the actual proximate cause — the service worker console, once actually read (filtered,
+not scrolled), settled it in one exchange.
+
+**Revert:** `db.py`'s connect-event hook and `api/main.py`'s try/except are both additive; removing either
+reverts to the prior (unsafe under contention) behavior. The WAL-mode PRAGMA, once applied, persists in the
+database file itself — reverting the code doesn't revert the file back to delete-mode automatically, but WAL
+mode is strictly safe to leave in place regardless of whether the code that set it stays.
+
+## 2026-08-27 — "Website scrape timed out" (continued): the REAL root cause was an int overflow, not lock contention
+
+Direct continuation of the entry above. Owner reloaded the backend and ran Inspect FOUR separate times —
+identical failure every single time, deterministic, not intermittent. That ruled out the lock-contention
+diagnosis outright: contention is inherently probabilistic, and my own direct load tests against the live
+endpoint (single request, then a 20-way concurrent burst) succeeded 100% of the time. The WAL-mode fix from
+the entry above is still correct and worth having — it's a genuine, real concurrency improvement — but it
+was NOT the cause of this specific, persistent failure. Said so plainly rather than let a real-but-wrong fix
+stand in as the explanation.
+
+**Re-diagnosed from the deterministic-not-probabilistic signal.** My test probes all used `job_id=13394`
+(the short internal DB id) in the URL path. The REAL extension request uses `job.upwork_job_id ||
+String(job.id)` — checked: job 13394's `upwork_job_id` is `'022092808417625007967'`, a 21-digit numeric
+string. `save_website_inspect` (and identically, `save_ahrefs_data` right below it) resolve the job via
+`Job.id == (int(job_id_clean) if job_id_clean.isdigit() else -1)` as one arm of an `or_()` — and Upwork's own
+job ids ARE all-digit strings too, so `.isdigit()` passes and Python eagerly evaluates `int(job_id_clean)`
+regardless of whether the OTHER (string-match) conditions would already resolve the job correctly.
+`22092808417625007967` exceeds SQLite's native 64-bit INTEGER range (max ~9.22e18, 19 digits — this value
+has 20). Reproduced precisely, twice: (1) `curl` against the live endpoint using the REAL upwork_job_id in
+the URL path reproduced the exact "Internal Server Error" plain-text 500, byte-for-byte the same failure the
+extension was hitting; (2) an isolated script running the literal same SQLite bind against a DB copy
+confirmed the exact exception — `OverflowError: Python int too large to convert to SQLite INTEGER`, a
+built-in Python exception, NOT `sqlite3.OperationalError` — meaning the `except OperationalError` catch added
+in the entry above could never have caught this even if the lock-contention diagnosis had also been correct.
+
+**Scope check — is this wider than website-inspect?** Grepped the whole file for the exact vulnerable shape
+(`isdigit() ... else -1`) — exactly two occurrences, `save_website_inspect` and `save_ahrefs_data`, both
+using the identical unguarded pattern. Since Ahrefs and Website-Inspect share the same `AhrefsBar` component
+and the same `job.upwork_job_id || String(job.id)` value, this means **Ahrefs save-backs have almost
+certainly been silently failing the same way for any job with a real (API-captured) `upwork_job_id`** — not
+a new bug introduced today, a pre-existing one this investigation happened to surface via a different route
+first. Fixed both occurrences identically.
+
+**Fix**: added a length guard — `int(job_id_clean) if job_id_clean.isdigit() and len(job_id_clean) <= 18
+else -1` — so the eager int-conversion only fires for strings that could plausibly BE our own short internal
+row id, never for Upwork's own long numeric ids. The `Job.upwork_job_id == job_id_clean` string-match
+condition in the same `or_()` already resolves those correctly on its own; this just stops the int-conversion
+arm from crashing before the query is even sent.
+
+**Verified**: `python -m py_compile` clean. Isolated re-run of the exact reproduction case with the fixed
+guard — no exception, `id_val` correctly falls back to `-1`, and the query still finds the right job via the
+string-match condition; also confirmed the short-DB-id path (`"13394"`) is unaffected. Live: `curl` against
+the running backend with the real `upwork_job_id` now returns a clean 200, and the database shows the save
+genuinely persisted (`website_url`/`website_summary` correctly written for job 13394).
+
+**Process note, said honestly**: this took three rounds to land on the real cause (durability fix →
+lock-contention fix → this). The first two were each independently real, valid, worth keeping — but neither
+was THIS bug. What actually cracked it was the owner pulling the real service-worker console output (twice)
+instead of me continuing to reason from code alone, and then noticing the failure was 100% deterministic
+rather than intermittent, which is what pointed away from contention and toward "something about THIS job
+specifically" — which led straight to the one thing genuinely unique to it: its long `upwork_job_id`.
+
+**Revert:** two one-line guard additions (`len(job_id_clean) <= 18`), purely restrictive — narrows what gets
+int()-converted, never widens it, so reverting is safe and simply restores the overflow risk.
+
+## 2026-08-28 — "Don't state rates/retainer unless asked" made real, not just a KB rule nobody obeys
+
+Owner reviewed job 13621 (Unihost, PPC/Google Ads retainer) and flagged it as not resonating with the
+posting. Investigation, then explicit owner direction: "We shouldn't even tell client any rates or retainer
+unless he specifically asked for it."
+
+**Confirmed this was a systemic contradiction, not a one-off miss.** Job 13621's own posting states its own
+rate plainly ("Rate: $35/hour", "~10-15 hours/month, ongoing retainer") and never asks Artem to name his —
+confirmed via the job's stored classification cache: `{"asks_for_rate": false, "is_audit_request": false}`.
+The classification pilot got this exactly right. But the letter still proposed a completely different
+commercial structure: a $300 one-time audit (credited back), then $700 first month / $600/month ongoing —
+never referencing the client's own $30-35/hr at all. Traced the actual trigger:
+`wrongOngoingManagementFee` / `wrongOngoingRateFraming` (PPC) and `missingSeoAuditPriceEntirely` /
+`wrongSeoAuditPrice` / `wrongSeoRetainerFee` (SEO) — none of these checks looked at whether the posting
+itself asks for a rate before forcing Artem's fixed figures into the draft.
+
+**This directly contradicts two KB rules that already exist and already say the right thing**:
+- Rule 397: "Never mention or suggest monthly retainer arrangements unless the client explicitly asks about
+  them in their job posting or requirements."
+- Rule 426: "Only mention the $700 fixed price for technical SEO audit and that it's included in the
+  $1050/month SEO optimization retainer when the client explicitly requests pricing or package details."
+
+Both rules were already correct and already in the system prompt. The deterministic post-checks were
+overriding them — forcing the exact numbers these rules say to withhold, whenever the posting was
+audit-shaped with an ongoing signal, with zero reference to whether pricing was actually asked for. This is
+the same class of "rule says one thing, code enforces the opposite" problem flagged as the core structural
+concern earlier this session — just found concretely here rather than diagnosed in the abstract.
+
+**Fix, three layers, all keyed to the SAME existing `_postingAsksRate` signal** (already correctly computed
+per-job by the classification pilot, just never wired into any of this):
+1. **Deterministic strip, the primary safeguard** (`_stripUnaskedRate`, `JobDetail.jsx`): removed the old
+   carve-out that explicitly PROTECTED the $300 audit paragraph from being stripped (its entire reason for
+   existing was to survive exactly this kind of strip — the owner rule reverses that). Replaced it with
+   `_ARTEM_OWN_PRICE_PARA_RE`, matching audit/retainer/ongoing-management language near a dollar figure —
+   catches the $300 audit para AND the $700/$600 ongoing-fee para, regardless of which numbers appear in
+   them (broader than the old $300-only carve-out it replaces). Guarded first by `_ANY_CASE_NAME_RE` so a
+   case-study paragraph is NEVER at risk — verified this matters concretely: the real Skin Reboot case-study
+   paragraph contains BOTH a raw dollar figure ("$700/mo" describing the CLIENT'S budget) AND the word
+   "audit" ("what I handled: account audit...") in the same paragraph, which would false-positive-match the
+   new price-detection regex if the case-name guard didn't exit first.
+2. **Gated 7 "must state a price" checks behind `_postingAsksRate`** so the enforcer stops being invoked to
+   force pricing back in that the strip is just going to remove anyway (`wrongAuditPrice`,
+   `missingAuditPriceEntirely`, `wrongOngoingRateFraming`, `wrongOngoingManagementFee`,
+   `missingSeoAuditPriceEntirely`, `wrongSeoAuditPrice`, `wrongSeoRetainerFee`) — purely an efficiency/
+   consistency fix, since #1 alone already guarantees the correct final output regardless.
+3. **System prompt**: the existing "deliverable offer IS the call to action, last paragraph before sign-off"
+   instruction only described a pricing-shaped closing. Verified directly that stripping pricing without an
+   alternative closing leaves the letter ending abruptly on the case-study paragraph with no call-to-action
+   at all (ran the real "before" draft through the fixed strip and read the result). Added a conditional
+   branch: when the posting doesn't ask for a rate, close instead on a concrete, numberless next step
+   (offering the audit qualitatively, or a direct question) — the closing paragraph is still mandatory, it
+   just can't be a price quote.
+
+**Verified**: isolated test of the strengthened `_stripUnaskedRate` — 9 cases, including the real Unihost
+audit-price and ongoing-fee paragraphs (both correctly stripped), the real ChronoCash and Skin Reboot
+case-study paragraphs (both correctly survive, including the risky Skin Reboot case with a raw "$" figure
++ "audit" co-occurring), a plain "$40/hr" rate paragraph (still stripped — no regression on the function's
+original purpose), and the `asksRate=true` early-return path (nothing touched — no regression there either).
+Ran the complete real "before" draft (all 9 paragraphs) through the fix end-to-end: both pricing paragraphs
+removed cleanly, all 7 remaining paragraphs (opener, credentials, both diagnostic paragraphs, case study,
+sign-off) intact and coherent. `esbuild` transform clean throughout.
+
+**Revert:** the strip-function change and the system-prompt addition are both meaningful behavior changes and
+should be reverted together if this direction changes; the 7 check-gating additions are pure efficiency and
+safe to revert independently (they don't affect final output correctness, only whether the enforcer gets
+invoked unnecessarily).
+
+## 2026-08-28 — Job 13621 round 2: the pricing rule that outranked the earlier fix, + analyser rate-floor correction
+
+Owner re-ran job 13621 (Unihost) after the pricing-suppression work above and reported it "even worse, even
+less resonating... same mistake", plus a separate disagreement with the analyser's 3/10 SKIP.
+
+### Part 1 — why the pricing fix didn't hold (a function I hadn't touched)
+
+The previous entry's fix DID fire — the "$300 flat for a full Google Ads audit..." paragraph was correctly
+stripped from the final letter. But the letter still shipped Artem's pricing, in a worse form than before:
+
+    first-pass draft:  "for the ongoing piece: $35/hr fits your posted ceiling and i'd estimate ~12 hours/month"
+    final letter:      "For the ongoing piece: $700 for the first month, then $600/month fits your posted ceiling..."
+
+The first pass had actually done the RIGHT thing — quoted the client's own posted $35/hr. `_forceFixOngoingFee`
+(runs FIRST in the strip chain) overwrote it. That function is documented in its own header as "a deterministic,
+unconditional last-mile guarantee applied regardless of what happened upstream", and it had no `asksRate` gate —
+the seven *pre-checks* were gated in the previous entry, but this one was missed because it isn't a check, it's a
+rewriter that runs before any of them. Result: a fixed $700/$600 figure welded onto the phrase "fits your posted
+ceiling", which is self-contradicting nonsense ($700/month does not "fit" a $35/hr ceiling), on a posting that
+states its own rate and never asked Artem for one (confirmed again from the job's cached classification:
+`asks_for_rate: false`). Then `_stripUnaskedRate` couldn't clean up after it: the rewritten paragraph no longer
+contained "/hr", and its dollar figures sat too far from "audit"/"retainer" for the proximity alternatives, so it
+matched nothing and survived. `_ensureManualAuditClaim` then compounded it by appending the manual-audit claim to
+that same paragraph, because the paragraph happened to contain "$700" and (in a later, unrelated sentence) the
+word "audit".
+
+**Fixes** — four, all on the same chain:
+
+1. `_forceFixOngoingFee(text, asksRate)` — bails out immediately when the posting never asked for pricing. Passed
+   `_postingAsksRate` at both call sites. When nobody asked, there is no correct fee to force.
+2. `_ARTEM_OWN_PRICE_PARA_RE` — added `ongoing` / `first month` / `$N flat` alternatives so the ongoing-fee
+   paragraph shape is actually caught. Deliberately NOT widened to "any dollar figure": verified the client's own
+   product prices in the opener ("a $19/mo VPS signup from a $799/mo GPU-rig lease") survive — that sentence is
+   the sharpest, most posting-specific line in the letter and a blanket rule would have deleted it.
+3. `_ensureManualAuditClaim` — its paragraph finder required only that `$300|$700` and "audit" both appear
+   *somewhere* in the same paragraph; now requires them in the same sentence (no intervening "." or newline). This
+   also makes it correctly no-op when the audit offer has been stripped entirely, instead of re-attaching an
+   orphaned claim about an offer that no longer exists.
+4. `_rateAnchorNote` — when `!_postingAsksRate`, the whole note is REPLACED with a flat prohibition rather than
+   appending another instruction next to a contradicting one. Every existing branch is written for the
+   rate-was-requested case and merely carries an "apply ONLY if the posting asks" caveat; a caveat inside a long
+   confident pricing directive is weak, and the first pass proved it by quoting two prices anyway. The new note
+   also explicitly permits the audit as a QUALITATIVE closing CTA (no price, no turnaround-day count), which is
+   what keeps the letter from ending abruptly once the priced paragraph is stripped.
+
+**Verified** against the real job-13621 draft, 9 checks: forced-fee corruption no longer produced; both the $300
+audit paragraph and the ongoing-fee paragraph stripped; client product prices, both diagnostic paragraphs, both
+case studies and the credentials line all survive; `_ensureManualAuditClaim` correctly no-ops. Also reproduced
+the OLD behaviour in the same script to confirm the corruption was real and is now gone. `esbuild` clean.
+
+### Part 2 — analyser: 3/10 SKIP on a job whose posted rate fits
+
+Owner: "what is the point to lower the mark so much because of avg rate if the job posting says that rate is $35
+which is a fit". Two separate defects found:
+
+**(a) Wrong rate floor — the analyser contradicted itself in its own output.** The forced flag said "FAR below
+Artem's $40/hr DEVELOPER floor" while the analyser's own reasoning said "this is a PPC management role, NOT
+web-development — the applicable floor is $30/hr". Cause: `_WEBDEV_RATE_RE` scans the entire description, and this
+posting's *nice-to-have* list mentions "landing page ... improvements" once — enough to classify a pure PPC
+retainer as a web-dev job and raise the floor $30 to $40. Fix: the ROLE is what the job TITLE names — added
+`_PPC_SEO_TITLE_RE`, and a title naming a PPC/SEO/ads role now blocks the web-dev floor regardless of incidental
+body keywords. Verified a genuine "WordPress Developer for Site Rebuild" posting still gets the $40 floor.
+
+**(b) The avg-rate deduction outranked an explicitly posted, qualifying rate.** Client avg $10.05/hr vs a $30 floor
+triggered "-3 points AND cap verdict at MAYBE", producing 3/10 SKIP on a job the analyser itself called an
+"excellent fit" with an "uncontested pool" (<5 applicants, 0 interviewing, payment verified, 100% hire rate, 5.0
+rating, $5K spent). The rule's premise — history predicts better than the posted range — is sound for a vague or
+aspirational range, but this posting states a single specific number ("Rate: $35/hour") that clears the floor.
+Per owner's call: a rate the client publishes for THIS role is a commitment, and the historical average is an
+aggregate over whatever OTHER role types they hired for (a company paying $10/hr for VA/content work can still pay
+$35/hr for a specialist). Fix: new branch, ahead of the three harsh ones — when the posted ceiling meets/exceeds
+the floor, deduction is capped at -1 and the verdict cap is removed; the gap is still flagged once as a
+negotiation/rate-pressure risk. Mirrored as an explicit overriding exception in the analyser prompt's CLIENT AVG
+RATE SIGNAL block so the forced flag and the prompt rules can't contradict each other.
+
+**Verified**, 8 cases: job 13621 now takes the softened branch with the correct $30 floor; and all four control
+cases keep their original harsh behaviour — a real web-dev job ($40 floor), a posted ceiling BELOW the floor
+($18 vs $30), a posting with no rate at all, and an avg-above-floor client (still a positive signal, no inversion).
+
+### Not fixed — reported to owner instead
+
+- **Case-study vertical gap (the "not resonating" complaint).** The letter cites Nectar Flowers (florist) and
+  FridgeFix (appliance repair) to a B2B GPU/AI hosting provider. Checked the ledger: of six PPC cases
+  (skin-reboot, nectar-flowers, fridgefix, house-painting, chronocash, atlant) NOT ONE is B2B/tech/SaaS. The two
+  B2B cases that exist — Oxytec (b2b-equipment) and Golden State Trailers (b2b-manufacturing) — are both SEO, so
+  citing them on a PPC job trips `caseStudyDomainMismatch`. This is a content gap, not a code defect; fixing it is
+  an owner decision (add a B2B/tech PPC case to the ledger, or allow a clearly-labelled B2B SEO case as vertical
+  proof on B2B PPC jobs). Not changed unilaterally.
+- **Dead SKIP-gate still live.** Re-confirmed `GET /jobs/13621/analysis` returns 405 (no GET route) — so
+  `generate()`'s analysis fetch fails silently and the SKIP-gate never fires, which is why a SKIP-verdict job
+  produced a full letter whose own remarks read "Job scoring: APPLY". Deliberately NOT enabled: the owner has just
+  disputed a SKIP verdict as wrong, so making SKIP suppress letters would amplify the exact problem being
+  reported. Owner's call.
+
+**Revert:** Part 1 is four edits on the generator strip chain (the `_forceFixOngoingFee` gate is the load-bearing
+one). Part 2 is two analyser edits (title-wins floor, softened branch) plus the matching prompt text. Part 1 and
+Part 2 are independent and can be reverted separately.
+
+## 2026-08-31 — Job 13839: the enforcer deleted the answer to the client's first screening question
+
+Owner shared job 13839 (DTC ecommerce brand, "Google Ads Expert — Set Up New Account"). Analyser scored it
+APPLY 8/10 — genuinely strong fit. The letter that came out is materially worse than the draft that went in.
+
+### What the client asked vs what shipped
+
+Screening question #1, verbatim: **"What DTC accounts have you managed, and at what monthly spend?"**
+
+The FIRST-PASS draft answered it precisely — three named accounts, each with a monthly spend figure, plus a
+total:
+
+    DTC accounts + spend:
+    Skin Reboot (Korean medical-aesthetic ecommerce) - ... managing ~$5K/month in Google Ads spend ...
+    ChronoCash (European luxury watch retailer) - ... managed EUR 4-6K/month spend ...
+    Nectar Flowers (Seattle florist) - $2-3K/month spend, scaled transaction revenue +350% ...
+    Total managed monthly spend across active accounts: ~$15K.
+
+The POST-ENFORCER letter:
+- **deleted the case NAME "Skin Reboot"**, leaving an orphaned subject-less fragment ("Restricted YMYL
+  category where tracking had to be surgical, same conversion-value precision you need...");
+- **deleted Nectar Flowers entirely**;
+- **replaced the monthly SPEND figure** — the one thing actually asked for — with percentage metrics
+  (+693.8% revenue, +134.12% conversions, +91.58% traffic);
+- **renamed the section header** from "DTC accounts + spend:" to "Proof this approach works:", destroying the
+  signal that this block answers their question;
+- left "Total managed monthly spend across active accounts: ~$15K" dangling as a sum of accounts that are no
+  longer listed.
+
+Net effect: the letter no longer answers screening question #1 at all, on a job whose posting says
+"please show account results".
+
+### Root cause — a ledger gap, then three guards firing at once
+
+`rule_violations` for job 13839 (12 rows) shows the pre-check batch at 13:02:32 fired TEN checks at the
+enforcer simultaneously, three of them attacking the same case block:
+- `fabricatedCaseMetric` — "$12K to $95K" is not among Skin Reboot's ledger metrics
+  (`+693.8% revenue`, `17.51 PMax ROAS`, `+134.12% conversions`, `+91.58% traffic`)
+- `localServiceCaseDisplacedByEcomHealth` — Nectar Flowers (ecom-florist) cited alongside Skin Reboot
+- `tooManyCaseStudies` — three cases cited
+Then `metricNotInLedger` + `tooManyCaseStudies` fired AGAIN at 13:02:44 from the grounding checker, i.e. the
+enforcer's own output STILL carried an ungrounded metric after the rewrite.
+
+The deeper cause is a DATA gap, not a prompt bug: **the client asked for monthly spend, and CASE_LEDGER holds
+a monthly-spend figure for exactly one case** — ChronoCash (`EUR 4.83K monthly ad spend`). Skin Reboot and
+Nectar Flowers have percentage metrics only. So the generator had to invent "~$5K/month" and "$2-3K/month" to
+answer the question, the guards correctly flagged the invention, and the enforcer resolved the conflict by
+demolishing the answer. No prompt tuning fixes this; the ledger simply does not contain what was asked for.
+
+Related, unresolved: `$12K to $95K` appears in **13 KB entries** (past sent proposals) but is NOT in the
+ledger. Either it is real and the ledger is incomplete, or it is a claim that has been repeated for months
+without grounding. Owner decision — flagged, not touched.
+
+### An ungrounded headline number survived to the client
+
+The letter opens: **"Scaling DTC ecommerce at $64K/month across 8 accounts"**. Zero grounding — `64K`,
+`64,000`, `8 accounts` and `eight accounts` return **0 hits across all 659 KB entries**. It also directly
+contradicts "Total managed monthly spend across active accounts: ~$15K" ten lines later IN THE SAME LETTER.
+
+Why nothing caught it: `groundingCheck.js` scopes the metric check to paragraphs that name a ledger case
+(`const ids = paraCases[pi]; if (!ids.length) return para`). That scoping is deliberate — it stops the checker
+mauling general pattern statements ("most accounts leak 30-40% of budget"). But it leaves a real hole:
+**first-person AGGREGATE self-claims** ("I manage $Xk/month across N accounts") are numbers about Artem, not
+pattern statements, and nothing checks them against anything. Reported, not fixed — the correct fix needs the
+true figure, which only the owner has.
+
+### Fixed: doubled parenthetical shipped to the client
+
+The letter contains `ChronoCash (attached in profile highlights) (European luxury watch retailer)` — two
+adjacent brackets. `missingHighlightsPhrase` fired, and the enforcer inserted the required label immediately
+after the case NAME instead of into the existing descriptor parenthetical.
+
+`_stripDuplicateAttachmentLabel` step 1 exists to merge exactly this shape, but its guard required BOTH
+parentheticals to carry an attachment phrase (`if (!A || !B) return full`). Here only one does, so it bailed
+and the doubled bracket shipped. Widened the guard to fire when AT LEAST ONE side carries the phrase
+(`if (!A && !B) return full`) — the merge body already handled the one-sided case correctly (it takes the
+phrase from whichever side has it and keeps the other side's descriptor), so only the guard needed changing.
+Still bails when neither side has an attachment phrase.
+
+**Verified**, 6 cases: the real job-13839 string merges to
+`ChronoCash (European luxury watch retailer, attached in profile highlights)`; reverse order merges; the
+both-sided case still merges (no regression on the function's original purpose); neither-sided is untouched;
+an already-correct single parenthetical is untouched; non-adjacent parentheticals are not merged across
+intervening text. `esbuild` clean.
+
+### Also dropped, not fixed
+
+Screening question #4 asks for "Your rate — monthly retainer or hourly — and your availability". The
+first-pass draft said "I'm available to start this week"; the enforcer replaced that sentence with the Rule
+450 launch CTA and **the availability half of the answer disappeared**. Same mechanism as the case block: a
+guard-mandated insertion overwriting content the posting explicitly requested.
+
+**Revert:** one-guard change in `_stripDuplicateAttachmentLabel` step 1 (`||` -> `&&` with negation), purely
+widening. Everything else in this entry is diagnostic.
+
+## 2026-08-31 — Job 13902: "it's too long — why would I want to read all this"
+
+Owner's complaint about the letter for job 13902 (Palma Series, men's grooming Shopify / Google Shopping).
+Analyser: APPLY 8/10, genuinely good fit. The letter that shipped is ~800 words.
+
+### The length is a real outlier, measured against his own sent history
+
+    letters actually sent      n     median chars    ~words
+    engaged (viewed/replied)   42        1,987         ~331
+    ghosted                   157        1,880         ~313
+    still open                 26        2,073         ~345
+
+Job 13902's letter is roughly 2.5x the median of every letter he has ever sent — and note the first two rows:
+length does not separate engaged from ghosted at all (consistent with the Aug-31 funnel audit, where 18 letter
+features were tested and none predicted engagement). So the long letter buys nothing; it only costs attention.
+
+### Why it ran long — two compounding causes
+
+**(a) A rule conflict the checklist always wins.** The posting asks SIX screening questions. The generator
+prompt contains "NO FLUFF — two short diagnostic paragraphs MAXIMUM", but the checklist block asserts "The
+proposal will be AUTO-REJECTED if it does not address EVERY item below". When two instructions conflict, the
+model obeys the one carrying an explicit threat — so brevity loses, every time, and six essay-length answers
+get written. Nothing in the checklist branch bounded the length.
+
+**(b) Cases cited two and three times.** Screening question #4 is "give an example of an e-commerce account
+you've managed" — the generator answered it inline with a named case (correct), and THEN still appended the
+standard closing case block re-citing the same cases with the same metrics. In the shipped letter Skin Reboot
+appears THREE times and ChronoCash twice. The grounding checker's `caseDuplicated` fired at 18:00:22 and did
+nothing — it is deliberately shadow-only because it cannot safely decide WHICH copy to cut.
+
+### The damage came from the deterministic chain, not the LLM
+
+`rule_violations` shows `enforcerAddedWrongLaunchOffer` at 18:00:22 — that is a post-enforcer regression guard
+that DISCARDS the enforcer's rewrite and falls back to the pre-enforcer draft. So the enforcer's output never
+shipped; everything wrong in the final letter was produced by the deterministic strip chain running over the
+first-pass draft. Worth remembering next time a defect looks like "the enforcer mangled it".
+
+### Fixed
+
+1. **`_stripRedundantTrailingCaseBlock`** (new, `JobDetail.jsx`, wired into both strip chains between
+   `_stripDigitBombDuplicateCase` and `_ensureManualAuditClaim`). Finds the trailing run of case-study
+   paragraphs (looking past a short sign-off), and drops any entry whose case is already named earlier in the
+   letter. Where `caseDuplicated` cannot choose a copy, position makes the choice unambiguous: the earlier
+   mention is doing argumentative work (answering their question), the trailing one is boilerplate. Before
+   dropping an entry it makes sure the earlier mention carries the case's attachment label, folding the phrase
+   INTO an existing descriptor parenthetical rather than adding a second bracket (so it cannot recreate the
+   doubled-parenthetical defect fixed earlier the same day). If the block empties completely, its now-orphaned
+   lead-in line ("Proof this approach works:") goes too — which also fixes a second rule for free, since the
+   letter then ends on the call to action instead of on past results, exactly as the prompt asks.
+
+   Verified, 12 cases against the real job-13902 text: both duplicate entries and the lead-in removed;
+   ChronoCash's label correctly folded into its existing parenthetical
+   (`ChronoCash (luxury watch dealer, high-ticket European market, attached in profile highlights)`); no
+   adjacent double parenthetical created; letter ends on the audit offer; sign-off preserved; the inline
+   "Managed example" answer preserved. Guards: a case cited ONLY in the trailing block is kept (not a
+   duplicate); a letter with no trailing block is untouched; a mixed block drops the duplicate and keeps the
+   first-mention entry plus its lead-in.
+
+2. **Length budget in the checklist prompt block** (`extractApplicationChecklist`). The checklist branch now
+   carries its own explicit budget, scaled to how many questions were actually asked —
+   `min(450, 200 + items*35)` words (1 question -> 235, 4 -> 340, 6 -> 410, 9+ -> 450) — plus "at most 2–3
+   sentences per item" and "cite each case study EXACTLY ONCE in the whole letter". This exists specifically to
+   stop the two rules fighting: the budget lives in the same block as the AUTO-REJECTED threat, so it is read
+   as part of the same instruction rather than as a distant, weaker rule.
+
+### Found, reported, NOT fixed
+
+- **`+693.8% monthly` is nonsense, and `+693.8%` appears twice in the opening sentence.** The grounding
+  checker in enforce mode replaced the ungrounded `$12k to $95k` with a ledger-approved number, without
+  checking whether that number already appeared in the same sentence or whether the substitution still parsed
+  ("$12k to $95k monthly" -> "+693.8% monthly"). A metric substitution needs to be sentence-aware; this one is
+  a blind find-and-replace.
+- **`attached as PDF` twice in the opening sentence** — `_fixPdfCaseLabelMisattribution` appended the label
+  after "Skin Reboot" in a sentence that already ended "…, attached as PDF."
+- **Proper-noun casing capitalising ordinary words**: the letter contains "if the Work fits", "how buyers
+  actually Search", "Search-term mining", "in Shopping for Grooming". `_extractProtectedProperNouns` strips
+  markdown `#` headers before scanning, but this posting writes its section headings as bare Title-Case lines
+  ("Scope of Work", "What We're Looking For"), so "Work" was registered as a protected proper noun from
+  "Scope of Work" and force-capitalised everywhere. Same class as the job-10702 regression, new entry point.
+  Fix would be to also treat a short, Title-Cased, punctuation-free standalone line as a heading.
+- **`_splitLongBodyParagraphs` splits on "e.g."** — the letter breaks mid-sentence, leaving a paragraph ending
+  `…front-load the product type + key attribute (e.g.` and the next starting `"Matte Hair Clay…`.
+  `_SENT_BOUNDARY_RE` treats the "." in "e.g." as a sentence terminator. Needs an abbreviation guard
+  (e.g./i.e./etc./vs./approx./Mr.).
+
+**Revert:** the new strip function plus two one-token call-site wraps, and the prompt budget clause. All
+additive; removing the budget clause restores the previous (unbounded) checklist behaviour.
+
+## 2026-08-31 — Tracker integrity: stop the dashboard reporting its own silence as client rejection
+
+Owner picked this off the August audit's fix plan. Three defects, all of which made the tool's engagement
+numbers unfalsifiable — and one of which was actively demoralising, because it presented instrument failure
+to the owner as clients rejecting him.
+
+### 1. The scraper only ever saw the first screen of the list
+
+Across 221 proposals and four months, a "viewed by client" flag has **never once** been detected on a
+proposal below about row 9. The proposals list is virtualised/lazy-loaded and `scrapeProposalsList()` scraped
+whatever happened to be rendered. It got worse the harder he bid: the detection window shrank from ~6.0 days
+(June) to ~2.7 days (August), because his own newer proposals pushed older ones out of the rendered window
+faster. Bidding more made him see less of his own funnel.
+
+**Fix** (`upwork-enricher/proposal.js`): new `loadEntireProposalsList()`, awaited at the top of
+`scrapeProposalsList()` BEFORE `buildViewedTitleSetFromHtml()` (which scans page HTML and must not run against
+a half-rendered list). It scrolls to the bottom repeatedly — window plus the tallest inner scrollable, resolved
+once rather than re-queried each pass — until the row count (`/\binitiated\b/gi` over `body.innerText`, one per
+submitted proposal) stops growing for two consecutive passes, then returns to the top. Capped at 20 passes;
+exits after ~1.4s when the list is short or not virtualised.
+
+Deliberately **scroll-only** — no clicking of "load more"-style controls, because this runs unattended on an
+hourly alarm and should not actuate page controls on its own. If Upwork paginates rather than lazy-loads,
+scrolling alone will not reach everything — and the stats logged in fix 2 are what will reveal that, instead
+of us guessing again.
+
+### 2. Nothing recorded that a sync had run
+
+A sync that executed and matched nothing was **indistinguishable in the database** from a sync that never
+executed. That is why an 11.6-day total blackout in view detection (2026-08-14 19:45 -> 2026-08-26 11:15,
+27 submitted proposals, 19 of them during heavy active bidding, three sync-worker rewrites landing inside the
+window) went unnoticed at the time and could not be fully root-caused afterwards. It is also the single
+reason every engagement number the tool reports is currently unprovable: "no views" and "no measurement" look
+identical.
+
+**Fix**: new `SyncRun` model (`db.py`) -> `sync_runs` table (ts, leg, rows_scraped, matched, not_matched,
+newly_viewed, scroll_json). Written unconditionally at the end of `/proposal-status-sync` — including runs
+that scraped nothing or matched nothing, which are precisely the runs worth recording — wrapped in try/except
+so a logging failure can never break the sync itself. The scraper's list-load stats ride along: `proposal.js`
+stashes them in `_lastScrollStats` and sends `{ rows, scroll }`, so each row shows whether the virtualised
+list actually expanded (`grew`) or whether the rank-9 blind spot is still in play. New `GET /sync-runs`
+(limit, optional leg) makes "has my funnel actually been checked lately?" answerable: a gap in `ts` means the
+sync did not run; a run of `rows_scraped=0` means it ran and saw nothing.
+
+No migration needed — `Base.metadata.create_all(engine)` in `init_db` creates a brand-new table on startup.
+
+### 3. "Ghosted" was a local egg timer that never contacts Upwork
+
+`_auto_ghost_proposals()` flips `sent` -> `ghosted` after 10 days purely because nothing updated the row. It
+makes no request to Upwork. All 40 of August's ghosts were set this way — during a month that also contained
+the 11.6-day blackout above. So the dashboard was reporting the tracker's own silence back to the owner as
+client rejection, which is very likely the direct source of his "people ghosted me so many times" impression.
+
+**Fix (behaviour)**: added a health gate. A proposal is only ghosted when the proposals-list sync has actually
+been WORKING in the relevant window — at least one `SyncRun` since the cutoff with `rows_scraped > 0`. If the
+sync has been down or blind we genuinely do not know what happened, and inventing a rejection is worse than
+leaving the row open; it will be ghosted on a later sweep once the sync is healthy. Fails OPEN (previous
+behaviour) if `sync_runs` does not exist yet, so an older DB cannot freeze its funnel forever.
+
+**Fix (wording)**: the UI label becomes **"No reply seen"** in both `Outcomes.jsx` (filter chip) and
+`Dashboard.jsx` (stat card). The DB key stays `ghosted`, so every filter, query and analytic keeps working —
+only the claim being made to the owner changes, from an assertion about the client to a statement about what
+is known.
+
+### Verified
+
+- `node --check` on `proposal.js`; `py_compile` on `db.py` and `api/main.py`; `esbuild` on `Outcomes.jsx` and
+  `Dashboard.jsx`.
+- Ran `init_db` against a COPY of the production DB (never the live file): `sync_runs` auto-creates with all
+  eight columns, and the ghost health gate was exercised in all three states —
+  (1) no sync ever logged -> SKIP; (2) sync ran but scraped 0 rows -> **still SKIPS**, which is exactly the
+  August blackout case; (3) healthy sync with 42 rows -> ghosting proceeds. Round-tripped a row including
+  `scroll_json` to confirm the payload shape.
+
+### Not done
+
+The rank-9 fix is unverified against the real Upwork page — it needs a logged-in session, which we do not
+have. The `scroll` stats in `/sync-runs` are specifically there so the first real run answers it with data
+rather than argument: if `endCount` stays around 9 and `grew` is 0, the list paginates rather than lazy-loads
+and needs a different approach.
+
+**Requires**: backend restart (Python changes) AND an extension reload at chrome://extensions (content-script
+change — Vite HMR does not reach the extension).
+
+**Revert:** four independent pieces — the scroll pre-pass, the SyncRun model + endpoint + write, the ghost
+health gate, and the two label strings. Each can be reverted alone.
+
+## 2026-09-01 — Generator audit, migration Steps 1 & 2 (telemetry + dead code)
+
+First two steps of the rebuild plan from the structural audit (see the audit artifact "Detectors, Not
+Renderers"). Both chosen because they are safe, reversible, and make every later step measurable.
+
+### Step 1 — thread the job id through the module-scope strip helpers
+
+**Problem.** 301 of 1,375 generator violation events (21.9%) carried `job_id = NULL`, including the #2 and #5
+most-fired checks system-wide (`caseHighlightsInlineLabel` 110, `caseLeadInHadAttachmentLabel` 62). Cause:
+the ~20 strip functions are MODULE-scope helpers with no access to the component's `job` prop, so all 17
+`_recordViolations` calls made from inside one of them pass a literal `null`, while the 15 call-site
+invocations correctly pass `job?.id`. The partition was provably clean — no check name appeared with both
+null and non-null ids — which is exactly what a per-call-site defect predicts.
+
+**Fix.** Rather than editing 17 call sites, added a module-scope `_currentJobId` plus `_setCurrentJobId()`,
+and made `_recordViolations` fall back to it: `job_id: jobId ?? _currentJobId ?? null`. One change, all 17
+sites corrected. `_setCurrentJobId(_jobIdAtCallTime)` is called at the top of both `generate()` and the
+analyser path, immediately after each captures `job?.id`. A strip that legitimately runs outside a generation
+still records `null` rather than misattributing to a stale job. Note `??` (not `||`) so a job id of 0 would
+survive, and the analyser path keeps recording its own surface and id unchanged.
+
+**Why it comes first.** Every later step's acceptance test is a telemetry query — case-family events must
+fall from 686 to <60, offer events from 216 to <60 — and a fifth of that telemetry currently cannot be joined
+to a letter at all.
+
+**Acceptance (NOT yet run — needs a live generation):**
+`select check_name, sum(job_id is null) from rule_violations where surface='generator' and ts >= '2026-09-01'
+group by 1` should return 0 for every name.
+
+### Step 2 — delete 49 console-only pre-check blocks
+
+**What.** Lines 8431–8578 were 49 consecutive blocks of the exact shape
+`if (someCheck) { console.log('[Falcon] Rule pre-check: …') }` — 147 LOC plus a trailing blank. Replaced with
+an 8-line explanatory comment; **140 lines net**. Bundle 522.2kb → 510.6kb. `esbuild` clean.
+
+**Proven before deleting, not assumed:**
+- Parsed the range mechanically: 49 blocks, **49 provably console-only**, 0 unsafe, 0 unparsed lines in the
+  range, 0 blocks whose body spanned more than one line. No block pushed to `specificViolations`, assigned,
+  returned, awaited, or called `_recordViolations`.
+- All 49 conditions are bare identifiers, and **all 49 already appear in the `_recordViolations('generator',
+  job?.id, [...])` telemetry array** (56 entries, line 8356). So no signal is lost — only a duplicate console
+  line during development.
+- Guarded the edit with assertions on the exact first line (`if (hasForbiddenPhrase) {`), the closing brace,
+  and the trailing blank, so a line-number drift would have aborted rather than cut the wrong region.
+- Post-deletion structural check: telemetry array still 56 entries, `draftCompliant` intact,
+  `specificViolations.push` still 56 (the enforcer instructions were untouched), and the 3 legitimate
+  "Rule pre-check:" log lines outside the region survive.
+
+### Two of my own verification attempts were wrong before they were right
+
+Worth recording, because the lesson is about method, not this file.
+
+1. My first detector script reported **0** console-only blocks and 22 "must keep" — flatly contradicting the
+   audit's 49. Cause: my brace-matcher started scanning at the outermost `if`, matched the entire enclosing
+   block (hundreds of lines), classified it unsafe, and then skipped `i = j + 1` **past all 49 inner blocks**.
+2. My first telemetry cross-check reported that **none** of the 49 conditions were recorded elsewhere — which
+   would have made the deletion lossy. Cause: my regex assumed a single-line `_recordViolations(... [ ... ])`
+   call; the real array is multi-line, so the pattern never matched and the "missing" list was an artifact of
+   matching nothing at all.
+
+Both times the audit was right and my check was wrong. The deletion only went ahead once a third method —
+line-guarded parsing plus a multi-line array scan — reproduced the audit's numbers exactly.
+
+**Revert:** Step 1 is one function change plus two one-line calls. Step 2 is a contiguous 148-line deletion
+replaced by a comment; `git diff` restores it exactly. Neither depends on the other.
+
+### 2026-09-02 — "Share with Claude" presses are now archived, not overwritten
+
+`POST /share-with-claude` wrote `share-with-claude.md` with `write_text` — an overwrite on every
+press. Correct for the interactive use ("look at this letter now"), wrong for the rebuild, which is
+being driven off a corpus of real letters + Artem's corrections: press #2 destroyed correction #1.
+
+Added `_archive_snapshot()` and called it at all four write points (kb / debug / outcome / job).
+Each press now also lands in `corrections/<ts>-<kind>-<jobid>.md`. Best-effort by design — wrapped
+in try/except that logs and returns None, because an archive failure must never break the share
+itself, which is the path Artem is actually standing in front of. The response gains an `archived`
+field so a silent failure is visible rather than assumed.
+
+Chose the existing share button over a new capture mechanism because it already collects more than
+a manual paste would: job + analysis + letter + BOTH chat transcripts. The transcript is the part
+that matters — that is literally where the tweaks live that the audit found were never becoming
+knowledge.
+
+Requires a backend reload to take effect.
+
+### 2026-09-02 — Job 14169: the missing audit delivery term (Rule 402), and what else the pair showed
+
+Artem's report: "generator ignores audit delivery time mentioning." He had to ask for it twice in the
+cover-letter chat. Rule 402 (KB 402) requires every Google Ads audit offer to state it is delivered
+within 1 working day; Rule 404 requires the audit-samples line. The letter had 404 and not 402.
+
+This is the first correction captured through the new `corrections/` archive
+(`corrections/20260902T083018-job-14169.md`), and the first live confirmation of the Step 1 telemetry fix:
+**13 events recorded for job 14169 today, `job_id IS NULL` on none of them** — including a
+`tooManyCaseStudies` row written from inside a strip helper, exactly the class that used to record NULL.
+
+#### Root cause 1 — a prompt line I added this session told the model NOT to state it
+
+`_rateAnchorNote`, when `!_postingAsksRate`, is replaced wholesale with a NO PRICING block. I wrote that
+block earlier this session to stop unasked rates leaking into letters. It ended:
+
+> "…describe it qualitatively (what you would look at first and why, and that it is done by hand) with NO
+> price **and NO turnaround-day count attached**."
+
+Job 14169's posting never asks for a rate, so that branch was live. The generator did not ignore Rule 402
+— it was explicitly instructed to omit the turnaround. I bundled a delivery commitment in with pricing
+because both happen to be numbers near an audit offer; they are different things, and Rule 402 is
+unconditional. Fixed: the block now drops only the fee and states that Rules 402 and 404 still apply
+regardless of whether the posting asks for a rate.
+
+#### Root cause 2 — the required phrasing fires the guard built to strip invented schedules
+
+Independent of the above, and worse. `coverHasTimeline` scans the draft with `COVER_TIMELINE_RE`, whose
+audit-days pattern is `/\baudit\b[^.\n]{0,40}(?:delivered|in|within)\s+\d+\s*...(?:working\s+|business\s+)?days?\b/i`.
+That matches "audit … delivered in 1 working day" — the exact sentence Rule 402 demands. Verified in node:
+both required phrasings return `true` against the unpatched guard.
+
+So a letter that obeys Rule 402 trips a violation, fires the enforcer, and pays for a full-price rewrite as
+its reward for compliance. The only thing rescuing it was an enforcer instruction saying "KEEP the two
+allowed delivery phrasings if present" — i.e. the system's plan was to trigger a rewrite pass and then ask
+that pass not to undo the thing that triggered it.
+
+Fixed by blanking the allowed commitment out of a COPY of the text before scanning (gated on
+`_casePpcSignal`, which is in scope and job-derived). Letter untouched; guard unchanged for everything else.
+Tested against the REAL extracted `COVER_TIMELINE_RE`, not a hand-copied subset — 7/7: both required
+phrasings now pass, and the wrong SEO "2 working days", an invented "first 48 hours", a phased roadmap, and
+a 402-commitment-plus-real-schedule sentence all still fire.
+
+(First attempt at this edit wrote a mangled regex: `\\b` in a bash heredoc collapsed to `\b` and Python read
+it as a backspace, so `\baudit\b` landed in the file as literal 0x08 bytes and `\n` as a real newline.
+esbuild caught it. Rebuilt the string with `chr(92)` so no layer could re-interpret it.)
+
+#### The enforcer swapped one banned opener for another — and nothing re-checks it
+
+Not what Artem flagged, but the pre/post pair in the snapshot makes it provable, so recording it.
+
+The first pass opened with a genuinely good diagnostic hook: *"scaling Google Ads when the account's
+already live usually comes down to one thing first: whether the conversion tracking is actually firing
+right…"*. `hasBannedOpener` fired on it — `BANNED_OPENERS[9]`, the consultant-cliché pattern
+`/(?:breaks?|boils?|comes?)\s+down\s+to\s+(?:one|a\s+single|this)\s+(?:question|thing)/i`. Fair hit.
+
+The enforcer's replacement opener: *"12 years running Google Ads, Google Premier Partner 2026."* — which
+matches `BANNED_OPENERS[0]`, `/^\d+\+?\s*years?\b/i`. Verified in node: rule 9 true→false, rule 1 false→true.
+
+The checks run on the FIRST-PASS draft only, to decide whether to fire the enforcer. Nothing re-runs them on
+the enforcer's output. So the rewrite pass is free to introduce any violation it likes, including one from
+the same list it was invoked to fix — and the letter Artem sees opens with the most generic line available.
+The stronger, more specific paragraph was deleted outright.
+
+#### The dash limiter is producing comma splices
+
+`_humanizeCasing` keeps the first spaced dash and rewrites every later one as a comma
+(`++dashCount === 1 ? ' - ' : ', '`), implementing the "at most one spaced dash" anti-ChatGPT-tell rule.
+It is blind to what the dash was doing. Where the dash introduced an explanation, a comma cannot:
+
+- "conversion tracking - is GA4 / GTM logging the right event…" → "Conversion tracking, is GA4 / GTM logging…"
+- "the feed if you're running shopping - title/description quality…" → "…shopping, title/description quality…"
+
+Both are ungrammatical in the shipped letter. The rule meant to remove an AI tell is manufacturing a
+different one. Logged, not patched — the honest fix is for the first pass to write fewer dashes, not for a
+post-processor to swap punctuation it cannot parse.
+
+#### Standing count for job 14169
+
+`hasExplainerOpener` ×3, `hasBannedOpener` ×2, `hasCircumventionRisk` ×3, `coverHasTimeline` ×1,
+`localServiceCaseDisplacedByEcomHealth` ×1, `tooManyCaseStudies` ×1 — across ~5 regenerations in 40 minutes.
+The opener was fought over in every single one.
+
+### 2026-09-02 — Job 14178 (Mr Chef SEO): "doesn't resonate with the job posting"
+
+Artem's report was about tone/fit. The causes turned out to be four concrete defects, three of them
+mechanical. Snapshot archived at `corrections/20260902T084759-job-14178.md`.
+
+#### 1. The letter is about a business that does not exist
+
+The whole letter is built on Mr Chef being a **recipe publisher** — "Mr Chef as a top result for recipe
+searches", "chicken tikka masala", Recipe schema with prepTime/cookTime/recipeIngredient, keyword
+cannibalisation between "chicken curry" posts.
+
+mrchef.com is **Sweet Nutrition Limited, a Nigerian FMCG manufacturer of seasoning cubes and powders**
+(beef/chicken cubes; Jollof Rice, Fried Rice and Pepper seasoning powders; ISO-referencing corporate copy;
+a recipes section used as content marketing). Checked the live site.
+
+So the letter's organising thesis is invented, and even the cuisine is wrong — a Nigerian brand whose own
+site talks about jollof, ofada rice and fufu was pitched on ranking for chicken tikka masala.
+
+The analyser invented a *different* business: "cookware/kitchenware retail site". Two components, two
+incompatible guesses, neither grounded in anything.
+
+**`website_url`, `website_summary` and `website_inspected_at` are all EMPTY for this job.** Website Inspect
+— the feature repaired earlier today — was never run, so the generator had no information about the site
+and filled the gap by inference from the brand name. Nothing in the flow requires Inspect before a letter
+makes site-specific claims. This is the finding that needs an owner decision, not a patch.
+
+#### 2. The client's four questions were never extracted — a 16-character miss
+
+`extractApplicationChecklist()` returned `null`. The trigger line is:
+
+> "Could you please share the following details along with your proposal to check:"
+
+`_CHECKLIST_TRIGGER_EOL_RE` allows `[^.\n]{0,40}` between the trigger phrase ("please share") and the
+colon. This client used **56** characters. Over by 16, so the block never fired and the prompt never
+contained the client's asks. The letter answers none of: services included in the SEO package, approach
+for handling two websites, estimated timelines.
+
+Widened the bound to 80. Validated against all 437 real postings: 80 → 85 trigger lines, **all 5 gains
+genuine**, zero false positives. Two of the gains matter beyond this job:
+- job 14122: "Please answer these in your proposal (applications without these will not be considered):"
+  — a client stating outright that unanswered applications are rejected.
+- job 13970: "In your application, include this sentence and complete it in your own words:" — a
+  verification-phrase test (KB Rule 427).
+
+#### 3. …and then only one of the four was collected
+
+With the trigger fixed, extraction still returned **1 item**. The plain-line branch reads
+`if (collected.length === 0 && …)` — it allows exactly ONE un-bulleted line, while its own comment says
+"a couple of short plain lines". This client's four asks are plain lines, so three were dropped, and the
+generated prompt then announced *"this posting asks 1 question"* and set a 235-word budget for one.
+
+Fixed so continuation lines are collected too. The FIRST line keeps the original looser test, so every
+existing extraction is byte-unchanged; continuation lines carry an extra guard (≥3 words, not a sign-off)
+so a trailing "Thanks"/"Regards" cannot be swallowed. Validated across the corpus: 92 postings with a
+detected checklist, 75 multi-item, **zero items longer than 90 chars** (the prose false-positive test).
+Job 14178 and its sibling 14176 now extract all four items.
+
+#### 4. The client asked for timelines, so the system deleted the timelines
+
+`_postingAsksTimeline` returned **false** on "Estimated timelines for improvements". Two plural failures in
+one regex: `timeline\s+for` cannot match "timelines for", and `estimated?\s+(?:timeline|…)` is followed by
+a group-closing `\b`, so matching "timeline" inside "timelines" fails the boundary and the branch dies.
+
+The consequence is inverted, not merely absent:
+- `timelineRequestedButMissing` can never fire → nothing notices the letter ignores the question.
+- `coverHasTimeline = !_postingAsksTimeline && …` flips **TRUE** → the enforcer is instructed to strip
+  timing.
+
+Which it did. It deleted the closing paragraph listing the plan's contents and "delivery in 2 working
+days" — the paragraph that answered *"Services included in your SEO package"* — and stripped "3-month"
+from the plan's own name, contradicting KB Rule 430. The one thing the client explicitly asked for was the
+one thing the system removed.
+
+Added plurals throughout. Validated: 40 → 44 postings detected, all four gains genuine ("turnaround
+times", "Estimated timelines" ×3), zero false positives.
+
+#### Enforcer damage, again — worse than yesterday's letter
+
+- **Five comma splices** from the dash limiter: "Schema markup, is Recipe structured data…", "Then
+  indexation and crawl budget, how many recipe pages…", "Keyword cannibalization, are multiple recipe
+  pages…", "Content depth vs search intent, do your…", "Backlink profile, how many referring domains…".
+- **"(e.g. Three different "chicken curry" posts)"** — the casing pass capitalised after "e.g." as if it
+  were a sentence boundary.
+
+Both still logged rather than patched, per the working agreement: the fix is for the first pass to write
+fewer dashes, not for a post-processor to swap punctuation it cannot parse.
+
+Telemetry for 14178: `coverHasTimeline`, `missingHighlightsPhrase`, `missingPdfLabel`, `tooManyCaseStudies`.
+
+### 2026-09-02 — Website Inspect: first successful run ever, plus auto-fire
+
+#### The morning's overflow fix is confirmed in production
+
+`website_inspected_at` was NULL on **all 445 jobs** — Inspect had never once completed successfully, which
+fits: the 21-digit-Upwork-job-id `OverflowError` that broke `save_website_inspect` was only fixed today.
+
+Artem ran it manually on job 14178. It worked: `website_url = https://mrchef.com`,
+`website_inspected_at = 2026-09-02 09:07:37`, **1,324 chars** of summary — and the content is exactly what
+proves the letter wrong ("Sweet Nutrition Limited manufacturer of Mr. Chef range of products … seasoning
+cubes and powdered seasonings … Nigerian flavors … Jollof Rice, Fried Rice, Pepper"). End-to-end verified:
+extension → bridge → background tab → scrape → POST → DB.
+
+#### How much auto-inspect can actually cover — measured, not assumed
+
+Before building it, measured URL detectability across the real corpus of 445 postings:
+
+| bucket | postings | URL in posting | coverage |
+| --- | ---: | ---: | ---: |
+| SEO only | 142 | 6 | 4% |
+| SEO+PPC | 29 | 0 | 0% |
+| PPC only | 179 | 1 | 1% |
+| other | 95 | 6 | 6% |
+| **total** | **445** | **13** | **3%** |
+
+Clients almost never put their URL in the posting — even on SEO jobs, where the site is the entire point.
+So auto-inspect is worth having but is NOT the fix for the fabricated-business-model problem; it reaches
+about one bid in thirty. The other 97% still need a guard against asserting what a client's business IS
+when nothing has been inspected. Recorded here so the 3% figure isn't later mistaken for a solution.
+
+#### The bug that had to be fixed FIRST
+
+`AhrefsBar`'s job-change effect did `setAhrefsDomain(d => d || domainFallback)` — it kept whatever was
+already in the box, so selecting a new job left the **previous client's domain** sitting there. Harmless
+while a human reads the box before clicking. Actively dangerous the moment Inspect fires by itself: it
+would have scraped the wrong company and handed that summary to the letter — strictly worse than having no
+data, because the letter would then be confidently wrong with apparent evidence behind it.
+
+Fixed: on a real job change the domain is replaced outright (tracked via `_lastJobIdRef`); same-job
+re-renders keep the old merge so a hand-typed domain isn't wiped when the ahrefs/website fields refresh.
+
+**Verified in the running app** across four job switches: Mr Chef → `https://mrchef.com`; switch to a job
+with no URL → box **clears** (previously would have kept mrchef.com); Solwood → `solwoodafrica.com`; Rex
+Forestry → `rexforestry.com`; back to the no-URL job → clears again.
+
+#### Auto-inspect
+
+Fires `handleWebsiteInspect(detected)` when the posting itself names a site and nothing is stored yet.
+Deliberately narrow:
+- **only** a URL detected in THIS posting's text — never the box's contents, so an automatic scrape can
+  only ever hit a site the client themselves named;
+- once per job id per session, so a failed scrape can't retry in a loop;
+- skipped when a summary already exists (no re-scraping);
+- 2-second debounce, so arrowing down the feed doesn't open a background tab per job.
+
+`handleWebsiteInspect` now takes an optional `urlOverride`, guarded with `typeof x === 'string'` because
+the button passes it a click event.
+
+**Not verified end-to-end by me**: auto-fire needs `bridgeReady`, which needs the Falcon Scout extension,
+which exists only in Artem's browser. The stale-domain half (the risky half) IS verified above. The
+auto-fire half needs him to open job 14176 or 14177 — both name a site, neither has been inspected — and
+confirm the summary appears without a click.
+
+### 2026-09-02 — Step 3, first move: the GROUNDING CONTRACT now knows verified site data exists
+
+Started Step 3 intending to build a "don't assert an unverified business model" guard. Reading the prompt
+first turned up something that had to be fixed before anything else could matter.
+
+#### Website Inspect was fetching data the prompt forbade using
+
+Three findings, in the order they landed:
+
+1. **The scrape IS injected.** `websiteText` reaches the prompt as a `CLIENT WEBSITE CONTENT (scraped for
+   personalisation — use specific details about their business, products, and audience)` block. Good.
+
+2. **The GROUNDING CONTRACT forbids it.** Verbatim: *"You have **TWO — and only two** — sources of facts …
+   (1) CLIENT FACTS = the job posting … This is your **ONLY** source of facts about the client. **You have
+   NOT seen their site**, account, analytics, or campaigns."* — and the contract opens with *"this
+   overrides everything below"*. The scrape is not one of the two. The contract is a static template
+   literal, unconditional, so it says this even when a scrape is sitting in the same request.
+
+3. **Two more blocks say the same.** `NO FABRICATED DIAGNOSIS` opens *"You have NOT visited the client's
+   website"*, and one of its bullets bans describing the client's business outright.
+
+So the manual Inspect Artem has been pressing, and the auto-inspect wired an hour ago, could not have
+changed a single letter: the model was handed the client's real site content and told three times, once by
+a clause claiming supremacy, that it hadn't seen their site and mustn't describe their business.
+
+#### The prompt also explicitly licensed the exact failure
+
+The business-description bullet ended: *"Inferring loosely from a domain name (e.g. 'mytender.io' → tenders)
+is acceptable ONLY if framed as the problem space."* That is the licence the model used on job 14178 —
+"Mr Chef" → recipe publisher → an entire letter about ranking for chicken tikka masala, for a Nigerian
+seasoning-cube manufacturer.
+
+Rewrote that clause to name the failure instead of permitting it: *"GUESSING FROM THE NAME IS THE FAILURE
+MODE, not a workaround: a brand called 'Mr Chef' is NOT therefore a recipe site … A name tells you nothing
+about what a company sells."*
+
+#### What changed
+
+One flag, `_hasVerifiedSiteData = !!(websiteText || ahrefsResult)`, computed once before the prompt, and
+four branches keyed off it:
+
+| branch | no verified data | verified data present |
+| --- | --- | --- |
+| contract source (1) | "your ONLY source … you have NOT seen their site" | "read it together with source (3)" |
+| contract source (3) | *(absent)* | new block granting the scrape as a fact source |
+| `NO FABRICATED DIAGNOSIS` header | unchanged | "you have a REAL scrape … use it" |
+| business-description bullet | unchanged + the name-guessing clause rewritten | "the scrape is authoritative about WHAT THEY DO" |
+
+Source (3) is scoped to what each tool actually returns, which is the part that keeps this from becoming a
+licence to invent: **CLIENT WEBSITE CONTENT** permits stating what the business is, sells, and serves — in
+the client's own words, "not a category you assumed". **PROSPECT SITE SEO PROFILE** permits citing its
+organic figures verbatim. Everything else stays banned: their ad account, their conversion tracking, their
+internal numbers, "or any metric you inferred rather than read". A scrape tells you what a company does; it
+does not tell you how their campaigns are performing, and the contract now draws that line explicitly.
+
+#### Verification
+
+- esbuild clean; app reloads with no new console errors (the two React warnings present are pre-existing —
+  a missing `key` prop and a style-shorthand warning, both in unrelated render paths).
+- **Rendered all four branches in both states** rather than trusting that the interpolation was right —
+  extracted each `${_hasVerifiedSiteData …}` expression by balanced-brace scan and evaluated it with the
+  flag true and false. All eight outputs correct, no eval errors, no escaping damage.
+- Fixed one accuracy bug caught by reading the rendered text: source (3) originally said the blocks appear
+  "above", but they are in the **user** message, not the system prompt. Telling the model to look in the
+  wrong place could have made it miss the data it was finally allowed to use. Now: "which appear in the
+  same 'Write a cover letter for this job' message as the posting (source 1) — not in these instructions."
+
+#### Still open
+
+The intended guard — a **detector** for business-model claims with no grounding — is not built. It is the
+right next piece for the ~97% of postings that name no URL, where there is nothing to inspect and the
+prompt is the only defence. But prompt text alone is proven insufficient here: the ban on describing the
+client's business already existed, in the block claiming supremacy, and the letter did it anyway. That
+argues for a checker, validated against the 233 real sent letters for false-positive rate before it is
+wired to anything.
+
+**Real test available now:** job 14178 has a stored `website_summary`. Regenerating it should produce a
+letter about a seasoning manufacturer. If it still writes about recipes, the contract fix is not sufficient
+and the detector becomes mandatory rather than optional.
+
+### 2026-09-02 — Step 3 verified on two live letters (jobs 14178, 14177)
+
+Artem regenerated Mr Chef and generated Solwood after the grounding-contract fix. Archived at
+`corrections/20260902T093810-job-14178.md` and `…093641-job-14177.md`.
+
+#### The contract fix worked
+
+Job 14178's letter, previously about a recipe publisher, now reads: *"when someone googles 'mr chef
+seasonings' or 'mr chef nigerian cubes'… map where the commercial-intent keywords (jollof rice seasoning,
+natural seasoning cubes, nigerian chicken cubes) are ranking"*. Every one of those terms traces to the
+scrape. The model used source (3) exactly as intended.
+
+It also answered all four screening questions — package contents, two-site approach, and timelines
+(3-4 weeks to implement, 6-8 weeks to rank) — which the checklist and plural fixes made visible to it.
+Solwood likewise, and its two-site answer is genuinely good: *"You mentioned 'two websites' but I only see
+solwoodafrica.com in the posting, once you share the second domain…"* — handling an ambiguity honestly
+instead of papering over it.
+
+**Auto-inspect confirmed working**: job 14177 has `website_summary` (403 chars) that Artem never requested.
+It fired on job select, scraped solwoodafrica.com, and the letter correctly identifies a plywood
+manufacturer serving African export markets.
+
+Step 1 still holding: 28 telemetry events today, `job_id IS NULL` on none.
+
+#### Fixed: a count claim invalidated by a later deletion
+
+Job 14178 shipped *"SEO experience: three cases map directly."* above **two** cases, with a second lead-in
+("Proof this approach works:") orphaned right beneath it.
+
+Cause, from telemetry: `metricNotInLedger` fired at 09:37:40. The grounding checker did its job — it
+deleted the Vape Shop entry for carrying a metric absent from the ledger — and left the lead-in that had
+committed to a count of three. `_stripDigitBombDuplicateCase` already repairs this shape, but only on its
+own path; every other case removal left the claim standing.
+
+Added `_fixCaseCountClaim`, wrapped outermost on both strip chains so it runs after the grounding checker:
+- **(a)** drops an orphan lead-in immediately followed by another lead-in with no case entry between —
+  a shape that only arises when the paragraph the first one introduced has been deleted. Gated on the
+  first lead-in actually referring to cases, so stacked section labels ("Services:" / "Timeline:") are
+  never touched.
+- **(b)** if a surviving lead-in's stated count no longer matches the cases below it, the count word is
+  dropped, degrading the claim to an uncounted plural that stays true however many remain.
+
+Tested against the real letter plus three false-positive shapes: orphan dropped, a correct "Two cases map
+directly" left alone, stacked labels untouched, a letter with no count claim byte-identical. 4/4.
+
+#### Investigated and REJECTED: feeding the scrape into the proper-noun scan
+
+The letter writes the brand lowercase — "mr chef". `_extractProtectedProperNouns` reads only
+`description_full`, and this client's brand appears in the **title** and the **scrape**, never in the
+description body. The title is deliberately excluded (headline casing), so the obvious move was to add the
+scrape's prose.
+
+Tested it first. Two reasons not to ship it:
+1. **It doesn't work.** "Mr Chef" / "Mr. Chef" is not extracted by any variant — description alone,
+   description + full scrape, or description + prose-only. The brand-relevant hit list is empty in all
+   three. The abbreviation-with-period breaks the token pattern.
+2. **It actively harms.** The scrape adds 11 new "proper nouns" from marketing copy — `Tasty Dishes`,
+   `Best Memories`, `Seasoning`, `Fried Rice`, `Pepper`, `Fufu`, `Ginger-Onion`, `Onion` — every one of
+   which would then be force-capitalised throughout every letter. That is precisely the headline-leak the
+   title exclusion exists to prevent, and a site's homepage is denser in Title-Cased marketing phrases
+   than any job posting.
+
+Left unfixed and recorded. The right fix is a narrow brand extraction (the client's own name as the title
+frames it: "SEO for **X** website"), not widening a general scan — worth doing deliberately, not as a
+side-effect of this session.
+
+#### Still open
+
+- **`hasFabricatedDiagnosis` fired on Solwood and the claim survived the enforcer.** The letter asserts
+  *"the branded queries are there, but the commercial intent terms… aren't ranking yet"* — a claim about
+  their current rankings, with no Ahrefs data on this job. The check caught it, the enforcer was invoked
+  precisely to fix it, and it is still in the shipped text. Another instance of the enforcer failing at
+  the one job it was called for.
+- **A case was relabelled to fit the vertical.** Luxury Parfums — a perfume client — appears as
+  *"ecommerce seasonings/scents vertical"*. The vertical guard for that case is
+  `/(perfume|parfum|fragrance|scent)/i`; the model wrote "seasonings/scents", so the guard's keyword is
+  present and it passed. The hedge defeats the check by satisfying it literally.
+- **Comma splices** persist in both letters, from the dash limiter. Unchanged position: the fix is fewer
+  dashes in the first pass.
+- **Solwood echoes the client's questions as headings** ("Approach for handling two sites:"), which the
+  ANSWER IN YOUR OWN VOICE rule bans.
+
+### 2026-09-02 — Step 6: the rule-compliance enforcer is deleted
+
+The second full-price Claude call is gone, along with the ~570 lines that built its instruction list,
+invoked it, and then tried to detect the damage it caused.
+
+#### Why — three failures in one day, all on the job it was called for
+
+- **job 14169** — invoked for `hasBannedOpener`. Its replacement opener matched a DIFFERENT entry in the
+  same `BANNED_OPENERS` array (rule 9 traded for rule 1, verified in node). Nothing caught it: the checks
+  only ever ran on the FIRST-pass draft, to decide whether to invoke the enforcer. **The enforcer's own
+  output was never re-checked**, so it was free to introduce any violation, including one from the list it
+  was invoked to fix.
+- **job 14177** — invoked for `hasFabricatedDiagnosis`. The fabricated ranking claim shipped intact.
+- **job 14178** — deleted a case entry and left the lead-in above it still claiming three.
+
+It also damaged text it was never asked to touch. The comma splices in every letter reviewed today, and
+the deleted diagnostic opener on 14169 (a genuinely good paragraph replaced with "12 years running Google
+Ads"), both came from this pass.
+
+#### And it was the most expensive thing in the system
+
+From `token_usage`:
+
+| kind | calls | input tokens | ~cost @ $3/$15 per M |
+| --- | ---: | ---: | ---: |
+| **proposal_rule_enforce** | **490** | **3,656,244** | **$15.24** |
+| chat | 355 | 4,529,867 | $17.23 |
+| proposal | 382 | 2,881,963 | $12.02 |
+| analysis | 457 | 1,726,481 | $10.42 |
+| proposal_rescan | 175 | 1,138,600 | $5.07 |
+
+The enforcer cost **more than generating the letters it was correcting** — more input tokens than
+`proposal`, because it re-sent the rules, the case studies, the job context AND the draft on every call.
+It ran on 490 of ~557 generations (~88%), and roughly a quarter of all spend on this pipeline went to a
+pass that failed at its stated job in every case examined.
+
+#### What replaces it: nothing, deliberately
+
+The 56 checks stay and keep reporting to telemetry. The deterministic strips still run. Whatever they
+cannot fix is now **surfaced to Artem** instead of handed to a rewriter that often made it worse. A checker
+that feeds an unreliable rewriter is worse than one that simply reports: it costs a full-price call and
+manufactures false confidence in the output.
+
+New in the UI: a flag strip under the letter — *"N rule checks fired — reported, not auto-rewritten"* plus
+the check names. It is cleared at the start of each generation, populated from the same list that goes to
+telemetry, and included in the "Share with Claude" snapshot (backend renders it as its own section) so the
+signal survives the trip from Artem's screen to a review.
+
+#### Mechanics
+
+- Cut lines 8568–9156. Boundary found by **measuring brace depth** across the region rather than reading
+  indentation: depth returns to 0 at 9156, and lines 9157/9158 close blocks opened BEFORE the enforcer. My
+  first attempt cut through them and unbalanced the file — esbuild caught it, and the backup restored it.
+- `draftCompliant` survives as a single `if (!draftCompliant)` that logs and records a `draftNotCompliant`
+  event, so how often the enforcer WOULD have fired stays measurable.
+- The telemetry array is now captured as `const _firedChecks = [...].filter(Boolean)` instead of being
+  passed inline, because it drives three consumers now: telemetry, the console warning, and the UI strip.
+- **The two strip chains are collapsed into one.** They had drifted by exactly one function —
+  `_stripSeoAuditTurnaround` was in the fast path and missing from the post-enforcer path, so any letter
+  that FAILED the pre-check never had an SEO audit turnaround stripped. The surviving chain is the
+  superset. The extra closing paren was placed by reference to the fast-path chain's shape (`.text)))))`
+  vs `.text))))`) rather than by counting.
+- `preEnforcerDraft` retired to a constant `''`. It existed to show a before/after in the share snapshot;
+  with no rewrite there is no "before", and left alone it would have loaded **stale pre-deletion values**
+  from localStorage and rendered a "Draft BEFORE the rule-compliance rewrite pass" section for a rewrite
+  that never ran.
+
+#### Verification
+
+- esbuild clean. Bundle **535.3kb → 473.2kb**. Net −557 lines in the deletion, −823 across the session's
+  diff for this file.
+- Zero dangling references: `specificViolations`, `enforcePrompt`, `_preEnforcerSnapshot`, `enforceRes`,
+  `correctedText`, `proposal_rule_enforce` all at 0 occurrences.
+- `_stripAttachmentsSummaryLine` checked and NOT orphaned — still used by the first-pass path at 7067.
+- **First-pass generation call confirmed intact** at 6536 (`_kind: coreOnly ? 'proposal_rescan' :
+  'proposal'`). Worth stating explicitly: an initial grep for `_kind: 'proposal` returned 0 and looked
+  alarming, but that pattern simply doesn't match the ternary.
+- One `_finalText` chain (was 2), 56 telemetry entries (unchanged), app reloads and renders, vite serves
+  the module 200.
+
+#### Not verified by me
+
+The flag strip has not been seen with real content — that needs an actual generation, which spends Artem's
+tokens. The next letter he generates that trips a check should show the amber strip beneath it.
+
+### 2026-09-02 — First letter through the enforcer-free path (job 14176, Rex Forestry)
+
+The flag strip works end-to-end: the letter carried "### Rule checks that fired (2)" into the share
+snapshot, and no "Draft BEFORE the rule-compliance rewrite pass" section appeared — correct, since there is
+no rewrite, which also confirms the `preEnforcerDraft` retirement holds. Two flags fired; one was real, one
+was stale, and the stale one exposed a defect in the strip I shipped an hour earlier.
+
+#### `hasFabricatedDiagnosis` — real, and it has a cause
+
+The letter asserts "right now the site's too thin to rank for much beyond branded queries", "no keyword
+depth, no topical breadth". Nobody looked at rexforestry.com: `website_url`, `website_summary` and
+`website_inspected_at` are all NULL for job 14176. The check is correct.
+
+**Auto-inspect should have run and did not.** Root cause is a stale-closure bug in the effect I added:
+
+```js
+if (job.website_summary || websiteText || websiteLoading) return
+...
+}, [job.id, bridgeReady, job.website_summary])
+```
+
+`websiteText` is read in the guard but is NOT a dependency. The sync effect above resets it on a job
+change, but that setState is not visible until the next render — this effect runs in the SAME commit and
+still sees the PREVIOUS job's summary, so it bails. Its deps do not change again afterwards, so it never
+re-runs. Net effect: **auto-inspect was silently skipped for every job reached from a job that already had
+a scrape.** Job 14177 (Solwood) worked only because it was reached from a job with none; 14176 was reached
+from 14178, which has one.
+
+Fixed by guarding on `job.website_summary` alone — the prop, always current for the job being rendered.
+The `_autoInspectedRef` guard already prevents a double fire, so dropping the state reads costs nothing.
+
+#### `missingPdfLabel` — stale, and that one is my bug
+
+Ran the check's own predicate against the shipped letter: **false**. "Derma Solution (attached as PDF)" is
+correctly labelled — `hasPdf=true`, `highlightsInWindow=false`. It fired on the RAW draft and
+`_fixPdfCaseLabelMisattribution` repaired it afterwards.
+
+The flags are computed inside the check block, which runs BEFORE the strip chain. That ordering existed
+only because the checks fed the enforcer. With the enforcer gone the constraint is gone, but I wired the UI
+strip to the pre-strip list, so it reports problems the strips have already fixed. A flag list with false
+entries is worse than no list — it is precisely the "false confidence" argument used to justify deleting
+the enforcer, pointed the other way.
+
+Interim: the strip now reads "caught on the raw draft, before the deterministic strips ran. Some may
+already be fixed in the text above; check before acting." Accurate, but weaker than it should be.
+
+**The real fix — needs a decision.** Move the strip chain to run BEFORE the check block, so every check
+evaluates the letter Artem actually sees. That eliminates the class rather than patching it, and it is what
+"fix deterministically, then report what remains" actually means. Deliberately NOT done blind: the chain
+currently lives outside the try block that holds the checks, some checks may exist to catch what the strips
+themselves introduce, and `_gcShadow` records its own telemetry from inside the chain. Worth doing
+carefully, not as an afterthought at the end of a long session.
+
+Rejected the cheaper alternative of re-testing a subset of predicates against the final text: it would mean
+duplicating check logic, and duplicated predicates drifting apart is the single most common defect class in
+this file — the two strip chains, the two `_finalText` expressions, and `_MANUAL_AUDIT_CLAIM_RE`'s own
+comment all document exactly that failure.
+
+#### Also visible in this letter, unfixed
+
+- Brand name lowercase again — "rex forestry", and "golden state" mid-sentence. Same root cause as "mr
+  chef" on job 14178: the proper-noun scan reads only `description_full`, and the brand appears only in the
+  title. Still awaiting the narrow brand-extraction fix.
+- Two lead-ins for one case block: "Experience + results:" … then "Some comparable results:".
+  `_fixCaseCountClaim` does not catch it — a case paragraph sits between them, so it is not the orphan
+  shape it was built for. Different defect, same family.
+
+#### Process note
+
+This entry had to be written twice. The first attempt used `python -c "…"` inside double quotes, so bash
+performed command substitution on every backticked identifier in the text and silently deleted them —
+`hasFabricatedDiagnosis`, `_gcShadow`, `description_full` and eleven others vanished from the file. Third
+time today that a shell quoting layer has corrupted content (the others mangled a regex into literal
+backspace bytes and a test harness into a syntax error). Prose and code with backslashes or backticks go
+through a written file and an append, never through a heredoc or a `-c` string.
+
+## 2026-09-02 — Audit+roadmap job silently dropped the SEO plan CTA: `_RETAINER_SIGNAL_RE` didn't recognize "ongoing implementation"
+
+Job 14199 (CarPartSource, SEO+GEO audit): posting says "an initial audit followed by a 90-day SEO + GEO
+recommended roadmap, with the opportunity for ongoing implementation" — the audit+retainer pattern §6894's
+EXCEPTION already covers. The generated letter offered only the audit sample; the 3-month SEO promotion
+plan CTA (the concrete deliverable that IS the roadmap) never appeared, and — worse — no rule check fired
+either, so Artem got no flag telling him it was missing.
+
+Root cause, in `JobDetail.jsx`'s deterministic check block: `_RETAINER_SIGNAL_RE`'s "ongoing X" branch
+recognizes seo/work/management/support/optimi/improvement/help/maintenance but not "ongoing
+**implementation**" — this posting's exact phrase. So `jobIsAuditOnly` evaluated `true`, which suppressed
+`missingSeoPlanOffer` entirely via `planSuppressedByAuditCTA`. Checked against all 458 postings in the DB:
+adding `implementation` to that alternation produces exactly one gain (this job) and zero false positives
+elsewhere — safe, narrow fix.
+
+Two fixes, both correctness-bug-immediate per the working agreement in `GENERATOR_REBUILD_HANDOFF.md` §7:
+1. `_RETAINER_SIGNAL_RE` (search the name, ~line 8116): added `implementation` to the `ongoing\s+(?:...)`
+   alternation, so `jobIsAuditOnly` now correctly evaluates `false` on this posting and the plan-offer check
+   can actually fire on future letters like it.
+2. The AUDIT+RETAINER EXCEPTION prompt text (search "EXCEPTION — AUDIT + RETAINER JOBS") got a fourth
+   example phrase ("audit followed by a 90-day roadmap, with the opportunity for ongoing implementation")
+   plus an explicit line that a client saying "roadmap" instead of "plan" is still the same CTA — Artem's own
+   3-month SEO promotion plan — not a reason to drop it.
+
+With the enforcer deleted (§4.7 of the handoff), fix (1) is what actually protects Artem now: there's no
+rewriter left to auto-correct a missed CTA, only the flag strip telling him it's missing. Verified: `npm run
+build` clean; the corpus check (458 postings, python/sqlite3 direct query) and a standalone node repro of
+`jobIsAuditOnly`'s exact expression against job 14199's real posting text (false before → true retainer
+signal / false jobIsAuditOnly after). Not yet committed — sits on top of the uncommitted rebuild described
+in `GENERATOR_REBUILD_HANDOFF.md`; that file says to ask Artem before committing any of it.
+
+## 2026-09-02 — New fabrication class caught: claimed hands-on GoHighLevel experience Artem doesn't have (job 14198)
+
+Artem: "redid the cover letter - its an absolute disaster, check." Job 14198 (HealthVue, "Growth Marketing
+Specialist") is a GoHighLevel-centric CRM/funnel/marketing-ops role — heavy on workflows, pipelines,
+email/SMS automation, lead-source attribution — not SEO and not classic PPC account management. It isn't
+in Artem's documented expertise at all (`CORE EXPERTISE` in the system prompt covers Google Ads, technical/
+local/ecommerce SEO, GA4/GTM, and Shopify/OpenCart/WooCommerce/WordPress web dev — no CRM/marketing-
+automation platform anywhere). AI Analysis had never been run on this job either.
+
+The generated letter: (1) opened with the Derma Solution SEO case study force-fit to a non-SEO job via
+invented connective tissue ("same compliance constraints", "same need to track every enquiry"); (2)
+misclassified as a PPC "launch from scratch" job, firing `wrongAuditOfferOnLaunch` + `launchJobMissingCTA`,
+so it closed by offering to "audit your existing GoHighLevel setup" and attaching a *Google Ads* audit
+sample — nonsensical for this posting; (3) worst — flatly claimed "I work directly in GoHighLevel —
+workflows, pipelines, email/SMS campaigns, landing pages, triggers, tags, segmentation, lead-source
+attribution." Grepped the entire KB (`caseLedger.js`, the system prompt): GoHighLevel appears nowhere.
+Complete fabrication of tool fluency, not just a mismatched case study.
+
+Checked the 232 real sent proposals for the same pattern (CRM/marketing-automation platform names outside
+the documented toolset): 4 raw hits. One — proposal 44, "I'm comfortable working inside HubSpot... I've
+worked across platforms (Shopify, WordPress, OpenCart, HubSpot)" — is the exact same fabrication, sent and
+undetected until now. The other three (Klaviyo/HubSpot mentions in proposals 49/83/167) are legitimate:
+either recommending a tool for the client's own stack, or referencing the client's existing tool while
+describing what a future audit would check — not a first-person capability claim.
+
+Two fixes, correctness-bug-immediate per `GENERATOR_REBUILD_HANDOFF.md` §7:
+1. New prompt rule alongside the existing "no fabricated vertical history" guard (search "Fabricate
+   hands-on experience with a specific named tool"): explicitly bans claiming fluency with any CRM/
+   marketing-automation platform outside the documented toolset, names GoHighLevel as the confirmed failure
+   example the same way "Mr Chef" anchors the guessing-from-name rule, and tells the model to speak only to
+   the real transferable skill (or flag the job as a weak fit) instead of inventing platform proficiency.
+2. New deterministic check `fabricatedToolClaim` (search the name in `JobDetail.jsx`, right after the
+   existing `fabricatedGeoExperience` check it's modeled on): fires when a first-person hands-on/fluency
+   phrase ("I work in", "I've used", "comfortable working inside", "hands-on with") sits within ~120 chars
+   of one of a dozen named CRM/automation platforms (GoHighLevel, HubSpot, ActiveCampaign, Klaviyo, Marketo,
+   Keap, Pardot, Salesforce, Zoho CRM, Pipedrive). Report-only, wired into `_firedChecks`/the UI flag strip
+   — there's no enforcer left to auto-rewrite it. Verified against the disaster letter (fires, on the
+   GoHighLevel line) and all 4 historical corpus hits (fires only on proposal 44, the genuine match; silent
+   on the 3 legitimate mentions).
+
+Not committed, same as the entry above — sits on the uncommitted rebuild pending Artem's go-ahead. Whether
+job 14198 itself is even worth pursuing (a CRM/funnel-ops role genuinely outside the documented toolset) is
+a separate judgment call for Artem, not something this fix resolves.
+
+## 2026-09-02 — Job 14202: a good letter, one real miss (Premier Partner wrongly cited on a pure-SEO job)
+
+Artem shared job 14202 (Kreate Media, UK sports agency, "SEO Specialist for Google and AI Search") asking
+for a read, not reporting a specific complaint. Assessment: this letter is solid — no fabrication, the
+white-label/behind-the-agency framing genuinely fits (the client IS an agency expanding its SEO offering),
+Golden State Trailers + Luxury Parfums are well-matched to the local/service and ecommerce/schema asks, and
+the AI-search POV answer ties back to real EEAT/semantic work instead of generic filler.
+
+One real defect: "12 years in technical SEO, Google Premier Partner 2026 across SEO and paid." The posting
+has zero PPC/paid-media keywords anywhere — it's SEO/on-page/schema/local/AI-search only — and the KB's own
+business-facts entry says the Premier Partner credential "is SPECIFIC TO GOOGLE ADS (PPC) — it is NOT an SEO
+credential and should NOT be cited as a differentiator on pure SEO jobs." `ppcMissingPremierPartner` only
+covered the missing-on-a-PPC-job direction; nothing caught the inverse (wrongly present on an SEO-only job)
+until now.
+
+Fix: new deterministic check `seoWrongPremierPartner` (search the name in `JobDetail.jsx`, right after
+`jobIsSeo`'s definition) — fires when `jobIsSeo && !jobIsPaidMedia && draftHasPremier`, reusing the
+already-proven `jobIsSeo`/`jobIsPaidMedia`/`draftHasPremier` signals from the existing Premier Partner check
+rather than inventing new regex. Report-only, wired into `_firedChecks`/the flag strip. `npm run build`
+clean.
+
+Separately, the ONE check that already fired on this letter (`missingAuditPriceEntirely`) is legitimate and
+worth Artem's attention on regenerate: the letter quotes "$30/hr for audits" when the client's own screening
+question ("what's your hourly rate for audits vs ongoing monthly management?") explicitly invites hourly
+framing — but the AI Analysis for this same job explicitly flagged that risk and recommended framing the
+audit as the fixed $700 deliverable instead, specifically to avoid anchoring at Artem's rate floor. The
+letter did the opposite of its own job's analysis. Not fixed here — it's a generation-time prompt-following
+miss the check already surfaces, not a new detection gap.
+
+Not committed, same as the two entries above.
+
+## 2026-09-02 — Session thread: reviewing letters generated post-rebuild, no auto-fixer left to catch them
+
+Distilled summary of this session's thread (full evidence in the three dated entries directly below):
+Artem shared four freshly-generated cover letters in sequence for review, now that the enforcer's deletion
+(see `GENERATOR_REBUILD_HANDOFF.md`) means nothing rewrites a bad draft automatically — checks only report.
+Three had real defects, one (job 14202) was genuinely solid with one miss.
+
+**The reusable finding:** a fabrication class the existing fabrication guards didn't cover — claiming
+hands-on fluency with a specific named tool/platform/CMS that isn't in Artem's documented toolset, surfaced
+independently on two different jobs (GoHighLevel, job 14198; Squarespace, job 14258, which also
+self-contradicted by citing WordPress sites as its own proof). Checking the 232-proposal sent corpus for the
+same pattern found it had happened twice before, undetected (HubSpot on proposal 44, Webflow on proposal
+21) — this was a live, recurring, previously-invisible defect, not a hypothetical. Added one prompt rule and
+one deterministic check (`fabricatedToolClaim`) covering both tool categories (CRM/marketing-automation and
+CMS/site-builders); zero false positives across the full corpus re-check.
+
+Also fixed: an audit+retainer job (14199) whose "ongoing implementation" phrasing wasn't recognized by
+`_RETAINER_SIGNAL_RE`, silently suppressing the SEO-plan-CTA check; and added `seoWrongPremierPartner`, the
+missing inverse of the existing PPC-credential check (job 14202).
+
+**Pattern worth remembering for future sessions:** with the enforcer gone, a check that never fires is now
+the ONLY thing standing between a bad letter and Artem's clipboard — there's no second pass to catch what a
+check misses. Reviewing shared letters for defects the CURRENT check set doesn't already flag (not just
+confirming the flags that did fire) is now higher-value than it was before the rebuild.
+
+All of this session's changes are uncommitted, on top of the already-uncommitted rebuild pile
+`GENERATOR_REBUILD_HANDOFF.md` describes (11 files, `corrections/`). That file explicitly asks to check with
+Artem before committing, given the enforcer deletion is a change he may want to live with for a few days
+first — flagged back to him rather than committed blind under the standing `//save` auto-push default.
+
+## 2026-09-02 — Job 14258: fabrication pattern generalizes past CRMs — now Squarespace, self-contradicting
+
+Artem: "shared. Audit samples not attached" — job 14258 (Squarespace photography site, Ireland). The
+literal complaint (`missingAuditSampleMention`, already fired) is real but secondary: it's the SEO
+job's technical-audit-sample attach rule, missed at generation time same as the "$30/hr" miss on the prior
+job — a prompt-following slip the check already surfaces, nothing new to fix there.
+
+The bigger issue, found while checking: "I work directly in Squarespace, titles, descriptions, URL slugs,
+image SEO panel, the blog module." Squarespace is nowhere in the KB — and this job's own AI Analysis had
+already flagged that exact gap two paragraphs earlier ("Squarespace is not Artem's platform... no case
+studies"; verdict SKIP, 3/10, largely BECAUSE of this gap) — yet the letter fabricated hands-on fluency
+anyway. Worse, it self-contradicts one sentence later: "The sites I manage (tothebeauty.com, envieq.com,
+redwallmural.com, all WordPress...)" — cites WordPress sites as if they prove the Squarespace claim.
+
+This is the same failure class as job 14198's GoHighLevel fabrication (2026-09-02, see above), just a
+different tool category (CMS/site-builder vs. CRM/marketing-automation) — confirming it's a general pattern,
+not a one-off. Generalized both fixes accordingly:
+1. The prompt rule (search "Fabricate hands-on experience with a specific named tool") now names CMS/
+   website-builders explicitly alongside CRM/automation platforms, and cites both real instances plus the
+   self-contradiction failure mode (citing a case on a DIFFERENT platform as if it proves the claimed one).
+2. `fabricatedToolClaim`'s tool list (search `_UNPROVEN_TOOL_RE`) gained `squarespace|wix|webflow|weebly`.
+   Re-ran the corpus check (232 sent proposals): 7 raw name hits total now, still only genuine first-person
+   fluency claims trip it — a THIRD prior undetected instance turned up, proposal 21: "i work directly in
+   Webflow, Shopify, WordPress, and custom CMSs" (Webflow isn't documented either). Zero false positives
+   from the new site-builder names. Verified the check fires on job 14258's actual letter text directly (not
+   just the corpus). `npm run build` clean.
+
+Not committed, same as the entries above.
+
+## 2026-09-02 — Job 14256: "Google PPC" vs "Google Ads" wording gap, plus the chat dodged an audit-offer rule by dropping the trigger word
+
+Artem: "shared - even after pointing out generator still offering 'some checks' - when the job is from
+scratch." He'd already told the chat "you offering audit" for job 14256 ("set up a Google PPC campaigns,
+landing pages, tracking conversions"); the chat agreed it wasn't an audit job and rewrote — but the letter
+Artem is looking at NOW still opens with an audit-shaped diagnostic pitch: "First thing I'd check is whether
+your current conversion actions are logging the right event... I'd map what's firing now, then rewire it."
+
+Root cause, two layers:
+
+1. **Why the deterministic Rule-450 backstop (`wrongAuditOfferOnLaunch`, `launchJobMissingCTA`) never had a
+   chance to catch it at all**: `jobIsLaunchFromScratch` (search `LAUNCH_FROM_SCRATCH_RE`) already had a
+   "set up ... google ads ... campaign" pattern from a prior fix, but it hard-coded `google\s+ads?` — this
+   posting says "Google **PPC** campaigns", not "Google Ads". Checked all 458 postings in the DB: widening
+   every `google\s+ads?` occurrence in that regex array to `google\s+(?:ads?|ppc)` produces exactly one gain
+   (this job), zero false positives. `jobIsLaunchFromScratch` now correctly evaluates `true` for this
+   posting (verified directly in node against the real text), which also flows through to `jobIsPaidLaunch`
+   for the CTA check — both were silently inapplicable before this fix, on a genuinely very common posting
+   shape ("set up a Google PPC campaign").
+
+2. **Why the chat's OWN rewrite still failed after agreeing with Artem**: the chat dropped the literal word
+   "audit" and the sample-attachment line, but kept the identical diagnostic-review narrative structure
+   under different words ("I'd check... I'd map what's firing... then rewire it"). This is the exact
+   "hedging around a keyword guard" failure the handoff already names as a general risk (§6.6, the Luxury
+   Parfums "seasonings/scents" case) — satisfies a keyword-based rule literally while defeating its intent.
+   `AUDIT_OFFER_IN_DRAFT_RE` only matches the literal word "audit" in various frames, so it can't catch a
+   diagnostic pitch that avoids that word. Not fixed with a broader keyword scan (fragile, easy to dodge
+   again with yet another synonym) — instead added a paragraph to the WHEN-NOT-TO-OFFER-AN-AUDIT prompt block
+   (search "not just the word") stating explicitly that swapping the label onto the same audit-shaped
+   diagnostic narrative is exactly the failure the rule exists to prevent, and citing this job as the
+   confirmed example. Also widened that same prompt block's own signal list to mention "set up a Google
+   Ads/PPC campaign" as a launch signal (it was narrower than the code's regex, likely why the FIRST pass
+   offered an audit in the first place).
+
+`npm run build` clean; corpus check + direct node verification of `jobIsLaunchFromScratch`/`jobIsPaidLaunch`
+against the real posting text. Not committed, same as the entries above.
+
+## 2026-09-03 — Analyser fabricated a portfolio gap and skipped a good job (14335), and it is a pattern
+
+Artem: "shared one more - check what analyser did". Job 14335 (Senior SEO Specialist for Website Audit,
+Dubai agency, $30-45/hr, <5 applicants, payment verified) came back **SKIP 3/10**. The decisive reason:
+
+> "explicit proof requirement for 'sample audit or case studies' that Artem cannot credibly provide (no
+> agency-SEO audit portfolio in his KB, only PPC audit samples attached) … Score capped at 2-4 per the
+> EXPLICIT PROOF REQUIREMENT rule."
+
+**That premise is false, and the evidence was in the same prompt.**
+
+KB entry 419 is `type=manual`, `is_core=1`, tagged `SEO technical audits samples`, titled *"two technical
+SEO website audit examples that Artem attaches to cover letter"*. The analyser pulls `/kb?is_core=true` and
+renders each core entry as `[type] title` plus `content.slice(0, 1200)`. Printed exactly what it received:
+the title, then *"WORK SAMPLE: Technical SEO Audit — lemoos.com (Bridal E-commerce, EN/DE, Webflow) …
+36-page PDF, delivered 2025"*, then the priority framework and the first documented issues. Unambiguous.
+
+So this is **not** a plumbing gap — no truncation problem, no filter dropping the entry. The block was in
+front of the model and it asserted the opposite.
+
+The rule itself is also **not** at fault. Read literally it scopes to "work Artem **has NOT done**" and it
+already carries a carve-out for agency/white-label/team-capacity asks. The model applied a correctly-scoped
+rule to a fabricated fact.
+
+#### The mirror image of the fabricated-tool-claim class
+
+Worth naming, because it connects to yesterday's finding. `fabricatedToolClaim` (2026-09-02) catches the
+model inventing capabilities Artem does **not** have — GoHighLevel, Squarespace, HubSpot, Webflow. This is
+the same failure pointing the other way: inventing an **absence** of a capability he **does** have. Same
+root cause — asserting facts about Artem's toolkit from recall instead of reading the KB block in the
+prompt — but it costs a missed opportunity rather than a credibility risk, so nothing was watching for it.
+
+#### How often: 37 analyses cite a proof/portfolio gap, 12 of them SKIP
+
+Reviewed all 12. Most are legitimate vertical gaps (AI/SaaS on 10001, telehealth on 12756, ActiveCampaign
+on 14223 — genuinely outside the toolset and already on the `fabricatedToolClaim` list, Squarespace on
+14258). But at least **three are false on the KB's own evidence**, and one more is doubtful:
+
+- **14335** — the SEO audit sample exists (entry 419). Confirmed false.
+- **13467** (White Label SEO/AEO/Paid Media Fulfillment, **SKIP 2/10**) — "explicit team/capacity/structure
+  requirements that Artem cannot credibly answer". This is a direct violation of the rule's own written
+  carve-out: agency-structure / white-label / team-capacity / account-manager questions are answerable via
+  IT Force and are explicitly "not a proof gap".
+- **12420** (E-commerce Marketing & SEO, SKIP 3/10) — "examples of e-commerce businesses you've worked with
+  and measurable results". He has Luxury Parfums (+143% revenue), Skin Reboot (+693.8%), Casa Eleganza,
+  SMASH, Game-X — several of them `is_core=1`.
+- **12755** (Real Estate Lead Gen, SKIP 3/10) — real-estate vertical proof "he cannot credibly meet", while
+  Atlant (Real Estate Google Ads, +56%) is a core case study. Doubtful rather than certain: the posting also
+  wanted 5+ years in the vertical and funnel/landing-page screenshots.
+
+Roughly a third of proof-gap SKIPs look like the analyser under-counting his own portfolio.
+
+#### Fix
+
+Extended the EXPLICIT PROOF REQUIREMENT rule with a second carve-out at the decision point, rather than
+touching the rule's scope (which is correct as written):
+
+> "'Artem has NOT done it' is a claim about his portfolio, and you must verify it against the CORE KB
+> CONTEXT block in this prompt before asserting it. Do NOT infer an absence from the fact that you cannot
+> recall one."
+
+It then names what he demonstrably has and attaches — the lemoos.com 36-page technical SEO audit (quoting
+the CORE KB entry title so the model can find it), Google Ads/PPC audit samples, the SEO promotion plan
+sample, the CORE KB case studies — states that a request for "a sample audit / examples / case studies /
+portfolio" is therefore a **reason to apply**, cites job 14335 as the confirmed failure the way "Mr Chef"
+anchors the guessing-from-name rule, and requires the analysis to say which KB section it checked.
+
+`npm run build` / esbuild clean. Not committed — sits on the uncommitted rebuild pile described in
+`GENERATOR_REBUILD_HANDOFF.md` §9.
+
+#### Owner decisions, not code
+
+- **14335 is worth a second look.** $30-45/hr clears the $30 floor, fewer than 5 applicants, payment
+  verified, and the ask — a full technical SEO audit with prioritised findings in plain English — is
+  literally Artem's productised $700 deliverable. "Previous agency experience is a must" is the carve-out
+  case (IT Force). The only genuine soft negative is "Based in Dubai preferred".
+- Worth noting against the analyser's judgement generally: **job 14258 was also SKIP 3/10 on a proof gap,
+  Artem applied anyway, and it is the one proposal from this batch that has been VIEWED.** One data point,
+  not a trend — but it is the second signal in two days that these SKIPs are running pessimistic.

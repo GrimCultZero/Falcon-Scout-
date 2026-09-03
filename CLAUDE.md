@@ -24,6 +24,14 @@ Local Windows tool that captures Upwork job postings from Telegram (@OffersHunte
 
 **Read `DESIGN.md` at the start of every session.** Do not relitigate decisions that are settled there. If a decision changes, update `DESIGN.md` as part of the same change.
 
+**`GENERATOR_REBUILD_HANDOFF.md` — READ THIS TOO if you are touching the cover-letter generator.**
+The generator is mid-rebuild as of 2026-09-02: the rule-compliance enforcer has been deleted, the
+grounding contract has been rewritten to accept scraped site data, and Artem has explicitly asked that
+non-correctness issues be **logged rather than patched** (each ad-hoc regex was making the next letter
+worse — that is the whole reason for the rebuild). That file carries the migration status, the open
+owner decisions, the known-unfixed defects with evidence, and the working agreements. Nothing in it is
+committed yet.
+
 ## Memory & persistence protocol (MANDATORY — every session, every account)
 
 This project is on a **private GitHub repo**: `https://github.com/GrimCultZero/Falcon-Scout-`
