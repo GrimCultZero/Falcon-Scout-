@@ -27,13 +27,14 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, or_, select, text
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).parent))  # api/ dir — for sibling imports (upwork_api)
 load_dotenv(ROOT / ".env", override=True)
 
-from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, Base  # noqa: E402
+from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, SyncRun, Base  # noqa: E402
 import json as _json_mod
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'upwork_jobs.db'}")
@@ -388,9 +389,51 @@ def _auto_ghost_proposals():
     """
     Mark proposals as 'ghosted' if they were submitted >10 days ago and have
     no reply. Runs on startup and can be called periodically.
+
+    IMPORTANT (owner audit, 2026-08-31): this timer never contacts Upwork. It
+    is a purely local egg timer, so "ghosted" has always meant "nothing updated
+    this row for 10 days" -- NOT "the client ignored him". All 40 of August's
+    ghosts were set this way, during a month that also contained an 11.6-day
+    total blackout in view detection. The dashboard was therefore reporting the
+    tracker's own silence back to the owner as client rejection, which is the
+    likely direct source of his "people ghosted me so many times" impression.
+
+    Gate added: only ghost a proposal when the proposals-list sync has actually
+    been WORKING recently -- at least one run since the cutoff that scraped a
+    non-zero number of rows. If the sync has been down or blind, we genuinely do
+    not know what happened to these proposals, and inventing a rejection is
+    worse than leaving them open. They will be ghosted on a later sweep once the
+    sync is healthy again.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=10)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=10)
     with Session(engine) as session:
+        # Was the tracker actually looking during the window we are about to
+        # draw a conclusion from?
+        try:
+            healthy_run = (
+                session.query(SyncRun)
+                .filter(SyncRun.leg == "proposals-list",
+                        SyncRun.ts >= cutoff,
+                        SyncRun.rows_scraped > 0)
+                .first()
+            )
+        except Exception as e:
+            # sync_runs may not exist yet on an older DB — fail OPEN (previous
+            # behaviour) rather than silently freezing the funnel forever.
+            print(f"[Ghost Timer] sync_runs unavailable ({e}); proceeding without the health gate")
+            healthy_run = True
+
+        if not healthy_run:
+            stale = session.query(Proposal).filter(
+                Proposal.submitted_at < cutoff,
+                Proposal.status == "sent",
+                Proposal.client_reply_text == None
+            ).count()
+            print(f"[Ghost Timer] SKIPPED — no successful proposals-list sync since {cutoff.date()}; "
+                  f"{stale} proposal(s) left as 'sent' rather than invented as ghosted")
+            return 0
+
         ghosted = session.query(Proposal).filter(
             Proposal.submitted_at < cutoff,
             Proposal.status == "sent",
@@ -399,7 +442,7 @@ def _auto_ghost_proposals():
 
         for p in ghosted:
             p.status = "ghosted"
-            p.status_updated_at = datetime.now(timezone.utc)
+            p.status_updated_at = now
             session.add(p)
 
         if ghosted:
@@ -1194,6 +1237,32 @@ def get_job_by_upwork_id(upwork_job_id: str):
         return _serialize(job)
 
 
+def _archive_snapshot(text: str, kind: str, data: dict, ts: str) -> str | None:
+    """
+    Keep a permanent copy of every "Share with Claude" press.
+
+    `share-with-claude.md` is OVERWRITTEN on each press, which is right for
+    "look at this one now" but destroys the previous snapshot. The rebuild of
+    the generator is being driven off a corpus of real letters plus Artem's
+    corrections, so each press has to survive the next one.
+
+    Archives to `corrections/<ts>-<kind>-job<id>.md`. Best-effort: an archive
+    failure must never break the share itself, which is the interactive path.
+    """
+    try:
+        job = data.get("job") or {}
+        jid = job.get("id") or (data.get("proposal") or {}).get("job_id") or "none"
+        stamp = re.sub(r"[^0-9T]", "", (ts or "").replace("-", "").split(".")[0])[:15] or "unknown"
+        d = ROOT / "corrections"
+        d.mkdir(exist_ok=True)
+        f = d / f"{stamp}-{kind}-{jid}.md"
+        f.write_text(text, encoding="utf-8")
+        return str(f)
+    except Exception as e:
+        print(f"[share] archive failed (share itself unaffected): {e}")
+        return None
+
+
 @app.post("/share-with-claude")
 def share_with_claude(data: dict):
     """
@@ -1249,7 +1318,8 @@ def share_with_claude(data: dict):
             lines.append("")
         text = "\n".join(lines)
         snap_path.write_text(text, encoding="utf-8")
-        return {"ok": True, "path": str(snap_path), "bytes": len(text.encode("utf-8"))}
+        _arch = _archive_snapshot(text, kind, data, ts)
+        return {"ok": True, "path": str(snap_path), "archived": _arch, "bytes": len(text.encode("utf-8"))}
 
     # ── Debug snapshot (build-time helper) ─────────────────────────────
     # Lets Artem ship the live frontend state to Claude Code instead of a
@@ -1290,7 +1360,8 @@ def share_with_claude(data: dict):
             lines.append("")
         text = "\n".join(lines)
         snap_path.write_text(text, encoding="utf-8")
-        return {"ok": True, "path": str(snap_path), "bytes": len(text.encode("utf-8"))}
+        _arch = _archive_snapshot(text, kind, data, ts)
+        return {"ok": True, "path": str(snap_path), "archived": _arch, "bytes": len(text.encode("utf-8"))}
 
     # ── Outcome / saved-proposal snapshot ─────────────────────────────
     if kind == "outcome":
@@ -1331,7 +1402,8 @@ def share_with_claude(data: dict):
             lines.append("")
         text = "\n".join(lines)
         snap_path.write_text(text, encoding="utf-8")
-        return {"ok": True, "path": str(snap_path), "bytes": len(text.encode("utf-8"))}
+        _arch = _archive_snapshot(text, kind, data, ts)
+        return {"ok": True, "path": str(snap_path), "archived": _arch, "bytes": len(text.encode("utf-8"))}
 
     # ── Default: job snapshot ─────────────────────────────────────────
     job = data.get("job") or {}
@@ -1423,6 +1495,16 @@ def share_with_claude(data: dict):
         lines.append(proposal)
         lines.append("```")
         lines.append("")
+        # Checks that fired on this letter. Since the enforcer was deleted
+        # (2026-09-02) these are REPORTED rather than auto-rewritten, so the
+        # snapshot has to carry them or the signal is lost between Artem's
+        # screen and the review.
+        flags = data.get("ruleFlags") or []
+        if flags:
+            lines.append(f"### Rule checks that fired ({len(flags)}) — reported, not auto-rewritten")
+            for f in flags:
+                lines.append(f"- `{f}`")
+            lines.append("")
 
     if saved:
         lines.append("### Saved proposal (Outcomes record)")
@@ -1450,7 +1532,8 @@ def share_with_claude(data: dict):
 
     text = "\n".join(lines)
     snap_path.write_text(text, encoding="utf-8")
-    return {"ok": True, "path": str(snap_path), "bytes": len(text.encode("utf-8"))}
+    _arch = _archive_snapshot(text, kind, data, ts)
+    return {"ok": True, "path": str(snap_path), "archived": _arch, "bytes": len(text.encode("utf-8"))}
 
 
 @app.post("/jobs/{job_id}/hide")
@@ -1723,28 +1806,61 @@ def save_website_inspect(job_id_raw: str, data: dict):
     summary     = data.get("summary", "")
     scraped_at_raw = data.get("scraped_at")
 
-    with Session(engine) as session:
-        job = session.query(Job).filter(
-            or_(
-                Job.upwork_job_id == job_id_clean,
-                Job.upwork_job_id == "~" + job_id_clean,
-                Job.id == (int(job_id_clean) if job_id_clean.isdigit() else -1),
-            )
-        ).first()
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job not found: {job_id_raw}")
+    # Confirmed real (2026-08-27, Scilumen.com): the scrape itself succeeded
+    # (background.js logged "scraped ... len: 674"), but this save landed
+    # while background auto-enrichment held a concurrent write open, and
+    # SQLite's default rollback-journal mode raised OperationalError
+    # ("database is locked") once contention outlasted the busy timeout. That
+    # was an UNHANDLED exception, so Starlette's default 500 handler returned
+    # PLAIN TEXT "Internal Server Error" -- not JSON -- which broke the
+    # extension's response.json() with a SyntaxError, so it never reached the
+    # notifyCockpit() call and the dashboard just sat out its own 60s
+    # timeout ("Website scrape timed out"), even though the save had already
+    # half-succeeded server-side up to the point of the error. db.py's
+    # init_db now enables WAL mode + a longer busy_timeout to make this class
+    # of error rare; this catch is the second half -- even if contention ever
+    # outlasts that, the extension gets a real JSON error back instead of an
+    # unparseable plain-text body, so at minimum the failure is visible and
+    # doesn't masquerade as a JS-level parsing bug.
+    try:
+        with Session(engine) as session:
+            job = session.query(Job).filter(
+                or_(
+                    Job.upwork_job_id == job_id_clean,
+                    Job.upwork_job_id == "~" + job_id_clean,
+                    # len guard: Upwork's OWN job ids (e.g. "022092808417625007967", 21
+                    # digits) are ALSO all-digit strings, and this route is called with
+                    # THAT value far more often than with our own short internal row id
+                    # -- job_id: job.upwork_job_id || String(job.id) on the frontend
+                    # prefers upwork_job_id whenever it exists. Blindly int()-converting
+                    # any all-digit string overflows SQLite's native 64-bit INTEGER
+                    # (max ~9.2e18, 19 digits) for every one of those real ids, raising
+                    # an unhandled OverflowError -- confirmed real, job 13394's website
+                    # inspect: the scrape succeeded, this crashed the save with a plain-
+                    # text 500 the extension couldn't parse as JSON, so it silently never
+                    # learned the save had happened. The Job.upwork_job_id == job_id_clean
+                    # condition above already matches these correctly on its own; this
+                    # int-id branch only needs to fire for OUR short ids, so skip it
+                    # entirely once the string is too long to be one.
+                    Job.id == (int(job_id_clean) if job_id_clean.isdigit() and len(job_id_clean) <= 18 else -1),
+                )
+            ).first()
+            if not job:
+                raise HTTPException(status_code=404, detail=f"Job not found: {job_id_raw}")
 
-        job.website_url     = url
-        job.website_summary = summary
-        try:
-            job.website_inspected_at = (
-                datetime.fromisoformat(scraped_at_raw)
-                if scraped_at_raw else datetime.now(timezone.utc)
-            )
-        except (ValueError, TypeError):
-            job.website_inspected_at = datetime.now(timezone.utc)
-        session.commit()
-        return {"ok": True, "job_id": job.id, "url": url}
+            job.website_url     = url
+            job.website_summary = summary
+            try:
+                job.website_inspected_at = (
+                    datetime.fromisoformat(scraped_at_raw)
+                    if scraped_at_raw else datetime.now(timezone.utc)
+                )
+            except (ValueError, TypeError):
+                job.website_inspected_at = datetime.now(timezone.utc)
+            session.commit()
+            return {"ok": True, "job_id": job.id, "url": url}
+    except OperationalError as e:
+        raise HTTPException(status_code=503, detail=f"Database busy, try again: {e}")
 
 
 @app.post("/jobs/{job_id_raw}/ahrefs")
@@ -1761,7 +1877,11 @@ def save_ahrefs_data(job_id_raw: str, data: dict):
             or_(
                 Job.upwork_job_id == job_id_clean,
                 Job.upwork_job_id == "~" + job_id_clean,
-                Job.id == (int(job_id_clean) if job_id_clean.isdigit() else -1),
+                # Same overflow guard as save_website_inspect above -- Upwork's own
+                # job ids are also all-digit and routinely exceed SQLite's native
+                # 64-bit INTEGER range, which int()-converting them unconditionally
+                # would overflow.
+                Job.id == (int(job_id_clean) if job_id_clean.isdigit() and len(job_id_clean) <= 18 else -1),
             )
         ).first()
 
@@ -3391,6 +3511,24 @@ def proposal_status_sync(data: dict):
                 updated += 1
                 newly_viewed += 1
 
+        # Record that this sync RAN — unconditionally, including runs that
+        # scraped nothing or matched nothing. See SyncRun's docstring: without
+        # this row, "the client viewed nothing" and "the tracker was not
+        # looking" are the same observation, which is what let an 11.6-day
+        # detection blackout pass unnoticed in August. Wrapped so a logging
+        # failure can never break the sync itself.
+        try:
+            session.add(SyncRun(
+                leg="proposals-list",
+                rows_scraped=scanned,
+                matched=scanned - len(not_matched),
+                not_matched=len(not_matched),
+                newly_viewed=newly_viewed,
+                scroll_json=json.dumps(data.get("scroll")) if data.get("scroll") else None,
+            ))
+        except Exception as e:
+            print(f"[sync_runs] could not record run: {e}")
+
         session.commit()
 
     return {
@@ -3402,6 +3540,34 @@ def proposal_status_sync(data: dict):
         # bloat the log; the user only needs a sample for diagnosis.
         "not_matched_sample": not_matched[:10],
     }
+
+
+@app.get("/sync-runs")
+def list_sync_runs(limit: int = Query(50, ge=1, le=500), leg: Optional[str] = Query(None)):
+    """Recent proposal-status sync attempts, newest first.
+
+    Exists so "have my proposals actually been checked lately?" is answerable.
+    A gap in `ts` means the sync did not run; a run of rows with rows_scraped=0
+    means it ran and the scraper saw nothing.
+    """
+    with Session(engine) as session:
+        q = session.query(SyncRun)
+        if leg:
+            q = q.filter(SyncRun.leg == leg)
+        runs = q.order_by(SyncRun.ts.desc()).limit(limit).all()
+        return {
+            "count": len(runs),
+            "runs": [{
+                "id": r.id,
+                "ts": r.ts.isoformat() if r.ts else None,
+                "leg": r.leg,
+                "rows_scraped": r.rows_scraped,
+                "matched": r.matched,
+                "not_matched": r.not_matched,
+                "newly_viewed": r.newly_viewed,
+                "scroll": json.loads(r.scroll_json) if r.scroll_json else None,
+            } for r in runs],
+        }
 
 
 @app.get("/outcomes-activity")
