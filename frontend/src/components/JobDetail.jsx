@@ -121,7 +121,7 @@ const _CHECKLIST_TRIGGER_RE = /^(?:\s*)(?:to\s+apply|how\s+to\s+apply|to\s+be\s+
 // The trailing ":" is a strong "list follows" signal, so we can allow preceding
 // prose on the same line ("Looking for X. Please include in your proposal:")
 // without the false positives a bare "include" mid-sentence would cause.
-const _CHECKLIST_TRIGGER_EOL_RE = /(?:to\s+apply|to\s+be\s+considered|please\s+(?:include|send|provide|answer|share)|in\s+your\s+(?:proposal|application|cover\s+letter)|include\s+the\s+following|answer\s+the\s+following|must\s+include|application\s+requirements?)\b[^.\n]{0,40}:\s*$/i
+const _CHECKLIST_TRIGGER_EOL_RE = /(?:to\s+apply|to\s+be\s+considered|please\s+(?:include|send|provide|answer|share)|in\s+your\s+(?:proposal|application|cover\s+letter)|include\s+the\s+following|answer\s+the\s+following|must\s+include|application\s+requirements?)\b[^.\n]{0,80}:\s*$/i
 // Inline form: "To apply, send: a, b, c" (items on the same line after a colon)
 const _CHECKLIST_INLINE_RE = /\b(?:to\s+apply|to\s+be\s+considered|please\s+(?:include|send|provide)|in\s+your\s+(?:proposal|application))\b[^.\n:]{0,40}:\s*([^\n]{8,400})/i
 // Item is FACTUAL (needs Artem's real data, not invented prose)
@@ -147,9 +147,27 @@ function extractApplicationChecklist(text) {
       const isListItem = /^(?:[-*•·▪◦‣–—]|\d+[.)]|[a-z][.)])\s+/i.test(raw)
       const stripped = raw.replace(/^(?:[-*•·▪◦‣–—]|\d+[.)]|[a-z][.)])\s+/i, '').trim()
       if (!isListItem) {
-        // Allow a couple of short plain lines (some clients don't use bullets),
-        // but bail on long prose paragraphs — those aren't checklist items.
-        if (collected.length === 0 && raw.length > 0 && raw.length <= 120 && !/[.!?]$/.test(raw)) {
+        // Allow short plain lines (some clients don't use bullets), but bail on
+        // long prose paragraphs — those aren't checklist items.
+        //
+        // The comment above used to say "a couple of short plain lines" while the
+        // code allowed exactly ONE (`collected.length === 0`). A client who lists
+        // four un-bulleted asks — "Your experience in SEO", "Services included in
+        // your SEO package", "Proposed approach for handling two websites",
+        // "Estimated timelines for improvements" — had three of them silently
+        // dropped, and the prompt then announced "this posting asks 1 question"
+        // and budgeted the whole letter for one. Confirmed on job 14178, where
+        // the letter answered none of the other three.
+        //
+        // The FIRST line keeps the original, looser test so every existing
+        // extraction is unchanged. Continuation lines are the new capability and
+        // carry an extra guard: at least 3 words, and not a sign-off, so a
+        // trailing "Thanks" or "Best regards" can't be collected as an item.
+        const plainOk = raw.length > 0 && raw.length <= 120 && !/[.!?]$/.test(raw)
+        const isContinuation = collected.length > 0 &&
+          stripped.split(/\s+/).length >= 3 &&
+          !/^(?:thanks?|thank\s+you|regards?|best|cheers|sincerely|looking\s+forward)\b/i.test(stripped)
+        if (plainOk && (collected.length === 0 || isContinuation)) {
           collected.push(stripped); continue
         }
         break
@@ -184,7 +202,19 @@ function extractApplicationChecklist(text) {
       ? `\n\nFACTUAL ITEMS RULE (critical): for team size, portfolio/site URLs, landing-page turnaround, and monthly retainer, use the values in "ARTEM'S BUSINESS FACTS" below. For anything factual NOT covered there (e.g. a specific client name, an exact metric you don't have), do NOT fabricate — emit a visible [[ ARTEM: … ]] placeholder so he fills it before sending.`
       : ``) +
     `\n\nNO BODY↔ANSWERS DUPLICATION (mandatory structure): do NOT cover the same point twice — once in a body section and again where you address the checklist. Pick one home for each piece of content. The right shape: a SHORT hook (the client's core problem + the credentials + ONE sharp differentiating insight), then address their points once, in your own words. Do NOT write full body sections ("here's my approach…", "here's how I'd build the pages…") that you then repeat almost verbatim when answering the questions — that doubles the length and reads as padding.` +
-    `\n\nTIMELINE/DURATION QUESTIONS (mandatory): if any checklist item asks "how long", "rough timeline", "turnaround", "ETA", "when can you complete/start", or similar, the answer MUST contain a CONCRETE time estimate (e.g. "3–5 business days", "about a week", "2–3 days once I have access"). Describing the deliverable or the steps is NOT an answer to a timeline question — give an actual duration. (This is the one case where stating a timeline in the letter is REQUIRED, overriding the usual omit-timeline rule.)`
+    `\n\nTIMELINE/DURATION QUESTIONS (mandatory): if any checklist item asks "how long", "rough timeline", "turnaround", "ETA", "when can you complete/start", or similar, the answer MUST contain a CONCRETE time estimate (e.g. "3–5 business days", "about a week", "2–3 days once I have access"). Describing the deliverable or the steps is NOT an answer to a timeline question — give an actual duration. (This is the one case where stating a timeline in the letter is REQUIRED, overriding the usual omit-timeline rule.)` +
+    // LENGTH BUDGET (owner feedback 2026-08-31, job 13902: "it's too long — why
+    // would I want to read all this"). A 6-question checklist reliably produced a
+    // ~800-word letter against a ~330-word median for every letter actually sent.
+    // The existing "NO FLUFF / two diagnostic paragraphs MAXIMUM" rule elsewhere in
+    // the prompt is in direct conflict with "address EVERY item" above, and when
+    // two rules conflict the model obeys the one with the explicit threat attached
+    // — so the checklist wins and length runs away. Give the checklist branch its
+    // own explicit budget, scaled to how many questions were actually asked, so the
+    // two rules stop fighting. Budget is deliberately generous per item (a real
+    // answer needs room) but hard-capped, because past a certain length the client
+    // stops reading regardless of quality.
+    `\n\nLENGTH BUDGET (mandatory — this posting asks ${classified.length} question${classified.length === 1 ? '' : 's'}, and that is exactly how a letter turns into a wall nobody reads): answer each item in AT MOST 2–3 sentences, and keep the ENTIRE letter under ${Math.min(450, 200 + classified.length * 35)} words including the opener and sign-off. Length does not read as thorough — it reads as something to skip. If an answer will not fit in three sentences you are explaining your METHOD rather than answering the QUESTION: give the answer, drop the walkthrough. Cite each case study EXACTLY ONCE in the whole letter — never re-list a case at the end that you already used to answer one of these items.`
 
   return { items: classified, promptBlock, hasFactual }
 }
@@ -1807,8 +1837,20 @@ function _looksGarbled(text) {
 // pitching the $300 flat audit (a strong, self-contained signal this is
 // Artem's audit-then-management flow) so it never touches an unrelated
 // SEO/webdev ongoing-retainer quote that has nothing to do with this rule.
-function _forceFixOngoingFee(text) {
-  if (!text) return text
+// asksRate gate (owner rule, 2026-08-28): "we shouldn't even tell client any
+// rates or retainer unless he specifically asked for it". This function is the
+// most aggressive pricing writer in the whole chain — it runs FIRST and rewrites
+// any ongoing-fee figure into Artem's fixed $700/$600 unconditionally. On job
+// 13621 (Unihost) that was actively destructive: the posting states its OWN rate
+// ("Rate: $35/hour") and never asks Artem for one, the first-pass draft correctly
+// wrote "$35/hr fits your posted ceiling", and this function overwrote it into
+// "$700 for the first month, then $600/month fits your posted ceiling" — both
+// unasked-for AND self-contradicting nonsense, since $700/month does not "fit" a
+// $35/hr ceiling. When the posting never asked for pricing there is no correct
+// fee to force here at all; the whole paragraph gets stripped downstream by
+// _stripUnaskedRate instead. Bail out before touching anything.
+function _forceFixOngoingFee(text, asksRate) {
+  if (!text || !asksRate) return text
   // Gate on "$300" appearing NEAR the word "audit" (same 60-char proximity
   // idiom as _extractAuditPrice above) rather than a bare "$300" substring
   // anywhere in the letter. A workflow adversarial-verify pass (2026-08-08)
@@ -1992,8 +2034,20 @@ function _stripDuplicateCaseBlockLabel(text) {
 // the DIGIT BOMB block), so the safe fix is to drop the duplicate paragraph
 // rather than try to relocate it. Scoped tight — only fires when paragraph 1
 // is confirmed to be the armed case's own opener and paragraph 2 names a
-// DIFFERENT ledger case; a legitimate case cited later in the letter's own
-// case-study block is untouched.
+// DIFFERENT ledger case.
+//
+// A second shape (job 13388, 2026-08-27): the ARMED case itself gets cited
+// AGAIN later, as its own full case-study entry — e.g. "Two campaigns I
+// managed:" followed by the digit-bomb case a second time with real numbers,
+// a few paragraphs after the opener already used it. The system prompt's
+// DIGIT BOMB block explicitly says not to re-cite the armed case later (zero
+// additional case studies is fine), but the first pass doesn't reliably obey
+// it — and when that duplicate mention also has a fabricated metric,
+// fabricatedCaseMetric's enforcer fix corrects the NUMBER, not the fact that
+// the whole mention is a forbidden repeat. Scans every paragraph after the
+// opener (not just the immediate next one) for one that OPENS with the armed
+// case's own name — a genuine passing reference mid-sentence elsewhere is not
+// touched, only a paragraph functioning as that case's own block header.
 function _stripDigitBombDuplicateCase(text, digitBombCase) {
   if (!text || !digitBombCase) return text
   const paras = text.split(/\n\s*\n/)
@@ -2009,12 +2063,37 @@ function _stripDigitBombDuplicateCase(text, digitBombCase) {
   }
   if (openerIdx === -1) return text
   const next = paras[openerIdx + 1]
-  if (!next) return text
-  const other = CASE_LEDGER.find(c => c.id !== digitBombCase.id && next.includes(c.name))
-  if (!other) return text
-  console.log(`[Falcon] Digit Bomb armed (${digitBombCase.name}) but "${other.name}" was stacked right after it as a second opener — dropped the duplicate paragraph.`)
+  if (next) {
+    const other = CASE_LEDGER.find(c => c.id !== digitBombCase.id && next.includes(c.name))
+    if (other) {
+      console.log(`[Falcon] Digit Bomb armed (${digitBombCase.name}) but "${other.name}" was stacked right after it as a second opener — dropped the duplicate paragraph.`)
+      _recordViolations('generator', null, ['digitBombDuplicateCase'])
+      paras.splice(openerIdx + 1, 1)
+      return paras.join('\n\n').trim()
+    }
+  }
+  const _escDbName = digitBombCase.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const _dbCaseBlockRe = new RegExp(`^${_escDbName}\\b`, 'i')
+  const dupIdx = paras.findIndex((p, i) => i > openerIdx && _dbCaseBlockRe.test(p.trim()))
+  if (dupIdx === -1) return text
+  console.log(`[Falcon] Digit Bomb armed (${digitBombCase.name}) but its own case was cited AGAIN later as a case-study entry — dropped the duplicate paragraph.`)
   _recordViolations('generator', null, ['digitBombDuplicateCase'])
-  paras.splice(openerIdx + 1, 1)
+  paras.splice(dupIdx, 1)
+  // The paragraph right before the dropped one is often a short lead-in that
+  // commits to a specific count ("Two campaigns I managed:") — correct for
+  // the original set, wrong by one now. Strip a leading count word/digit so
+  // the claim degrades to an uncounted plural ("Campaigns I managed:"),
+  // which stays true regardless of how many case paragraphs remain.
+  const leadInIdx = dupIdx - 1
+  if (leadInIdx >= 0 && paras[leadInIdx] !== undefined) {
+    const leadIn = paras[leadInIdx].trim()
+    if (leadIn.length <= 100 && /:$/.test(leadIn)) {
+      const stripped = leadIn.replace(/^(?:\d+|one|two|three|four|five|six|both|a\s+couple\s+of|a\s+few|several|some)\s+/i, '')
+      if (stripped !== leadIn) {
+        paras[leadInIdx] = stripped.charAt(0).toUpperCase() + stripped.slice(1)
+      }
+    }
+  }
   return paras.join('\n\n').trim()
 }
 
@@ -2059,9 +2138,23 @@ function _stripDuplicateAttachmentLabel(text) {
     const phrase = (full.match(_ATTACH_PHRASE_RE) || [''])[0]
     return `(${name.trim()}, ${phrase})`
   })
-  // 1) Two adjacent parentheticals that BOTH carry an attachment phrase → merge.
+  // 1) Two adjacent parentheticals where AT LEAST ONE carries an attachment
+  //    phrase → merge into a single parenthetical.
+  //    Was "BOTH" until 2026-08-31 (job 13839, Unihost-style DTC build): the
+  //    first-pass draft correctly wrote "ChronoCash (European luxury watch
+  //    retailer) - high-ticket B2C", then missingHighlightsPhrase fired and the
+  //    enforcer inserted the label immediately after the case NAME rather than
+  //    into the existing parenthetical, producing
+  //      "ChronoCash (attached in profile highlights) (European luxury watch retailer)"
+  //    — two adjacent parentheticals of which only ONE carries the phrase, so
+  //    the both-sided test skipped it and the doubled bracket shipped to the
+  //    client. The merge body below already handles the one-sided case
+  //    correctly (it takes the phrase from whichever side has it and keeps the
+  //    other side's descriptor), so only the guard needed widening. Still bails
+  //    when NEITHER side has an attachment phrase — two unrelated adjacent
+  //    parentheticals are none of this function's business.
   out = out.replace(/\(([^()]*)\)\s*\(([^()]*)\)/g, (full, a, b) => {
-    if (!_ATTACH_PHRASE_RE.test(a) || !_ATTACH_PHRASE_RE.test(b)) return full
+    if (!_ATTACH_PHRASE_RE.test(a) && !_ATTACH_PHRASE_RE.test(b)) return full
     const phrase = (a.match(_ATTACH_PHRASE_RE) || b.match(_ATTACH_PHRASE_RE))[0]
     const clean = (s) => s.replace(_ATTACH_PHRASE_RE, '').replace(/^[\s,;]+|[\s,;]+$/g, '').trim()
     const desc = [clean(a), clean(b)].filter(Boolean).join(', ')
@@ -2140,6 +2233,82 @@ function _stripDuplicateAuditSampleMention(text) {
 // label; every OTHER case needs the "(attached in profile highlights)" lead-in.
 const _NON_PDF_CASE_NAME_RE = /^(?:nectar\s*flowers|fridgefix|house\s+painting|golden\s+state\s+trailers|multilingual\s+site|oxytec|luxury\s+parfums|chronocash|atlant|vape\s*shop|smash|game-?x|gkit|casa\s*eleganza)\b/i
 const _ANY_CASE_NAME_RE = /^(?:nectar\s*flowers|fridgefix|house\s+painting|golden\s+state\s+trailers|multilingual\s+site|oxytec|luxury\s+parfums|chronocash|atlant|vape\s*shop|smash|game-?x|gkit|casa\s*eleganza|derma\s*solution|skin\s*reboot)\b/i
+
+// REDUNDANT TRAILING CASE BLOCK (owner feedback 2026-08-31, job 13902: "it's too
+// long — why would I want to read all this"). On a posting with several screening
+// questions, one of them is routinely "give an example of an account you've
+// managed". The generator answers it inline with a named case — correctly — and
+// THEN still appends the standard closing case-study block, re-citing the same
+// cases with the same metrics. On job 13902 Skin Reboot appeared THREE times and
+// ChronoCash twice in one ~800-word letter (the median sent letter is ~330 words).
+// The grounding checker's `caseDuplicated` detects exactly this and is
+// deliberately shadow-only — it can't safely pick WHICH copy to cut. Here the
+// choice is unambiguous: the LAST block is the redundant one, because the earlier
+// mention is the one doing argumentative work (answering their question), while
+// the trailing block is boilerplate. Dropping it also fixes a second rule at the
+// same time — the letter stops ending on past results and ends on the actual
+// call to action, which is what the prompt asks for.
+const _CASE_BLOCK_LEADIN_RE = /^[^\n]{0,80}:\s*$/
+const _escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Attachment phrase each case must carry, straight from the ledger.
+const _CASE_ATTACH_PHRASE = {}
+try {
+  for (const c of CASE_LEDGER) {
+    _CASE_ATTACH_PHRASE[c.name.toLowerCase()] =
+      c.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'
+  }
+} catch (_) {}
+// Give an EARLIER mention of `name` its attachment label, without ever creating
+// two adjacent parentheticals: if a descriptor parenthetical already follows the
+// name, the phrase goes INSIDE it; otherwise a new one is added.
+function _labelEarlierMention(s, name, phrase) {
+  const re = new RegExp(`\\b(${_escRe(name)})\\b(\\s*\\(([^()]*)\\))?`, 'i')
+  return s.replace(re, (full, nm, parenWhole, inner) => {
+    if (parenWhole != null && inner != null) {
+      if (_ATTACH_PHRASE_RE.test(inner)) return full           // already labelled
+      return `${nm} (${inner.trim()}, ${phrase})`
+    }
+    return `${nm} (${phrase})`
+  })
+}
+function _stripRedundantTrailingCaseBlock(text) {
+  if (!text) return text
+  const paras = text.split(/\n\s*\n/)
+  if (paras.length < 4) return text
+  let end = paras.length - 1
+  // Skip a short sign-off ("Artem") so the block can be found behind it.
+  if (end >= 0 && paras[end].trim().split(/\s+/).length <= 3 && !_ANY_CASE_NAME_RE.test(paras[end].trim())) end--
+  let start = end
+  while (start >= 0 && _ANY_CASE_NAME_RE.test(paras[start].trim())) start--
+  const blockStart = start + 1
+  if (blockStart > end) return text                            // no trailing case entries
+  let before = paras.slice(0, blockStart).join('\n\n')
+  const kept = []
+  let removed = 0
+  for (const entry of paras.slice(blockStart, end + 1)) {
+    const m = entry.trim().match(_ANY_CASE_NAME_RE)
+    const name = m && m[0]
+    if (!name) { kept.push(entry); continue }
+    const earlier = new RegExp(`\\b${_escRe(name)}\\b`, 'i')
+    if (!earlier.test(before)) { kept.push(entry); continue }  // not a duplicate — keep it
+    // Cited earlier: make sure that earlier mention carries the attachment label
+    // before dropping this copy, so no required information is lost.
+    const phrase = _CASE_ATTACH_PHRASE[name.toLowerCase().replace(/\s+/g, ' ')] || 'attached in profile highlights'
+    const idx = before.search(earlier)
+    if (!_ATTACH_PHRASE_RE.test(before.slice(idx, idx + 160))) {
+      before = _labelEarlierMention(before, name, phrase)
+    }
+    removed++
+  }
+  if (!removed) return text
+  const head = before.split('\n\n')
+  // If every entry went, the block's lead-in line ("Proof this approach works:")
+  // is now introducing nothing — drop it too.
+  if (!kept.length && head.length && _CASE_BLOCK_LEADIN_RE.test((head[head.length - 1] || '').trim())) head.pop()
+  console.log(`[Falcon] Dropped ${removed} trailing case-study paragraph(s) already cited earlier in the letter.`)
+  _recordViolations('generator', null, ['redundantTrailingCaseBlock'])
+  return [...head, ...kept, ...paras.slice(end + 1)].join('\n\n').trim()
+}
 // Deterministically ensure the case-study block ANNOUNCES the cases and labels the
 // non-PDF ones as attached. The generator sometimes dumps "Nectar Flowers: …" /
 // "FridgeFix: …" straight into the letter with no lead-in and no attachment label —
@@ -2409,27 +2578,49 @@ function _stripDuplicateDifferentiator(text) {
 const _RATE_PARA_RE = /^(?:my\s+)?rate\b/i
 const _RATE_DOLLAR_HR_RE = /\$\s?\d[\d,]*\s*(?:\/\s?|\s?per\s+)?(?:hr|hour)\b/i
 const _RATE_CONTEXT_RE = /\b(?:rate|charge|scope|project\s+cost|total\s+project|price|pricing|per\s+hour)\b/i
+// Artem's own audit-fee / retainer / ongoing-management price paragraphs —
+// the $300/$700 audit, "credited back" / "complimentary" framing, or a
+// monthly ongoing-management figure. Deliberately NOT keyed to specific
+// numbers (unlike the old $300-only carve-out this replaces) — any dollar
+// figure paired with this vocabulary is Artem quoting HIS OWN price, which
+// is exactly what owner rule (2026-08-28) says never to volunteer unless
+// asked. Guarded by _ANY_CASE_NAME_RE at the call site below, not here —
+// a case-study paragraph can legitimately say "$700/mo" (the CLIENT'S OWN
+// budget) right next to "account audit" (something Artem DID for them), and
+// this regex alone can't tell that apart from Artem quoting a price to THIS
+// client; the case-study guard has to run first and exit before this ever
+// gets evaluated.
+// NOTE on the "ongoing"/"first month"/"flat" alternatives: added after job 13621
+// (Unihost) shipped a surviving fee paragraph — "For the ongoing piece: $700 for
+// the first month, then $600/month..." — that the original two alternatives both
+// missed. It has no "/hr" (so the hourly-rate branch can't see it), and its
+// dollar figures sit further than 80 non-sentence-ending chars from the words
+// "audit"/"retainer"/"ongoing management", so the proximity alternatives missed
+// it too. Matching bare "ongoing" near a price closes that hole.
+// Deliberately NOT a blanket "any $ figure" rule: the client's OWN product
+// prices legitimately appear in the diagnosis ("a $19/mo VPS and a $799/mo GPU
+// rig both fire the same event") and are some of the sharpest, most
+// posting-specific writing in the letter — verified those survive.
+const _ARTEM_OWN_PRICE_PARA_RE = /\b(?:audit|retainer|ongoing\s+management)\b[^.\n]{0,80}\$\d[\d,]*|\$\d[\d,]*[^.\n]{0,80}\b(?:audit|retainer|ongoing\s+management|credited\s+back|complimentary)\b|\bongoing\b[^.\n]{0,60}\$\d[\d,]*|\$\d[\d,]*[^.\n]{0,60}\bongoing\b|\bfirst\s+month\b[^.\n]{0,60}\$\d[\d,]*|\$\d[\d,]*[^.\n]{0,60}\bfirst\s+month\b|\$\d[\d,]*\s*flat\b/i
 function _stripUnaskedRate(text, asksRate) {
   if (!text || asksRate) return text
   const paras = text.split(/\n{2,}/)
   const kept = paras.filter(p => {
     const t = p.trim()
-    // CARVE-OUT: the productised AUDIT offer ($300 flat, 1 working day) is Artem's
-    // standard deliverable and IS the pitch — it must survive even when the posting
-    // never asked for a rate. Requires the paragraph to actually BE that $300
-    // offer, not just any paragraph that happens to mention the word "audit"
-    // as a common noun. Confirmed on job 11202: a genuinely unsolicited
-    // "Rate for this: $160/hr..." paragraph also mentioned "tracking audit"
-    // in passing (describing the scope of the hourly work, not the $300
-    // productised audit), and the old bare /\baudits?\b/i check wrongly
-    // treated that as the protected paragraph, letting an unrequested
-    // hourly rate survive a posting that never asked for one.
-    if (/\baudits?\b/i.test(t) && /\$300\b/.test(t)) return true
+    // Never touch a case-study paragraph — see _ARTEM_OWN_PRICE_PARA_RE's own
+    // comment for why this has to be checked first, not folded into it.
+    if (_ANY_CASE_NAME_RE.test(t)) return true
     // A paragraph that is PRIMARILY a rate/price quote: it opens with "Rate …",
-    // or it states an hourly figure ("$40/hr") inside a pricing context.
+    // it states an hourly figure ("$40/hr") inside a pricing context, or it's
+    // Artem's own audit/retainer/ongoing-management price. Previously this
+    // function had an explicit carve-out PROTECTING the $300 audit paragraph
+    // from this exact strip — "don't tell the client any rate or retainer
+    // unless they specifically asked" (owner rule, 2026-08-28) is what removed
+    // that carve-out: audit and retainer pricing are rates too.
     const isRatePara = _RATE_PARA_RE.test(t) ||
       (_RATE_DOLLAR_HR_RE.test(t) && _RATE_CONTEXT_RE.test(t)) ||
-      /\btotal\s+project\s+cost\b/i.test(t)
+      /\btotal\s+project\s+cost\b/i.test(t) ||
+      _ARTEM_OWN_PRICE_PARA_RE.test(t)
     return !isRatePara
   })
   if (kept.length !== paras.length) {
@@ -2558,12 +2749,133 @@ function _fixPdfCaseLabelMisattribution(text) {
     ''
   )
   // Ensure each PDF case name carries "(attached as PDF)" immediately after it.
-  // Negative lookahead: skip if already labelled (any "(attached..." follows).
+  // Negative lookahead: skip if already labelled. Two labelled shapes exist by
+  // the time this runs — a fresh parenthetical, "Name (attached...)", AND the
+  // comma-joined form "Name, attached as PDF)" that _stripDuplicateAttachmentLabel
+  // (which runs earlier in the same chain, JobDetail.jsx:2038) normalizes a
+  // nested duplicate down to. The lookahead only recognized the first shape,
+  // so on any letter where the earlier function had already cleaned a nested
+  // duplicate, this loop treated the clean "Name, attached as PDF)" text as
+  // UNlabelled and appended a second "(attached as PDF)" right after the name
+  // — reconstructing the exact nested duplicate the earlier function had just
+  // removed. Confirmed real, job 13388 ("Skin Reboot (attached as PDF),
+  // attached as PDF" survived into the final letter despite the dedup regex
+  // matching and stripping it correctly in isolation). Recognize both shapes.
   for (const name of ['Derma Solution', 'Skin Reboot']) {
-    const re = new RegExp(`\\b(${name})\\b(?!\\s*\\(attached)`, 'gi')
+    const re = new RegExp(`\\b(${name})\\b(?!\\s*[,(]\\s*attached)`, 'gi')
     text = text.replace(re, '$1 (attached as PDF)')
   }
   return text
+}
+
+// A lead-in that commits to a COUNT of case studies becomes a lie the moment
+// anything downstream deletes one of them. Confirmed on job 14178 (2026-09-02):
+// the grounding checker removed the Vape Shop entry for carrying a metric not in
+// the ledger -- correct behaviour -- and left "SEO experience: three cases map
+// directly." standing above two cases, with a second lead-in ("Proof this approach
+// works:") orphaned directly beneath it. _stripDigitBombDuplicateCase repairs this
+// shape already, but only for its own path.
+//
+// Two narrow repairs, in order:
+//  (a) an orphan lead-in immediately followed by ANOTHER lead-in, with no case
+//      entry between them. That shape only arises when the paragraph the first
+//      one introduced has been deleted. Gated on the first lead-in actually
+//      referring to cases (a count word, or the word "case"), so plain section
+//      labels stacked together ("Services:" / "Timeline:") are never touched.
+//  (b) a surviving lead-in whose stated count no longer matches the number of
+//      case entries below it: the count word is dropped, degrading the claim to
+//      an uncounted plural, which stays true however many remain.
+const _CASE_COUNT_RE = /\b(\d+|one|two|three|four|five|six|both)\s+(case\s+stud(?:y|ies)|cases?|campaigns?|clients?|examples?|projects?|results?)\b/i
+const _CASE_COUNT_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, both: 2 }
+function _fixCaseCountClaim(text) {
+  if (!text) return text
+  const nameRe = new RegExp(`^\\s*(?:${CASE_LEDGER.map(c => _escRe(c.name)).join('|')})\\b`, 'i')
+  const paras = text.split(/\n\s*\n/)
+  const isCase = (s) => nameRe.test(s || '')
+  const isLeadIn = (s) => {
+    const t = (s || '').trim()
+    return !!t && !isCase(t) && t.length <= 110 && /[:.]$/.test(t)
+  }
+
+  // (a) drop the orphaned lead-in
+  for (let i = 0; i < paras.length - 1; i++) {
+    if (!isLeadIn(paras[i]) || !isLeadIn(paras[i + 1])) continue
+    if (!_CASE_COUNT_RE.test(paras[i]) && !/\bcase\b/i.test(paras[i])) continue
+    paras.splice(i, 1)
+    _recordViolations('generator', null, ['orphanCaseLeadIn'])
+    break
+  }
+
+  // (b) repair a stale count
+  for (let i = 0; i < paras.length; i++) {
+    if (isCase(paras[i])) continue
+    const m = paras[i].match(_CASE_COUNT_RE)
+    if (!m) continue
+    const claimed = _CASE_COUNT_WORDS[m[1].toLowerCase()] ?? parseInt(m[1], 10)
+    let actual = 0
+    for (let j = i + 1; j < paras.length; j++) if (isCase(paras[j])) actual++
+    if (!actual || !claimed || claimed === actual) continue
+    paras[i] = paras[i].replace(_CASE_COUNT_RE, (_full, _n, noun) => noun)
+    _recordViolations('generator', null, ['staleCaseCountClaim'])
+    break
+  }
+  return paras.join('\n\n').trim()
+}
+
+// Detects the OWNER HARD RULE claim that an offered audit ($300 flat PPC /
+// $700 flat SEO) is performed entirely manually — no automated tools, no
+// templated report. Module-scope so both the generate() pre-check
+// (missingManualAuditClaim, decides whether to fire the enforcer) and
+// _ensureManualAuditClaim below (the deterministic fallback) share one
+// definition instead of two copies that can drift.
+const _MANUAL_AUDIT_CLAIM_RE = /\b(?:entirely|100\s?%|completely|fully|all)\s+manual(?:ly)?\b|\bmanual(?:ly)?\b[^.\n]{0,60}\bno\s+automat|\bby\s+hand\b[^.\n]{0,60}\baudit\b|\baudit\b[^.\n]{0,60}\bby\s+hand\b|\bno\s+automat\w*[^.\n]{0,60}\bmanual(?:ly)?\b/i
+// A small pool so a fallback insertion doesn't read identically across every
+// non-compliant letter (same reasoning as _HIGHLIGHTS_LEADINS elsewhere in
+// this file). Picked deterministically by text length, not Math.random —
+// this file's strip functions are pure so a given draft always resolves the
+// same way, and Math.random would break byte-for-byte reproducibility of a
+// resumed/replayed generation.
+const _MANUAL_AUDIT_CLAIM_VARIANTS = [
+  'Every audit I run is done entirely by hand — no automated tools, no templated report.',
+  'The audit itself is 100% manual — no automated scanners, no auto-generated report.',
+  'I run every audit myself, by hand — no automated tools or templated output involved.',
+]
+// MISSING MANUAL-AUDIT CLAIM, deterministic fallback (job 13388, 2026-08-27).
+// generate()'s missingManualAuditClaim pre-check already fires the enforcer
+// with an explicit instruction to add this claim (down to an exact example
+// sentence) whenever an audit is offered without it — confirmed via
+// rule_violations telemetry that the pre-check fired correctly here, yet the
+// final letter still lacked the claim. It's one of several simultaneous
+// instructions in a single enforcer call (9 fired in the same batch on this
+// job), and nothing in the rest of the strip chain touches "manual"/"by
+// hand"/"automated" language, so this isn't a strip-order collision like the
+// two bugs above — it's a genuine enforcer compliance miss. Same "checker,
+// not rewriter" principle as _fixPdfCaseLabelMisattribution above: don't
+// trust the free-text rewrite a second time, ENSURE the claim deterministically.
+function _ensureManualAuditClaim(text) {
+  if (!text) return text
+  if (_MANUAL_AUDIT_CLAIM_RE.test(text)) return text
+  const paras = text.split(/\n\s*\n/)
+  // Proximity, not mere co-occurrence (job 13621, Unihost): the old
+  // "has $300/$700 anywhere AND has 'audit' anywhere" test matched an ONGOING-FEE
+  // paragraph — "...$700 for the first month, then $600/month... as we implement
+  // the audit fixes and rewire tracking." — where the $700 was the retainer and
+  // "audit" was an unrelated later sentence, and appended the manual-audit claim
+  // onto a paragraph that was not an audit offer at all. Requiring the price and
+  // the word "audit" to sit in the SAME sentence (no intervening "." or newline)
+  // ties this to an actual "$300 flat audit"-shaped offer. Also means that when
+  // _stripUnaskedRate has removed the audit offer entirely (posting never asked
+  // for pricing), there is no audit-price paragraph left, so this correctly
+  // no-ops instead of re-attaching an orphaned claim about a vanished offer.
+  const _AUDIT_PRICE_OFFER_RE = /\$(?:300|700)\b[^.\n]{0,60}\baudit\b|\baudit\b[^.\n]{0,60}\$(?:300|700)\b/i
+  const idx = paras.findIndex(p => _AUDIT_PRICE_OFFER_RE.test(p))
+  if (idx === -1) return text
+  const variant = _MANUAL_AUDIT_CLAIM_VARIANTS[text.length % _MANUAL_AUDIT_CLAIM_VARIANTS.length]
+  const p = paras[idx].trimEnd()
+  paras[idx] = p + (/[.!?]$/.test(p) ? ' ' : '. ') + variant
+  console.log('[Falcon] Audit offered but the draft never stated it\'s done entirely manually, and the enforcer (told explicitly, with an example sentence) didn\'t add it — inserted the trust claim deterministically.')
+  _recordViolations('generator', null, ['missingManualAuditClaimAutoInserted'])
+  return paras.join('\n\n')
 }
 
 // Strip any sentence where the model leaks its internal KB terminology to the client.
@@ -2576,6 +2888,29 @@ function _stripKbLeak(text) {
   return text.replace(/[^.!?\n]*\b(?:the|my|our|in\s+the)\s+KB\b[^.!?\n]*[.!?]?\n?/gi, '')
 }
 
+// Module-scope fallback for "which job is being generated right now".
+//
+// Audit finding (2026-09-01): 301 of 1,375 generator violation events — 21.9% —
+// carried job_id = NULL, including the #2 and #5 most-fired checks system-wide
+// (caseHighlightsInlineLabel 110, caseLeadInHadAttachmentLabel 62). Cause: the
+// ~20 strip functions above are MODULE-scope helpers with no access to the
+// component's `job` prop, so every _recordViolations call inside one of them
+// passes a literal `null`, while call-site invocations correctly pass `job?.id`.
+// The partition was provably clean — no check name appeared with both null and
+// non-null ids — which is exactly what a per-call-site defect predicts.
+//
+// Fixed here rather than at the 17 call sites: _recordViolations falls back to
+// this variable whenever the caller has no id to give. One change, every site
+// corrected, and a strip function that legitimately runs outside a generation
+// still records null rather than misattributing to a stale job.
+//
+// This matters beyond tidiness: every later step of the rebuild is measured
+// against this telemetry (case-family events must fall from 686 to <60, offer
+// events from 216 to <60), and a fifth of it currently cannot be joined to a
+// letter at all.
+let _currentJobId = null
+function _setCurrentJobId(id) { _currentJobId = id ?? null }
+
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
 function _recordViolations(surface, jobId, checks) {
@@ -2585,7 +2920,7 @@ function _recordViolations(surface, jobId, checks) {
     fetch('/rule-violations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ surface, job_id: jobId ?? null, checks: list }),
+      body: JSON.stringify({ surface, job_id: jobId ?? _currentJobId ?? null, checks: list }),
     }).catch(() => {})
   } catch (_) {}
 }
@@ -4127,6 +4462,9 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
     // Captured now (not re-read after the awaits below) so the completion
     // handlers can tell whether the user has since navigated to a different job.
     const _jobIdAtCallTime = job?.id
+    // Give the module-scope strip helpers something to attribute their
+    // telemetry to — see _setCurrentJobId's comment.
+    _setCurrentJobId(_jobIdAtCallTime)
     const _isStaleAnalyse = () => currentJobIdRef.current !== _jobIdAtCallTime
     try {
       // Fetch rules + Core entries (always); style examples only on full pass.
@@ -4193,7 +4531,22 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       // floor is $30/hr. A web-dev job paying $30-39 IS below his dev rate, so it
       // must be flagged — a flat $30 floor under-rated those jobs.
       const _WEBDEV_RATE_RE = /\b(wordpress|woocommerce|elementor|shopify|webflow|wix|squarespace|web\s*develop\w*|website\s+develop\w*|web\s+developer|landing\s+page|front[-\s]?end|full[-\s]?stack|\bhtml\b|\bcss\b|javascript|\breact\b|vue\.?js|\bphp\b|laravel|\bplugin\b|theme\s+(?:development|customi[sz]ation)|page\s*speed|core\s+web\s+vitals|web\s+design|bug\s*fix|site\s+build|custom\s+module|opencart)\b/i
-      const _isWebDevJob = _WEBDEV_RATE_RE.test(`${job.title || ''} ${job.category || ''} ${job.keywords || ''} ${fullDescription}`)
+      // TITLE WINS over incidental body keywords (job 13621, Unihost): the
+      // posting is titled "PPC Specialist (Google Ads) – Part-Time, Ongoing" and
+      // is pure campaign management, but its "nice to have" list mentions
+      // "landing page ... improvements" once — enough for _WEBDEV_RATE_RE
+      // (which scans the whole description) to classify it as a WEB-DEV job and
+      // raise the floor from $30 to $40. The analyser then flagged it against
+      // "Artem's $40/hr developer floor" while its own reasoning correctly said
+      // "this is a PPC management role, NOT web-development — the applicable
+      // floor is $30/hr", i.e. the forced flag and the analysis contradicted
+      // each other in the same output. The ROLE is what the title names; a
+      // passing mention of landing pages inside a PPC retainer does not make it
+      // a development engagement.
+      const _PPC_SEO_TITLE_RE = /\b(ppc|google\s*ads?|adwords|paid\s+search|paid\s+media|paid\s+ads?|\bsem\b|\bseo\b|performance\s+marketer|media\s+buyer|campaign\s+manager)\b/i
+      const _titleIsPpcSeoRole = _PPC_SEO_TITLE_RE.test(String(job.title || ''))
+      const _isWebDevJob = !_titleIsPpcSeoRole &&
+        _WEBDEV_RATE_RE.test(`${job.title || ''} ${job.category || ''} ${job.keywords || ''} ${fullDescription}`)
       const _rateFloor = _isWebDevJob ? 40 : 30
       const _floorLabel = _isWebDevJob ? `$${_rateFloor}/hr developer` : `$${_rateFloor}/hr`
       // PPC / GOOGLE ADS ACCOUNT AUDIT jobs are sold as a FIXED $300 / 1-working-day
@@ -4221,6 +4574,22 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       const mandatoryFlags = []
       if (_isPpcAuditJob) {
         mandatoryFlags.push(`PPC / GOOGLE ADS ACCOUNT AUDIT — this is Artem's STANDARD productised deliverable: FIXED $300, delivered in 1 working day, with his Google Ads audit samples attached. Because it is a FIXED-FEE deliverable and NOT an hourly engagement, the hourly rate floor DOES NOT APPLY: do NOT deduct points for a low posted hourly ceiling or a low client historical avg rate, and do NOT raise any rate-floor-risk flag. "Short-term", "part-time", "small project" and "one-off" describe the NATURE of an audit — treat them as EXPECTED and NEUTRAL, never as negatives or scope-creep risk. This job type is always worth applying to: verdict APPLY and score 7-9 unless one of the four HARD disqualifiers genuinely applies.`)
+      } else if (_avgRate > 0 && _avgRate < _rateFloor && (Number(job.hourly_rate_max) || 0) >= _rateFloor) {
+        // POSTED RATE CLEARS THE FLOOR (owner correction, 2026-08-28, job 13621):
+        // the avg-rate rule below treats client payment history as a stronger
+        // predictor than the posted range — sound when the posting is vague or
+        // aspirational, wrong when the posting commits to a specific qualifying
+        // number for THIS role. Unihost posted "Rate: $35/hour" (ceiling $35 vs a
+        // $30 PPC floor) with $5K spent, 100% hire rate and a 5.0 rating, yet a
+        // $10.05/hr historical average — drawn from whatever other roles they have
+        // hired for — forced -3 and a MAYBE cap, landing a 3/10 SKIP on a job the
+        // analyser itself described as an "excellent fit" with an "uncontested
+        // pool". Owner's call: a rate the client has put in writing for this role
+        // is the commitment that matters; the history gap is a negotiation risk
+        // worth noting, not a reason to bury the job. Deduction capped at -1 and
+        // the verdict cap removed for this case only — when the posted ceiling
+        // does NOT clear the floor, the harsher branches below still apply in full.
+        mandatoryFlags.push(`RATE — POSTED RATE CLEARS THE FLOOR, DO NOT TREAT AS A SKIP DRIVER: this posting states its own rate (ceiling $${Number(job.hourly_rate_max)}/hr), which MEETS OR EXCEEDS Artem's ${_floorLabel} floor. The client's historical average ($${_avgRate}/hr) is lower, which is worth ONE flag as a negotiation/rate-pressure risk — their past hires may have been cheaper role types. It is NOT evidence the posted rate is fake. Apply AT MOST -1 point for this. Do NOT cap the verdict, do NOT say "rate-floor risk dominates", do NOT call the posted range unrealistic, and do NOT let this outweigh scope fit or a low-competition applicant pool.`)
       } else if (_avgRate > 0 && _avgRate < _rateFloor - 10) {
         mandatoryFlags.push(`Client historical avg rate $${_avgRate}/hr is FAR below Artem's ${_floorLabel} floor — strong rate-floor risk, cap verdict at MAYBE, -3 points`)
       } else if (_avgRate > 0 && _avgRate < _rateFloor - 5) {
@@ -4398,7 +4767,7 @@ SCORE CALIBRATION — what the 0-10 number means (mandatory):
 The score must distinguish "categorically cannot/should-never apply" from "could apply but poor fit." Use these bands:
 - 0-1 → RESERVED for the four HARD DISQUALIFIERS above ONLY. A score of 0 means "Artem literally cannot apply or it is categorically pointless" (geo-locked out, rate below floor, unverified+unproven client, already hired). Do NOT use 0-1 for fit/vertical/experience mismatches.
 - 2-4 → SKIP for FIT reasons. The job is applicable in principle (no hard disqualifier) but a poor match: wrong vertical with an explicit experience gate, a screening question demanding proof Artem can't credibly give, heavy specialization Artem lacks, or a very crowded pool where specialists clearly out-compete him. Verdict SKIP, score 2-4 — NOT 0.
-  EXPLICIT PROOF REQUIREMENT (most-missed 2-4 trigger): if the posting explicitly asks for a portfolio, examples, or screenshots of work Artem has NOT done (e.g. "share examples of content you ranked on external platforms", "attach a portfolio of web designs", "show us case studies from the finance vertical"), this is a near-disqualifying signal. The client will evaluate proposals against this requirement; Artem cannot credibly answer it. Score MUST be 2-4 (SKIP), NOT 5-6. Do NOT call this MAYBE and do NOT suggest that Artem can "work around" the requirement in the letter. CARVE-OUT: this rule is about proof of SKILLS or VERTICALS Artem genuinely lacks — it does NOT apply to agency-structure / white-label / team-capacity / account-manager questions, which are answerable via IT Force (see AGENCY / WHITE-LABEL REQUIREMENT above). An explicit agency ask is not a proof gap.
+  EXPLICIT PROOF REQUIREMENT (most-missed 2-4 trigger): if the posting explicitly asks for a portfolio, examples, or screenshots of work Artem has NOT done (e.g. "share examples of content you ranked on external platforms", "attach a portfolio of web designs", "show us case studies from the finance vertical"), this is a near-disqualifying signal. The client will evaluate proposals against this requirement; Artem cannot credibly answer it. Score MUST be 2-4 (SKIP), NOT 5-6. Do NOT call this MAYBE and do NOT suggest that Artem can "work around" the requirement in the letter. CARVE-OUT: this rule is about proof of SKILLS or VERTICALS Artem genuinely lacks — it does NOT apply to agency-structure / white-label / team-capacity / account-manager questions, which are answerable via IT Force (see AGENCY / WHITE-LABEL REQUIREMENT above). An explicit agency ask is not a proof gap. SECOND CARVE-OUT — CHECK BEFORE YOU FIRE THIS RULE (mandatory): "Artem has NOT done it" is a claim about his portfolio, and you must verify it against the CORE KB CONTEXT block in this prompt before asserting it. Do NOT infer an absence from the fact that you cannot recall one. He demonstrably HAS, and routinely attaches: a 36-page technical SEO audit deliverable (lemoos.com, bilingual Webflow ecommerce — see the CORE KB entry titled "two technical SEO website audit examples that Artem attaches to cover letter"), Google Ads / PPC account audit samples, an SEO promotion plan sample, and the case studies listed in CORE KB. A posting asking for "a sample audit", "examples of your audits", "case studies", or "a portfolio of past work" is therefore NOT a proof gap — it is a request he can satisfy today, and it should be treated as a REASON TO APPLY, not a reason to skip. Confirmed failure, job 14335 (2026-09-03): the analyser wrote "Artem cannot credibly answer this without fabricating proof" and capped the score at 3/10 SKIP on a $30-45/hr technical-SEO-audit job with under 5 applicants — his exact productised deliverable — while that lemoos.com audit block sat in the same prompt. Fire this rule ONLY when the requested proof is for a skill or vertical genuinely absent from the KB, and say which KB section you checked.
 - 5-6 → MAYBE. Adjacent fit, real but surmountable concerns, worth a tailored proposal.
 - 7-10 → APPLY. Strong fit.
 IMPORTANT: Only the four hard disqualifiers force a 0. A vertical/experience mismatch — even a strong, explicit one backed by a screening question — is a FIT-based SKIP and must score 2-4, never 0, and must NOT be described as a "hard disqualifier" in the summary (call it a "strong fit mismatch" or "vertical gap" instead).
@@ -4432,10 +4801,11 @@ A flat fixed-price budget is a DOLLAR AMOUNT, not a rate. NEVER directly compare
 ANOMALOUS / IMPLAUSIBLE BUDGET RULE (mandatory — data-quality, not disqualifier): A budget figure that is implausibly large for the scope (e.g. tens of thousands of dollars for an SEO/PPC engagement), or a fixed lump-sum attached to an "ongoing" role, is almost always a CAPTURE ERROR or a placeholder — not a real client term. NEVER treat such a number as a fact, and NEVER let it drive the verdict. Specifically: do NOT call the job "unbiddable", "structurally incoherent", or skip it because the budget "doesn't make sense"; do NOT compute an effective rate from a clearly-bogus number; do NOT deduct points for it. A large budget, if anything, is a POSITIVE signal (well-funded, serious client). When the budget looks anomalous, add exactly ONE flag ("Budget figure $X looks anomalous — verify before bidding") and then score the job on SCOPE FIT, CLIENT QUALITY, and the client's historical hourly rate, treating the budget as effectively unspecified. A weird budget number is a reason to VERIFY, never a reason to SKIP a job whose scope and client otherwise fit.
 
 CLIENT AVG RATE SIGNAL — RATE-FLOOR RISK OR UPSIDE (mandatory; the avg is what they actually pay — it can cut EITHER way: below floor = risk, above ceiling = upside):
-The "Client avg hourly rate paid to freelancers" field is what this client HAS ACTUALLY PAID across their past contracts. Treat it as a stronger predictor than the posted rate range when the two disagree — clients consistently pay what their history shows, not what their job post advertises.
+The "Client avg hourly rate paid to freelancers" field is what this client HAS ACTUALLY PAID across their past contracts. Treat it as a stronger predictor than the posted rate range when the two disagree — clients consistently pay what their history shows, not what their job post advertises — EXCEPT where the posting states a specific rate that already clears Artem's floor (see the overriding exception below the deduction table).
 - If avg_rate < $30/hr but ≥ $25/hr: subtract 1 point. Add a flag: "Client avg rate $X/hr is below Artem's $30/hr floor — posted ceiling may not be realised; expect rate pressure".
 - If avg_rate < $25/hr but ≥ $20/hr: subtract 2 points. Add a flag: "Client avg rate $X/hr is materially below Artem's $30/hr floor — posted ceiling unlikely to be realised; rate-floor risk is high".
 - If avg_rate < $20/hr: subtract 3 points AND cap verdict at MAYBE (never APPLY on rate-floor-risky clients no matter how strong the fit). Flag: "Client historical avg rate $X/hr is far below Artem's $30/hr floor — strong evidence Artem's bid will not clear; rate-floor risk dominates fit signals".
+- ⚠ OVERRIDING EXCEPTION TO ALL THREE DEDUCTIONS ABOVE — POSTED RATE CLEARS THE FLOOR (owner correction, 2026-08-28): if the posting states its OWN rate and that ceiling MEETS OR EXCEEDS Artem's applicable floor, then apply AT MOST −1 point in total for the avg-rate gap, and do NOT cap the verdict — regardless of how far below the floor the historical average sits. A rate the client has published for THIS role is a commitment; the historical average is an aggregate across whatever OTHER role types they have hired for (a company that pays $10/hr for VA or content work can still pay $35/hr for a specialist), so it is weaker evidence about this job than the posted number is. Note the gap once as a negotiation / rate-pressure risk and move on. Do NOT write "rate-floor risk dominates fit signals", do NOT call the posted rate unrealistic, fake, or "unlikely to be realised", and do NOT let it outweigh scope fit, client quality, or a low-competition applicant pool. The harsher deductions above apply ONLY when the posted ceiling itself fails to clear the floor (or no rate is posted at all).
 - If avg_rate is AT or ABOVE Artem's applicable floor: this is NOT a risk. Do NOT deduct points and do NOT add any "rate-floor risk" flag. The direction matters — the below-floor logic above does NOT invert. A client who has historically paid MORE than the posted range is a POSITIVE signal: the posted ceiling is conservative/a placeholder, the client actually pays premium, and there is room to negotiate UP toward their historical rate. NEVER describe a client whose avg is at/above the posted ceiling as "budget-tier", "rate rejection risk", or "rate-floor risk", and never claim Artem's bid "may read as budget-tier" — bidding at or below what a client already pays is not a problem. A high client avg rate can only help the score, never hurt it.
 - If avg_rate ≥ $30/hr: no penalty.
 - If avg_rate is absent (not enriched yet): ignore this rule entirely — do not penalise for missing data.
@@ -4807,6 +5177,8 @@ export function AhrefsBar({ job, bridgeReady, onResultChange }) {
   const [websiteText, setWebsiteText] = useState(job.website_summary || null)
   const websiteTimerRef = useRef(null)
   const [resultsOpen, setResultsOpen] = useState(false)
+  const _lastJobIdRef = useRef(job.id)
+  const _autoInspectedRef = useRef(new Set())
 
   // Report results up to App.jsx whenever they change (including on mount,
   // so a job with a pre-existing ahrefs_summary/website_summary is picked up
@@ -4822,7 +5194,19 @@ export function AhrefsBar({ job, bridgeReady, onResultChange }) {
     setResultsOpen(false)
     const detected = extractWebsiteUrl(job.description_full || job.raw_message || '')
     const domainFallback = job.ahrefs_domain || job.website_url || (detected ? detected.replace(/^https?:\/\//i, '').replace(/\/+$/, '') : '') || ''
-    setAhrefsDomain(d => d || domainFallback)
+    // On an ACTUAL job change, replace the domain outright. The old code kept
+    // whatever was already in the box (`d => d || fallback`), so selecting a new
+    // job left the PREVIOUS client's domain sitting there. Harmless while a human
+    // reads the box before clicking Inspect — actively dangerous now that Inspect
+    // can fire on its own, because it would scrape the wrong company and hand that
+    // to the letter. Keep the old merge behaviour for same-job re-renders so a
+    // hand-typed domain isn't wiped when ahrefs/website fields refresh.
+    if (_lastJobIdRef.current !== job.id) {
+      _lastJobIdRef.current = job.id
+      setAhrefsDomain(domainFallback)
+    } else {
+      setAhrefsDomain(d => d || domainFallback)
+    }
   }, [job.id, job.ahrefs_summary, job.ahrefs_domain, job.website_url, job.website_summary])
 
   // Listen for AHREFS_COMPLETE notification from bridge
@@ -4887,8 +5271,12 @@ export function AhrefsBar({ job, bridgeReady, onResultChange }) {
     }
   }, [job.id, job.upwork_job_id])
 
-  const handleWebsiteInspect = () => {
-    const raw = ahrefsDomain.trim()
+  // urlOverride lets the auto-inspect effect below pass the URL it detected in
+  // THIS posting rather than trusting whatever is in the box. Called straight
+  // from onClick too, where the argument is a click event — hence the typeof
+  // guard rather than a truthiness check.
+  const handleWebsiteInspect = (urlOverride) => {
+    const raw = (typeof urlOverride === 'string' ? urlOverride : ahrefsDomain).trim()
     if (!raw) return
     if (!bridgeReady) { alert('Extension not connected — reload this tab (F5)'); return }
     const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
@@ -4903,6 +5291,48 @@ export function AhrefsBar({ job, bridgeReady, onResultChange }) {
       setWebsiteText('⚠ Website scrape timed out — check the extension console')
     }, 60000)
   }
+
+  // ── Auto-inspect ───────────────────────────────────────────────────────────
+  // When the posting itself names the client's site and nothing has been scraped
+  // yet, run Inspect without waiting for a click. Measured on the real corpus:
+  // only 13 of 445 postings (3%) carry a usable URL — but those are exactly the
+  // "SEO for <site>" jobs whose letter has to be site-specific. Job 14178 shipped
+  // a letter about a recipe publisher when mrchef.com is a Nigerian seasoning
+  // manufacturer, purely because nobody pressed the button and the model filled
+  // the gap by guessing from the brand name.
+  //
+  // Deliberately narrow:
+  //  - only a URL detected in THIS posting's text — never a hand-typed or
+  //    carried-over domain, so an automatic scrape can only ever hit a site the
+  //    client themselves named;
+  //  - once per job id per session, so a failed scrape doesn't retry in a loop;
+  //  - skipped entirely when a summary already exists (no re-scraping);
+  //  - 2s debounce, so arrowing down the feed doesn't open a tab per job.
+  useEffect(() => {
+    if (!bridgeReady) return
+    // Guard on job.website_summary — the PROP, always current for this job — and
+    // NOT on the websiteText/websiteLoading state. The sync effect above resets
+    // those on a job change, but a setState isn't visible until the next render;
+    // this effect runs in the SAME commit and would still see the PREVIOUS job's
+    // summary and bail. Its deps don't change again afterwards, so it would never
+    // re-run: auto-inspect was silently skipped for every job reached from a job
+    // that already had a scrape. Confirmed on job 14176 — arrived from 14178
+    // (which has a summary), no inspect ran, and the letter went on to invent
+    // "the site's too thin to rank for much beyond branded queries", tripping
+    // hasFabricatedDiagnosis. 14177 worked only because it was reached from a job
+    // with no scrape. The _autoInspectedRef guard below already prevents a double
+    // fire, so dropping the state reads costs nothing.
+    if (job.website_summary) return
+    if (_autoInspectedRef.current.has(job.id)) return
+    const detected = extractWebsiteUrl(job.description_full || job.raw_message || '')
+    if (!detected) return
+    const t = setTimeout(() => {
+      _autoInspectedRef.current.add(job.id)
+      console.log('[Falcon] Auto-inspecting client site named in the posting:', detected)
+      handleWebsiteInspect(detected)
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [job.id, bridgeReady, job.website_summary])
 
   const hasResults = !!(ahrefsResult || websiteText)
 
@@ -5339,7 +5769,21 @@ function ProposalColumn({
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState(null) // 'liked' | 'disliked'
   const [flagged, setFlagged] = useState(false) // brief confirmation after manual violation flag
-  const [preEnforcerDraft, setPreEnforcerDraft] = useState('') // snapshot of the draft right before the rule-compliance rewrite pass — lets a later "share with claude" show before/after so a garbled sentence can be traced to whichever pass introduced it
+  // Checks that fired on the letter currently in the box. With the enforcer deleted
+  // (2026-09-02) a firing check no longer triggers a rewrite — it reports. Surfacing
+  // the list under the letter is what replaces the rewrite: Artem sees what the
+  // system noticed and decides, instead of a rewriter silently making it worse.
+  const [ruleFlags, setRuleFlags] = useState([])
+  // preEnforcerDraft retired 2026-09-02 with the enforcer itself. It existed to
+  // show a before/after in the share snapshot so a garbled sentence could be traced
+  // to the first pass or the rewrite. There is no rewrite now — the letter Artem
+  // sees IS the first pass plus deterministic strips, so there is no "before".
+  // Left as a constant rather than deleted outright because the share handler and
+  // the backend's snapshot renderer both still read the field; feeding them a
+  // permanent null makes that section correctly disappear, whereas the stale
+  // localStorage values saved before the deletion would have rendered a "before the
+  // rewrite pass" block for a rewrite that never ran.
+  const preEnforcerDraft = ''
   const scrollRef = useRef(null)
   const proposalCacheRef = useRef({}) // { [jobId]: { proposal, feedback } } for unsaved drafts
   // Always holds the id of whichever job is CURRENTLY on screen — same
@@ -5444,11 +5888,12 @@ function ProposalColumn({
       e.detail.savedProposal = savedProposal || null
       // Only worth sending when it actually differs from the final text —
       // an identical snapshot means the enforcer pass made no changes.
-      e.detail.preEnforcerDraft = (preEnforcerDraft && preEnforcerDraft !== proposal) ? preEnforcerDraft : null
+      e.detail.preEnforcerDraft = null   // no enforcer pass exists to snapshot
+      e.detail.ruleFlags = ruleFlags
     }
     window.addEventListener('falconscout:share-with-claude', onShare)
     return () => window.removeEventListener('falconscout:share-with-claude', onShare)
-  }, [proposal, feedback, savedProposal, preEnforcerDraft])
+  }, [proposal, feedback, savedProposal])
 
   // Reset and load saved proposal whenever the selected job changes.
   // Save the current unsaved draft to cache BEFORE resetting — the closure
@@ -5483,7 +5928,6 @@ function ProposalColumn({
     }
     setProposal(cached?.proposal || '')
     if (cached?.feedback) setFeedback(cached.feedback)
-    setPreEnforcerDraft((newId != null && _lsLoad('preEnforcerDraft', newId)) || '')
 
     if (!newId) return
 
@@ -5586,10 +6030,13 @@ function ProposalColumn({
 
     setLoading(true)
     setFeedback(null)
-    setPreEnforcerDraft('') // clear any stale snapshot from a previous run/job
+    setRuleFlags([])
     // Captured now (not re-read after the awaits below) so the completion
     // handlers can tell whether the user has since navigated to a different job.
     const _jobIdAtCallTime = job?.id
+    // Give the module-scope strip helpers something to attribute their
+    // telemetry to — see _setCurrentJobId's comment.
+    _setCurrentJobId(_jobIdAtCallTime)
     const _isStaleGenerate = () => currentJobIdRef.current !== _jobIdAtCallTime
     try {
       // Load the stored analysis verdict so the generator can gate on SKIP /
@@ -5968,6 +6415,23 @@ function ProposalColumn({
       } else if (_hMax > 0) {
         _rateAnchorNote = `RATE ANCHOR (apply ONLY if the posting asks for your rate): the posted ceiling ($${_hMax}/hr) is at/below Artem's ~$${_genFloor}/hr floor. Quote at the floor or as a fixed project price sized to scope; never write a sub-floor effective hourly.`
       }
+      // NO PRICING AT ALL when the posting never asked for one (owner rule,
+      // 2026-08-28: "we shouldn't even tell client any rates or retainer unless
+      // he specifically asked for it" — the same principle KB Rules 397 and 426
+      // already state). Every _rateAnchorNote branch above is written for the
+      // case where a rate WAS requested; each already carries an "apply ONLY
+      // if the posting asks" caveat, but a caveat inside a long, confident
+      // pricing directive is weak — on job 13621 the draft quoted both a $300
+      // audit fee and an ongoing rate on a posting that states its OWN rate
+      // ($35/hour) and never asks Artem for his. Replace the whole note with a
+      // flat prohibition rather than appending another instruction beside a
+      // contradicting one. The deterministic _stripUnaskedRate remains the
+      // safety net; this exists so the FIRST PASS writes a properly-closed
+      // letter instead of one whose call-to-action gets stripped out from
+      // under it, leaving it to end abruptly on a case study.
+      if (!_postingAsksRate) {
+        _rateAnchorNote = `NO PRICING IN THIS LETTER (mandatory — overrides every other pricing instruction in this prompt, including any KB rule that tells you to state the $300 / $700 audit fee or a monthly retainer figure): this posting does NOT ask you to state a rate, budget, quote, or package price. Do NOT put ANY dollar figure for Artem's own services in the letter — no hourly rate, no $300 or $700 audit fee, no monthly retainer, no "credited back" or "complimentary if we work together" framing (that framing only makes sense once a price has been named, so it is equally out). ${_hMax > 0 ? `The posting's own stated rate ($${_hMax}/hr) is the client's to raise — do not quote it back at them, do not counter it, and do not say it "fits". ` : ''}You may still OFFER the audit as the closing call to action — describe it qualitatively (what you would look at first and why, and that it is done by hand) with NO price attached. A DELIVERY COMMITMENT IS NOT PRICING: if you offer a Google Ads / PPC account audit you MUST still state it is delivered within 1 working day (KB Rule 402), and you MUST still say you are attaching recent audit samples (KB Rule 404). Drop the fee, keep the commitment — those two rules are unaffected by whether the posting asks for a rate. Pricing is a reply-thread conversation, not a cover-letter opener.`
+      }
       // Mixed SEO+PPC case-domain note — the system prompt's "CASE STUDY
       // SELECTION" section already says "mixed-discipline jobs: pick one from
       // each domain", but that's one line buried in a 100+ line block and the
@@ -5980,6 +6444,27 @@ function ProposalColumn({
       const _caseDomainNote = (_caseSeoSignal && _casePpcSignal)
         ? `MIXED SEO + PPC JOB (mandatory): this posting needs BOTH SEO and paid-ads proof — do not treat it as PPC-only. You MUST cite ONE case study from each domain: an SEO case (Golden State Trailers, Multilingual Site, Derma Solution, Luxury Parfums, or Skin Reboot's SEO angle) AND a PPC case (FridgeFix, House Painting, Nectar Flowers, or Skin Reboot's PPC angle). Citing two PPC-only cases with zero SEO cases (or vice versa) fails this job's actual scope.`
         : ''
+      // Job 13394 (Scilumen.com, 2026-08-27): posting's actual screening ask
+      // ("Please visit Scilumen.com and review the homepage and at least one
+      // article. In 2-3 sentences, tell us which area you would investigate
+      // first — technical SEO, content quality, internal linking, or site
+      // structure — and briefly explain why") only reaches the generator as
+      // extractApplicationChecklist's vaguer numbered-list restatement,
+      // "Your short observation after reviewing Scilumen.com" — the specific
+      // four-option menu lives in a separate prose paragraph earlier in the
+      // posting that the checklist extractor (built for bulleted/numbered
+      // lists) doesn't parse as a list item. fullDescription still carries
+      // the full paragraph, so the model isn't blind to it, but nothing
+      // connects it to the scraped websiteText below — that block only ever
+      // says "use specific details", with no signal that THIS is a
+      // screening filter testing whether the applicant actually looked, or
+      // that a menu-style ask needs ONE specific, defensible pick, not a
+      // generic best-practice answer. Detected independent of the checklist
+      // extractor (broader, deliberately not tied to any specific job's
+      // domain name) so it fires whenever a posting asks the applicant to
+      // visit/review the CLIENT's own site, regardless of whether that ask
+      // also happens to appear in a numbered checklist.
+      const _POSTING_ASKS_TO_REVIEW_SITE_RE = /\b(?:please\s+)?(?:visit|review|check\s+out|browse|go\s+to|head\s+(?:to|over\s+to))\b[^.\n]{0,80}\b(?:homepage|home\s+page|website|site)\b/i
       const jobContext = [
         `Job: ${job.title}`,
         `Rate: ${job.hourly_rate_min ? `$${job.hourly_rate_min}-$${job.hourly_rate_max}/hr` : job.fixed_budget || 'not specified'}`,
@@ -6008,8 +6493,23 @@ function ProposalColumn({
         storedAnalysis ? `Analyser verdict: ${storedAnalysis.verdict} (${storedAnalysis.score}/10)\nAnalyser summary: ${storedAnalysis.summary}` : '',
         storedAnalysis?.flags?.length ? `Analyser flags:\n${storedAnalysis.flags.map(f => `- ${f}`).join('\n')}` : '',
         ahrefsResult ? `PROSPECT SITE SEO PROFILE (Ahrefs — use this to personalise the cover letter):\n${ahrefsResult}\nIf near-zero organic presence: position the engagement as building from scratch, mention you've grown traffic from flat ground before. If solid base: frame as scaling existing momentum.` : '',
-        websiteText ? `CLIENT WEBSITE CONTENT (scraped for personalisation — use specific details about their business, products, and audience in the cover letter):\n${websiteText}` : '',
+        websiteText
+          ? `CLIENT WEBSITE CONTENT (scraped for personalisation — use specific details about their business, products, and audience in the cover letter):\n${websiteText}` +
+            (_POSTING_ASKS_TO_REVIEW_SITE_RE.test(fullDescription)
+              ? `\n\nTHE POSTING EXPLICITLY ASKS YOU TO VISIT/REVIEW THEIR SITE BEFORE APPLYING — this is a screening filter, designed to catch applicants who didn't actually look. Answer that ask using the scraped content above with 1-2 SPECIFIC, concrete observations (an actual heading, page, or content gap you can point to) — never a generic "I'd start with technical SEO because it's foundational" answer that could apply to any site and would read as templated. If the posting offers a menu of specific areas to pick from (e.g. "technical SEO, content quality, internal linking, or site structure"), choose exactly ONE and justify it with something grounded in the scraped content above, not a general best-practice statement.`
+              : '')
+          : '',
       ].filter(Boolean).join('\n')
+
+      // Is there FIRST-PARTY evidence about the client's own site in this prompt?
+      // websiteText = a live scrape of their site (Website Inspect); ahrefsResult =
+      // their real organic profile. Both are fetched, not inferred. The GROUNDING
+      // CONTRACT below flatly asserts "you have NOT seen their site" and lists only
+      // two permitted fact sources, so without this flag the prompt hands the model
+      // a scrape and forbids it in the same breath. Confirmed on job 14178: no
+      // scrape existed, and the model invented a recipe publisher out of the brand
+      // name "Mr Chef" (the client is a Nigerian seasoning manufacturer).
+      const _hasVerifiedSiteData = !!(websiteText || ahrefsResult)
 
       // Regulated/YMYL flag for the deterministic post-processing strip of
       // generic-consumer case paragraphs (Nectar Flowers / FridgeFix / etc.).
@@ -6172,6 +6672,15 @@ long-form.)
    after it. The letter should end on the concrete next step the client can act
    on, not on bragging about past results. If case studies are cited, put them
    BEFORE the deliverable offer, so the offer is the actual last word.
+   IF THE POSTING DOES NOT ASK YOU TO STATE A RATE, BUDGET, OR QUOTE (see Rule
+   397/426 in the KB rules below — never volunteer a retainer or audit price
+   unless asked): the deliverable offer above still needs to close the letter,
+   it just can't be a price quote. Close instead on a concrete, numberless next
+   step — e.g. offering to start with a hands-on audit of the account
+   (described qualitatively: what you'd look at and why, no $ figure attached),
+   or a direct, specific question inviting a reply. The closing paragraph is
+   still mandatory and still comes last; it just can't be pricing when the
+   posting never asked for it.
 
 (The KB RULES block above still overrides these on any specific phrasing, timing,
 or framing conflict.)
@@ -6184,8 +6693,7 @@ You have TWO — and only two — sources of facts. EVERY specific in the letter
 number, metric, client detail, diagnosis, claim of past work) MUST trace to one:
 
  (1) CLIENT FACTS = the job posting (in the "Write a cover letter for this job"
-     message). This is your ONLY source of facts about the client. You have NOT
-     seen their site, account, analytics, or campaigns. NEVER state a number,
+     message).${_hasVerifiedSiteData ? ' Read it together with source (3) below.' : ' This is your ONLY source of facts about the client. You have NOT\n     seen their site, account, analytics, or campaigns.'} NEVER state a number,
      metric, percentage, or diagnosis about the client that the posting does not
      literally contain — no "you've got ~15% impression share", no "your tracking
      is firing on the wrong events", no invented traffic / ROAS / CPA / ranking
@@ -6199,7 +6707,20 @@ number, metric, client detail, diagnosis, claim of past work) MUST trace to one:
      metric, round it, transfer a metric to a different client, or attribute an
      outcome to a case whose entry doesn't state it (e.g. do NOT claim an older
      case "fed LLM citations" / "got cited by AI" unless its entry says exactly that).
-
+${_hasVerifiedSiteData ? `
+ (3) VERIFIED SITE DATA = the "CLIENT WEBSITE CONTENT" and/or "PROSPECT SITE SEO
+     PROFILE" blocks, which appear in the same "Write a cover letter for this job"
+     message as the posting (source 1) — not in these instructions. These were FETCHED FROM THE CLIENT'S OWN SITE, today.
+     They are first-party evidence, not inference, and they OVERRIDE every "you
+     have not seen their site" line elsewhere in this prompt.
+     From CLIENT WEBSITE CONTENT you MAY state what the business actually is, what
+     it sells, and who it serves — use their own words for it, not a category you
+     assumed. From PROSPECT SITE SEO PROFILE you MAY cite the organic figures it
+     contains, verbatim.
+     Still forbidden: anything NEITHER block states — their ad account, their
+     conversion tracking, their internal numbers, or any metric you inferred rather
+     than read.
+` : ''}
 The EXAMPLE letters and PAST COVER LETTERS are NOT a fact source — they show voice
 and structure only; their specifics belong to other jobs and are off-limits.
 Before emitting any sentence with a number or a claim about the client or Artem's
@@ -6311,8 +6832,9 @@ The client has a running Google Ads account with campaigns already live. Signals
   • If you quote a rate for the ONGOING work that follows the audit, it is a FIXED TWO-TIER MONTHLY FEE — $700 for the first (setup) month, $600/month after that — NEVER a scope-sized range and NEVER an hourly rate. State it plainly, e.g. "$700 for the first month to implement the fixes, then $600/month for ongoing management." Do not invent any other figure (never "$800-$2,500/month" or similar) and do NOT apply the RATE ANCHOR (posted-ceiling-based hourly figure) to this quote — that mechanism is for a direct hourly engagement, not the fixed post-audit management fee, and the posting's raw hourly range is frequently a capture artifact (e.g. an implausible $5-$155/hr spread) that produces a nonsensical number when mirrored back as an hourly rate for a small local business.
 
 WHEN NOT TO OFFER AN AUDIT (zero-pixel / launch from scratch):
-The client has NO existing account — they want to build and launch from scratch. Signals: "launch", "from scratch", "new brand", "starting from zero", "no existing campaigns", "build and launch", "zero pixel data". In these cases:
+The client has NO existing account — they want to build and launch from scratch. Signals: "launch", "from scratch", "new brand", "starting from zero", "no existing campaigns", "build and launch", "zero pixel data", "set up a Google Ads/PPC campaign", "campaign setup" (a client asking you to SET UP campaigns/tracking has nothing running yet to audit — treat "set up" the same as "launch from scratch" even if they never use that exact phrase, and even when they mention already having OTHER tools/infrastructure in place, e.g. GTM, GA4, a CRM — that's context, not an existing ad account to diagnose). In these cases:
 - DO NOT offer an audit — there is nothing to audit. Offering one signals you didn't read the posting.
+- This applies to the SUBSTANCE, not just the word "audit": do not replace "audit" with a synonym (a "first thing I'd check…" / "I'd map what's currently firing…" diagnostic narrative, framed as if reviewing an existing setup) and call that compliant — swapping the label onto the same audit-shaped pitch is exactly the failure this rule exists to prevent. Confirmed real, job 14256, 2026-09-02: told directly the letter was wrongly pitching an audit, the rewrite dropped the word "audit" and the sample-attachment line but kept the identical diagnostic structure ("first thing I'd check is whether your current conversion actions are logging the right event... I'd map what's firing now, then rewire it") — still an audit pitch in every way that matters, just without the trigger word.
 - Instead, propose a SETUP + LAUNCH PLAN: describe the week-by-week build approach, technical foundation, campaign architecture.
 - The sample attachment becomes optional — only include it if it helps show the depth of work Artem delivers.
 
@@ -6341,13 +6863,14 @@ Instead: cite the REAL approved cases as the examples (SMASH, Game-X, GKit on Op
 WHEN THE CLIENT ASKS FOR A SPECIFIC NUMBER TYPE A CASE DOESN'T HAVE (confirmed real fabrication, job 12068, 2026-08-18): a posting demanding "actual cost-per-lead numbers" pressured the model into inventing "$4.20 cost per lead" for Atlant and, in an earlier draft, "$142" / "$11 cost per conversion" for FridgeFix — neither figure exists anywhere in either case's real, approved metrics (Atlant has only +56.5% conversions / -31% CPC / +144% clicks; FridgeFix has only -92% cost per conversion / +1,405% conversions / $1.71 CPC). Case-study metrics are FIXED DATA, not something you estimate, translate, or back-calculate into whatever unit the client happened to ask for. If a client asks for "cost per lead" and the closest real case only has a percentage change or a cost-per-CLICK figure, do NOT convert or invent an absolute cost-per-lead dollar amount to match the ask — state the REAL metric, in its REAL unit, exactly as documented (e.g., "cost per conversion dropped 92%" is a real, honest answer to a "what's your cost per lead" question even though it isn't itself a dollar figure). A real percentage that doesn't exactly match the requested unit beats a fabricated dollar figure that does — the client can't disprove the real one, and the invented one collapses the moment they ask how it was calculated.
 
 NO FABRICATED DIAGNOSIS (non-negotiable — credibility-critical):
-You have NOT visited the client's website, looked at their Google Ads account, inspected their analytics, or reviewed their campaigns. You only have the job posting text. Therefore you must NEVER:
+${_hasVerifiedSiteData ? 'You have a REAL scrape of the client\'s site (see VERIFIED SITE DATA, source (3)) — use it, and describe their business from it. What you have NOT done is look at their Google Ads account, analytics, or campaigns. Therefore you must NEVER:' : "You have NOT visited the client's website, looked at their Google Ads account, inspected their analytics, or reviewed their campaigns. You only have the job posting text. Therefore you must NEVER:"}
 - Claim you inspected anything: NO "i took a look at yoursite.com", "i checked your account", "i reviewed your campaigns", "looking at your setup", "i see that your..." (when "your X" is something only visible by inspecting it).
 - Assert specific findings about their CURRENT state as fact: NO "your technical foundation isn't set up", "your schema is missing", "your tracking is broken", "Google isn't connecting those queries because [specific cause]", "your site has indexation issues", "your campaigns are misconfigured". You cannot know any of this — asserting it as fact is a lie that collapses the moment the client checks.
 - Invent metrics, current rankings, current conversion rates, or any number describing THEIR current performance.
 - Fabricate facts about ARTEM'S OWN client base or track record beyond what the approved case studies prove. Specifically banned: "most of my healthcare clients are US-based", "I typically work with Series A companies", "my clients in this vertical usually…" — unless the case studies actually document this. The approved case studies are the only verifiable proof. Inventing a client-base profile to pre-empt a concern (e.g. timezone, vertical fit) is a lie that the client could verify by asking follow-up questions. Instead, speak to the case studies you DO have: "Derma Solution is a YMYL medical aesthetics site — same E-E-A-T constraints you're dealing with."
 - Fabricate vertical-specific web development history Artem doesn't have: NEVER open with "I've been building [car rental / restaurant / hotel / gym / real estate] sites on WordPress for X years" when there is no case study in the KB for that vertical. The documented web dev BUILDS are: on OpenCart — GKit (branded fashion ecommerce), SMASH (streetwear — custom theme + Lucky Box gamification module), Game-X (PC-hardware store — custom Configurator + Compatibility Engine + Smart Cart modules); on Shopify — Casa Eleganza (USA premium furniture retailer — custom Shopify 2.0 theme, multi-axis filtering, "Complete the Look" room bundler, Synchrony financing integration; +41% conversion on filtered pages, +28% AOV). Cite the best-fit one(s) for the job (Game-X for custom-module/backend logic, SMASH for custom theme/gamification/mobile UX, GKit for fashion/bilingual/CRM, Casa Eleganza for Shopify / furniture / home-decor / US-retail and financing-integration builds) — do NOT default to only GKit. Match the case's REAL platform to how you frame it: SMASH/Game-X/GKit are OpenCart, Casa Eleganza is Shopify — never swap them. For a job in any OTHER vertical (car rental, hospitality, automotive, healthcare, etc.), do NOT invent a vertical track record. Frame the hook around the transferable technical method instead — but MATCH THE SCOPE: for a NEW BUILD, "my approach wires SEO architecture and GA4 tracking into the build from day one — so the site ranks from launch instead of six months later"; for a MAINTENANCE / CHANGES / FIX job on an existing store, drop the ranks-from-launch line entirely and hook on dev reliability instead ("I work directly in your theme, test every change in a duplicate before it goes live, and don't break your existing functionality or tracking"). Then cite the best-fit case as proof of the delivery model. Vertical-specific build history that isn't backed by an approved case study is a fabrication, even when it feels plausible to invent.
-- DESCRIBE THE CLIENT'S BUSINESS when the posting only gives a company name or URL. If the posting says nothing more than "The company is acme.io" or just links a domain, you do NOT know what they do, who their customers are, or how they operate — do NOT state it. NEVER open with "I took a look at acme.io - [invented description]". Forbidden: claiming their business model, market, customer type, or geography as fact when the posting didn't state it. You may refer to them generically ("your platform", "your account", "your campaigns") and speak to the problem the POSTING describes, but never narrate their business as if you researched it. Inferring loosely from a domain name (e.g. "mytender.io" → tenders) is acceptable ONLY if framed as the problem space, never as "here's what your company does."
+- Fabricate hands-on experience with a specific named tool, CMS/website-builder, CRM, or marketing-automation software that is not in Artem's documented toolset. TWO confirmed real instances, same failure mode, different tool categories: (job 14198, 2026-09-02) "I work directly in GoHighLevel — workflows, pipelines, email/SMS campaigns, landing pages, triggers, tags, segmentation, lead-source attribution" for a job centered on GoHighLevel, which Artem has NEVER used; (job 14258, 2026-09-02) "I work directly in Squarespace, titles, descriptions, URL slugs, image SEO panel, the blog module" for a Squarespace site — and in the SAME letter, the very next sentence cited three sites as proof and all three are WordPress, not Squarespace. Neither GoHighLevel nor Squarespace appears anywhere in the KB. The documented toolset is: Google Ads (Search/PMax/Shopping/Remarketing/LSA), GA4/GTM/conversion tracking, Ahrefs/Screaming Frog/SEMrush/Surfer SEO, Shopify/OpenCart/WooCommerce/WordPress, and KeepinCRM (one specific ecommerce order-sync integration on the GKit case — not a marketing/funnel CRM). A job naming a CMS/site-builder (Squarespace, Wix, Webflow, Weebly, etc.), a CRM or marketing-automation platform (GoHighLevel, HubSpot, ActiveCampaign, Klaviyo, Marketo, etc.), or any other named tool outside the documented list is NOT something Artem has hands-on experience with — do not claim direct proficiency with it, do not describe what you would configure "in" it, do not list its feature names (panels, modules, workflows, triggers, etc.) back at the client as if operating it daily, and do not cite a case study built on a DIFFERENT platform as if it proves fluency with the one the client asked about. If the job's core deliverable genuinely requires that tool and nothing in the documented toolset transfers, the honest move is to speak ONLY to the adjacent, real, transferable skill (e.g. GA4/GTM conversion tracking, on-page SEO discipline, UTM/attribution architecture) and be explicit that the platform itself is new to you rather than inventing fluency — or this is a signal the job is a weak fit that should be flagged rather than papered over with a false claim.
+${_hasVerifiedSiteData ? '- Describe their business from anything OTHER than the posting and the verified scrape. The scrape is authoritative about WHAT THEY DO; do not embellish past it, and do not contradict it.' : '- DESCRIBE THE CLIENT\'S BUSINESS when the posting only gives a company name or URL. If the posting says nothing more than "The company is acme.io" or just links a domain, you do NOT know what they do, who their customers are, or how they operate — do NOT state it. NEVER open with "I took a look at acme.io - [invented description]". Forbidden: claiming their business model, market, customer type, or geography as fact when the posting didn\'t state it. You may refer to them generically ("your platform", "your account", "your campaigns") and speak to the problem the POSTING describes, but never narrate their business as if you researched it. GUESSING FROM THE NAME IS THE FAILURE MODE, not a workaround: a brand called "Mr Chef" is NOT therefore a recipe site, "mytender.io" is NOT therefore about tenders. A name tells you nothing about what a company sells. Do not build the letter\'s premise on one — write about the problem the POSTING states and what you would check, and let the client\'s own words be the only description of their business.'}"
 
 What you CAN do instead (this is how you sound sharp WITHOUT lying):
 - Restate the problem THEY described in the posting, in your words.
@@ -6370,7 +6893,7 @@ SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually w
   - attach the TECHNICAL SEO AUDIT SAMPLE (inventory item 5). WEAVE the mention into the letter tied to what you diagnosed — do NOT drop it as an isolated boilerplate line floating before the signoff (out-of-context orphan = current failure). Keep it recognizable and named ("sample technical SEO audit … see the format and depth"), but connect it to a surrounding sentence, e.g. "That crawl/indexation matrix is exactly what my audit maps — I've attached a recent technical SEO audit sample so you can see the format and depth." NOT a lone trailing "I'm attaching a sample technical SEO audit so you can see the format and depth."
   - offer the concrete diagnostic deliverable but state NO turnaround time for it (e.g. "i can run a full diagnostic crawl covering redirects, indexation, canonicals, schema and Core Web Vitals, then hand you a prioritized findings doc"). CRITICAL: a technical SEO audit is NOT a 1–2 day job — NEVER attach a day-count to it ("audit in 2 working days", "audit within 2 days", "deliver the audit in 1 working day" are all FORBIDDEN). The "1 working day" turnaround is the GOOGLE ADS audit only; the "2 working days" turnaround is the SEO PROMOTION PLAN only (option B). The technical SEO audit's timeline is OMITTED from the cover letter entirely (internal estimate ~2 weeks; that figure never goes in the letter).
   - ALWAYS convey that the audit itself is performed entirely manually — no automated crawlers spitting out a templated report, every site gone through by hand. State it plainly, woven into the audit description rather than as a standalone line — e.g. "every audit I run is done entirely by hand — no automated tools, no templated report."
-  EXCEPTION — AUDIT + RETAINER JOBS: if the client mentions BOTH an initial audit AND ongoing/retainer/long-term work ("audit project, followed by a retainer", "initial audit then monthly SEO", "audit and ongoing improvements"), the (A) "do not push the plan" rule does NOT apply. For audit+retainer jobs you MUST include BOTH: (1) the audit sample attachment, AND (2) the 3-month SEO promotion plan CTA. The plan covers the retainer phase.
+  EXCEPTION — AUDIT + RETAINER JOBS: if the client mentions BOTH an initial audit AND ongoing/retainer/long-term work ("audit project, followed by a retainer", "initial audit then monthly SEO", "audit and ongoing improvements", "audit followed by a 90-day roadmap, with the opportunity for ongoing implementation"), the (A) "do not push the plan" rule does NOT apply. For audit+retainer jobs you MUST include BOTH: (1) the audit sample attachment, AND (2) the 3-month SEO promotion plan CTA. The plan covers the retainer phase — if the client's own word for it is "roadmap" rather than "plan", still offer Artem's 3-month SEO promotion plan as the concrete deliverable that IS that roadmap; do not silently drop the CTA because the client used a different noun for it.
   EXCEPTION — ALREADY-AUDITED / IMPLEMENTATION-ONLY JOBS (mandatory — common on "review and fix" jobs): if the posting explicitly states the client ALREADY completed a technical SEO audit (e.g. "we already have done a technical SEO audit", "we've already had an audit completed", "based on our existing audit", "already identified the issues") and is asking you to review the current setup / validate / implement the fixes — do NOT offer or mention the technical SEO audit sample. The client isn't buying an audit; saying "here's a sample audit so you can see the format" when they just told you they already have one reads as if you didn't read the posting. Skip the audit-sample line entirely and lean on case studies that demonstrate IMPLEMENTATION results (fixed canonicals/schema/redirects/site speed, etc.) as your proof instead. Describe the review-then-fix process directly — no separate audit deliverable to attach or time.
 
 (B) GROWTH / RANKINGS / ONGOING-SEO jobs — the client wants to grow organic traffic/rankings (not primarily diagnose a broken site). For these you MUST offer the custom 3-month SEO Promotion Plan in 2 working days (deliverables, costs, link building budget, basic site check, competitor overview) and attach the SEO promotion plan sample:
@@ -6728,9 +7251,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // timeline in the letter is REQUIRED, not forbidden — so we must NOT
             // strip it (gate coverHasTimeline off), and we separately REQUIRE that
             // a concrete estimate is present.
-            const _postingAsksTimeline = /\b(rough\s+timeline|timeline\s+for|provide\s+(?:a\s+)?timeline|estimated?\s+(?:timeline|completion|delivery|duration)|how\s+long\s+(?:will|would|does|it|to)\b|turn[\s-]?around\s+time|delivery\s+time(?:frame|line)?|when\s+(?:can|could|will)\s+you\s+(?:complete|finish|deliver|start|have)|time\s*frame|timeframe|\beta\b|how\s+(?:soon|quickly)|completion\s+time|expected\s+(?:timeline|duration|completion))\b/i.test(`${job.title || ''} ${fullDescription}`)
+            const _postingAsksTimeline = /\b(rough\s+timelines?|timelines?\s+for|provide\s+(?:a\s+)?timelines?|estimated?\s+(?:timelines?|completions?|deliver(?:y|ies)|durations?)|how\s+long\s+(?:will|would|does|it|to)\b|turn[\s-]?around\s+times?|delivery\s+times?(?:frames?|lines?)?|when\s+(?:can|could|will)\s+you\s+(?:complete|finish|deliver|start|have)|time\s*frames?|timeframes?|\beta\b|how\s+(?:soon|quickly)|completion\s+times?|expected\s+(?:timelines?|durations?|completions?))\b/i.test(`${job.title || ''} ${fullDescription}`)
             // Only fire the "strip the timeline" guard when the client did NOT ask.
-            const coverHasTimeline = !_postingAsksTimeline && COVER_TIMELINE_RE.some(re => re.test(text))
+            // KB Rule 402 REQUIRES a Google Ads / PPC audit to carry a "1 working
+            // day" delivery commitment — but COVER_TIMELINE_RE's audit-days pattern
+            // (/\baudit\b...(?:in|within)\s+\d+...days?/) matches that phrasing.
+            // So the one sentence the rules DEMAND was firing the guard built to strip
+            // INVENTED project schedules, and every compliant PPC audit letter paid for
+            // an enforcer rewrite as its reward for obeying a rule. Blank the allowed
+            // commitment out of a COPY before scanning — the letter is untouched, and
+            // every other day/week/phase marker is still caught.
+            const _timelineScanText = _casePpcSignal
+              ? text.replace(/\baudit\b[^.\n]{0,40}?(?:delivered\s+)?(?:in|within)\s+1\s*(?:working\s+|business\s+)?days?\b/gi, 'audit')
+              : text
+            const coverHasTimeline = !_postingAsksTimeline && COVER_TIMELINE_RE.some(re => re.test(_timelineScanText))
             // Conversely: if the client ASKED for a timeline, the draft MUST give a
             // concrete duration. A deliverable/steps description is not an answer.
             const _draftHasTimeEstimate = /(\b\d+\s*(?:[-–]\s*\d+)?\s*(?:hour|hr|day|business\s+day|working\s+day|week|month)s?\b|within\s+(?:a\s+|about\s+)?\d|same[-\s]day|next[-\s]day|by\s+(?:end\s+of\s+)?(?:the\s+)?(?:day|week|month)|a\s+(?:few|couple\s+of)\s+(?:days|weeks))/i.test(text)
@@ -7102,6 +7636,41 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               fabricatedGeoExperience = geoClaimRe.test(opening)
             }
 
+            // ── Fabricated TOOL/PLATFORM experience ──────────────────────────
+            // Confirmed real, same failure mode, two tool categories:
+            // (job 14198, 2026-09-02) "I work directly in GoHighLevel —
+            // workflows, pipelines, ... tags, segmentation" for a job centered on
+            // GoHighLevel — Artem has never used it, it appears nowhere in the KB.
+            // (job 14258, 2026-09-02) "I work directly in Squarespace, titles,
+            // descriptions, URL slugs, image SEO panel, the blog module" — then
+            // the SAME letter cited three sites as proof, all three WordPress.
+            // Two prior undetected instances predate this fix: proposal 44
+            // ("I'm comfortable working inside HubSpot") and proposal 21 ("i work
+            // directly in Webflow, Shopify, WordPress, and custom CMSs" — Webflow
+            // isn't documented either). Fires on a first-person hands-on/fluency
+            // claim ("I work in", "I've used", "comfortable working inside",
+            // "hands-on with") sitting near a CMS/site-builder or CRM/marketing-
+            // automation platform name outside the documented toolset (Google
+            // Ads, GA4/GTM, Ahrefs/Screaming Frog/SEMrush/Surfer, Shopify/
+            // OpenCart/WooCommerce/WordPress, KeepinCRM). Narrow and report-only
+            // on purpose — a THIRD-PERSON mention of the client's own tool while
+            // describing what you'd check there ("your conversion tracking... in
+            // GoHighLevel") is legitimate diagnostic framing, not a capability
+            // claim, and must NOT fire (verified against 232 real sent proposals:
+            // 7 raw name hits across the full tool list, only the 3 genuine
+            // first-person claims above — none of the Squarespace/Wix/Weebly
+            // additions produced a single false positive).
+            const _UNPROVEN_TOOL_RE = /\b(gohighlevel|go\s*high\s*level|highlevel|hubspot|activecampaign|klaviyo|marketo|keap|infusionsoft|pardot|salesforce|zoho\s+crm|pipedrive|squarespace|wix|webflow|weebly)\b/gi
+            const _TOOL_HANDS_ON_RE = /\bi(?:'m| am)?\s+(?:comfortable\s+)?(?:work(?:ed|ing)?|use[sd]?|built?|manage[sd]?|configure[sd]?)\s+(?:directly\s+)?(?:in|inside|with|on)\b|\bi(?:'ve| have)\s+(?:used|worked(?:\s+across\s+platforms)?)\b|\bhands-on\s+(?:with|experience)\b|\bdirect(?:ly)?\s+experience\s+(?:in|with)\b/i
+            let fabricatedToolClaim = false
+            {
+              let _tm
+              while ((_tm = _UNPROVEN_TOOL_RE.exec(text))) {
+                const window = text.slice(Math.max(0, _tm.index - 120), _tm.index + 40)
+                if (_TOOL_HANDS_ON_RE.test(window)) { fabricatedToolClaim = true; break }
+              }
+            }
+
             // ── Exact-vertical case must LEAD (generalised) ──────────────────
             // When the job is in a vertical we hold a SPECIFIC case for, that case
             // must be the FIRST proof cited — never buried after a generic local-
@@ -7337,6 +7906,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const jobIsPpc = PPC_JOB_KEYWORDS.test(jobContextLower)
             const jobIsSeo = SEO_JOB_KEYWORDS.test(jobContextLower)
 
+            // Inverse of ppcMissingPremierPartner above (KB Rule 439's other half,
+            // stated explicitly in the KB: "should NOT be cited as a differentiator
+            // on pure SEO jobs"). Confirmed real, job 14202, 2026-09-02: an SEO-only
+            // posting (no PPC/paid-media keyword anywhere) got "Google Premier
+            // Partner 2026 across SEO and paid" — the credential is PPC-specific and
+            // reads as padding/confusion on a job that never asked about paid media.
+            const seoWrongPremierPartner = jobIsSeo && !jobIsPaidMedia && draftHasPremier
+
             // PPC AUDIT FEE STRUCTURE (owner hard rule, 2026-08-08): the $300 Google
             // Ads audit's fee framing depends on what the POSTING signals about
             // future work, never the model's own guess.
@@ -7386,7 +7963,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               return null
             }
             const _auditPriceInDraft = jobIsPpcAuditExisting ? _extractAuditPrice(text) : null
-            const wrongAuditPrice = _auditPriceInDraft != null && _auditPriceInDraft !== 300
+            // Gated on _postingAsksRate (owner rule, 2026-08-28: never volunteer a
+            // rate/retainer figure unless the posting specifically asks for one) —
+            // when the posting doesn't ask, _stripUnaskedRate removes the whole
+            // audit-price paragraph downstream regardless of what number it has, so
+            // forcing a correction here would just be wasted enforcer work fixing a
+            // paragraph that's about to be deleted anyway.
+            const wrongAuditPrice = _postingAsksRate && _auditPriceInDraft != null && _auditPriceInDraft !== 300
             // MISSING AUDIT PRICE ENTIRELY (confirmed on job 10609, 4th regen): the
             // draft can state the complimentary/credit-if-we-work-together line
             // WITHOUT ever quoting the $300 figure it's supposedly crediting back —
@@ -7395,7 +7978,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // enforcer's must-keep-pricing regression check below (present
             // pre-enforcer, then dropped) — this catches the first pass never
             // stating it at all.
-            const missingAuditPriceEntirely = jobIsPpcAuditExisting && !draftOffersPpcAudit
+            // Same _postingAsksRate gate as wrongAuditPrice above.
+            const missingAuditPriceEntirely = _postingAsksRate && jobIsPpcAuditExisting && !draftOffersPpcAudit
             // Webdev detection: if the job is about building a site (WordPress dev,
             // Shopify, OpenCart, web dev, build a website), suppress the SEO promotion
             // plan requirement — that deliverable is wrong for a development scope.
@@ -7498,7 +8082,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // spread, almost certainly a capture artifact, not the client's real
             // intent for a single local tattoo studio's marketing retainer.
             const _ONGOING_HOURLY_RATE_RE = /\bongoing\b[^.\n]{0,60}\$\d[\d,]*\s*\/?\s*hr\b|\$\d[\d,]*\s*\/?\s*hr\b[^.\n]{0,60}\bongoing\b/i
-            const wrongOngoingRateFraming = jobIsPpcAuditExisting && jobHasOngoingSignal && _ONGOING_HOURLY_RATE_RE.test(text)
+            // Same _postingAsksRate gate — when the posting doesn't ask for a rate,
+            // _stripUnaskedRate removes any ongoing-fee paragraph downstream anyway.
+            const wrongOngoingRateFraming = _postingAsksRate && jobIsPpcAuditExisting && jobHasOngoingSignal && _ONGOING_HOURLY_RATE_RE.test(text)
 
             // WRONG ONGOING MANAGEMENT FEE (owner correction, 2026-08-08, job
             // 10609 4th regen): Artem's real ongoing-management fee after the
@@ -7510,7 +8096,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // dollar mention that doesn't state both correct figures together.
             const _ONGOING_MONTHLY_MENTION_RE = /\bongoing\b[^.\n]{0,60}\$\d[\d,]*(?:\s*-\s*\$?\d[\d,]*)?\s*\/?\s*(?:mo\b|month\b)|\$\d[\d,]*(?:\s*-\s*\$?\d[\d,]*)?\s*\/?\s*(?:mo\b|month\b)[^.\n]{0,60}\bongoing\b/i
             const _hasCorrectOngoingFee = /\$700\b[^.\n]{0,60}\$600\b|\$600\b[^.\n]{0,60}\$700\b/.test(text)
-            const wrongOngoingManagementFee = jobIsPpcAuditExisting && jobHasOngoingSignal && _ONGOING_MONTHLY_MENTION_RE.test(text) && !_hasCorrectOngoingFee
+            // Same _postingAsksRate gate as wrongOngoingRateFraming above. This is
+            // the rule that produced job 13621's (Unihost) mismatch: the posting
+            // already stated its own $30-35/hr rate and never asked Artem to name
+            // his, but this check unconditionally forced the letter toward Artem's
+            // $700/$600 productised fee regardless — a real fixed price fighting a
+            // real client-stated one. Confirmed via job 13621's own classification
+            // cache (asks_for_rate: false) that this exact job should never have
+            // had this check firing at all.
+            const wrongOngoingManagementFee = _postingAsksRate && jobIsPpcAuditExisting && jobHasOngoingSignal && _ONGOING_MONTHLY_MENTION_RE.test(text) && !_hasCorrectOngoingFee
 
             // WRONG LAUNCH OFFER ON AN EXISTING-ACCOUNT AUDIT JOB (confirmed on
             // job 10609, rounds 3 AND 4 — inverse of wrongAuditOfferOnLaunch):
@@ -7564,7 +8158,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // goals" are audit-REPORT sections, NOT ongoing work — so "long-term"
               // only counts when followed by an engagement word (partnership, work,
               // management, contract, retainer, support, collaboration, basis, …).
-              const _RETAINER_SIGNAL_RE = /\b(retainer|ongoing\s+(?:seo|work|management|support|optimi|improvement|help|maintenance)|monthly\s+(?:seo|retainer|management|work|support|hours?)|recurring|continue\s+improving|long.?term\s+(?:engagement|partnership|work|management|contract|support|collaboration|retainer|relationship|role|help|assistance|basis|commitment|maintenance))\b/i
+              const _RETAINER_SIGNAL_RE = /\b(retainer|ongoing\s+(?:seo|work|management|support|optimi|improvement|help|maintenance|implementation)|monthly\s+(?:seo|retainer|management|work|support|hours?)|recurring|continue\s+improving|long.?term\s+(?:engagement|partnership|work|management|contract|support|collaboration|retainer|relationship|role|help|assistance|basis|commitment|maintenance))\b/i
               // Technical-FIX jobs (fix rich snippets / schema / indexation / "amends" on an
               // existing site — NOT grow rankings) want implementation, not a 3-month
               // promotion campaign. Treat them like audit-only so the promotion plan is
@@ -7713,10 +8307,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               return nums
             }
             const _seoAuditPricesNearby = _jobIsSeoAuditContext ? _extractAllDollarsNear(text, _DOLLAR_NEAR_AUDIT_RE) : []
-            const missingSeoAuditPriceEntirely = _jobIsSeoAuditContext && _seoAuditPricesNearby.length === 0
-            const wrongSeoAuditPrice = _seoAuditPricesNearby.length > 0 && !_seoAuditPricesNearby.includes(700)
+            // Same _postingAsksRate gate as the PPC audit-price checks above (owner
+            // rule, 2026-08-28) — the SEO mirror of the same mismatch is just as
+            // possible (a posting stating its own rate for an SEO retainer).
+            const missingSeoAuditPriceEntirely = _postingAsksRate && _jobIsSeoAuditContext && _seoAuditPricesNearby.length === 0
+            const wrongSeoAuditPrice = _postingAsksRate && _seoAuditPricesNearby.length > 0 && !_seoAuditPricesNearby.includes(700)
             const _seoMonthlyPricesNearby = _jobIsSeoAuditContext ? _extractAllDollarsNear(text, _DOLLAR_NEAR_MONTHLY_RE) : []
-            const wrongSeoRetainerFee = _seoMonthlyPricesNearby.length > 0 && !_seoMonthlyPricesNearby.includes(1050)
+            const wrongSeoRetainerFee = _postingAsksRate && _seoMonthlyPricesNearby.length > 0 && !_seoMonthlyPricesNearby.includes(1050)
 
             // MISSING MANUAL-AUDIT CLAIM (owner request, 2026-08-13): both audit
             // offerings — the $300 flat PPC/Google Ads audit and the $700 flat
@@ -7727,7 +8324,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // an audit is ACTUALLY being offered in the draft (reuses the same
             // "is the audit present" signals the price checks above already use)
             // — never forces the claim onto a letter that isn't offering an audit.
-            const _MANUAL_AUDIT_CLAIM_RE = /\b(?:entirely|100\s?%|completely|fully|all)\s+manual(?:ly)?\b|\bmanual(?:ly)?\b[^.\n]{0,60}\bno\s+automat|\bby\s+hand\b[^.\n]{0,60}\baudit\b|\baudit\b[^.\n]{0,60}\bby\s+hand\b|\bno\s+automat\w*[^.\n]{0,60}\bmanual(?:ly)?\b/i
+            // (_MANUAL_AUDIT_CLAIM_RE itself is module-scope, near
+            // _fixPdfCaseLabelMisattribution — shared with _ensureManualAuditClaim,
+            // the deterministic fallback in the strip chain below.)
             // Same root cause as missingAuditSampleMention above (job 12766, same
             // session): gating on jobIsPpcAuditExisting means the posting itself
             // must use audit/review/analysis vocabulary, but the $300 PPC audit is
@@ -7821,14 +8420,18 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\bno\s+existing\s+(?:account|campaigns?|ad\s+account)\b/i,
               /\bstarting\s+from\s+(?:zero|scratch)\b/i,
               /\b(?:new|brand[-\s]?new)\s+(?:ad\s+)?account\b/i,
-              /\blaunch\s+(?:exclusively\s+)?(?:via|on|with)\s+google\s+ads\b/i,
+              /\blaunch\s+(?:exclusively\s+)?(?:via|on|with)\s+google\s+(?:ads?|ppc)\b/i,
               // Plain "set up a Google Ads campaign" / "campaign setup" / "build a
               // Google Ads setup" is ALSO a from-scratch build (there is no
               // existing account to audit). These were missed, so Rule 450 never
               // fired and the model invented a bogus "campaign live in 1 day".
-              /\bset\s*up\s+[^.]{0,40}\bgoogle\s+ads?\b[^.]{0,25}\bcampaign/i,
+              // "google ads?" widened to "google (ads?|ppc)" — confirmed real, job
+              // 14256, 2026-09-02: posting said "set up a Google PPC campaigns",
+              // and "PPC" isn't "ads", so the original pattern never matched.
+              // Verified against all 458 postings in the DB: this one gain only.
+              /\bset\s*up\s+[^.]{0,40}\bgoogle\s+(?:ads?|ppc)\b[^.]{0,25}\bcampaign/i,
               /\bcampaign\s+set[-\s]?up\b/i,
-              /\bbuild\s+[^.]{0,30}\bgoogle\s+ads?\b[^.]{0,15}\b(?:setup|campaign|account)\b/i,
+              /\bbuild\s+[^.]{0,30}\bgoogle\s+(?:ads?|ppc)\b[^.]{0,15}\b(?:setup|campaign|account)\b/i,
               /\bset\s*up\s+and\s+launch\b/i,
               // Confirmed on job 13240 (2026-08-26): "a brand new google ads
               // account" wasn't caught by the (?:new|brand-new)(ad )?account
@@ -7837,7 +8440,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // there. wrongAuditOfferOnLaunch (Rule 450) already exists for
               // exactly this shape and never fired, because this detector
               // never matched the posting in the first place.
-              /\b(?:new|brand[-\s]?new)\s+google\s+ads?\s+account\b/i,
+              /\b(?:new|brand[-\s]?new)\s+google\s+(?:ads?|ppc)\s+account\b/i,
             ]
             const jobIsLaunchFromScratch = LAUNCH_FROM_SCRATCH_RE.some(re => re.test(jobContextLower))
             // Draft "offers an audit": attach+audit in proximity, "audit sample",
@@ -7975,10 +8578,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !fabricatedCaseMetric
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience && !openerEchoesPostingLine
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
-              && !hasBannedOpener && !hasExplainerOpener
+              && !hasBannedOpener && !hasExplainerOpener && !fabricatedToolClaim && !seoWrongPremierPartner
 
             // Telemetry (Phase C): record every guard that fired this run.
-            _recordViolations('generator', job?.id, [
+            // Captured into a named list (not passed inline) because the enforcer's
+            // deletion makes this the ONLY thing that still reports a violation --
+            // it now drives the console warning and the UI flag strip as well.
+            const _firedChecks = [
               hasBannedOpener && 'hasBannedOpener',
               hasExplainerOpener && 'hasExplainerOpener',
               hasForbiddenPhrase && 'hasForbiddenPhrase',
@@ -7990,6 +8596,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               vapeFabrication && 'vapeFabrication',
               missingYearsExperience && 'missingYearsExperience',
               ppcMissingPremierPartner && 'ppcMissingPremierPartner',
+              seoWrongPremierPartner && 'seoWrongPremierPartner',
               launchJobMissingCTA && 'launchJobMissingCTA',
               campaignLiveTooFast && 'campaignLiveTooFast',
               caseStudyToldAsRemediation && 'caseStudyToldAsRemediation',
@@ -8009,6 +8616,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasEchoedQuestion && 'hasEchoedQuestion',
               openerEchoesPostingLine && 'openerEchoesPostingLine',
               fabricatedGeoExperience && 'fabricatedGeoExperience',
+              fabricatedToolClaim && 'fabricatedToolClaim',
               hasCircumventionRisk && 'hasCircumventionRisk',
               missingCaseStudy && 'missingCaseStudy',
               caseStudyDomainMismatch && 'caseStudyDomainMismatch',
@@ -8035,748 +8643,54 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
-            ])
+            ].filter(Boolean)
+            _recordViolations('generator', job?.id, _firedChecks)
+            setRuleFlags(_firedChecks)
 
-            if (draftCompliant) {
-              console.log('[Falcon] Rule pre-check passed — skipping Claude enforcer call. Saved ~$0.0015.')
-              const _finalText = _restoreRequiredOpenerCasing(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase), _requiredOpenerPhrase)
-              if (_isStaleGenerate()) {
-                console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
-                if (_jobIdAtCallTime != null) {
-                  const staleValue = { proposal: _finalText, feedback: null }
-                  proposalCacheRef.current[_jobIdAtCallTime] = staleValue
-                  _lsSave('proposalDraft', _jobIdAtCallTime, staleValue)
-                }
-              } else {
-                setProposal(_finalText)
-              }
-              return
-            }
-
-            if (hasForbiddenPhrase) {
-              console.log('[Falcon] Rule pre-check: forbidden phrase detected — firing Claude enforcer.')
-            }
-            if (missingAuditSampleMention) {
-              console.log('[Falcon] Rule pre-check: audit job but draft missing attach+sample — firing Claude enforcer.')
-            }
-            if (wrongAuditOfferOnLaunch) {
-              console.log('[Falcon] Rule pre-check: launch/from-scratch job but draft OFFERS an audit (nothing to audit) — firing Claude enforcer.')
-            }
-            if (irrelevantCaseOnRegulated) {
-              console.log('[Falcon] Rule pre-check: generic consumer case study on a regulated/YMYL job (Rule 407) — firing Claude enforcer.')
-            }
-            if (launchJobMissingCTA) {
-              console.log('[Falcon] Rule pre-check: PPC launch/from-scratch job missing the "5 working days" setup-and-launch CTA (Rule 450) — firing Claude enforcer.')
-            }
-            if (vapeOnPpcOnlyJob) {
-              console.log('[Falcon] Rule pre-check: Vape Shop (SEO case) cited on a pure-PPC job — channel mismatch (Rule 437) — firing Claude enforcer.')
-            }
-            if (missingCaseStudy) {
-              console.log('[Falcon] Rule pre-check: no approved case study found in draft — firing Claude enforcer.')
-            }
-            if (missingHighlightsPhrase) {
-              console.log(`[Falcon] Rule pre-check: case study format issue (highlights=${hasHighlightsPhrase}, crammed=${csCrammed}) — firing Claude enforcer.`)
-            }
-            if (caseStudyDomainMismatch) {
-              console.log(`[Falcon] Rule pre-check: case study domain mismatch (jobIsSeo=${jobIsSeo}, jobIsPpc=${jobIsPpc}, jobIsWebdev=${jobIsWebdev}, ppcInDraft=${ppcCaseInDraft}, seoInDraft=${seoCaseInDraft}, webdevInDraft=${webdevCaseInDraft}) — firing Claude enforcer.`)
-            }
-            if (missingSeoPlanOffer) {
-              console.log('[Falcon] Rule pre-check: SEO job but no SEO promotion plan offered — firing Claude enforcer.')
-            }
-            if (wrongSeoPlanTiming) {
-              console.log('[Falcon] Rule pre-check: SEO promotion plan offered with wrong timing (must be "2 working days") — firing Claude enforcer.')
-            }
-            if (wrongPlanOnAuditJob) {
-              console.log('[Falcon] Rule pre-check: audit-only SEO job but draft offers the 3-month SEO promotion plan (wrong deliverable) — firing Claude enforcer to remove it.')
-            }
-            if (wrongAuditSampleOnAlreadyAudited) {
-              console.log('[Falcon] Rule pre-check: client already has an audit done but draft offers the technical SEO audit sample anyway (wrong deliverable) — firing Claude enforcer to remove it.')
-            }
-            if (missingComplimentaryAuditOffer) {
-              console.log('[Falcon] Rule pre-check: posting signals possible ongoing work but the $300 audit offer is missing the complimentary-if-we-work-together line — firing Claude enforcer to add it.')
-            }
-            if (wrongComplimentaryOfferOnAuditOnly) {
-              console.log('[Falcon] Rule pre-check: posting is explicitly a one-off audit with no ongoing work, but the draft added a complimentary/credit offer anyway — firing Claude enforcer to remove it.')
-            }
-            if (wrongAuditPrice) {
-              console.log(`[Falcon] Rule pre-check: draft quotes $${_auditPriceInDraft} for the audit instead of the fixed $300 — firing Claude enforcer to correct it.`)
-            }
-            if (localServiceCaseDisplacedByEcomHealth) {
-              console.log('[Falcon] Rule pre-check: draft cites BOTH a local-service case (FridgeFix/House Painting/Nectar Flowers/Golden State Trailers) AND an off-vertical ecom-health case (Skin Reboot/Derma Solution) — firing Claude enforcer to drop the off-vertical one.')
-            }
-            if (wrongOngoingRateFraming) {
-              console.log('[Falcon] Rule pre-check: ongoing-work rate is quoted hourly instead of a monthly retainer range — firing Claude enforcer to correct it.')
-            }
-            if (missingAuditPriceEntirely) {
-              console.log('[Falcon] Rule pre-check: audit job but the draft never states the $300 price anywhere (may still mention the complimentary/credit line with nothing to credit) — firing Claude enforcer to add it.')
-            }
-            if (wrongOngoingManagementFee) {
-              console.log('[Falcon] Rule pre-check: ongoing-management monthly figure is not the fixed $700 (setup month) / $600 (ongoing) — firing Claude enforcer to correct it.')
-            }
-            if (wrongLaunchOfferOnExistingAccount) {
-              console.log('[Falcon] Rule pre-check: existing-account audit job but draft offers a from-scratch campaign launch (nothing to launch) — firing Claude enforcer to remove it.')
-            }
-            if (wrongHourlyRateAboveCeiling) {
-              console.log(`[Falcon] Rule pre-check: draft quotes $${_quotedHourlyRate}/hr, which exceeds this job's posted ceiling of $${_hMaxForRateCheck}/hr — firing Claude enforcer to correct it.`)
-            }
-            if (missingSeoAuditPriceEntirely) {
-              console.log('[Falcon] Rule pre-check: SEO audit job but the draft never states the $700 flat audit price anywhere — firing Claude enforcer to add it.')
-            }
-            if (wrongSeoAuditPrice) {
-              console.log(`[Falcon] Rule pre-check: draft quotes $${_seoAuditPricesNearby.join(', $')} near the SEO audit instead of the fixed $700 — firing Claude enforcer to correct it.`)
-            }
-            if (wrongSeoRetainerFee) {
-              console.log(`[Falcon] Rule pre-check: draft quotes $${_seoMonthlyPricesNearby.join(', $')}/month for ongoing SEO work instead of the fixed $1050/month — firing Claude enforcer to correct it.`)
-            }
-            if (missingManualAuditClaim) {
-              console.log('[Falcon] Rule pre-check: audit is offered but the draft never states it is performed entirely manually — firing Claude enforcer to add it.')
-            }
-            if (auditOfferNotClosingCta) {
-              console.log('[Falcon] Rule pre-check: audit offer sits before the case-study block instead of closing the letter — firing Claude enforcer to reorder.')
-            }
-            if (missingDigitBombFacts) {
-              console.log(`[Falcon] Rule pre-check: Digit Bomb armed (${_digitBombCase?.name}) but the opening doesn't contain its real numbers/name — firing Claude enforcer to fix it.`)
-            }
-            if (missingDigitBombResonance) {
-              console.log(`[Falcon] Rule pre-check: Digit Bomb opener (${_digitBombCase?.name}) has the numbers right but never bridges to the client's own situation — firing Claude enforcer to add it.`)
-            }
-            if (coverHasTimeline) {
-              console.log('[Falcon] Rule pre-check: cover letter contains a timeline/phase schedule (Rule 17 — omit timeline from cover letter) — firing Claude enforcer.')
-            }
-            if (hasFabricatedDiagnosis) {
-              console.log('[Falcon] Rule pre-check: fabricated site/account diagnosis detected (claims to have inspected the client property) — firing Claude enforcer.')
-            }
-            if (hasUnsolicitedLogistics) {
-              console.log('[Falcon] Rule pre-check: unsolicited logistics (timezone/hours/reporting/availability) detected (Rule 436) — firing Claude enforcer.')
-            }
-            if (hasFillerCloser) {
-              console.log('[Falcon] Rule pre-check: filler closer detected ("looking forward to working with you" etc., Rule 436) — firing Claude enforcer.')
-            }
-            if (regulatedJobMissingVape) {
-              console.log('[Falcon] Rule pre-check: regulated-vertical job (CBD/hemp/vape/supplement/etc.) but Vape Shop case study not cited (Rule 437) — firing Claude enforcer.')
-            }
-            if (vapeFabrication) {
-              console.log('[Falcon] Rule pre-check: vape case-study fabrication detected (multi-location/GBP/local-pack language near vape mention — KB says new-site ecommerce, NOT retail chain) (Rule 437) — firing Claude enforcer.')
-            }
-            if (missingYearsExperience) {
-              console.log('[Falcon] Rule pre-check: cover letter is missing the mandatory "12 years" experience baseline (Rule 439) — firing Claude enforcer.')
-            }
-            if (ppcMissingPremierPartner) {
-              console.log('[Falcon] Rule pre-check: PPC/Google Ads job but draft missing "Google Premier Partner 2026" (Rule 439) — firing Claude enforcer.')
-            }
-            if (hasAssumedBrand) {
-              console.log(`[Falcon] Rule pre-check: draft names brand(s) the posting never mentioned (${_assumedBrands.join(', ')}) — assumed vertical, firing Claude enforcer.`)
-            }
-            if (exactVerticalCaseNotLeading) {
-              console.log(`[Falcon] Rule pre-check: ${_jobVertical?.name} job but draft leads with a generic filler case before the on-vertical case — firing Claude enforcer to reorder.`)
-            }
-            if (wrongVerticalCasePadding) {
-              console.log(`[Falcon] Rule pre-check: ${_jobVertical?.name} job already cites 2+ on-vertical cases but the draft ALSO pads on a generic filler case (FridgeFix/House Painting) — firing Claude enforcer to drop it.`)
-            }
-            if (caseMislabeledAsSaas) {
-              console.log('[Falcon] Rule pre-check: a non-SaaS case study is described as SaaS/software (business-model fabrication) — firing Claude enforcer.')
-            }
-            if (fabricatedCaseMetric) {
-              console.log(`[Falcon] Rule pre-check: fabricated dollar metric near "${_fabricatedCaseMetricInfo?.caseName}" (${_fabricatedCaseMetricInfo?.fabricated?.join(', ')} not in its real metrics) — firing Claude enforcer to remove it.`)
-            }
-            if (openCartMislabeledAsPlatform) {
-              console.log('[Falcon] Rule pre-check: an OpenCart case (SMASH/Game-X/GKit) is labeled as Shopify/Woo/WP work — platform fabrication, firing Claude enforcer.')
-            }
-            if (seoLedOnMaintenanceWebdev) {
-              console.log('[Falcon] Rule pre-check: maintenance/changes web-dev job but opener leads with SEO/ranking pitch — off-target, firing Claude enforcer.')
-            }
-            if (hasListyOutline) {
-              console.log('[Falcon] Rule pre-check: body uses a labeled-outline structure (First thing I\'d…/Site side:/Step N) — AI tell, firing Claude enforcer to rewrite as prose.')
-            }
-            if (timelineRequestedButMissing) {
-              console.log('[Falcon] Rule pre-check: posting asks for a timeline/duration but the draft gives no concrete estimate — firing Claude enforcer.')
-            }
-            if (hasEchoedQuestion) {
-              console.log(`[Falcon] Rule pre-check: draft echoes the client's screening question(s) verbatim (${_echoedQuestions.length}) — mechanical form-fill, firing Claude enforcer.`)
-            }
-            if (openerEchoesPostingLine) {
-              console.log('[Falcon] Rule pre-check: opener echoes the posting\'s own summary/goal line near-verbatim — generic copy-paste hook, firing Claude enforcer.')
-            }
-            if (fabricatedGeoExperience) {
-              console.log(`[Falcon] Rule pre-check: opener claims experience in the client's country (${_clientCountry}) with no case study there — fabricated geo/vertical experience, firing Claude enforcer.`)
-            }
-
-            // Build a list of specific violations found by the pre-check so the
-            // enforcer knows exactly what to fix (and is allowed to add content
-            // where the draft is missing required elements).
-            const specificViolations = []
-            if (hasBannedOpener) {
-              specificViolations.push(
-                'OPENER VIOLATION (PRIMARY WRITING DIRECTIVE #1): the letter opens with a ' +
-                `credential/pleasantry line — "${_firstLine.slice(0, 90)}". This is the single ` +
-                'biggest reply-rate killer: generic/credential openers get skimmed past. Rewrite ' +
-                'ONLY the opening (first 1-2 lines) so it LEADS with the client\'s specific problem ' +
-                'or goal taken from THEIR posting, in their words, plus the angle you\'d take — NOT ' +
-                'Artem\'s years, partner status, or a pleasantry. Move the credential (if kept at all) ' +
-                'to a brief later mention, never the first line. Do not touch the rest of the letter. ' +
-                'If the opener leans on the client\'s COUNTRY or nationality as the personalising detail ("for an australian business", "for your UK company"), remove that — a nationality says nothing about their business model or account type and reads as filler. Anchor on the account type / business model (ecommerce vs lead-gen, existing account vs from scratch, search vs PMax) or their goal in their own words instead. Keep geography only if the posting makes it material (local service-area targeting, multi-market expansion, timezone requirement).' +
-                (isAgencyClient
-                  ? ' AGENCY/WHITE-LABEL JOB — do NOT replace it with a diagnosis of their business or another rhetorical question ("can you…?", "it comes down to one question"). The buyer is a fellow agency owner whose constraint is CAPACITY, not a broken account. Open instead with peer-level agency context: Artem runs a boutique agency (IT Force) and has delivered white-label behind other agencies\' brands, and what that takes off their plate. First person, no company boilerplate.'
-                  : '')
-              )
-            }
-            if (hasExplainerOpener) {
-              specificViolations.push(
-                'WIKIPEDIA / EXPLAINER OPENER (writing rule 3 — DO NOT TEACH): the opening paragraph ' +
-                `reads like a textbook entry rather than a message to this client — "${_openingPara.slice(0, 120)}". ` +
-                'Two things to strip: (a) the SIMILE/ANALOGY garnish ("…is like turning up the volume on static", ' +
-                '"think of it as…") — it is copywriting filler, not an observation about them; and (b) any sentence ' +
-                'where THE PLATFORM is the subject explaining mechanics in the abstract ("the algorithm can\'t ' +
-                'optimise toward revenue if it\'s firing on page views…"). The client already knows how Google Ads ' +
-                'works; explaining it to them reads as padding and as AI-generated. ' +
-                'REWRITE the opening paragraph so it is about THEIR account and what you would DO: name the ' +
-                'specific thing you\'d look at first and the action you\'d take, in plain first-person terms. ' +
-                'No metaphors, no universal truths, no mechanism lectures. Also VARY THE ANGLE — if the posting ' +
-                'does not actually point at conversion tracking, do not lead with it; pick the sharpest angle for ' +
-                'THIS posting (buyer-intent segmentation, budget allocation across campaign types, geo/service-area ' +
-                'precision, offer/landing-page match, seasonality, competitor gap). Keep the rest of the letter intact.'
-              )
-            }
-            if (!timingCompliant) {
-              const _offending = [...new Set(draftTimings.filter(t => !allowedTimings.has(t)))]
-              const _allowed = [...allowedTimings]
-              specificViolations.push(
-                'TIMING VIOLATION — fix by exact find-and-replace: the draft uses ' +
-                `delivery timeframe(s) the rules do NOT permit: ${_offending.map(t => `"${t}"`).join(', ') || '(a non-standard timeframe)'}. ` +
-                (_allowed.length ? `The ONLY permitted timeframes are: ${_allowed.map(t => `"${t}"`).join(', ')}. ` : '') +
-                'A Google Ads / PPC audit MUST be stated as "1 working day". An SEO promotion plan MUST be "2 working days". ' +
-                'Find each offending phrase verbatim and replace it with the correct permitted value for what it describes (audit → "1 working day", SEO plan → "2 working days"). ' +
-                'NEVER leave a multi-day range like "5-7 working days" or invent any other number. This is the single most-repeated failure — do not skip it.'
-              )
-            }
-            if (coverHasTimeline) {
-              specificViolations.push(
-                'TIMELINE IN COVER LETTER (Rule 17 violation): The draft includes a schedule / phased timeline OR an audit turnaround estimate — e.g. "first 48 hours", "week 1", "weeks 1-2", "day 1", "phase 1", a multi-week roadmap, OR "turnaround is typically 2 weeks", "audit takes 2-3 weeks", "delivered in 2 weeks for a full diagnostic". Rule 17 requires the technical-audit timeline to be OMITTED from the cover letter entirely (it belongs only in the scope-of-work doc, never volunteered here). Per Rule 7, when a technical audit is mentioned you ONLY state that you are attaching a recent audit sample — you do NOT quote a turnaround time. Rewrite so the SAME work/deliverables are described WITHOUT any time markers: DELETE every "first X hours", "week N", "day N", "phase N", "within X weeks", "turnaround is X weeks", "takes X weeks" phrase. If a whole sentence exists only to state the audit turnaround (e.g. "for technical audits on existing sites, turnaround is typically 2 weeks…"), DELETE the entire sentence — do not replace it with anything. KEEP the two allowed delivery phrasings if present ("1 working day" for a Google Ads audit, "2 working days" for the SEO promotion plan) — those are delivery commitments, not a project timeline.'
-              )
-            }
-            if (hasFabricatedDiagnosis) {
-              specificViolations.push(
-                'FABRICATED DIAGNOSIS (credibility-critical): The draft claims to have inspected the client\'s site/account, OR asserts a specific finding about their CURRENT state as fact (e.g. "i took a look at yoursite.com", "your technical foundation isn\'t set up", "Google isn\'t connecting those queries because [cause]", "your tracking is broken"). Artem has ONLY the job posting — he has not seen their property. Rewrite every such claim two ways: (1) reframe inspection claims as future investigation ("first thing i\'d check is whether X" instead of "your X is broken"); (2) reframe asserted findings as patterns/hypotheses ("often when a site isn\'t ranking for its own brand name it comes down to X or Y — i\'d confirm which in the audit" instead of "your foundation isn\'t set up"). Keep the sharp, knowledgeable tone — just move from "i already found this on your site" to "here\'s what i\'d look for and why". Do NOT invent any number describing their current performance.'
-              )
-            }
-            if (hasAssumedBrand) {
-              specificViolations.push(
-                `ASSUMED VERTICAL / FABRICATED BRAND (credibility-critical): The draft names concrete consumer brand(s) the posting never mentioned — ${_assumedBrands.join(', ')}. The posting does NOT state the client's specific product or vertical, so naming a product/brand assumes their business and risks reading as "assumed the wrong company". ` +
-                'REWRITE every illustrative example to be category-neutral or explicitly hypothetical — replace the named brand/product with "[your product]", "a specific model/size/SKU", "whatever you sell", or a generic "research query vs high-intent buy query" framing. Keep the underlying insight (buyer-intent segmentation, feed structure, etc.) — only strip the assumed product identity. Do NOT substitute a different specific brand; go neutral. Case-study client names in the APPROVED CASE STUDIES block are Artem\'s own and must NOT be touched.'
-              )
-            }
-            if (fabricatedGeoExperience) {
-              specificViolations.push(
-                `FABRICATED GEOGRAPHIC / VERTICAL EXPERIENCE (credibility-critical): The opener claims Artem works with sites in ${_clientCountry} and/or in the client's specific vertical — but he has NO case study in ${_clientCountry} and none in that vertical. This is a fabricated track record the client can expose in one question. ` +
-                `REWRITE the opening so it does NOT claim experience in the client's country or vertical. Do NOT relabel a real case to match (the multilingual case is CONSTRUCTION/CONSULTING, not education; it is Italy/Austria, not ${_clientCountry}). Frame the hook around the transferable TECHNICAL METHOD (what Google indexes vs. what the site thinks it exposes, 12-month GSC diagnosis, multilingual indexing) and cite only what the approved case studies actually prove. It is fine to reference the CLIENT's situation ("for an education site in a competitive local market…") — just never claim Artem has DONE that vertical/geography before.`
-              )
-            }
-            if (hasEchoedQuestion) {
-              specificViolations.push(
-                `ECHOED SCREENING QUESTIONS (mechanical form-fill — wording-critical): The draft pastes the client's question wording near-verbatim as a heading/label before answering — e.g. "${_echoedQuestions[0].slice(0, 70)}${_echoedQuestions[0].length > 70 ? '…' : ''}". No human echoes the client's own questions back at them; it reads as an AI template. ` +
-                'REWRITE so the answers are in Artem\'s own words woven into natural prose. Remove every pasted question heading. If a light label genuinely aids readability, use a SHORT self-authored 2–4-word label in Artem\'s voice ("Local results:", "First thing I\'d check:", "Rate & availability:") — never the client\'s full question. Cover every point, just don\'t restate the questions.'
-              )
-            }
-            if (openerEchoesPostingLine) {
-              specificViolations.push(
-                'WEAK OPENER — ECHOES THE POSTING\'S OWN SUMMARY/GOAL LINE (credibility-critical): The letter opens by restating a sentence from the client\'s own job posting (e.g. their own goal/summary list) almost verbatim. This proves no diagnosis or expertise — it is just copy-pasting the brief back at them, the opposite of the required client-problem-first hook. ' +
-                'REWRITE the opening paragraph entirely: replace it with a specific diagnostic observation about THIS client\'s actual situation (per the writing rules — do not open with a credential, a rhetorical question, or a restatement of the brief). Do not just paraphrase the same goal list with different wording — the new opener must not share a 30+ character run with any sentence in the job posting.'
-              )
-            }
-            if (timelineRequestedButMissing) {
-              specificViolations.push(
-                'MISSING TIMELINE ANSWER (the client explicitly asked): The posting asks for a timeline / how long / turnaround / ETA, but the draft gives NO concrete duration — it describes the deliverable or steps instead. ' +
-                'ADD a concrete time estimate that directly answers the question (e.g. "I\'d complete the review in about 3–5 business days once I have staging access", "roughly a week end-to-end"). Keep it realistic and scope-appropriate. This is the ONE case where a timeline in the letter is REQUIRED — do not omit it, and do not answer a "how long" question with a description of what you\'ll deliver.'
-              )
-            }
-            if (hasListyOutline) {
-              specificViolations.push(
-                'LISTY / LABELED-OUTLINE STRUCTURE (structural AI tell): The body reads as a labeled outline — "First thing I\'d audit:", "Then campaign structure -", "Site side:", "Step N:", or similar colon-delimited mini-sections. This is one of the clearest "a bot wrote it" signals. ' +
-                'REWRITE the diagnosis/approach as FLOWING PROSE — 2-3 connected paragraphs where the ideas link naturally, the way a person explains something out loud. Keep every fact and check you already named, just weave them into sentences instead of a checklist ("I\'d start by making sure the conversion tracking is even firing right, because when that\'s broken the algorithm optimises blind, then look at whether budget is going to high-intent terms or leaking to broad informational queries…"). Do NOT keep any "First:/Then:/Site side:/Step N:" labels. Leave the case-study block and its lead-in as they are.'
-              )
-            }
-            if (seoLedOnMaintenanceWebdev) {
-              specificViolations.push(
-                'OFF-TARGET SEO PITCH ON A MAINTENANCE JOB: This is a web-dev MAINTENANCE / CHANGES / FIX job on an EXISTING store, but the letter pitches SEO/ranking ("wire the technical SEO/GA4 into the build from day one", "most devs build the store and hand off", "ranks from launch", "six months later") — whether in the opener OR as a "differentiator" paragraph in the body. The store already exists (no build, no launch) and the client hired a DEVELOPER, not an SEO — this reads as pitching a service they didn\'t ask for. ' +
-                'FIX: REMOVE the SEO/"wired into the build" differentiator entirely. Lead and differentiate on DEV RELIABILITY: careful theme/Liquid work, testing every change in a duplicate/preview before pushing live, clean scoped delivery, and not breaking existing functionality. Keep SEO/tracking to AT MOST one reassurance line ("changes won\'t break your rankings, schema, or GA4 tracking") — never a ranking pitch or a "from day one" build claim. There is no launch to rank from.'
-              )
-            }
-            if (openCartMislabeledAsPlatform) {
-              specificViolations.push(
-                'PLATFORM FABRICATION — OpenCart case labeled as Shopify/Woo/WordPress (credibility-critical): Game-X, SMASH and GKit are all OPENCART builds, but the draft files them under a "Shopify/WooCommerce/WordPress work" heading — a false platform claim the client catches on the first click. ' +
-                'FIX: relabel the case intro so the platform is truthful — call it "Recent ecommerce work" or "OpenCart builds", NOT "Shopify work". If you want DIRECT proof on the job\'s platform, cite Artem\'s real Shopify stores instead: casaeleganza.com and paramusmegafurniture.com. When keeping the OpenCart cases, frame them as transferable ("built on OpenCart — same custom-theme + module + tracking discipline"). Never call an OpenCart build Shopify/Woo/WordPress.'
-              )
-            }
-            if (caseMislabeledAsSaas) {
-              specificViolations.push(
-                'CASE-STUDY BUSINESS-MODEL FABRICATION (credibility-critical): The draft describes one of Artem\'s case studies as SaaS / software / a subscription product. NONE of his cases is SaaS — Skin Reboot is skincare ECOMMERCE, Nectar Flowers an ecommerce florist, FridgeFix/House Painting local services, etc. ' +
-                'FIX: stop calling the case a SaaS/software case. Either describe it by its REAL business model and bridge the transferable mechanic to the client\'s SaaS context ("same trial-vs-paid ROAS tracking challenge, different business model"), or remove the case and lean on the method + Premier Partner credential. Do NOT relabel a case\'s industry to match the job — the client opens it and sees the truth.'
-              )
-            }
-            if (fabricatedCaseMetric && _fabricatedCaseMetricInfo) {
-              specificViolations.push(
-                `FABRICATED CASE-STUDY DOLLAR FIGURE (credibility-critical): Near the "${_fabricatedCaseMetricInfo.caseName}" case, the draft states ${_fabricatedCaseMetricInfo.fabricated.join(', ')} — this dollar figure is NOT one of that case's real, approved metrics and was invented, likely to match a unit the client asked for (e.g. "cost per lead") that this case doesn't literally have. ` +
-                `The case's REAL metrics are: ${_fabricatedCaseMetricInfo.real.join(', ')}. ` +
-                'FIX: remove the fabricated dollar figure entirely and state the real metric in its real unit instead — a real percentage or cost-per-click figure that doesn\'t exactly match the requested unit is honest; an invented dollar amount that does match is not. Do not estimate, convert, or back-calculate a metric into a unit the case doesn\'t actually report.'
-              )
-            }
-            if (exactVerticalCaseNotLeading && _jobVertical) {
-              specificViolations.push(
-                `CASE-STUDY ORDERING — ${_jobVertical.name.toUpperCase()} CASE MUST LEAD (relevance-critical): This is a ${_jobVertical.name} job, but the draft cites a generic local-service filler case (FridgeFix appliance repair / House Painting) BEFORE the on-vertical proof. ` +
-                `REORDER the proof block so the ${_jobVertical.name} case leads: ${_jobVertical.lead}. It must be the FIRST case study cited. ` +
-                'Then keep AT MOST one supporting case only if it adds the same conversion mechanic. Drop the weakest generic case rather than pad — the on-vertical case is the most important element of this letter and cannot be buried after a generic one.'
-              )
-            }
-            if (wrongVerticalCasePadding && _jobVertical) {
-              specificViolations.push(
-                `CASE-STUDY PADDING — OFF-VERTICAL FILLER ADDED ON TOP OF STRONG MATCHES (relevance-critical): This is a ${_jobVertical.name} job and the draft already cites 2+ genuinely on-vertical cases (${_jobVertical.lead}) — but it ALSO tacks on a generic local-service filler case (FridgeFix appliance repair or House Painting) as an extra. FridgeFix/House Painting have ZERO ${_jobVertical.name} relevance; sharing a similar mechanic (e.g. a conversion-tracking fix) with the on-vertical cases is NOT a good enough reason to keep an off-vertical case once strong on-vertical proof already exists. ` +
-                'DELETE the entire FridgeFix/House Painting case-study paragraph (and its blank line) — do not replace it with anything or swap in another case. Keep only the on-vertical case(s) already cited. The letter should end with at most 2 case studies for this job, none of them a mismatched vertical.'
-              )
-            }
-            if (hasUnsolicitedLogistics) {
-              specificViolations.push(
-                'UNSOLICITED LOGISTICS (Rule 436): The draft volunteers logistical info the client did NOT ask about — e.g. timezone ("i\'m UTC+2", "working hours", "timezone overlap isn\'t a blocker"), async-vs-sync preference ("i work async"), reporting cadence ("structured weekly reporting", "monthly performance reporting"), availability windows, or start-date promises. ' +
-                'CHECK THE JOB POSTING FIRST: if the client explicitly asked about any of these (e.g. a screening question "what\'s your timezone?" or "how do you report?"), KEEP the relevant answer. Also KEEP these tokens when they appear inside a case-study description (e.g. "monthly reporting" as a deliverable Artem ran for a past client). ' +
-                'For everything else: DELETE the unsolicited logistics sentence entirely — do not rewrite it shorter, REMOVE it. Volunteering this info preempts doubts the client wasn\'t having and reads defensive. Do not replace the deleted sentence with anything.'
-              )
-            }
-            if (hasFillerCloser) {
-              specificViolations.push(
-                'FILLER CLOSER (Rule 436): The draft ends with empty pleasantry — "looking forward to working with you", "happy to discuss", "let me know your thoughts", "excited to chat", "feel free to reach out", "available to jump on a call", or similar. ' +
-                'DELETE the entire filler sentence. Do NOT replace it. The cover letter must end on the last substantive line — the case study, the audit/plan offer, or simply the signature line ("artem"). If the signature line is missing after deletion, add "artem" on its own line.'
-              )
-            }
-            if (hasCircumventionRisk) {
-              specificViolations.push(
-                'CIRCUMVENTION RISK (Trust & Safety — HIGHEST PRIORITY): The draft contains wording Upwork\'s automated scanners flag as taking work, payments, or communication off-platform — e.g. "outside/off/around Upwork", "Upwork … friction/workaround/limitations", payment rails (PayPal, Wise, wire, crypto, "pay me directly"), or off-platform contact channels (WhatsApp, Telegram, email addresses). ' +
-                'A real enforcement flag already hit this account over an innocent sentence of this shape. REWRITE or DELETE every such phrase. If discussing platform-access friction (e.g. Meta Business Manager 2FA), describe the technical solution WITHOUT mentioning Upwork or the words "friction"/"workaround" near it — e.g. "i\'ll set up secure partner access through Meta Business Manager". Never mention payment methods or contact channels at all.'
-              )
-            }
-            if (regulatedJobMissingVape) {
-              specificViolations.push(
-                'MISSING VAPE SHOP CASE STUDY (Rule 437): This job involves a regulated/restricted-substance vertical (hemp/CBD/cannabis/vape/supplement/etc.). The draft MUST cite the Vape Shop case study (KB entry #1, case #3) as the LEAD direct-vertical proof — it is the only direct-vertical match in the entire KB. ' +
-                'Add a paragraph that leads with: "vape shop: restricted e-cig e-commerce, new-site launch — built to 7,000 monthly visitors, 54 keywords in google top 1, 80 referring domains. work: technical foundation, semantic core, meta template system, content, and link building. same restricted-substance bucket as [hemp/CBD/etc.] — paid is blocked, organic carries the growth load." ' +
-                'Place Vape Shop BEFORE the PDF case studies (Skin Reboot, Derma Solution) in any regulated-vertical Q&A or capability paragraph — PDFs are layered after as adjacent YMYL/restricted proof, not as the lead. ' +
-                'CRITICAL — do NOT invent multi-location, retail-chain, GBP, local-pack, citations, in-store foot traffic, or any local-SEO details for the Vape Shop case. The real KB entry is a new-site e-commerce build only.'
-              )
-            }
-            if (vapeFabrication) {
-              specificViolations.push(
-                'VAPE CASE-STUDY FABRICATION (Rule 437 — credibility-critical): The draft describes the Vape Shop case with details that are NOT in the KB — multi-location language, location counts, "Google Business Profile", "GBP", "map pack", "local citations", "retail chain", "in-store foot traffic", or similar local-SEO work. ' +
-                'The real KB entry (entry #1, case #3) says: "newly launched restricted e-commerce site", "E-cigarettes / restricted e-commerce", metrics: 7,000 monthly visitors, 80 referring domains, 54 keywords in Google Top 1, work: technical improvements, semantic core development, meta template setup, content creation, link building. ' +
-                'It is NOT a multi-location retail chain. It did NOT involve GBP / local pack / citations / multi-location landing pages. ' +
-                'REWRITE the Vape Shop paragraph to describe ONLY what is in the KB: a NEW restricted-e-commerce site built from scratch, the exact metrics above, and the listed work types. The relevance to a multi-location client is the SHARED RESTRICTED-SUBSTANCE PLAYBOOK (paid blocked, organic must carry, compliance-aware content, E-E-A-T), NOT that vape was also multi-location.'
-              )
-            }
-            if (missingYearsExperience) {
-              specificViolations.push(
-                'MISSING "12 YEARS" EXPERIENCE BASELINE (Rule 439): The draft never states Artem\'s "12 years" of experience. This is mandatory on every cover letter and must appear within the first 2-3 sentences of the body (typically the second sentence, right after the intro mirror — never buried at the end or in a Q&A answer). ' +
-                'For an SEO job, use the exact phrase "12 years" in context such as: "12 years in technical SEO" or "12 years scaling organic SEO across <relevant verticals>" or "12 years building technical SEO for <job-relevant context>". ' +
-                'For a PPC / Google Ads / paid-media job, use BOTH "12 years" AND "Google Premier Partner 2026": "12 years running Google Ads, Google Premier Partner 2026" or similar. ' +
-                'For a hybrid SEO + PPC job, combine: "12 years across SEO and Google Ads (Google Premier Partner 2026)". ' +
-                'State EXACTLY "12 years" — never inflate to "15 years", "over a decade", "12+ years", or "more than 10 years". Insert this credential sentence early; do not pad with extra adjectives.'
-              )
-            }
-            if (ppcMissingPremierPartner) {
-              specificViolations.push(
-                'MISSING "GOOGLE PREMIER PARTNER 2026" (Rule 439): This is a PPC / Google Ads / paid-media job (the posting mentions Google Ads / PPC / paid search / Performance Max / Smart Bidding / Shopping / Meta Ads / Bing Ads / etc.). ' +
-                'The draft MUST include "Google Premier Partner 2026" in the experience-baseline sentence. This is a third-party trust signal that immediately differentiates from competing applicants and must not be omitted on any paid-media job. ' +
-                'Combine it with the "12 years" credential — example: "12 years running Google Ads, Google Premier Partner 2026." Place it in the first 2-3 sentences of the body, not at the end. ' +
-                'Do NOT add "Premier Partner" to SEO-only sections of the letter — it is a Google Ads program, not an SEO credential. Use it specifically in the PPC/paid-media credential line.'
-              )
-            }
-            if (hasForbiddenPhrase) {
-              specificViolations.push('FORBIDDEN PHRASE: The draft contains a prohibited phrase (e.g. "walk through", "hop on a call", "schedule a demo", invented sample/attachment references). Remove or rewrite every occurrence.')
-            }
-            if (missingPdfLabel) {
-              specificViolations.push('MISSING PDF LABEL: The draft mentions "Derma Solution" or "Skin Reboot" without stating it is "attached as a PDF". If the draft incorrectly attributes one of these PDF case studies to "profile highlights", change it to "attached as a PDF". Add or correct the PDF label in the same or following sentence.')
-            }
-            if (missingAuditSampleMention) {
-              specificViolations.push(
-                'MISSING AUDIT SAMPLE MENTION: This is an audit / diagnosis job and the draft does not offer to attach the matching audit sample. ' +
-                (jobIsSeo
-                  ? 'This is an SEO technical-audit/diagnosis/migration job → attach the TECHNICAL SEO AUDIT SAMPLE (inventory item 5, the real 36-page lemoos.com audit PDF). Add a sentence like: "i\'m attaching a sample technical SEO audit so you can see the format and depth." Do NOT say there is no SEO audit sample — there is. Do NOT substitute the PPC audit sample.'
-                  : 'This is a PPC/Google Ads audit job → attach the Google Ads audit sample: "i\'m attaching a sample of a recent Google Ads audit so you can see the format and depth."') +
-                ' Place it near the end (e.g. with the diagnostic CTA). Keep the conversational voice.'
-              )
-            }
-            if (vapeOnPpcOnlyJob) {
-              specificViolations.push(
-                'VAPE SHOP ON A PURE-PPC JOB — CHANNEL MISMATCH (Rule 437): The draft cites the Vape Shop case on a Google Ads / paid-media job that has NO SEO scope. Vape Shop is an SEO case — its metrics (monthly visitors, referring domains, keywords in Top 1) are organic, not paid — so it is off-channel here and weakens the pitch. ' +
-                'DELETE the entire Vape Shop paragraph (and remove "vape shop" from any case-studies lead-in line). On this pure-PPC job the regulated/restricted proof is Skin Reboot\'s PAID angle (17.51 PMax ROAS, +693.8% revenue) — keep that as the lead. Do not replace Vape with another SEO case.'
-              )
-            }
-            if (irrelevantCaseOnRegulated) {
-              specificViolations.push(
-                'IRRELEVANT CASE STUDY ON A RESTRICTED/YMYL JOB (Rule 407): The draft cites a generic consumer case study (Nectar Flowers / House Painting / FridgeFix / Golden State Trailers) on a restricted/regulated/YMYL brief (peptides, skincare, supplements, medical aesthetics, etc.). These off-vertical cases signal weak relevance judgment and dilute the on-point restricted cases beside them. ' +
-                'DELETE the generic consumer case entirely. Do NOT replace it with another case unless that case is genuinely restricted/YMYL-relevant. Fewer, on-point cases are STRONGER than more cases with a filler — it is correct to end with just 1-2 restricted-niche cases (Skin Reboot, Derma Solution, Vape Shop). ' +
-                'Also match channel: on a Google Ads/PPC job cite the PAID result (e.g. Skin Reboot 17.51 PMax ROAS, +693.8% revenue), not a case\'s SEO/organic-traffic numbers.'
-              )
-            }
-            if (launchJobMissingCTA) {
-              specificViolations.push(
-                'MISSING LAUNCH CTA (Rule 450): This is a from-scratch PPC launch job. The draft must close with the mandatory launch-delivery commitment — that Artem can SET UP AND LAUNCH the campaigns from scratch in "5 working days" (the launch-job equivalent of the 1-working-day audit offer / 2-working-day SEO plan). ' +
-                'Add a sentence near the end, e.g. "i can set up and launch your campaigns from scratch in 5 working days - technical foundation, merchant center feed, and the initial Search campaigns live and approved." ' +
-                'Use EXACTLY the phrase "5 working days" (not "5 business days", "a week", or any variation). Keep the lowercase conversational voice. Do NOT add any other timeline/turnaround language.'
-              )
-            }
-            if (campaignLiveTooFast) {
-              specificViolations.push(
-                'FALSE "CAMPAIGN LIVE IN 1 DAY" CLAIM (credibility-critical): the draft claims the campaign(s) go live / launch / are running within ~1 (or 1-2) working day(s). That is untrue — "1 working day" is the GOOGLE ADS AUDIT turnaround ONLY; it is NEVER a campaign build/launch/go-live timeframe. A from-scratch build+launch is "5 working days" (Rule 450), and even then Google\'s ad review means it is "live AND approved", not instant. ' +
-                'Fix: replace the false claim. If this is a from-scratch setup/launch job, use the Rule 450 line — "i can set up and launch your campaigns from scratch in 5 working days" (initial Search campaigns live and approved). If it is not a launch job, DELETE the go-live timeframe entirely rather than quote any day-count for a campaign. Never state or imply a campaign is live within 1 working day.'
-              )
-            }
-            if (caseStudyToldAsRemediation) {
-              specificViolations.push(
-                'CASE STUDY VIOLATES THE CLIENT\'S EXPLICIT SCREENING INSTRUCTION (critical — this can get the proposal auto-rejected): the posting explicitly asks for an example where Artem DIAGNOSED a performance issue using data, and explicitly says NOT an example where he set up or managed the campaign himself. The draft\'s case study is narrated in first-person REMEDIATION verbs ("I rewired conversion tracking", "rebuilt Search", "segmented the feed", "the fix: ...") — this is exactly the framing the client said not to send. ' +
-                'Fix: keep the SAME case study and the SAME real metrics/facts, but retell it as DIAGNOSIS ONLY. Describe what the DATA SHOWED and what that REVEALED as the root cause (e.g. "the data showed collapsing ROAS despite high click volume, and cross-referencing Ads conversions against GA4 revenue showed the gap traced to the conversion goal firing on the wrong event") — do NOT narrate what Artem personally did to fix it ("I rewired / rebuilt / segmented / implemented"). If a fix must be mentioned at all, attribute it neutrally to what the diagnosis pointed to, not to Artem\'s own remediation action. The point of the story is the DIAGNOSTIC PROCESS (what was tracked, what pattern emerged, what it revealed), not the repair.'
-              )
-            }
-            if (wrongAuditOfferOnLaunch) {
-              specificViolations.push(
-                'WRONG AUDIT OFFER ON A LAUNCH JOB (Rule 450 — credibility-critical): The client is launching a Google Ads account FROM SCRATCH (zero pixel data, $0 to scale, no existing campaigns). There is NOTHING to audit — they have no running account. The draft offers an audit and/or says it is "attaching a sample of a recent Google Ads audit". Offering an audit here proves Artem did not read the brief. ' +
-                'DELETE the entire audit-offer / audit-sample sentence. Do NOT replace it with another audit mention. ' +
-                'If a deliverable/attachment is wanted to show depth, the correct one for a from-scratch launch is the SETUP + LAUNCH PLAN (week-by-week build approach: technical foundation, Merchant Center feed, campaign architecture, scaling triggers) which the draft should already describe — do not attach an "audit". You MAY keep a brief offer to share a relevant case study PDF, but remove all audit-as-deliverable language. ' +
-                'End the letter on a substantive line per the closing rules (no filler closer).'
-              )
-            }
-            if (wrongPlanOnAuditJob) {
-              specificViolations.push(
-                'WRONG DELIVERABLE — SEO PROMOTION PLAN ON AN AUDIT-ONLY JOB: The client asked for a one-time SEO AUDIT / ranking analysis with a written report + prioritized recommendations — NOT ongoing SEO management. There is no retainer or continuing engagement in this posting (any "long-term strategy / recommendations" is a SECTION of the audit report, not ongoing work). The draft offers a "3-month SEO promotion plan", which is an ongoing-campaign document — the wrong deliverable, and it reads as an unwanted upsell. ' +
-                'DELETE the entire "i can prepare a custom 3-month SEO promotion plan…" sentence. If the draft attaches "a sample SEO promotion plan", REPLACE that clause with the technical SEO audit sample instead: "i\'m attaching a sample technical SEO audit so you can see the format and depth." (If a technical SEO audit sample is already attached, just delete the promotion-plan sentence and keep it.) The deliverable here is the audit + prioritized fixes (e.g. the rich-snippets/schema fix), nothing more — never a promotion plan or link-building budget.'
-              )
-            }
-            if (wrongAuditSampleOnAlreadyAudited) {
-              specificViolations.push(
-                'WRONG DELIVERABLE — AUDIT SAMPLE OFFERED BUT THE CLIENT ALREADY HAS AN AUDIT DONE: The posting explicitly says the client already completed a technical SEO audit and wants the current setup reviewed / fixes implemented — they are NOT buying an audit. The draft still offers/attaches the technical SEO audit sample ("here\'s a sample audit so you can see the format and depth"), which reads as if the posting was not read — it is proof of a deliverable they never asked for. ' +
-                'DELETE the entire audit-sample sentence (the "i\'m attaching a sample technical SEO audit…" line and any lead-in tied to it). Do NOT replace it with another audit-shaped offer. Lean on the case studies already cited (they demonstrate IMPLEMENTATION results — fixed canonicals/schema/redirects/site speed — which IS the relevant proof here) and describe the review-then-fix process directly. No separate audit deliverable to attach or time.'
-              )
-            }
-            if (missingComplimentaryAuditOffer) {
-              specificViolations.push(
-                'MISSING FEE-STRUCTURE OFFER — OWNER HARD RULE: the posting signals the client MIGHT want ongoing management after the audit (retainer language, "could lead to", "if this works out", a long-term partnership, monthly management). The $300 Google Ads audit offer in the draft is missing the required complimentary/credit line. ADD a sentence conveying (in your own natural phrasing, not verbatim boilerplate): "if we end up working together on ongoing management, this audit fee is credited back / the audit becomes complimentary." Keep the $300 flat price and the 1-working-day timeline exactly as they are — this is an ADDITION, not a replacement. Place it naturally near the price/timeline line, not as a disconnected afterthought.'
-              )
-            }
-            if (wrongComplimentaryOfferOnAuditOnly) {
-              specificViolations.push(
-                'WRONG FEE-STRUCTURE OFFER — OWNER HARD RULE: the posting explicitly states this is a one-off audit with NO ongoing work (one-time project, audit only, not looking for a retainer). The draft added a complimentary/credit-if-we-work-together line anyway — there is no ongoing work to credit it toward, so this reads as a confused, unprompted promise. DELETE the complimentary/credit sentence. Keep the plain "$300 flat, delivered within 1 working day" offer with no fee-structure caveat attached.'
-              )
-            }
-            if (wrongAuditPrice) {
-              specificViolations.push(
-                `WRONG AUDIT PRICE — OWNER HARD RULE: the Google Ads / PPC account audit is a FIXED, unconditional $300 productised deliverable — never a variable price, regardless of how long or detailed the posting's checklist is. The draft quotes $${_auditPriceInDraft} for the audit instead. CHANGE the audit price to "$300 flat, delivered within 1 working day" exactly. Do NOT touch any separate ONGOING/monthly retainer estimate elsewhere in the letter (that figure is scope-dependent and correct as-is) — this fix is ONLY the one-time audit price.`
-              )
-            }
-            if (localServiceCaseDisplacedByEcomHealth) {
-              specificViolations.push(
-                'WRONG CASE STUDY — LOCAL-SERVICE JOB CITES AN OFF-VERTICAL ECOM-HEALTH CASE: this is a local, appointment/call-based business (per the CASE STUDY SELECTION RULE, verticals like this should lead with FridgeFix / House Painting / Nectar Flowers / Golden State Trailers). The draft already correctly cites one of those local-service cases, but ALSO cites Skin Reboot and/or Derma Solution (medical-aesthetic ecommerce) as a separate "relevant results" block — an off-vertical case that does not belong here and undercuts the correct one. DELETE the Skin Reboot / Derma Solution paragraph(s) entirely. Do NOT replace them with anything — the already-cited local-service case is the complete, correct proof for this job.'
-              )
-            }
-            if (wrongOngoingRateFraming) {
-              specificViolations.push(
-                'WRONG ONGOING-RATE FRAMING — OWNER HARD RULE: once the audit is offered with the fee-structure credit line ("if we end up working together..."), the ONGOING work that follows must be quoted as the FIXED two-tier monthly fee ($700 for the first/setup month, $600/month after), never an hourly rate. The draft quotes an hourly figure (e.g. "$X/hr") for the ongoing work instead — this is very likely anchored to the posting\'s raw hourly ceiling, which does not represent a sane price for this engagement shape. REPLACE the hourly ongoing-rate sentence with the fixed fee, e.g. "$700 for the first month to implement the fixes, then $600/month for ongoing management" — do NOT quote an hourly figure or invent a scope-sized range.'
-              )
-            }
-            if (missingAuditPriceEntirely) {
-              specificViolations.push(
-                'MISSING AUDIT PRICE — OWNER HARD RULE: this is a Google Ads / PPC audit job but the draft never states the $300 price anywhere (it may mention "the audit fee is credited back" or similar without ever saying what that fee IS — meaningless to the client). ADD the plain price statement "$300 flat, delivered within 1 working day" near where the audit deliverable is described. Do NOT remove or alter any complimentary/credit line that is already present — this is an ADDITION.'
-              )
-            }
-            if (wrongOngoingManagementFee) {
-              specificViolations.push(
-                'WRONG ONGOING-MANAGEMENT FEE — OWNER HARD RULE: Artem\'s real ongoing-management fee after the audit is a FIXED two-tier monthly price — $700 for the first (setup) month, $600/month after — never a scope-sized range and never any other figure. The draft quotes a different monthly figure for the ongoing work (e.g. "$1,200-$1,800/month"). REPLACE it with the exact fixed fee, e.g. "$700 for the first month to implement the fixes, then $600/month for ongoing management." Do NOT invent or keep any other range.'
-              )
-            }
-            if (wrongLaunchOfferOnExistingAccount) {
-              specificViolations.push(
-                'WRONG LAUNCH OFFER ON AN EXISTING-ACCOUNT AUDIT JOB: the client has an EXISTING running Google Ads account and asked for an audit/review — there is no from-scratch launch to offer. The draft offers to "set up and launch your campaigns from scratch" (or similar). DELETE that entire sentence. Do NOT replace it with anything — the audit + ongoing-management offer is the complete pitch for this job.'
-              )
-            }
-            if (wrongHourlyRateAboveCeiling) {
-              specificViolations.push(
-                `WRONG HOURLY RATE — EXCEEDS THE JOB'S OWN POSTED CEILING: the draft quotes $${_quotedHourlyRate}/hr, but this posting's own rate range tops out at $${_hMaxForRateCheck}/hr. Quoting well above what the client themselves said they'd pay reads as not having read the posting. FIX by either (a) lowering the quoted rate to fit at or below the posting's own $${_hMaxForRateCheck}/hr ceiling, or (b) removing the rate line entirely if the posting never explicitly asked for one — do not invent a justification for exceeding it.`
-              )
-            }
-            if (missingSeoAuditPriceEntirely) {
-              specificViolations.push(
-                'MISSING SEO AUDIT PRICE — OWNER HARD RULE: this is a technical SEO audit job but the draft never clearly states the fixed $700 flat price for the audit anywhere. Artem\'s real technical SEO audit is a productised $700 flat deliverable (the SEO mirror of the PPC $300 flat audit) — state it plainly, e.g. "the technical SEO audit is $700 flat" — near where the audit sample offer is described. Do NOT invent a scoped/bundled price range for this instead.'
-              )
-            }
-            if (wrongSeoAuditPrice) {
-              specificViolations.push(
-                `WRONG SEO AUDIT PRICE — OWNER HARD RULE: the technical SEO audit is a FIXED, unconditional $700 flat productised deliverable, never a variable or bundled price. The draft quotes $${_seoAuditPricesNearby.join(', $')} near the audit instead (e.g. a "foundation buildout" range that bundles the audit with other work), with no $700 mention anywhere. REPLACE this with the plain fixed "$700 flat" statement for the audit specifically — do NOT bundle it into a broader project-price range, and do NOT touch any separate, correctly-stated ongoing retainer figure elsewhere in the letter.`
-              )
-            }
-            if (wrongSeoRetainerFee) {
-              specificViolations.push(
-                `WRONG SEO ONGOING RETAINER FEE — OWNER HARD RULE: Artem's real ongoing SEO optimization retainer is a FIXED $1050/month, never an invented range. The draft quotes $${_seoMonthlyPricesNearby.join(', $')}/month instead (e.g. "$600-800/month"), with no $1050/month mention anywhere. REPLACE it with the exact fixed figure, e.g. "ongoing SEO optimization after that runs $1050/month." Do NOT invent or keep any other range.`
-              )
-            }
-            if (missingManualAuditClaim) {
-              specificViolations.push(
-                'MISSING MANUAL-AUDIT CLAIM — OWNER HARD RULE: an audit (the $300 flat Google Ads audit or the $700 flat technical SEO audit) is being offered in this letter, but the draft never states that the audit itself is performed entirely manually — no automated tools, no templated/auto-generated report. This is a required trust/differentiation signal (many competing "audits" are auto-generated by SEO/PPC tools or AI). ADD one sentence conveying this, woven naturally into the audit description near the price/sample mention — do NOT drop it as an isolated boilerplate line. Example: "every audit I run is done entirely by hand — no automated tools, no templated report." Keep the rest of the letter untouched.'
-              )
-            }
-            if (auditOfferNotClosingCta) {
-              specificViolations.push(
-                'AUDIT OFFER NOT THE CLOSING CTA (owner feedback — the audit offer IS the call to action, it should read as the last word, not buried mid-letter): the draft currently states the audit/pricing offer BEFORE the case-study block, so the letter ends on case studies (past results) instead of the concrete next step you want the client to act on. REORDER ONLY — move the case-study block (its lead-in line plus every case-study paragraph) to sit BEFORE the audit/pricing offer paragraph(s), so the audit offer becomes the last substantive paragraph immediately before the sign-off. Do NOT alter the wording of either block — this is a pure reordering, not a rewrite.'
-              )
-            }
-            if (missingDigitBombFacts && _digitBombCase) {
-              specificViolations.push(
-                `DIGIT BOMB OPENER — WRONG ORDER OR MISSING REAL FACTS (credibility-critical): Artem armed the case "${_digitBombCase.name}" for this letter's cold open. Either its real numbers/name are missing entirely, OR — the more common miss — the case name was written FIRST with the metrics folded in afterward (e.g. "${_digitBombCase.name} (attached...): [description], ${_digitBombCase.metrics[0] || ''}..."). That reads as an ORDINARY case-study citation, not a digit-bomb cold open, even though the facts are technically all present. ` +
-                `REWRITE the opening (first 1-2 sentences only) so the LITERAL FIRST CHARACTERS of the entire letter are a number from this list — ${_digitBombCase.metrics.join(', ')} — before any other word. Do NOT open with the case name, a descriptor, or anything else ahead of the number. Immediately after 1-2 metrics, name the case: "${_digitBombCase.name}${_digitBombCase.attachment === 'pdf' ? ' (attached as PDF)' : ' (attached in profile highlights)'}". What the case actually was: ${_digitBombCase.one_liner}. Bridge to the client's real, stated situation from the job posting in the same or next sentence — never invent a detail about their business. Do NOT alter, round, or drop the numbers; do NOT use any other opener style (no "reading your post", no credential lead-in, and no leading with the case name either). Leave the rest of the letter untouched. Example of the WRONG order to avoid: "${_digitBombCase.name} (attached...): [description]. [metric]..." — the metric must come BEFORE "${_digitBombCase.name}", not after. IMPORTANT — if the current draft already opens with a DIFFERENT case study (the wrong case, or the right case in the wrong order), REPLACE that entire opening paragraph with the corrected ${_digitBombCase.name} opener. Do NOT leave the old opening paragraph in place and prepend a new one on top of it — the result must have exactly ONE case-study paragraph at the top of the letter, never two stacked back to back.`
-              )
-            }
-            if (missingDigitBombResonance && _digitBombCase) {
-              specificViolations.push(
-                `DIGIT BOMB OPENER — MISSING RESONANCE BRIDGE TO THIS CLIENT (credibility-critical): the opening correctly leads with ${_digitBombCase.name}'s real numbers, but it stops right after describing what the case was, with nothing connecting it to THIS client's own posting. That reads as an ordinary case citation with the numbers moved to the front, not a cold open that resonates with them — the whole point of the opener is "I have exactly this experience, here's a real result, and here's why it applies directly to your situation," and that last part is missing. ` +
-                `ADD one clause (same sentence or the next) that bridges to something REAL and SPECIFIC from this job's own posting — their actual product, vertical, market, or the exact problem they described — never an invented detail. Do NOT touch the numbers, the case name, or anything else in the opener; add ONLY the bridge clause. Example of the missing shape: "...same tire-kicker-vs-genuine-lead problem you'll be fighting across your own market." Leave the rest of the letter untouched.`
-              )
-            }
-            if (missingSeoPlanOffer) {
-              specificViolations.push(
-                'MISSING SEO PROMOTION PLAN OFFER: This is an SEO job. The draft must offer a custom 3-month SEO Promotion Plan deliverable in 2 working days, covering: deliverables, costs, link building budget, basic site check, competitor overview. ' +
-                'CRITICAL OVERRIDE — even if the job description mentions an initial audit phase, if it also mentions a retainer, ongoing work, or long-term improvement (e.g. "audit project, followed by a retainer", "ongoing SEO", "monthly improvements"), the (A) audit-only exception does NOT apply. You MUST include the plan CTA in addition to any audit sample mention. ' +
-                'Add a sentence like: "i can prepare a custom 3-month SEO promotion plan within 2 working days — covers deliverables, costs, link building budget, a basic site check, and competitor overview. i\'m attaching a sample SEO promotion plan so you can see the format." ' +
-                'Keep the lowercase conversational voice. Place it near the end of the proposal, before the case studies block or the sign-off. Do NOT remove the audit sample mention if it is already present — keep both.'
-              )
-            }
-            if (wrongSeoPlanTiming) {
-              specificViolations.push(
-                'WRONG SEO PROMOTION PLAN TIMING: The draft offers the SEO promotion plan with the wrong delivery timeframe. ' +
-                'The ONLY acceptable phrasing is "2 working days" — not "5 business days", "3-5 days", "a week", or any variation. ' +
-                'Find the SEO promotion plan sentence and replace whatever timing is there with the exact phrase "2 working days". Change ONLY the timing. Keep everything else verbatim.'
-              )
-            }
-            if (missingCaseStudy) {
-              specificViolations.push(
-                'MISSING CASE STUDY REFERENCE: The draft must include at least one concrete result from the APPROVED CASE STUDIES ' +
-                'provided below. Pick ONE specific metric or outcome (e.g. "grew ROAS from 1.8× to 4.2×", a revenue number, ' +
-                'a CPA reduction) and weave it into a single sentence naturally. ' +
-                'Rules: (a) only use content that appears verbatim in the APPROVED CASE STUDIES section below — do NOT invent industries, ' +
-                'metrics, or client descriptions; (b) do NOT write "happy to send", "can send over", or any future-offer phrasing — ' +
-                'the results are cited as past proof, not a future deliverable; (c) keep the lowercase conversational voice; ' +
-                '(d) after the result mention, add "full case study attached in profile highlights".'
-              )
-            }
-            if (caseStudyDomainMismatch) {
-              // Fully ledger-derived (§21-C gate 2) so this can never drift out
-              // of sync with CASE_LEDGER again the way the old hand-written
-              // lists did. skin-reboot/derma-solution (dual PPC+SEO) are
-              // offered as "right" answers on EITHER a PPC or SEO job.
-              const _shortCase = (c) => `${c.name} (${(c.metrics || []).slice(0, 2).join(', ')}${c.attachment === 'pdf' ? ' — PDF' : ''})`
-              const _dualCases = CASE_LEDGER.filter(c => _DUAL_SERVICE_CASE_IDS.has(c.id))
-              const jobDomain = jobIsSeo ? 'SEO' : jobIsPpc ? 'PPC / Google Ads' : 'web development'
-              const wrongParts = []
-              const rightCases = []
-              if (jobIsSeo) {
-                if (ppcCaseInDraft) wrongParts.push(`PPC-only: ${PPC_ONLY_CASES.map(c => c.name).join(', ')}`)
-                if (webdevCaseInDraft) wrongParts.push(`web-dev-only: ${WEBDEV_ONLY_CASES.map(c => c.name).join(', ')}`)
-                rightCases.push(...SEO_ONLY_CASES, ..._dualCases)
-              } else if (jobIsPpc) {
-                if (seoCaseInDraft) wrongParts.push(`SEO-only: ${SEO_ONLY_CASES.map(c => c.name).join(', ')}`)
-                if (webdevCaseInDraft) wrongParts.push(`web-dev-only: ${WEBDEV_ONLY_CASES.map(c => c.name).join(', ')}`)
-                rightCases.push(...PPC_ONLY_CASES, ..._dualCases)
-              } else {
-                if (ppcCaseInDraft) wrongParts.push(`PPC-only: ${PPC_ONLY_CASES.map(c => c.name).join(', ')}`)
-                if (seoCaseInDraft) wrongParts.push(`SEO-only: ${SEO_ONLY_CASES.map(c => c.name).join(', ')}`)
-                rightCases.push(...WEBDEV_ONLY_CASES)
-              }
-              specificViolations.push(
-                `CASE STUDY DOMAIN MISMATCH: This is a ${jobDomain} job, but the draft cites a case study from a different service domain (${jobIsSeo ? 'PPC/Google-Ads or web-dev' : jobIsPpc ? 'SEO or web-dev' : 'PPC or SEO'} — those don't belong here). ` +
-                `Wrong (remove): ${wrongParts.join('; ')} — do not cite these in a ${jobDomain} proposal. ` +
-                `Right (use one of these instead): ${rightCases.map(_shortCase).join(', ')}. ` +
-                `Replace the mismatched case study entirely — keep the same paragraph format and "attached in profile highlights" / "attached as a PDF" labels, just swap in a domain-appropriate case study with its real metrics.`
-              )
-            }
-            if (missingHighlightsPhrase) {
-              specificViolations.push(
-                'CASE STUDY FORMAT VIOLATION: The case study block is formatted incorrectly. ' +
-                (csCrammed ? 'Multiple case studies are crammed into a single paragraph — they are separated by ", and" or similar connectors instead of blank lines. ' : '') +
-                (!hasHighlightsPhrase ? '"profile highlights" is missing entirely. ' : '') +
-                'Rewrite ONLY the case study section using this exact structure (keep everything else verbatim):\n\n' +
-                '[plain lead-in sentence, no label]:\n\n' +
-                '[Client Name] (attached in profile highlights): [what was done]. [key metric(s).]\n\n' +
-                '[Client Name] (attached in profile highlights): [what was done]. [key metric(s).]\n\n' +
-                'The blank line between entries is mandatory. "attached in profile highlights" goes on EACH individual entry, right after its name — never on the lead-in. Client names in Title Case.'
-              )
-            }
-
-            const enforcePrompt = [
-              'You are a rules-compliance checker for an Upwork cover letter draft. Your ONLY job is to fix the specific violations listed below, then verify every applicable KB rule is satisfied.',
-              '',
-              'SPECIFIC VIOLATIONS TO FIX (these were caught by an automated pre-check — fix ALL of them):',
-              ...specificViolations.map((v, i) => `${i + 1}. ${v}`),
-              '',
-              'RULES (each rule may have a trigger condition; apply the rule whenever its trigger condition is true for the job posting below):',
-              ...rules.map(r => `Rule ${r.id}. ${r.content}`),
-              '',
-              ...((missingCaseStudy || missingHighlightsPhrase || caseStudyDomainMismatch) && (portfolioText || referenceText) ? [
-                'APPROVED CASE STUDIES & REFERENCE METRICS (use these as the ONLY source for case study references — do not invent any):',
-                ...(portfolioText ? [portfolioText.trim()] : []),
-                ...(referenceText ? [referenceText.trim()] : []),
-                '',
-              ] : []),
-              'JOB POSTING (use this to evaluate which rules fire):',
-              jobContext,
-              '',
-              'CURRENT DRAFT:',
-              text.trim(),
-              '',
-              'INSTRUCTIONS:',
-              '1. Fix EXACTLY the violations in the SPECIFIC VIOLATIONS list above — these are the only changes you make. They were caught by a deterministic pre-check, so they are real; fix every one.',
-              '2. The RULES section is REFERENCE ONLY — use it to understand HOW to fix the listed violations correctly (e.g. exact phrasing a rule mandates). Do NOT go hunting for other rule violations to fix, and do NOT re-evaluate the whole draft. If something is not in the SPECIFIC VIOLATIONS list, leave it exactly as written.',
-              '3. Make the SMALLEST edit that satisfies each listed violation — preserve voice, tone, structure, and every other sentence verbatim. Output exactly ONE version of the letter; never include the old version, an explanation, or any duplicate.',
-              '4. Do NOT add new commitments, claims, case studies, or sentences beyond what the listed violations require.',
-              '',
-              'OUTPUT FORMAT: Return ONLY the corrected cover letter text — the first character is the first word of the letter. No preamble, no list of changes, no explanation, no second version.',
-            ].join('\n')
-
-            // Snapshot the draft right before the rewrite pass. If a garbled
-            // sentence shows up later, comparing this against the final text
-            // tells us whether the FIRST pass wrote it or the enforcer's
-            // rewrite introduced it — confirmed on job 10312 that this
-            // couldn't be answered after the fact because nothing captured
-            // the pre-enforcer state.
-            const _preEnforcerSnapshot = text
-            setPreEnforcerDraft(_preEnforcerSnapshot)
-            if (job?.id != null) _lsSave('preEnforcerDraft', job.id, _preEnforcerSnapshot)
-
-            const enforceRes = await fetch('/claude', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                _kind: 'proposal_rule_enforce',
-                // Sonnet for the enforcement pass. Haiku (~7× cheaper) proved
-                // unreliable at catching fabrications / rule violations and at
-                // clean surgical rewrites — the owner saw issues in most letters
-                // (2026-07-14), so we swapped back to Sonnet as the code always
-                // anticipated. Reliability of this pass matters more than its cost.
-                model: 'claude-sonnet-4-5',
-                max_tokens: 1500,
-                system: 'You are a precision rule-compliance editor for Upwork cover letters. You make minimal, surgical edits to enforce rules. You may add brief sentences only when a violation explicitly requires adding missing content.',
-                messages: [{ role: 'user', content: enforcePrompt }],
-              }),
-            })
-            if (enforceRes.ok) {
-              const enforceData = await enforceRes.json()
-              const correctedText = _stripAttachmentsSummaryLine(_stripLeadingSignoff((enforceData.content || []).map(b => b.text || '').join('').trim()))
-              if (correctedText && correctedText.length > 40) {
-                // Garbling sanity check (confirmed on job 10609): the enforcer's
-                // surgical rewrite can, while satisfying the listed violations,
-                // delete a mid-sentence chunk of an UNRELATED sentence and leave
-                // an orphaned fragment — e.g. "...blackwork, etc.) so the ad copy
-                // sells..." became "...bleed. ) So the ad copy sells..." (the
-                // whole "the oslo market is small enough... structure separate
-                // campaigns for your top artists + styles (realism, traditional,
-                // blackwork, etc." clause vanished, leaving a stray ")" and a
-                // dangling non-sequitur). The pre-enforcer draft (_preEnforcerSnapshot)
-                // is always coherent — the whole point of snapshotting it — so
-                // when the rewrite looks garbled, discard it and keep the
-                // first-pass draft instead of shipping broken English.
-                // MUST-KEEP PRICING regression check (confirmed on job 10609,
-                // 3rd regen — worse than garbling because the output is
-                // grammatically clean, just WRONG). The pre-enforcer draft
-                // correctly had "$300 flat", the "1 working day" timeline, a
-                // sane "$1,200-$1,800/month" ongoing estimate, AND the
-                // complimentary-credit line — the enforcer's rewrite deleted
-                // ALL of it and replaced it with an unrelated, contradictory
-                // "I can set up and launch your campaigns from scratch in 5
-                // working days" offer (the LAUNCH-FROM-SCRATCH pitch, nonsensical
-                // on a job that explicitly has an existing account to audit).
-                // None of the existing violations force this — the enforcer
-                // wasn't even asked to touch pricing here — so this is pure
-                // enforcer overreach. A hard-rule element that was correctly
-                // present before the rewrite must NEVER silently vanish after
-                // it, regardless of which violation triggered the call.
-                const _regressedAuditPrice = draftOffersPpcAudit && !/\$300\b/.test(correctedText)
-                const _regressedComplimentary = draftHasComplimentaryOffer && !_DRAFT_COMPLIMENTARY_RE.test(correctedText)
-                // ENFORCER-ADDED LAUNCH OFFER (confirmed on job 10609, rounds 3
-                // AND 4): the pre-enforcer draft never mentions a from-scratch
-                // launch, and no listed violation asked for one, but the
-                // rewrite adds "I can set up and launch your campaigns from
-                // scratch..." anyway — pure enforcer overreach on an
-                // existing-account audit job. Discard rather than ship a
-                // self-contradicting letter (audits an account that
-                // apparently doesn't exist yet).
-                const _addedWrongLaunchOffer = jobIsPpcAuditExisting &&
-                  !_LAUNCH_FROM_SCRATCH_OFFER_RE.test(_preEnforcerSnapshot) &&
-                  _LAUNCH_FROM_SCRATCH_OFFER_RE.test(correctedText)
-                // ENFORCER INTRODUCED THE FALSE "CAMPAIGN LIVE IN 1 DAY" CLAIM
-                // (confirmed TWICE: job 12185 and job 12392, 2026-08-20). On a
-                // from-scratch launch job the pre-enforcer draft correctly said
-                // "campaigns live and approved within 5 working days" (Rule
-                // 450) — the enforcer's rewrite, fixing some UNRELATED listed
-                // violation, silently swapped it for "within 1 working day",
-                // the audit-only turnaround, false here since there's no
-                // existing account to audit. Same pure-overreach shape as the
-                // regressions above: the false claim wasn't there pre-enforcer
-                // and no listed violation asked for this change.
-                const _campaignLiveTooFastRe = /\bcampaigns?\b[^.\n]{0,45}\b(?:live|launch(?:ed|ing)?|running|ready|up\s+and\s+running)\b[^.\n]{0,30}\b(?:within|in)\s+(?:1|one|a|1\s*[-–]\s*2|two|2)\s*(?:working\s+|business\s+)?days?\b/i
-                const _regressedLaunchTiming = jobIsPaidLaunch &&
-                  !_campaignLiveTooFastRe.test(_preEnforcerSnapshot) &&
-                  _campaignLiveTooFastRe.test(correctedText)
-                // ENFORCER SILENTLY ALTERED A CLIENT-MANDATED LITERAL OPENING
-                // PHRASE (confirmed real, job 12477): the posting demanded the
-                // proposal literally open with "I KNOW GOOGLE ADS" as an
-                // attention-check. The pre-enforcer draft got it exactly
-                // right; the enforcer's rewrite changed the casing to "I KNOW
-                // Google Ads" — likely its own general "casual voice, avoid
-                // shouting" instinct overriding a screening requirement it was
-                // never asked to touch. Fixed, client-specified text is not
-                // subject to a style pass. Case-SENSITIVE comparison since
-                // casing is exactly what regresses here.
-                const _regressedRequiredOpener = _requiredOpenerPhrase &&
-                  _preEnforcerSnapshot.slice(0, 150).includes(_requiredOpenerPhrase) &&
-                  !correctedText.slice(0, 150).includes(_requiredOpenerPhrase)
-                // ENFORCER DELETED THE ENTIRE DIGIT BOMB OPENER (confirmed real,
-                // job 12904): the pre-enforcer draft correctly opened with the
-                // armed case's numbers (missingDigitBombFacts / missingDigitBomb-
-                // Resonance both check the FIRST-PASS text and pass, so no digit-
-                // bomb violation ever asked for a rewrite here) — the enforcer,
-                // fixing some UNRELATED listed violation, silently dropped the
-                // whole opening paragraph, including the metrics and the case
-                // name, instead of leaving it untouched. Unlike the other
-                // MUST-KEEP checks above, there was no post-enforcer regression
-                // guard for the digit bomb at all — this closes that gap.
-                const _regressedDigitBombOpener = _digitBombCase &&
-                  _preEnforcerSnapshot.slice(0, 400).includes(_digitBombCase.name) &&
-                  !correctedText.slice(0, 400).includes(_digitBombCase.name)
-                if (_looksGarbled(correctedText) && !_looksGarbled(_preEnforcerSnapshot)) {
-                  console.warn('[Falcon] Rule-compliance rewrite looked garbled (orphaned punctuation / unbalanced parens) — discarding it and keeping the pre-enforcer draft.')
-                  _recordViolations('generator', job?.id, ['enforcerGarbledRewrite'])
-                } else if (_regressedAuditPrice || _regressedComplimentary) {
-                  console.warn('[Falcon] Rule-compliance rewrite silently dropped the $300 audit price and/or the complimentary-credit line that was correctly present pre-enforcer — discarding it and keeping the pre-enforcer draft.')
-                  _recordViolations('generator', job?.id, ['enforcerDroppedPricing'])
-                } else if (_addedWrongLaunchOffer) {
-                  console.warn('[Falcon] Rule-compliance rewrite added an unrelated "launch your campaigns from scratch" offer on an existing-account audit job — discarding it and keeping the pre-enforcer draft.')
-                  _recordViolations('generator', job?.id, ['enforcerAddedWrongLaunchOffer'])
-                } else if (_regressedLaunchTiming) {
-                  console.warn('[Falcon] Rule-compliance rewrite swapped the correct "5 working days" launch timing for a false "1 working day" campaign-live claim — discarding it and keeping the pre-enforcer draft.')
-                  _recordViolations('generator', job?.id, ['enforcerRegressedLaunchTiming'])
-                } else if (_regressedRequiredOpener) {
-                  console.warn(`[Falcon] Rule-compliance rewrite altered the client-mandated opening phrase "${_requiredOpenerPhrase}" — discarding it and keeping the pre-enforcer draft.`)
-                  _recordViolations('generator', job?.id, ['enforcerRegressedRequiredOpener'])
-                } else if (_regressedDigitBombOpener) {
-                  console.warn(`[Falcon] Rule-compliance rewrite deleted the Digit Bomb opener (${_digitBombCase?.name}'s numbers/name) that was correctly present pre-enforcer — discarding it and keeping the pre-enforcer draft.`)
-                  _recordViolations('generator', job?.id, ['enforcerRegressedDigitBombOpener'])
-                } else {
-                  text = correctedText
-                }
-              }
+            // ── ENFORCER DELETED (2026-09-02) ──────────────────────────────
+            // Step 6 of the generator audit's migration plan. The second
+            // full-price Claude call -- the "rule-compliance rewrite" -- is gone,
+            // along with the ~570 lines that built its instruction list, called
+            // it, and then tried to detect the damage it caused.
+            //
+            // It fired whenever draftCompliant was false, received the list of
+            // violations, and was asked for surgical corrections. Audited across
+            // three real letters on 2026-09-02, it failed at the specific job it
+            // was invoked for every time:
+            //   job 14169 - invoked for hasBannedOpener; its replacement opener
+            //     matched a DIFFERENT entry in the same BANNED_OPENERS list
+            //     (rule 9 traded for rule 1). Nothing caught it, because the
+            //     checks only ever ran on the FIRST-pass draft -- the enforcer's
+            //     own output was never re-checked.
+            //   job 14177 - invoked for hasFabricatedDiagnosis; the fabricated
+            //     ranking claim it was called to remove shipped intact.
+            //   job 14178 - deleted a case entry and left the lead-in above it
+            //     still claiming three.
+            // It also damaged text it was not asked to touch: the comma splices
+            // and the deleted diagnostic opener both came from this pass.
+            //
+            // What replaces it: nothing, deliberately. The checks stay and keep
+            // reporting to telemetry, the deterministic strips still run, and
+            // anything they cannot fix is surfaced to Artem rather than rewritten
+            // badly. A checker that hands its findings to an unreliable rewriter
+            // is worse than one that simply reports -- it costs a full-price call
+            // and manufactures false confidence in the result.
+            if (!draftCompliant) {
+              console.warn(`[Falcon] ${_firedChecks.length} rule check(s) fired - reporting, not rewriting: ${_firedChecks.join(', ')}`)
+              _recordViolations('generator', job?.id, ['draftNotCompliant'])
             }
           }
         }
       } catch (enforceErr) {
-        // Enforcement pass is best-effort — if it fails, fall back to the
-        // first-pass draft. The first pass already has strong rule priming
-        // so it's not catastrophic when the enforcer is unavailable.
-        console.warn('[Falcon] Rule-compliance pass failed, using first-pass draft:', enforceErr)
+        // The enforcement pass this guarded is gone; what remains inside the try
+        // is the ~56 deterministic rule checks. Keep the guard anyway: a throw in
+        // one regex must not lose a letter that has already been generated and
+        // paid for. The draft still reaches the strip chain below.
+        console.warn('[Falcon] Rule pre-check pass threw, using the draft as-is:', enforceErr)
       }
 
       {
-        const _finalText = _restoreRequiredOpenerCasing(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text), _hMaxForRateCheck)), _protectedProperNouns)).text)))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase), _requiredOpenerPhrase)
+        const _finalText = _fixCaseCountClaim(_restoreRequiredOpenerCasing(_ensureManualAuditClaim(_stripRedundantTrailingCaseBlock(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text, _postingAsksRate), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase))), _requiredOpenerPhrase))
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {
@@ -8968,6 +8882,22 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // so the user can still drag the textarea handle to override.
             style={{ width: '100%', flex: 1, minHeight: 280, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px', fontSize: 12.5, color: 'var(--text)', fontFamily: 'inherit', lineHeight: 1.65, resize: 'vertical', outline: 'none' }}
           />
+
+          {ruleFlags.length > 0 && (
+            <div style={{
+              fontSize: 10, lineHeight: 1.55, padding: '7px 10px', borderRadius: 3,
+              color: 'var(--text2)', background: 'rgba(224,160,0,0.10)',
+              border: '1px solid rgba(224,160,0,0.35)',
+            }}>
+              <span style={{ fontWeight: 700, color: '#e0a000', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {ruleFlags.length} rule check{ruleFlags.length === 1 ? '' : 's'} fired
+              </span>
+              <span style={{ color: 'var(--text3)' }}> — caught on the raw draft, before the deterministic strips ran. Some may already be fixed in the text above; check before acting.</span>
+              <div style={{ marginTop: 4, fontFamily: 'ui-monospace, monospace', color: 'var(--text2)' }}>
+                {ruleFlags.join('  ·  ')}
+              </div>
+            </div>
+          )}
 
           {feedback && <div style={{ fontSize: 10, color: 'var(--text3)' }}>{feedback === 'liked' ? '👍 Saved — will use as style example for future cover letters' : '👎 Noted — will avoid this pattern'}</div>}
 

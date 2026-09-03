@@ -1396,7 +1396,7 @@ function AiProviderChip() {
   // Ping bridge every 5s when in CLI mode
   useEffect(() => {
     if (provider !== 'cli') { setBridgeOk(false); return }
-    const ping = () => fetch('http://127.0.0.1:27182/ping', { signal: AbortSignal.timeout(2000) })
+    const ping = () => fetch('http://127.0.0.1:27183/ping', { signal: AbortSignal.timeout(2000) })
       .then(r => r.ok).then(setBridgeOk).catch(() => setBridgeOk(false))
     ping()
     const id = setInterval(ping, 5000)
