@@ -7889,3 +7889,156 @@ anchors the guessing-from-name rule, and requires the analysis to say which KB s
 - Worth noting against the analyser's judgement generally: **job 14258 was also SKIP 3/10 on a proof gap,
   Artem applied anyway, and it is the one proposal from this batch that has been VIEWED.** One data point,
   not a trend — but it is the second signal in two days that these SKIPs are running pessimistic.
+
+## 2026-09-03 — Job 14335 letter: written to a client that doesn't exist (bare "agency" match)
+
+Artem: "Another disaster from the generator - I don't even know where to start." Snapshot
+`corrections/20260903T134130-job-14335.md`. Four checks fired; none of them caught the actual problem.
+
+#### The letter pitches white-label delivery to a direct client
+
+The posting is a client wanting **their own** website audited: *"run a full audit of our website"*,
+*"Audit our website end to end and tell us what's holding us back"*. The agency wording is a requirement
+placed on the FREELANCER: title *"(Agency Background Required)"*, body *"Previous agency experience is a
+must. **You've** worked across different sites"*.
+
+The letter's second paragraph:
+
+> "I run a small team, IT Force. We've delivered white-label behind agencies' brands for years: you brief
+> the site, I run the audit by hand, deliver a prioritized findings doc **under your brand**, and **your
+> client never hears my name**."
+
+…and it closes on *"the prioritized action plan **your client** can execute."* There is no downstream
+client. The letter's entire positioning is aimed at a party that does not exist in this engagement.
+
+**Cause**, in `jobScopes()` (~line 63): the agency scope fires on
+
+```
+/\b(agency|white[-\s]?label|reseller|we\s+are\s+a\s+(?:marketing|digital|...)\s+agency
+  |on\s+behalf\s+of\s+(?:our|their)\s+clients?|for\s+our\s+clients?)\b/i
+```
+
+The first alternative is a **bare `agency`**. Every later alternative is carefully scoped — someone
+clearly thought about this — but the bare token in front makes all of them dead weight and matches any
+mention of the word, including a requirement about the applicant. `isAgencyClient` then goes true and the
+white-label prompt block is injected.
+
+**Corpus measurement before proposing a fix** (443 postings): 58 mention "agency" at all. 21 carry a real
+client-is-an-agency signal ("we are a … agency", "our clients", "white label", "reseller"). 6 are plainly
+about the freelancer's background — including this one. **31 are a bare, ambiguous mention.**
+
+So a regex fix has a 31-posting blast radius and would still be guessing. Worse, two of the six
+"requirement" cases genuinely ARE agencies by other means (job 9797's own title is "Paid Ads & Ecommerce
+Growth Agency"; job 7717 says "agency that has a PPC expert"), so a naive exclusion would misfire in the
+other direction. This is precisely the class DESIGN.md §22 calls out: keyword presence cannot separate
+"we are an agency" from "you must have agency experience".
+
+**Recommended fix — extend the existing LLM classifier, do not widen the regex.** `classifyJobShape()`
+(~line 1465) already makes a narrow forced-choice Haiku call for `is_audit_request` and
+`asks_for_rate`, returns null on any failure so callers fall back to regex, and never blocks generation.
+Adding a third question — `client_is_agency`: "does the posting say the CLIENT is an agency/reseller
+buying on behalf of their own clients, as opposed to requiring the freelancer to have agency experience?"
+— costs nothing extra: the call already happens on every generation. The pilot plan
+(`.claude/plans/polished-exploring-cupcake.md`) explicitly said to prove it small on two fields and then
+extend; this is the field to extend to, and it has a confirmed failure to validate against.
+
+#### The other four defects
+
+1. **`hasBannedOpener` — the same shape as job 14169, eight days running.** *"Scaling a website for an
+   agency client comes down to one question - can you map the technical drag AND content gaps…"* matches
+   `BANNED_OPENERS[9]`, the consultant-cliché `comes down to one (question|thing)`. It is also
+   ungrammatical: a question ending in a full stop, with *"12 years in technical SEO."* bolted on as a
+   fragment. The check reports it; nothing rewrites it now, and the first pass keeps producing it.
+
+2. **The Premier Partner deadlock.** `ppcMissingPremierPartner` fired, asking for a credential the letter
+   omits. But `seoWrongPremierPartner` (added 2026-09-02) fires when Premier Partner appears on a pure-SEO
+   job — which this is. **Two checks demanding opposite things on the same letter.** The letter is
+   currently correct; obeying the flag would break it. Root cause is the `jobContextLower` contamination
+   recorded in the previous entry: no paid-media keyword exists anywhere in job 14335's record, so the
+   PPC signal came from the analyser's own prose inside the blob.
+
+3. **Length versus what was asked.** The posting asks for *"a quick note on how you'd approach ours"*. The
+   letter is ~380 words including a full end-to-end methodology walkthrough. The LENGTH BUDGET clause
+   exists but only ships inside `extractApplicationChecklist`'s prompt block, and this posting's ask is
+   prose rather than a triggered list, so no budget was set. A checklist is not the only shape in which a
+   client tells you how long they want the answer.
+
+4. **`missingHighlightsPhrase` is almost certainly stale** — "Multilingual Site (attached in profile
+   highlights)" is right there in the shipped text. That is the known pre-strip flag problem
+   (`GENERATOR_REBUILD_HANDOFF.md` §6.3), which remains the strongest argument for reordering the strip
+   chain ahead of the checks.
+
+#### What went right, worth recording
+
+The analyser re-run at 13:19 moved this job from SKIP 3/10 to **MAYBE 6/10**, citing the carve-out added
+this morning by name: *"PROOF REQUIREMENT ANSWERABLE … Artem HAS the lemoos.com 36-page technical SEO
+audit sample"*. And the letter now attaches exactly that — *"a sample technical SEO audit … 36 pages,
+glossary up front, findings prioritized by impact"* — which is what the client asked for. The grounding
+fix works; the positioning around it does not.
+
+## 2026-09-03 — `client_is_agency` added to the job classifier; regex scored 6/10, classifier 10/10
+
+Fix for the job 14335 disaster (previous entry): the letter pitched white-label delivery "under your
+brand … your client never hears my name" to a client who wants their OWN website audited, because
+`jobScopes()`'s agency test leads with a bare `agency` token and the posting says
+"(Agency Background Required)".
+
+#### Why not widen the regex
+
+Measured first, across 443 postings: 58 mention "agency" — 21 genuinely are one, 6 are plainly about the
+applicant's CV, 31 are bare and ambiguous. And the distinction that actually matters turns out to have a
+third case the regex has no way to see: **a buyer who is HIRING an agency** ("we are an established
+Australian ecommerce business looking for a new agency"). That buyer is the end client, so white-label
+framing is wrong there too — but every one of those postings is dense with the word.
+
+#### What changed
+
+Extended `classifyJobShape()` — the existing narrow forced-choice Haiku call, which already answers
+`asks_for_rate` and `is_audit_request`, returns null on any failure, and never blocks generation. Adding a
+third question costs nothing: the call already fires on every generation.
+
+The question is scoped to the buyer, with the failure mode named explicitly: *"FALSE when the buyer wants
+work on their OWN site or account, even if the posting mentions the word agency as a REQUIREMENT ON THE
+APPLICANT … If the posting says 'our website' or 'our account', the answer is false no matter how often
+the word agency appears."*
+
+Wiring:
+- `isAgencyClient` (regex) renamed `_isAgencyClientRegex` and demoted to fallback.
+- The authoritative `isAgencyClient` is now defined after the classifier resolves, classification-first.
+- A disagreement between the two logs and records `agencyClassificationOverrodeRegex`, so how often the
+  regex was wrong stays measurable rather than assumed.
+- `client_is_agency` is tolerated as missing (set to null) rather than invalidating the whole
+  classification — the other two fields stay usable if a model omits the new one.
+- **Three consumers deliberately keep the regex value**: `_filterWhiteLabel` and the two KB-example
+  filters run while the classifier call is still in flight (it is kicked off to overlap the KB fetches),
+  and awaiting it there would serialise ~1–2s onto every generation. Failing open — letting a white-label
+  example through on a job that might be agency — is the milder error. The consequential decision, the
+  CLIENT TYPE prompt block, does wait for the classifier.
+
+#### Validation — and a correction to my own method
+
+Ran the real system prompt, lifted from source, through the real `/claude` proxy against ten real
+postings chosen to include every disputed shape. Haiku, 150 max tokens; cost a few tenths of a cent.
+
+First run scored **5 pass / 4 fail** — and the failures were mine, not the model's. I had set the expected
+labels from the same crude regex this change exists to replace, without reading the postings. Reading them:
+
+- job 8804 — *"I run an SEO and AI-search agency targeting US clients"* → buyer IS an agency. Model right.
+- job 2193 — *"Noetic Creative … our growing portfolio of clients"* → agency. Model right.
+- job 9797 — *"We are an established Australian automotive ecommerce business looking for a **new agency**"*
+  → buyer is the client. Model right.
+- job 7717 — *"We are looking to **hire** a marketing agency"* → buyer is the client. Model right.
+
+With ground truth corrected: **classifier 10/10, regex 6/10.** Every regex miss is a False case where the
+word "agency" appears — 14335, 14266, 9797, 7717.
+
+Worth recording as method, not just result: I nearly filed a passing model as a failing one because I
+trusted my own labels over the source text. Same failure shape as the console-block scan and the
+telemetry cross-check earlier in this rebuild. When a check disagrees with a careful prior finding,
+suspect the check.
+
+#### Not fixed here
+
+The generator's own `jobIsPaidMedia` / `jobIsPpc` and ~25 sibling checks still scan `jobContextLower`,
+which carries the analyser's prose — the contamination that made `ppcMissingPremierPartner` fire on this
+pure-SEO job with zero paid-media keywords anywhere in its record. That is the next structural piece.

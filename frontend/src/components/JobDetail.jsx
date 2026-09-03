@@ -1472,7 +1472,7 @@ async function classifyJobShape(jobTitle, jobDescription, model) {
         _kind: 'job_classify',
         model: model || 'claude-haiku-4-5-20251001',
         max_tokens: 150,
-        system: 'You classify Upwork job postings for a freelance proposal tool. Answer exactly two yes/no questions about what the posting ITSELF says — do not infer or guess beyond the text. Respond ONLY with valid JSON, no markdown: {"asks_for_rate":true/false,"is_audit_request":true/false}\n\nasks_for_rate: does the posting explicitly ask the freelancer to state their rate, price, budget, or a quote?\nis_audit_request: does the posting ask for a one-time audit, analysis, review, or diagnostic engagement (as opposed to ongoing hands-on management)? A posting that rejects a "generic" or "templated" audit but still wants a custom/bespoke one still counts as true — it is asking for audit-shaped work, just not a canned version of it.',
+        system: 'You classify Upwork job postings for a freelance proposal tool. Answer exactly three yes/no questions about what the posting ITSELF says — do not infer or guess beyond the text. Respond ONLY with valid JSON, no markdown: {"asks_for_rate":true/false,"is_audit_request":true/false,"client_is_agency":true/false}\n\nasks_for_rate: does the posting explicitly ask the freelancer to state their rate, price, budget, or a quote?\nis_audit_request: does the posting ask for a one-time audit, analysis, review, or diagnostic engagement (as opposed to ongoing hands-on management)? A posting that rejects a "generic" or "templated" audit but still wants a custom/bespoke one still counts as true — it is asking for audit-shaped work, just not a canned version of it.\nclient_is_agency: is the BUYER an agency, reseller, or marketing team hiring a delivery partner to work on THEIR OWN CLIENTS\' properties? True only when the work is for the buyer\'s clients — "we are a digital agency", "our clients", "white-label for our roster", "you would work under our brand". FALSE when the buyer wants work on their OWN site or account, even if the posting mentions the word agency as a REQUIREMENT ON THE APPLICANT — "agency background required", "previous agency experience is a must", "you have worked at an agency" all describe the freelancer\'s CV, not the buyer. If the posting says "our website" or "our account", the answer is false no matter how often the word agency appears.',
         messages: [{ role: 'user', content: `Job title: ${jobTitle || '(none)'}\n\nJob description:\n${(jobDescription || '').slice(0, 4000)}` }],
       }),
     })
@@ -1483,6 +1483,10 @@ async function classifyJobShape(jobTitle, jobDescription, model) {
     if (!match) return null
     const parsed = JSON.parse(match[0])
     if (typeof parsed.asks_for_rate !== 'boolean' || typeof parsed.is_audit_request !== 'boolean') return null
+    // client_is_agency was added later; tolerate a model that omits it rather than
+    // discarding a classification whose other two fields are fine, and let the
+    // caller fall back to the regex for just that field.
+    if (typeof parsed.client_is_agency !== 'boolean') parsed.client_is_agency = null
     return parsed
   } catch {
     return null
@@ -6072,14 +6076,26 @@ function ProposalColumn({
       // makes the model copy the white-label framing. (The model did exactly this
       // on a school's direct WordPress job.)
       const _earlyDesc = (job.description_full || job.description_snippet || job.raw_message || '').trim()
-      const isAgencyClient = jobScopes(
+      // Regex-derived fallback only. jobScopes()'s agency test leads with a bare
+      // `agency` token, so it fires on a posting that merely REQUIRES agency
+      // experience of the applicant — confirmed on job 14335, whose letter then
+      // pitched white-label delivery "under your brand" to a client that has no
+      // downstream clients. The authoritative value is _classifiedAgencyClient
+      // below, once the classifier has resolved.
+      const _isAgencyClientRegex = jobScopes(
         [job?.title, job?.keywords, job?.category, _earlyDesc, job?.preferred_qualifications]
           .filter(Boolean).join(' ')
       ).has('agency')
       // Markers that an example/past proposal is a white-label/agency-partner pitch.
       const _WHITELABEL_EXAMPLE_RE = /white[-\s]?label|behind the scenes|invisible partner|in the background|your end[-\s]?clients?|for your clients?|clean handoffs?|as a (?:white[-\s]?label|background) partner/i
       // On a DIRECT job, drop white-label examples so they can't be emulated.
-      const _filterWhiteLabel = (text) => (isAgencyClient || !text) ? text : (_WHITELABEL_EXAMPLE_RE.test(text) ? '' : text)
+      // Uses the REGEX value deliberately: this runs while the classifier call is
+      // still in flight (kicked off just below so it overlaps the KB fetches), and
+      // awaiting it here would serialise ~1-2s onto every generation. Failing open
+      // — letting a white-label example through on a job that might be agency — is
+      // the milder error; the consequential decision is the prompt block, which
+      // does wait for the classifier.
+      const _filterWhiteLabel = (text) => (_isAgencyClientRegex || !text) ? text : (_WHITELABEL_EXAMPLE_RE.test(text) ? '' : text)
 
       // ── Job-shape classification kickoff (pilot, 2026-08-26) ─────────────────
       // Started here so it runs CONCURRENTLY with the KB fetches below, not
@@ -6182,7 +6198,7 @@ function ProposalColumn({
           // On a direct-client job, drop white-label example letters so the model
           // can't emulate their framing (the example is far stronger than a guard).
           const examples = (await examplesRes.json())
-            .filter(e => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(e.content || ''))
+            .filter(e => _isAgencyClientRegex || !_WHITELABEL_EXAMPLE_RE.test(e.content || ''))
           if (examples.length > 0) {
             examplesText = '\n\nEXAMPLES OF PROPOSALS ARTEM LIKED — STYLE REFERENCE ONLY, NOT A FACT SOURCE. Study the voice, length, and structure. The client details, numbers, and case metrics inside these belong to OTHER jobs — do NOT copy phrases, do NOT reuse those specifics, and do NOT invent similar-looking specifics for the current job. Every specific in YOUR letter must come from CLIENT FACTS (the posting) or APPROVED PROOF (the case studies below), per the GROUNDING CONTRACT.\n' +
               examples.slice(0, 3).map((e, i) => `Example ${i+1}:\n${e.content}`).join('\n\n')
@@ -6239,7 +6255,7 @@ function ProposalColumn({
             // the strongest source of copied white-label framing (a REPLY-WINNER
             // shown as "emulate most heavily" beats any prompt guard).
             const ranked = [...sentProposals]
-              .filter(p => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(`${p.title || ''}\n${p.content || ''}`))
+              .filter(p => _isAgencyClientRegex || !_WHITELABEL_EXAMPLE_RE.test(`${p.title || ''}\n${p.content || ''}`))
               .sort((a, b) => {
               const as = getSim(a), bs = getSim(b)
               const tier = (s) =>
@@ -6373,6 +6389,20 @@ function ProposalColumn({
       // unavailable — see classifyJobShape() and WORKLOG.md for why.
       const _postingAsksRateRegex = /\b(?:your\s+(?:hourly\s+|desired\s+|expected\s+|proposed\s+)?rate|rate\s+expectation|expected\s+rate|what(?:'?s| is)\s+your\s+(?:rate|price|pricing|budget)|how\s+much\s+(?:do|would|will)\s+you\s+(?:charge|cost)|what\s+do\s+you\s+charge|(?:provide|share|include|state|send|give|quote|let\s+me\s+know)\s+(?:a\s+|an\s+|your\s+|us\s+|me\s+)?(?:rate|quote|pricing|price|estimate)|pricing\s+structure|monthly\s+(?:rate|retainer|fee)|management\s+fee|day\s+rate|project\s+(?:rate|price|quote))\b/i.test(`${job.title || ''} ${fullDescription}`)
       const _postingAsksRate = _jobClassification ? _jobClassification.asks_for_rate : _postingAsksRateRegex
+
+      // Is the BUYER an agency working on their own clients' properties, or a direct
+      // client who merely wants agency experience on the CV? Regex cannot tell those
+      // apart — measured across 443 postings, 58 mention "agency": 21 genuinely are
+      // one, 6 are plainly about the applicant, and 31 are bare and ambiguous. So
+      // this is classification-first, with the regex as the fallback when the call
+      // failed or the model omitted the field.
+      const isAgencyClient = (_jobClassification && typeof _jobClassification.client_is_agency === 'boolean')
+        ? _jobClassification.client_is_agency
+        : _isAgencyClientRegex
+      if (_isAgencyClientRegex !== isAgencyClient) {
+        console.log(`[Falcon] client_is_agency: classifier says ${isAgencyClient}, regex said ${_isAgencyClientRegex} — using the classifier.`)
+        _recordViolations('generator', job?.id, ['agencyClassificationOverrodeRegex'])
+      }
 
       // Client-type guard. `isAgencyClient` is computed once near the top of
       // generate() (it also gates white-label few-shot filtering). The prompt
