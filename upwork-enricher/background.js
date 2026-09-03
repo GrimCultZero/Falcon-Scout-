@@ -91,6 +91,47 @@ async function _consumeAhrefsPending(domain) {
   return hit;
 }
 
+// Website-inspect pending durability. Same failure shape as the Ahrefs fix
+// above, never ported over to this sibling feature (found 2026-08-27,
+// "Website scrape timed out" on Scilumen.com — a content-heavy site, exactly
+// the slow-load case this bites). INSPECT_WEBSITE opens a background tab and
+// waits for chrome.tabs.onUpdated to report status:'complete' before
+// scraping — page-load time is unbounded, easily exceeding MV3's ~30s
+// service-worker idle timeout, so the in-memory `_inspectPending` Map can be
+// wiped by a worker restart before the tab finishes loading. The onUpdated
+// listener firing wakes the worker back up (any tabs event does), finds
+// _inspectPending empty, and silently returns: no scrape, no fetch, no
+// WEBSITE_INSPECT_COMPLETE — the dashboard just sits until its own 60s
+// timeout. Mirror into chrome.storage.session exactly like Ahrefs.
+const _INSPECT_PENDING_KEY = 'falcon_inspect_pending';
+
+async function _persistInspectPending(tabId, job_id, url) {
+  if (tabId == null) return;
+  _inspectPending.set(tabId, { job_id, url });
+  try {
+    const cur = (await chrome.storage.session.get(_INSPECT_PENDING_KEY))[_INSPECT_PENDING_KEY] || {};
+    cur[tabId] = { job_id, url };
+    await chrome.storage.session.set({ [_INSPECT_PENDING_KEY]: cur });
+  } catch (e) { console.warn('[Cockpit BG] _persistInspectPending failed:', e && e.message); }
+}
+
+// Returns { job_id, url } for a pending website inspection and consumes it.
+// Checks the fast in-memory Map AND the durable storage.session copy.
+async function _consumeInspectPending(tabId) {
+  if (tabId == null) return null;
+  let hit = _inspectPending.get(tabId) || null;
+  _inspectPending.delete(tabId);
+  try {
+    const cur = (await chrome.storage.session.get(_INSPECT_PENDING_KEY))[_INSPECT_PENDING_KEY] || {};
+    if (cur[tabId]) {
+      hit = hit || cur[tabId];
+      delete cur[tabId];
+      await chrome.storage.session.set({ [_INSPECT_PENDING_KEY]: cur });
+    }
+  } catch (e) { console.warn('[Cockpit BG] _consumeInspectPending failed:', e && e.message); }
+  return hit;
+}
+
 // Track tabs opened by the popup's "Go to proposal & capture" jump button.
 // When proposal.js auto-fires PROPOSAL_ENRICHED on these tabs we route the
 // data to /capture-standalone-proposal (fresh KB entry) instead of the
@@ -433,7 +474,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: 'tab create failed' });
         return;
       }
-      _inspectPending.set(tab.id, { job_id, url });
+      _persistInspectPending(tab.id, job_id, url);
       _bgTabs.add(tab.id);
       _scheduleTabCleanup(tab.id, 2);
       console.log('[Cockpit BG] INSPECT_WEBSITE tab', tab.id, '→', url);
@@ -1118,12 +1159,14 @@ function notifyCockpit(type, detail) {
 }
 
 // ── Website inspection: fire chrome.scripting.executeScript when the tab
-// finishes loading. Uses _inspectPending keyed by tabId.
-chrome.tabs.onUpdated.addListener((tabId, info) => {
+// finishes loading. Uses _inspectPending keyed by tabId (async: the pending
+// entry may only exist in storage.session if MV3 killed the worker while the
+// tab was loading — see _persistInspectPending).
+chrome.tabs.onUpdated.addListener(async (tabId, info) => {
   if (info.status !== 'complete') return;
-  if (!_inspectPending.has(tabId)) return;
-  const { job_id, url } = _inspectPending.get(tabId);
-  _inspectPending.delete(tabId);
+  const pending = await _consumeInspectPending(tabId);
+  if (!pending) return;
+  const { job_id, url } = pending;
 
   chrome.scripting.executeScript({
     target: { tabId },

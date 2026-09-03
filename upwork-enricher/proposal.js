@@ -941,8 +941,77 @@
     return { viewedTitles, phraseCount };
   }
 
+  // ── Load the ENTIRE proposals list before scraping ───────────────────────
+  // Owner audit, 2026-08-31: across 221 proposals spanning four months, a
+  // "viewed by client" flag has NEVER ONCE been detected on a proposal sitting
+  // below about row 9 of the list. The scraper only ever saw the first screen
+  // of a virtualised/lazy-loaded list, so a view that arrived after the
+  // proposal sank out of that window was structurally undetectable. It gets
+  // worse the harder he bids: the detection window shrank from ~6.0 days
+  // (June) to ~2.7 days (August) purely because his own newer proposals pushed
+  // the older ones out of view faster. The dashboard then reported those
+  // never-observed rows as "ghosted", i.e. as client rejection.
+  //
+  // Scroll to the bottom repeatedly until the row count stops growing, then
+  // return to the top and scrape. Deliberately scroll-only — no clicking of
+  // "load more"-style controls, because this runs unattended on an hourly
+  // alarm and should never actuate page controls on its own. Bails out fast
+  // (two no-growth passes) when the list is short or not virtualised at all,
+  // so the common case costs ~1.4s.
+  // Last list-load stats, sent to the backend with the sync so /sync-runs can
+  // show whether the virtualised list actually expanded on that run.
+  let _lastScrollStats = null;
+  async function loadEntireProposalsList() {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    // Cheap row proxy: Upwork prints "Initiated" once per submitted proposal.
+    // Counting via body.innerText avoids re-walking every element each pass.
+    const countRows = () => (((document.body.innerText || '').match(/\binitiated\b/gi)) || []).length;
+    // A virtualised list often scrolls an inner container, not the window.
+    // Resolve the tallest scrollable ONCE — re-querying every pass is costly.
+    let inner = null;
+    try {
+      let best = null;
+      for (const el of document.querySelectorAll('main div, [class*="scroll"], [class*="list"]')) {
+        if (el.scrollHeight > el.clientHeight + 100) {
+          const oy = getComputedStyle(el).overflowY;
+          if (oy === 'auto' || oy === 'scroll') {
+            if (!best || el.scrollHeight > best.scrollHeight) best = el;
+          }
+        }
+      }
+      inner = best;
+    } catch (_) {}
+
+    const startCount = countRows();
+    let last = startCount, stable = 0, passes = 0;
+    const MAX_PASSES = 20, STABLE_NEEDED = 2;
+    while (passes < MAX_PASSES && stable < STABLE_NEEDED) {
+      passes++;
+      try {
+        window.scrollTo(0, document.body.scrollHeight);
+        if (inner) inner.scrollTop = inner.scrollHeight;
+      } catch (_) {}
+      await sleep(700);
+      const now = countRows();
+      if (now > last) { last = now; stable = 0; } else { stable++; }
+    }
+    try {
+      window.scrollTo(0, 0);
+      if (inner) inner.scrollTop = 0;
+    } catch (_) {}
+    await sleep(300);
+    const stats = { startCount, endCount: last, passes, grew: last - startCount, innerScroller: !!inner };
+    _lastScrollStats = stats;
+    console.log('[Cockpit Proposal] list load:', JSON.stringify(stats));
+    return stats;
+  }
+
   async function scrapeProposalsList() {
     const rows = [];
+
+    // Load every row FIRST — buildViewedTitleSetFromHtml() below scans the
+    // page HTML, so it must not run against a half-rendered list.
+    const scrollStats = await loadEntireProposalsList();
 
     // Layer 0 — HTML title-scan. Finds job titles near "viewed by client" text.
     // More reliable than scanning for hex IDs because Upwork links proposals
@@ -1200,6 +1269,11 @@
     }
     const debug = {
       rowCount: rows.length,
+      // How much of the list we actually managed to load this run. If `grew` is
+      // 0 and `endCount` is ~9, the virtualised list did not expand and the
+      // rank-9 blind spot is still in play — that is exactly what the
+      // sync_runs log exists to make visible instead of silently guessing.
+      scrollStats,
       viewedIndicatorsOnPage: viewedYs.length,
       viewedRowCount: viewedTitles.length,
       viewedTitles,
@@ -1335,7 +1409,7 @@
       resp = await fetch(`${FALCON_API_BASE}/proposal-status-sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ rows, scroll: _lastScrollStats }),
         signal: ctrl.signal,
       });
     } catch (e) {

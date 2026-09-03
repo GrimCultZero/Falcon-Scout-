@@ -33,7 +33,13 @@ const FILTERS = [
   { key: 'interviewing', label: 'Interviewing' },
   { key: 'hired',        label: 'Hired' },
   { key: 'declined',     label: 'Declined' },
-  { key: 'ghosted',      label: 'Ghosted' },
+  // Label, not key — the DB value stays 'ghosted' so every filter, query and
+  // analytic keeps working. "Ghosted" asserts the client rejected him; all this
+  // status actually means is that a local 10-day timer expired without anything
+  // updating the row, and the tracker is provably capable of missing views
+  // (owner audit 2026-08-31: no view has ever been detected below list rank 9,
+  // plus an 11.6-day sync blackout in August). Say what is known instead.
+  { key: 'ghosted',      label: 'No reply seen' },
   { key: 'expired',      label: 'Expired' },
   { key: 'withdrawn',    label: 'Withdrawn' },
   { key: 'invited',      label: 'Invited' },

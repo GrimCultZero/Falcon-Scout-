@@ -162,7 +162,9 @@ export default function Dashboard({ active = false }) {
         <StatCard label="Invited" value={invitedCount} accent="#8b5cf6" />
         <StatCard label="Got a Reply" value={replyable} accent="#00c8d4" />
         <StatCard label="Hired" value={funnel.hired || 0} accent="#00d070" />
-        <StatCard label="Ghosted" value={funnel.ghosted || 0} accent="#f59e0b" />
+        {/* "No reply seen", not "Ghosted" — see the note in Outcomes.jsx: this
+            counts rows a local 10-day timer gave up on, not confirmed rejections. */}
+        <StatCard label="No reply seen" value={funnel.ghosted || 0} accent="#f59e0b" />
         {replyRate !== null && (
           <StatCard label="Reply Rate" value={replyRate + '%'} accent={replyRate >= 20 ? '#00d070' : replyRate >= 10 ? '#00c8d4' : '#f59e0b'} />
         )}

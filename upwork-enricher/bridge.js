@@ -74,30 +74,36 @@
   });
 
   // Page → Extension: scrape a client website for cover-letter personalisation.
+  //
+  // Checks BOTH chrome.runtime.lastError (channel-level failure, e.g. the
+  // extension context is gone) AND response.ok (application-level failure,
+  // e.g. background.js's chrome.tabs.create call itself failed) — a response
+  // with ok:false but no lastError used to fall through this callback doing
+  // nothing, leaving the dashboard to sit out its own 60s timeout with no
+  // console signal at all instead of surfacing the real error immediately.
   window.addEventListener('cockpit:inspect-website', (e) => {
     const { job_id, url } = e.detail || {};
     if (!job_id || !url) return;
     chrome.runtime.sendMessage({ type: 'INSPECT_WEBSITE', job_id, url }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn('[Cockpit Bridge] INSPECT_WEBSITE error:', chrome.runtime.lastError.message);
-        window.dispatchEvent(new CustomEvent('cockpit:website-inspect:error', {
-          detail: { error: chrome.runtime.lastError.message }
-        }));
+      const err = chrome.runtime.lastError?.message || (response && response.ok === false ? response.error : null);
+      if (err) {
+        console.warn('[Cockpit Bridge] INSPECT_WEBSITE error:', err);
+        window.dispatchEvent(new CustomEvent('cockpit:website-inspect:error', { detail: { error: err } }));
       }
     });
   });
 
   // Page → Extension: open Ahrefs Site Explorer for a client domain and scrape
   // SEO health data (DR, organic traffic, backlinks) for cover letter context.
+  // Same response.ok check as INSPECT_WEBSITE above, same reasoning.
   window.addEventListener('cockpit:enrich-ahrefs', (e) => {
     const { job_id, domain } = e.detail || {};
     if (!job_id || !domain) return;
     chrome.runtime.sendMessage({ type: 'ENRICH_AHREFS', job_id, domain }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn('[Cockpit Bridge] ENRICH_AHREFS error:', chrome.runtime.lastError.message);
-        window.dispatchEvent(new CustomEvent('cockpit:ahrefs:error', {
-          detail: { error: chrome.runtime.lastError.message }
-        }));
+      const err = chrome.runtime.lastError?.message || (response && response.ok === false ? response.error : null);
+      if (err) {
+        console.warn('[Cockpit Bridge] ENRICH_AHREFS error:', err);
+        window.dispatchEvent(new CustomEvent('cockpit:ahrefs:error', { detail: { error: err } }));
       }
     });
   });

@@ -14,7 +14,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-const PORT = 27182;
+const PORT = 27183;
 const HOST = '127.0.0.1';
 
 // Run `claude` from a neutral, empty directory so it does NOT auto-discover
@@ -23,6 +23,14 @@ const HOST = '127.0.0.1';
 // os.tmpdir()'s ancestors have no CLAUDE.md, so nothing is picked up.
 const NEUTRAL_CWD = path.join(os.tmpdir(), 'falcon-bridge-cwd');
 try { fs.mkdirSync(NEUTRAL_CWD, { recursive: true }); } catch (e) {}
+
+// Artem's own Claude subscription, isolated from whatever account is logged
+// into the machine's default ~/.claude profile (a different account) — so
+// this bridge always bills/runs against his account, never anyone else's.
+// One-time setup in a terminal:
+//   $env:CLAUDE_CONFIG_DIR = "<this path>"
+//   claude auth login --claudeai
+const ARTEM_CONFIG_DIR = path.join(os.homedir(), '.claude-artem');
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -69,7 +77,7 @@ const server = http.createServer((req, res) => {
       // All pure text-in/text-out; no tools needed for analyse/generate.
       const child = spawn('claude', ['-p', '--model', modelAlias, '--strict-mcp-config', '--disable-slash-commands'], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
+        env: { ...process.env, CLAUDE_CONFIG_DIR: ARTEM_CONFIG_DIR },
         shell: isWin,
         cwd: NEUTRAL_CWD,
       });
@@ -132,5 +140,6 @@ server.on('error', (e) => {
 server.listen(PORT, HOST, () => {
   console.log(`Falcon Scout CLI Bridge running at http://${HOST}:${PORT}`);
   console.log(`Routing /ai → claude -p  (cwd: ${NEUTRAL_CWD})`);
+  console.log(`Using isolated account profile: ${ARTEM_CONFIG_DIR}`);
   console.log('Test: echo "reply with just: ok" | claude -p');
 });

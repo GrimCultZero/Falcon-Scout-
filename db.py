@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, Column, String, Float, DateTime, Text, Integer, Boolean, ForeignKey
+from sqlalchemy import create_engine, event, Column, String, Float, DateTime, Text, Integer, Boolean, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Session
 
 
@@ -276,8 +276,70 @@ class RuleViolation(Base):
     check_name = Column(String, nullable=False, index=True)
 
 
+class SyncRun(Base):
+    """One row per proposal-status sync ATTEMPT, including ones that matched nothing.
+
+    Owner audit, 2026-08-31: nothing anywhere recorded that a sync had run, so a
+    sync that executed and matched zero rows was indistinguishable in this
+    database from a sync that never executed at all. That is what made an
+    11.6-day total blackout in view detection (2026-08-14 -> 2026-08-26, 27
+    submitted proposals, 19 of them during heavy active bidding) impossible to
+    notice at the time and impossible to root-cause afterwards -- and it is why
+    every engagement number the tool reports is currently unfalsifiable: "no
+    views" and "no measurement" look the same.
+
+    One row per run turns that into a checkable claim. `rows_scraped` == 0 over
+    consecutive runs means the scraper is broken; no rows at all for a day means
+    the sync is not firing; `scroll_json` shows whether the virtualised list
+    actually expanded (see loadEntireProposalsList in proposal.js) or whether the
+    old rank-9 blind spot is still in play.
+    """
+
+    __tablename__ = "sync_runs"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    ts           = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    # Which sync leg reported: "proposals-list", "messages", ...
+    leg          = Column(String, nullable=False, index=True)
+    rows_scraped = Column(Integer, nullable=False, default=0)
+    matched      = Column(Integer, nullable=False, default=0)
+    not_matched  = Column(Integer, nullable=False, default=0)
+    newly_viewed = Column(Integer, nullable=False, default=0)
+    # JSON blob of the scraper's list-load stats (startCount/endCount/passes/grew).
+    scroll_json  = Column(Text, nullable=True)
+
+
 def init_db(database_url: str):
     engine = create_engine(database_url, echo=False)
+    # SQLite concurrency (2026-08-27): the app has real concurrent write load
+    # -- background auto-enrichment continuously saves results for many jobs
+    # while the user is simultaneously interacting (Ahrefs/website-inspect
+    # saves, proposal submits, etc.), all against ONE file. The default
+    # rollback-journal mode ("delete") takes a broader lock for the duration
+    # of a write, so a second writer arriving mid-transaction can hit
+    # "database is locked" once contention outlasts the ~5s default busy
+    # timeout -- confirmed reproducible (isolated test, two threads, one
+    # holding a write transaction open past the timeout while a second tries
+    # to write). That was the actual root cause of a "Website scrape timed
+    # out" report: the scrape itself succeeded, but the save-to-DB step hit
+    # exactly this, and the resulting unhandled OperationalError produced a
+    # plain-text 500 the frontend couldn't parse as JSON, so it never learned
+    # the save had happened -- see save_website_inspect's try/except in
+    # api/main.py for the other half of this fix. WAL mode lets readers
+    # proceed without blocking on a writer (and vice versa within limits),
+    # which is SQLite's own recommended mode for this access pattern; it's
+    # persisted in the database file itself, so re-applying on every startup
+    # is a no-op once already set. busy_timeout is per-CONNECTION, not
+    # persistent, so it's applied via the "connect" event below rather than
+    # once here, ensuring every connection drawn from the pool gets it, not
+    # just the first one.
+    if database_url.startswith("sqlite"):
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=15000")
+            cursor.close()
     Base.metadata.create_all(engine)
     return engine
 
