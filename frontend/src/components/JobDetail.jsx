@@ -6088,14 +6088,11 @@ function ProposalColumn({
       ).has('agency')
       // Markers that an example/past proposal is a white-label/agency-partner pitch.
       const _WHITELABEL_EXAMPLE_RE = /white[-\s]?label|behind the scenes|invisible partner|in the background|your end[-\s]?clients?|for your clients?|clean handoffs?|as a (?:white[-\s]?label|background) partner/i
-      // On a DIRECT job, drop white-label examples so they can't be emulated.
-      // Uses the REGEX value deliberately: this runs while the classifier call is
-      // still in flight (kicked off just below so it overlaps the KB fetches), and
-      // awaiting it here would serialise ~1-2s onto every generation. Failing open
-      // — letting a white-label example through on a job that might be agency — is
-      // the milder error; the consequential decision is the prompt block, which
-      // does wait for the classifier.
-      const _filterWhiteLabel = (text) => (_isAgencyClientRegex || !text) ? text : (_WHITELABEL_EXAMPLE_RE.test(text) ? '' : text)
+      // NOTE: a _filterWhiteLabel() helper used to sit here. Removed 2026-09-03 —
+      // it had ZERO call sites in the entire file and never filtered anything, while
+      // reading like the white-label protection. The real filtering is the two
+      // _WHITELABEL_EXAMPLE_RE .filter() calls further down, which now gate on the
+      // classified isAgencyClient rather than the regex.
 
       // ── Job-shape classification kickoff (pilot, 2026-08-26) ─────────────────
       // Started here so it runs CONCURRENTLY with the KB fetches below, not
@@ -6105,17 +6102,31 @@ function ProposalColumn({
       // then a fresh classify call only if neither has it. Never throws —
       // classifyJobShape() and the fetches below all resolve to null on
       // failure, so downstream code always has a clean fallback to the regex.
+      // Every field the CURRENT classifier answers. A cached object missing one was
+      // written before that field existed, so it is stale and must be re-classified —
+      // otherwise a newly added signal silently falls back to its regex on every job
+      // already in the cache. Confirmed the hard way: client_is_agency shipped and
+      // stayed inert on 29 of 30 cached jobs, including the one it was written for.
+      // Test PRESENCE, not type: a model that genuinely answers null has been asked
+      // and its answer should stick, whereas requiring a boolean would re-classify
+      // on every single generation whenever a model omits the field.
+      const _CLASSIFICATION_FIELDS = ['asks_for_rate', 'is_audit_request', 'client_is_agency']
+      const _classificationCurrent = (o) => !!o && _CLASSIFICATION_FIELDS.every(k => k in o)
+
       const _classificationPromise = (async () => {
         if (!job?.id) return null
         const cached = jobClassificationCacheRef.current[job.id]
-        if (cached) return cached
+        if (_classificationCurrent(cached)) return cached
         try {
           const getRes = await fetch(`/jobs/${job.id}/classification`)
           if (getRes.ok) {
             const { classification } = await getRes.json()
-            if (classification) {
+            if (_classificationCurrent(classification)) {
               jobClassificationCacheRef.current[job.id] = classification
               return classification
+            }
+            if (classification) {
+              console.log('[Falcon] Cached job classification predates a current field — re-classifying.')
             }
           }
         } catch {}
@@ -6130,6 +6141,29 @@ function ProposalColumn({
         }
         return fresh
       })()
+
+      // Resolved here, before the KB fetches below, because the white-label example
+      // filters depend on it and an example outweighs a prompt line (see the comment
+      // above _isAgencyClientRegex). Cached jobs resolve instantly; only a job's first
+      // generation pays the round-trip.
+      const _jobClassification = await _classificationPromise
+      if (_jobClassification) {
+        console.log('[Falcon] Job classification hit:', _jobClassification)
+      } else {
+        console.log('[Falcon] Job classification unavailable — falling back to regex.')
+      }
+
+      // Is the BUYER an agency working on their own clients' properties, or a direct
+      // client who merely wants agency experience on the CV — or one HIRING an agency?
+      // Regex cannot tell those apart: across 443 postings, 58 mention "agency" and
+      // only 21 are one. Classification-first, regex as fallback.
+      const isAgencyClient = (_jobClassification && typeof _jobClassification.client_is_agency === 'boolean')
+        ? _jobClassification.client_is_agency
+        : _isAgencyClientRegex
+      if (_isAgencyClientRegex !== isAgencyClient) {
+        console.log(`[Falcon] client_is_agency: classifier says ${isAgencyClient}, regex said ${_isAgencyClientRegex} — using the classifier.`)
+        _recordViolations('generator', job?.id, ['agencyClassificationOverrodeRegex'])
+      }
 
       // Fetch KB rules, liked-feedback examples, sent proposals, and portfolio in parallel
       let kbRulesText = ''
@@ -6198,7 +6232,7 @@ function ProposalColumn({
           // On a direct-client job, drop white-label example letters so the model
           // can't emulate their framing (the example is far stronger than a guard).
           const examples = (await examplesRes.json())
-            .filter(e => _isAgencyClientRegex || !_WHITELABEL_EXAMPLE_RE.test(e.content || ''))
+            .filter(e => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(e.content || ''))
           if (examples.length > 0) {
             examplesText = '\n\nEXAMPLES OF PROPOSALS ARTEM LIKED — STYLE REFERENCE ONLY, NOT A FACT SOURCE. Study the voice, length, and structure. The client details, numbers, and case metrics inside these belong to OTHER jobs — do NOT copy phrases, do NOT reuse those specifics, and do NOT invent similar-looking specifics for the current job. Every specific in YOUR letter must come from CLIENT FACTS (the posting) or APPROVED PROOF (the case studies below), per the GROUNDING CONTRACT.\n' +
               examples.slice(0, 3).map((e, i) => `Example ${i+1}:\n${e.content}`).join('\n\n')
@@ -6255,7 +6289,7 @@ function ProposalColumn({
             // the strongest source of copied white-label framing (a REPLY-WINNER
             // shown as "emulate most heavily" beats any prompt guard).
             const ranked = [...sentProposals]
-              .filter(p => _isAgencyClientRegex || !_WHITELABEL_EXAMPLE_RE.test(`${p.title || ''}\n${p.content || ''}`))
+              .filter(p => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(`${p.title || ''}\n${p.content || ''}`))
               .sort((a, b) => {
               const as = getSim(a), bs = getSim(b)
               const tier = (s) =>
@@ -6371,16 +6405,6 @@ function ProposalColumn({
       const _requiredOpenerMatch = fullDescription.match(_REQUIRED_OPENER_RE)
       const _requiredOpenerPhrase = _requiredOpenerMatch ? _requiredOpenerMatch[1].trim() : null
 
-      // Resolve the job-shape classification kicked off earlier (concurrent
-      // with the KB fetches above — should already be settled by now). Reused
-      // below at isAuditJob too, so it's only awaited/logged once per generate().
-      const _jobClassification = await _classificationPromise
-      if (_jobClassification) {
-        console.log('[Falcon] Job classification hit:', _jobClassification)
-      } else {
-        console.log('[Falcon] Job classification unavailable — falling back to regex (isAuditJob / _postingAsksRate).')
-      }
-
       // Does the POSTING explicitly ask for a rate / budget / quote / pricing? If not,
       // a volunteered rate is stripped from the letter (Artem never quotes a price
       // upfront — the hourly bid lives in the Upwork application form, not the body).
@@ -6389,20 +6413,6 @@ function ProposalColumn({
       // unavailable — see classifyJobShape() and WORKLOG.md for why.
       const _postingAsksRateRegex = /\b(?:your\s+(?:hourly\s+|desired\s+|expected\s+|proposed\s+)?rate|rate\s+expectation|expected\s+rate|what(?:'?s| is)\s+your\s+(?:rate|price|pricing|budget)|how\s+much\s+(?:do|would|will)\s+you\s+(?:charge|cost)|what\s+do\s+you\s+charge|(?:provide|share|include|state|send|give|quote|let\s+me\s+know)\s+(?:a\s+|an\s+|your\s+|us\s+|me\s+)?(?:rate|quote|pricing|price|estimate)|pricing\s+structure|monthly\s+(?:rate|retainer|fee)|management\s+fee|day\s+rate|project\s+(?:rate|price|quote))\b/i.test(`${job.title || ''} ${fullDescription}`)
       const _postingAsksRate = _jobClassification ? _jobClassification.asks_for_rate : _postingAsksRateRegex
-
-      // Is the BUYER an agency working on their own clients' properties, or a direct
-      // client who merely wants agency experience on the CV? Regex cannot tell those
-      // apart — measured across 443 postings, 58 mention "agency": 21 genuinely are
-      // one, 6 are plainly about the applicant, and 31 are bare and ambiguous. So
-      // this is classification-first, with the regex as the fallback when the call
-      // failed or the model omitted the field.
-      const isAgencyClient = (_jobClassification && typeof _jobClassification.client_is_agency === 'boolean')
-        ? _jobClassification.client_is_agency
-        : _isAgencyClientRegex
-      if (_isAgencyClientRegex !== isAgencyClient) {
-        console.log(`[Falcon] client_is_agency: classifier says ${isAgencyClient}, regex said ${_isAgencyClientRegex} — using the classifier.`)
-        _recordViolations('generator', job?.id, ['agencyClassificationOverrodeRegex'])
-      }
 
       // Client-type guard. `isAgencyClient` is computed once near the top of
       // generate() (it also gates white-label few-shot filtering). The prompt
