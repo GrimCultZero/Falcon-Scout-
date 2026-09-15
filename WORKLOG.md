@@ -8163,3 +8163,45 @@ the playbook work, any future detector — was reading contaminated data until n
 
 Expect the fired-check counts to CHANGE, in both directions, on the next letters. A jump is not a
 regression; it is checks seeing the real text for the first time.
+
+## 2026-09-15 — Digit Bomb: not plumbing, a contradiction with KB Rule 439 — and the reorder verified in production
+
+Second "no digit bomb" report on job 15246. The arming telemetry added an hour earlier answered it
+immediately, which is the point of having added it.
+
+#### The 14:28:22 run, from telemetry alone
+
+- `digitBombArmedForThisRun` **fired** → the bomb reached `generate()`. The plumbing is fine, and my
+  earlier "an earlier run consumed the arm" hypothesis does not apply here.
+- `missingDigitBombFacts` **fired** → the model was given the instruction and did not comply.
+- `hasBannedOpener` **fired** → and it opened "12 years running Google Ads, Google Premier Partner 2026."
+
+So: an instruction-following failure, not a wiring failure. One query, no tracing.
+
+#### Why the model ignored it — it was resolving a contradiction
+
+  Digit Bomb block: "the very FIRST WORDS of the letter must be this case's real numbers … do NOT use any
+                    of the usual openers (no credential lead-in)"
+  KB Rule 439:      "Every cover letter MUST establish Artem's experience baseline within the first 2-3
+                    sentences … placed BEFORE diving into approach/audit/case studies"
+
+Two mandatory instructions demanding opposite orders. 439 says MUST and Every; the Digit Bomb block never
+said what becomes of the credential line. The model kept 439, dropped the bomb — and then tripped
+`hasBannedOpener`, because the credentials opener 439 demanded is itself banned. Three rules, mutually
+unsatisfiable as written, and the model was blamed for the one it broke.
+
+Fix: a PRECEDENCE clause in the Digit Bomb block stating that the credential is **not dropped, it moves** —
+(1) metrics-led cold open + bridge, (2) then the "12 years" line, (3) then the rest. That satisfies 439
+(the baseline is still within the first 2-3 sentences of the body) and the cold open, instead of one
+silently losing. It also names job 15246 as the confirmed failure, the way "Mr Chef" anchors the
+guessing-from-name rule.
+
+Not another prohibition. The prompt had a genuine logical conflict; this states the order of precedence.
+
+#### The reorder is verified in production, on its first run
+
+`hasBannedOpener` fired at 14:28:22. On the 14:17:53 run — same credentials opener, same letter shape —
+it did not, and could not: the check read the raw draft and a strip created the opener afterwards.
+
+That is the strip-chain reorder (commit `1c58945`) working on real traffic, one run after shipping. The
+check that was structurally blind to the defect Artem has complained about most now reports it.
