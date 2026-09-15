@@ -8402,8 +8402,16 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // same lesson as every other check in this file. Now requires the
             // metric to appear EARLY (first 80 chars — "the very first words")
             // AND strictly before the case name's own first mention.
+            // Record that the bomb was ARMED for this generation, whatever the
+            // outcome. Without this a successful digit bomb writes nothing at all —
+            // every digit-bomb check is gated on _digitBombCase, so "armed and
+            // obeyed" and "never armed" produce identical (empty) telemetry.
+            // Confirmed cost, job 15246 (2026-09-15): Artem reported the bomb armed
+            // and not firing, and the telemetry could not distinguish the two cases.
             let missingDigitBombFacts = false
             if (_digitBombCase) {
+              _recordViolations('generator', job?.id, ['digitBombArmedForThisRun'])
+              console.log(`[Falcon] Digit Bomb armed for this generation: ${_digitBombCase.name}`)
               const _dbOpening = text.slice(0, 400)
               const _dbMetricNumbers = _digitBombCase.metrics
                 .map(m => (m.match(/[\d,]+\.?\d*/) || [])[0])

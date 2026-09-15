@@ -8042,3 +8042,64 @@ suspect the check.
 The generator's own `jobIsPaidMedia` / `jobIsPpc` and ~25 sibling checks still scan `jobContextLower`,
 which carries the analyser's prose — the contamination that made `ppcMissingPremierPartner` fire on this
 pure-SEO job with zero paid-media keywords anywhere in its record. That is the next structural piece.
+
+## 2026-09-15 — Job 15246: Digit Bomb "armed but didn't fire", and a strip chain manufacturing a banned opener
+
+Artem: "digi bomb was armed but it didnt fire." Snapshot `corrections/20260915T141757-job-15246.md`.
+
+#### The Digit Bomb: plumbing is fine, the arm was consumed by an earlier run
+
+Traced the whole chain and it is correct: state lives in `App.jsx` (256-257), a single `<JobDetail>`
+render site passes `digitBombArmed`/`digitBombCaseId`/`setDigitBombArmed` (1076-1078), `ProposalColumn`
+declares all three (5763-5766), and **every** call site passes `digitBombArmed ? { digitBombCaseId } : {}`
+— Generate (8864), Redo (9043), Rescan & Re-write (9047), and the chat rework (9131). No missing hand-off.
+
+`missingDigitBombFacts` is gated on `_digitBombCase`, and it did not fire on either of this job's two
+generations, so `options.digitBombCaseId` was falsy both times.
+
+Telemetry shows **two generations 56 seconds apart** — 14:16:57 and 14:17:53 — and the share at 14:17:57,
+i.e. the letter Artem is looking at is the SECOND one. `generate()` consumes the arm at the very top
+(`if (options.digitBombCaseId && digitBombArmed) setDigitBombArmed(false)`), before the API call. So the
+most likely sequence is: armed → Generate (run 1 consumed it) → regenerate → run 2 had nothing, silently.
+
+**Not proven, and that is the actual defect.** A digit bomb that fires AND is obeyed writes no telemetry
+at all: every digit-bomb check is gated on `_digitBombCase`, so "armed and obeyed" and "never armed"
+produce identical empty records. There was no way to tell Artem which had happened.
+
+Fixed: `_recordViolations('generator', job?.id, ['digitBombArmedForThisRun'])` plus a console line fire
+whenever `_digitBombCase` is non-null, regardless of outcome. The next occurrence is diagnosable in one
+query instead of an hour of tracing.
+
+**Open, for Artem to decide:** the bar says "Disarms after one use", and it consumes the arm when the
+generation STARTS. That means any regenerate silently drops it. Options: consume only once the letter is
+actually delivered; or keep the arm until manually disarmed. This is a UX decision about his own tool, not
+a bug to fix unilaterally.
+
+#### The strip chain CREATED a banned opener that no check could see
+
+The shipped letter opens *"12 years running Google Ads, Google Premier Partner 2026."* — which matches
+`BANNED_OPENERS[0]`, `/^\d+\+?\s*years?\b/i` (verified in node). **`hasBannedOpener` did not fire.**
+
+It cannot have. `_firstLine` is taken from `text` — the raw first-pass draft — and the checks run before
+the strip chain. Run 2 fired no opener check at all, so the draft's own first line was neither banned nor
+an explainer. Something in the chain then removed the original opening paragraph and promoted the
+credentials line into first position, after every check had already passed.
+
+This is handoff §6.3 (checks run pre-strip) in its worst form. Until now the cost was noise — a flag
+reporting a problem the strips had already fixed. Here the cost is inverted: **a real violation, shipped,
+that the check set is structurally incapable of seeing** — and it is the single defect Artem has complained
+about most across this rebuild (the credentials opener, jobs 14169, 14335, now 15246).
+
+No prompt change or new check can address it: the check exists, it is correct, and it runs at the wrong
+time. The reorder — strips before checks — moves from "worth doing" to the highest-value remaining item.
+
+#### The three flags that did fire
+
+- `wrongAuditOfferOnLaunch` — real and material. The posting is a from-scratch setup ("set up, manage,
+  optimize, and scale our Google Ads campaigns"); the letter closes *"I'm attaching recent Google Ads
+  audit samples"*. Rule 450: nothing exists to audit. The letter also correctly offers the 5-working-day
+  launch, so it makes both offers at once.
+- `fabricatedCaseMetric` + `metricNotInLedger` — both fired on run 2. Worth checking which figure; the
+  Atlant line carries three (+56.5% conversions, -31% CPC, +144% clicks) and FridgeFix two.
+- `localServiceCaseDisplacedByEcomHealth` — fired on both runs and on job 14335 two weeks ago. Third
+  occurrence; worth looking at as a pattern rather than per-letter.
