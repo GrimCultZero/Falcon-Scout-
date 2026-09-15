@@ -8103,3 +8103,63 @@ time. The reorder — strips before checks — moves from "worth doing" to the h
   Atlant line carries three (+56.5% conversions, -31% CPC, +144% clicks) and FridgeFix two.
 - `localServiceCaseDisplacedByEcomHealth` — fired on both runs and on job 14335 two weeks ago. Third
   occurrence; worth looking at as a pattern rather than per-letter.
+
+## 2026-09-15 — The strip chain now runs BEFORE the checks (handoff §6.3 closed)
+
+The reorder deferred since 2026-09-02. Job 15246 made it unarguable.
+
+#### Why it finally had to happen
+
+That letter shipped opening *"12 years running Google Ads, Google Premier Partner 2026."* —
+`BANNED_OPENERS[0]`, `/^\d+\+?\s*years?\b/i` — and **`hasBannedOpener` did not fire.** It could not:
+`_firstLine` is read off the raw draft, the checks ran first, and a strip then removed the original
+opening paragraph and promoted the credentials line into first position, after every check had passed.
+
+Until then the cost of this ordering was noise — `missingPdfLabel` reported on three separate letters
+where `_fixPdfCaseLabelMisattribution` had already corrected the label. Here it inverted: **a real
+violation, shipped, that the check set was structurally incapable of seeing** — and it is the single
+defect Artem has raised most across this rebuild (14169, 14335, 15246: the credentials opener).
+
+The ordering only ever existed because the checks fed the enforcer, deleted on 2026-09-02. The constraint
+went with it; the ordering didn't.
+
+#### What changed
+
+One move. The 863-character strip chain was lifted **verbatim** — sliced out of the existing
+`const _finalText = …` line rather than retyped, so no function could be dropped or reordered in
+transcription — and applied to `text` immediately before the check block. The trailing block became
+`const _finalText = text`.
+
+Preconditions verified before moving, not assumed:
+- Every argument the chain takes is declared in the outer `generate()` scope well before the insertion
+  point: `_digitBombCase` (6032), `_requiredOpenerPhrase` (6406), `_postingAsksRate` (6415),
+  `jobIsRegulatedForStrip` (6557), `_protectedProperNouns` (6577), `_hMaxForRateCheck` (6586); `text` is
+  a `let` assigned at 7121.
+- Asserted the chain's innermost argument is `_forceFixOngoingFee(text, _postingAsksRate)`, i.e. it
+  genuinely consumes `text`, before allowing the move.
+- The file already did exactly this for six single strips (`_cleanPasteText`, `_stripLeadingSignoff`,
+  `_stripAttachmentsSummaryLine`, `_stripSeoAuditTurnaround`, `_stripLoomReference`, and the highlights
+  fix), one of which carries the comment *"Done here (before the compliance checks) so it's gone on BOTH
+  paths."* The chain re-applies some of them; all are idempotent.
+
+#### Verification
+
+- esbuild clean; app reloads and renders, only the pre-existing React `key` warning.
+- Structural: exactly **one** chain instance remains (was one at the tail, now one at the head), chain at
+  line 7219, `_firstLine` at 7401 — strips demonstrably first.
+- **Outcome proof on the real letter**: extracted job 15246's shipped text and evaluated the banned-opener
+  logic against it. Returns `true`. Telemetry for that generation recorded nothing. The reorder closes
+  precisely that gap — the check now reads the same string that reaches Artem's clipboard.
+
+#### What this does and does not fix
+
+It makes every one of the ~58 checks evaluate the emitted letter. That ends both failure directions: stale
+flags for already-repaired problems, and violations manufactured by the strips themselves.
+
+It does **not** make the letters better on its own — nothing rewrites anything now, by design. What it
+changes is that the flag strip under the letter becomes trustworthy: what it lists is what is actually in
+the text. Everything downstream that reasons from telemetry — the never-fired-check list in handoff §6.1,
+the playbook work, any future detector — was reading contaminated data until now.
+
+Expect the fired-check counts to CHANGE, in both directions, on the next letters. A jump is not a
+regression; it is checks seeing the real text for the first time.

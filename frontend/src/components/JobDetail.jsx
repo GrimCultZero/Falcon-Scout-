@@ -7196,6 +7196,28 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         '(attached in profile highlights)'
       )
 
+      // ── DETERMINISTIC STRIP CHAIN — runs BEFORE the checks (moved 2026-09-15) ──
+      // Every check below now evaluates the text Artem will actually receive.
+      //
+      // It used to run at the very end, after the checks, purely because the checks
+      // fed the enforcer — which was deleted on 2026-09-02, taking that constraint
+      // with it. The leftover ordering cost real defects in both directions:
+      //   * false flags — missingPdfLabel reported on three letters where
+      //     _fixPdfCaseLabelMisattribution had already corrected the label;
+      //   * INVISIBLE violations — job 15246 shipped opening "12 years running
+      //     Google Ads…", which is BANNED_OPENERS[0], and hasBannedOpener could not
+      //     fire because a strip created that opener after the check had passed.
+      // The second is why this moved. A checker that cannot see the emitted text is
+      // not a checker.
+      //
+      // Safe to apply here: every argument below is declared in the outer generate()
+      // scope well before this point (_postingAsksRate, _hMaxForRateCheck,
+      // _protectedProperNouns, jobIsRegulatedForStrip, _digitBombCase,
+      // _requiredOpenerPhrase). The six single strips above already followed this
+      // pattern — see _stripSeoAuditTurnaround's "before the compliance checks"
+      // comment — and the chain re-applies some of them, which is idempotent.
+      text = _fixCaseCountClaim(_restoreRequiredOpenerCasing(_ensureManualAuditClaim(_stripRedundantTrailingCaseBlock(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text, _postingAsksRate), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase))), _requiredOpenerPhrase))
+
       // ── Rule-compliance enforcement pass ────────────────────────────────
       // Prompt engineering alone has proven unreliable for hard rule
       // requirements (e.g. Rule 8: "audit takes 1 working day" — Claude
@@ -8738,7 +8760,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       }
 
       {
-        const _finalText = _fixCaseCountClaim(_restoreRequiredOpenerCasing(_ensureManualAuditClaim(_stripRedundantTrailingCaseBlock(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text, _postingAsksRate), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase))), _requiredOpenerPhrase))
+        // Already stripped above, before the checks ran. Kept as its own binding so
+        // the stale-navigation branch below reads the same either way.
+        const _finalText = text
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {
