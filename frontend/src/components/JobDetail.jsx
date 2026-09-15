@@ -2915,11 +2915,22 @@ function _stripKbLeak(text) {
 let _currentJobId = null
 function _setCurrentJobId(id) { _currentJobId = id ?? null }
 
+// Everything _recordViolations saw during the current generation, including the
+// events raised from inside strip functions. The UI flag strip used to be fed only
+// from the check block's own array, so strip-raised violations -- precisely the ones
+// that ALTER the letter -- never reached Artem. Job 15261 recorded six events and
+// showed one; the unshown metricNotInLedger had deleted the case content and left
+// orphan "Engagement: …" fragments behind.
+let _runViolations = []
+function _beginViolationRun() { _runViolations = [] }
+function _getRunViolations() { return [..._runViolations] }
+
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
 function _recordViolations(surface, jobId, checks) {
   const list = (checks || []).filter(Boolean)
   if (!list.length) return
+  for (const name of list) if (!_runViolations.includes(name)) _runViolations.push(name)
   try {
     fetch('/rule-violations', {
       method: 'POST',
@@ -6035,6 +6046,7 @@ function ProposalColumn({
     setLoading(true)
     setFeedback(null)
     setRuleFlags([])
+    _beginViolationRun()
     // Captured now (not re-read after the awaits below) so the completion
     // handlers can tell whether the user has since navigated to a different job.
     const _jobIdAtCallTime = job?.id
@@ -7831,6 +7843,24 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               ? jobContext.join('\n').toLowerCase()
               : String(jobContext).toLowerCase()
 
+            // THE CLIENT'S OWN WORDS ONLY — what the posting says, with none of
+            // Falcon's own output mixed in. jobContextLower above is the assembled
+            // PROMPT: it carries the analyser's verdict/summary/flags, the Ahrefs
+            // profile, the website scrape, and Falcon's generated instruction blocks
+            // (rate anchor, case-domain note, CLIENT TYPE), several of which contain
+            // literal "PPC" / "Google Ads" strings. Deciding WHAT KIND OF JOB THIS IS
+            // from that blob means Falcon's own prose can reclassify the job.
+            // Confirmed twice: job 14335 (ppcMissingPremierPartner fired on a posting
+            // with zero paid-media keywords anywhere in its record) and job 15261,
+            // where a pure-SEO job classified as paid media, which flipped
+            // _jobIsSeoAuditContext false and silently disabled all three SEO price
+            // checks — so "$900 flat for the full audit" (ledger $700) and
+            // "$2,200/mo" (ledger $1050) both shipped unflagged.
+            // Same lesson the proper-noun scan already carries: "scan ONLY
+            // fullDescription ... never the full jobContext blob" (job 10702).
+            const _postingOnlyLower = [job?.title, job?.category, job?.keywords, fullDescription]
+              .filter(Boolean).join('\n').toLowerCase()
+
             const REGULATED_VERTICAL_RE =
               /\b(hemp|CBD|cannabis|marijuana|THC|vape|vaping|e-?cig(?:arette)?|nicotine|kratom|mushroom|psilocybin|supplement|nutraceutical|peptides?|SARMs?|bio[-\s]?hacking|med[-\s]?spa|medspa|aesthetics?|cosmetic|skincare|skin\s+care|dermatology|botox|filler|YMYL|salmon\s+dna|micro-?infusion)\b/i
             const jobIsRegulated = REGULATED_VERTICAL_RE.test(jobContextLower)
@@ -7869,7 +7899,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const PREMIER_PARTNER_RE = /\bgoogle\s+premier\s+partner\b/i
             const PAID_MEDIA_KEYWORD_RE =
               /\b(google\s+ads?|adwords|ppc|paid\s+search|paid\s+media|performance\s+max|pmax|smart\s+bidding|shopping\s+ads?|search\s+ads?|display\s+ads?|meta\s+ads?|facebook\s+ads?|instagram\s+ads?|bing\s+ads?|microsoft\s+ads?|paid\s+advertising)\b/i
-            const jobIsPaidMedia = PAID_MEDIA_KEYWORD_RE.test(jobContextLower)
+            const jobIsPaidMedia = PAID_MEDIA_KEYWORD_RE.test(_postingOnlyLower)
             const draftHasYears = YEARS_EXPERIENCE_RE.test(text)
             const draftHasPremier = PREMIER_PARTNER_RE.test(text)
             const missingYearsExperience = !draftHasYears
@@ -7967,8 +7997,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const WEBDEV_ONLY_NAMES = WEBDEV_ONLY_CASES.flatMap(_caseNameRes)
             const PPC_JOB_KEYWORDS = /\b(?:google\s+ads|google\s+ppc|ppc|p(?:erformance)?\s*max|pmax|shopping\s+ads?|adwords|cpc|cpa|roas|paid\s+ads?|ad\s+spend|ad\s+(?:campaigns?|account)|meta\s+ads|facebook\s+ads)\b/i
             const SEO_JOB_KEYWORDS = /\b(?:seo\b|search\s+engine\s+optimi[sz]ation|organic\s+(?:traffic|search)|google\s+rank|ranking|backlinks?|schema(?:\s+markup)?|ai\s+overviews?|aeo|geo\s+(?:seo|search)|content\s+strategy|technical\s+seo|onpage\s+seo|off[\s-]page\s+seo)\b/i
-            const jobIsPpc = PPC_JOB_KEYWORDS.test(jobContextLower)
-            const jobIsSeo = SEO_JOB_KEYWORDS.test(jobContextLower)
+            const jobIsPpc = PPC_JOB_KEYWORDS.test(_postingOnlyLower)
+            const jobIsSeo = SEO_JOB_KEYWORDS.test(_postingOnlyLower)
+            // Measure the correction rather than assume it: record whenever the
+            // posting-only reading disagrees with the contaminated blob, so the size
+            // of this problem is visible in telemetry instead of anecdotal.
+            if (jobIsPpc !== PPC_JOB_KEYWORDS.test(jobContextLower)) {
+              console.warn(`[Falcon] jobIsPpc: posting says ${jobIsPpc}, the prompt blob said ${!jobIsPpc} — Falcon's own text was reclassifying this job.`)
+              _recordViolations('generator', job?.id, ['jobTypeBlobContamination'])
+            }
 
             // Inverse of ppcMissingPremierPartner above (KB Rule 439's other half,
             // stated explicitly in the KB: "should NOT be cited as a differentiator
@@ -8717,7 +8754,10 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               !timingCompliant && 'timingViolation',
             ].filter(Boolean)
             _recordViolations('generator', job?.id, _firedChecks)
-            setRuleFlags(_firedChecks)
+            // Union of the check block AND everything the strips raised earlier in
+            // this run — draftNotCompliant excluded, it is a roll-up of the others
+            // and only adds noise to a list Artem reads line by line.
+            setRuleFlags(_getRunViolations().filter(n => n !== 'draftNotCompliant'))
 
             // ── ENFORCER DELETED (2026-09-02) ──────────────────────────────
             // Step 6 of the generator audit's migration plan. The second

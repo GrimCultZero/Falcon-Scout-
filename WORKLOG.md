@@ -8205,3 +8205,65 @@ it did not, and could not: the check read the raw draft and a strip created the 
 
 That is the strip-chain reorder (commit `1c58945`) working on real traffic, one run after shipping. The
 check that was structurally blind to the defect Artem has complained about most now reports it.
+
+## 2026-09-15 — Job 15261: fabricated pricing shipped unflagged, because Falcon's own prose reclassified the job
+
+Artem: "almost everything is wrong and fabricated." He is right, and two of the three causes are
+infrastructure, not the model.
+
+#### 1. Fabricated pricing, zero flags — the job-type blob contaminated itself
+
+The letter quotes **"$900 flat for the full audit"** (ledger: $700), **"$75/hr"**, and **"$2,200/mo
+retainer"** (ledger: $1050/mo). Ran the real check logic against the shipped text: `wrongSeoAuditPrice`
+and `wrongSeoRetainerFee` both evaluate **true**. Telemetry recorded **neither**.
+
+All three SEO price checks hang off
+`_jobIsSeoAuditContext = isAuditJob && jobIsSeo && !jobIsPpc && !jobIsWebdev`, and `jobIsPpc` /
+`jobIsSeo` / `jobIsWebdev` / `jobIsPaidMedia` all test **`jobContextLower`** — the assembled PROMPT. That
+blob carries the analyser's verdict/summary/flags, the Ahrefs profile, the website scrape, AND Falcon's
+own generated instruction blocks (rate anchor, case-domain note, CLIENT TYPE), several of which contain
+literal "PPC" / "Google Ads". So a pure-SEO job can classify as paid media because of text **Falcon wrote
+about it**, which flips `_jobIsSeoAuditContext` false and silently switches off every price guard.
+
+Confirmed the posting itself is clean: zero paid-media keywords across title, category, keywords and
+description. Same root cause as `ppcMissingPremierPartner` firing on job 14335 two weeks ago.
+
+Fixed: new `_postingOnlyLower` (title + category + keywords + description) now feeds the four job-TYPE
+flags. Scope kept narrow on purpose — the other ~23 `jobContextLower` consumers are untouched, because
+some legitimately want the scrape (the regulated-vertical check reading the client's own site). Added
+`jobTypeBlobContamination` telemetry on disagreement so the correction is measured, not assumed.
+
+**Scale, measured:** across 211 analysed jobs, the analyser's prose alone flips the PPC classification on
+**12**, and **11 of those are SEO jobs** — i.e. eleven jobs whose price checks were disabled by commentary
+about them. That is a floor: the script cannot see the Ahrefs data, the scrape, or Falcon's own blocks.
+The file already carried this lesson on the proper-noun scan ("scan ONLY fullDescription … never the full
+jobContext blob", job 10702); it was never applied to the job-type classifiers.
+
+#### 2. The flag strip showed 1 of 6
+
+Telemetry for this generation: `caseHighlightsInlineLabel`, `duplicateAttachmentLabel`, `caseDuplicated`,
+`metricNotInLedger`, `timingViolation`, `draftNotCompliant`. The UI strip showed **`timingViolation`**.
+
+`setRuleFlags` was fed only `_firedChecks`, the check block's own array. Every violation raised from
+inside a STRIP function calls `_recordViolations` directly and never reached it — and those are exactly
+the ones that ALTER the letter. Here `metricNotInLedger` deleted the case content and left the orphan
+fragments Artem is looking at ("Engagement: ongoing optimization, 9+ months." with no client, platform,
+catalogue size or result, under a "Two catalog projects:" heading), and he got no flag for it.
+
+With the enforcer gone the strip IS the reporting mechanism; under-reporting 5 of 6 defeats it. Added a
+per-run violation buffer; the strip now shows the union, minus `draftNotCompliant` (a roll-up of the
+others, noise in a list read line by line).
+
+#### 3. What is genuinely the model's fault
+
+- **The empty case studies** started as fabricated ones. `metricNotInLedger` was right to delete them; the
+  posting explicitly asked for "Two relevant e-commerce projects, including platform, approximate
+  catalogue size … Results achieved, with starting figures" and the model had no real e-commerce catalogue
+  case to give, so it invented two and the grounding checker gutted them.
+- **A fabricated diagnosis**: "Multilingual Site, Google was indexing 2,100+ filter URLs (color/size
+  parameter combinations)". Multilingual Site is a construction/consulting site on the Italian-German
+  border — not an e-commerce catalogue with colour/size filters. The case is real; that story is not.
+
+Both point the same way: this posting wants proof Artem does not have, and the letter invented it. That is
+an ANALYSER decision (should he bid at all), not a generator one — and worth checking whether the
+analysis flagged the catalogue-size gap before the letter was written.
