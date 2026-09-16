@@ -8331,3 +8331,63 @@ nothing more. With 68 proposals nearly all boosted and lifetime numbers of 194 g
 viewed / 14 replied / 1 hired, visibility does not look like the binding constraint. But that
 cannot be claimed until the sync has run properly for a couple of weeks. Suggested to Artem:
 fix the sync first, then run two weeks unboosted and compare viewed-rate.
+
+## 2026-09-16 — /nx/proposals/ has TWO paginated lists; the pager was about to page the wrong one
+
+Follow-up to the pagination fix committed earlier today. Artem's screenshot of the real page
+showed what the code could not: `/nx/proposals/` renders four sections on ONE url —
+Offers (0), Invites from clients (3), **Active proposals (13)** with its own pager, and
+**Submitted proposals (68)** with its own pager.
+
+Two independent paginated lists. `_findNextPageControl()` scanned `document` and returned the
+first match — the ACTIVE list's next arrow. It would have paged that list indefinitely while
+the Submitted list, the one the scraper actually reads, never advanced past row 1. The fix
+committed an hour earlier would have looked like it was working and changed nothing.
+
+The scraper targets the right list already: it anchors on "Initiated", which only the
+Submitted section prints (Active says "Received"). Only the pager lookup was wrong.
+
+### Fix
+
+`_submittedSectionRoot()` locates the "Submitted proposals" heading, then walks up to the
+smallest ancestor containing BOTH a pager and rows ("Initiated"). `_findNextPageControl()`
+searches inside that root only, and returns null — refusing to page at all — when the section
+cannot be found. Refusing beats paging the wrong list.
+
+### A test artifact that was really a design flaw
+
+The first version took the FIRST element whose text matched /submitted\s+proposals/i. In the
+simulated page that matched the section WRAPPER (its text was short), the walk-up went to
+`<body>`, and the function picked the Active list's arrow — exactly the bug it was written to
+prevent.
+
+On the real page the wrapper's text is long (10 rows) so it would not have matched, and the
+heading would have been found. So the shipped behaviour would have been correct by luck, not
+design. Changed to take the match with the SHORTEST own text — the heading itself — which is
+correct whatever the surrounding text length.
+
+### Verified
+
+`node --check` clean. Tested against a simulated page carrying both lists, each with its own
+pager: the root resolves to the Submitted section, the chosen control is that section's "2",
+it does NOT pick the Active list's arrow, and with no Submitted section present it returns
+null rather than paging something else. 4/4.
+
+The earlier 8-case `_findNextPageControl` suite is now superseded — those stubs have no
+Submitted section, so the function correctly refuses them all. Kept for reference, not as a
+passing suite.
+
+### Still unverified end to end
+
+No sync has completed yet today. The bridge was severed by the extension reload (the app kept
+reporting "SYNCED" regardless — see below), and after a hard refresh the background acked
+`{ok: true, tabIds: Array(1)}` — one tab, not two, so the messages leg did not register. Still
+no `sync_runs` row. The pagination code has not run against the real page even once.
+
+### Worth fixing next
+
+The Outcomes badge sets "SYNCED · N min ago" from a `cockpit:status:synced` event with no
+error field, without confirming anything reached `/proposal-status-sync`. It showed a green
+"SYNCED" while the bridge was dead and nothing had been scraped. That is the same class of
+false green light the `SyncRun` table was built to eliminate — and it is how a twelve-day
+blackout goes unnoticed. Gate the badge on a real response from the endpoint.

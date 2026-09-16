@@ -1032,8 +1032,51 @@
     return `${rows}::${probe.slice(0, 180)}`;
   }
 
+  // The page carries TWO paginated lists — "Active proposals" and "Submitted
+  // proposals" — each with its own pager. The scraper reads the SUBMITTED list
+  // (it anchors on "Initiated", which only that section prints), so the pager
+  // must be resolved inside that section. Scanning the whole document returns
+  // the Active list's pager, which would page the wrong list indefinitely while
+  // Submitted never advanced past row 1.
+  function _submittedSectionRoot() {
+    // Find the "Submitted proposals" heading, then walk up to the smallest
+    // ancestor that also contains pagination-looking controls.
+    // Take the MOST SPECIFIC match, not the first one in document order. A
+    // section wrapper also contains the phrase, and walking up from the wrapper
+    // lands on <body> — where the Active list's pager is found instead. The
+    // element with the shortest own text is the heading itself.
+    let head = null, headLen = Infinity;
+    for (const el of document.querySelectorAll('h1,h2,h3,h4,[role="heading"],div,span')) {
+      const t = (el.innerText || '').trim();
+      if (t.length < 60 && /submitted\s+proposals/i.test(t) && t.length < headLen) {
+        head = el; headLen = t.length;
+      }
+    }
+    if (!head) return null;
+    let cur = head;
+    for (let i = 0; i < 10 && cur; i++) {
+      cur = cur.parentElement;
+      if (!cur) break;
+      const hasPager = [...cur.querySelectorAll('button, a, [role="button"]')].some(el => {
+        const txt = (el.innerText || '').trim();
+        const lab = (el.getAttribute('aria-label') || '').toLowerCase();
+        return /^\d{1,3}$/.test(txt) || txt === '\u203a' || txt === '>' || /\bnext\b/.test(lab);
+      });
+      // Must contain the rows too, or we have walked past into the page wrapper
+      // and picked up the Active list's pager again.
+      const hasRows = /\binitiated\b/i.test(cur.innerText || '');
+      if (hasPager && hasRows) return cur;
+    }
+    return null;
+  }
+
   function _findNextPageControl() {
-    const cands = [...document.querySelectorAll('button, a, [role="button"]')];
+    const root = _submittedSectionRoot();
+    if (!root) {
+      console.warn('[Cockpit Proposal] could not locate the "Submitted proposals" section — not paging.');
+      return null;
+    }
+    const cands = [...root.querySelectorAll('button, a, [role="button"]')];
     // 1. Explicit accessible name — the most reliable when Upwork provides it.
     for (const el of cands) {
       const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.toLowerCase();
