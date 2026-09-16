@@ -1042,69 +1042,50 @@
   // the Active list's pager, which would page the wrong list indefinitely while
   // Submitted never advanced past row 1.
   function _submittedSectionRoot() {
-    // Locate the "Submitted proposals" section and return the smallest ancestor
-    // that owns BOTH its rows and its pager. Scoping matters: /nx/proposals/
-    // renders two independently paginated lists, and an unscoped search returns
-    // the Active list's pager, which would page the wrong list forever.
+    // Return the LARGEST ancestor of the "Submitted proposals" heading that
+    // still contains the submitted rows and does NOT contain the Active list.
     //
-    // Everything here is recorded into _lastPagerDiag and POSTed with the sync.
-    // The 2026-09-16 run reported sectionFound:false with no further detail, so
-    // it was impossible to tell "heading not found" from "walk never satisfied
-    // both conditions" — two different fixes. Never again.
+    // Earlier versions demanded the ancestor also contain a numbered/chevron
+    // pager. The 2026-09-16 diagnostic run disproved the premise behind that:
+    // hasPager was false at all 10 ancestor levels, including ones holding both
+    // lists, so there is no numbered pager on this page at all. "Two paginated
+    // lists" was an inference, never an observation. Identifying the section by
+    // what it contains (rows, and not the Active list) is both correct and
+    // independent of how Upwork chooses to reveal more rows.
     const diag = { headFound: false, headText: null, walk: [], labels: [], hasInitiated: false };
     _lastPagerDiag = Object.assign(_lastPagerDiag || {}, { section: diag });
-
-    const bodyText = (document.body && document.body.innerText) || '';
-    diag.hasInitiated = /initiated/i.test(bodyText);
-
-    const isPagerish = (el) => {
-      const txt = (el.innerText || '').trim();
-      const lab = (el.getAttribute('aria-label') || '').toLowerCase();
-      return /^\d{1,3}$/.test(txt) || txt === '›' || txt === '>' || /\bnext\b/.test(lab);
-    };
+    diag.hasInitiated = /initiated/i.test((document.body && document.body.innerText) || '');
 
     let head = null, headLen = Infinity;
     for (const el of document.querySelectorAll('h1,h2,h3,h4,[role="heading"],div,span')) {
       const t = (el.innerText || '').trim();
-      if (t.length < 60 && /proposals/i.test(t) && diag.labels.length < 20 && !diag.labels.includes(t)) {
-        diag.labels.push(t);   // every short "…proposals…" label on the page
-      }
-      // Most specific wins: a section wrapper contains the phrase too, and
-      // walking up from the wrapper lands on <body>.
-      if (t.length < 60 && /submitted\s+proposals/i.test(t) && t.length < headLen) {
-        head = el; headLen = t.length;
-      }
+      if (t.length < 60 && /proposals/i.test(t) && diag.labels.length < 20 && !diag.labels.includes(t)) diag.labels.push(t);
+      if (t.length < 60 && /submitted\s+proposals/i.test(t) && t.length < headLen) { head = el; headLen = t.length; }
     }
     if (!head) return null;
     diag.headFound = true; diag.headText = (head.innerText || '').trim().slice(0, 60);
 
-    // Pass 1: ancestor owning both a pager and the rows.
-    let cur = head;
-    const chain = [];
+    let cur = head, best = null;
     for (let i = 0; i < 10 && cur; i++) {
       cur = cur.parentElement;
       if (!cur) break;
-      chain.push(cur);
-      const hasPager = [...cur.querySelectorAll('button, a, [role="button"]')].some(isPagerish);
-      const hasRows = /initiated/i.test(cur.innerText || '');
-      const hasActive = /active\s+proposals/i.test(cur.innerText || '');
-      diag.walk.push({ i, hasPager, hasRows, hasActive });
-      if (hasPager && hasRows) { diag.via = 'rows+pager'; return cur; }
+      const txt = cur.innerText || '';
+      const hasRows = /initiated/i.test(txt);
+      const hasActive = /active\s+proposals/i.test(txt);
+      diag.walk.push({ i, hasRows, hasActive });
+      // Keep growing while the subtree stays Submitted-only. The moment it
+      // swallows the Active list, stop — that is the only boundary that
+      // matters, and the only mistake that has real consequences (paging the
+      // wrong list). Deliberately NOT gated on hasRows: the heading is already
+      // inside the Submitted section by definition, so requiring a particular
+      // row wording ("Initiated") only adds a way to fail if Upwork rewords a
+      // label. hasRows stays in the diagnostics, where a surprise is visible
+      // without being fatal.
+      if (hasActive) break;
+      best = cur;
     }
-
-    // Pass 2: the rows anchor ("Initiated") may simply not be this list's
-    // wording any more — that alone should not block paging. Relax it, but
-    // refuse any ancestor that has swallowed the Active list, since that is
-    // the specific mistake the rows anchor existed to prevent.
-    for (let i = 0; i < chain.length; i++) {
-      const el = chain[i];
-      const hasPager = [...el.querySelectorAll('button, a, [role="button"]')].some(isPagerish);
-      if (hasPager && !/active\s+proposals/i.test(el.innerText || '')) {
-        diag.via = 'pager-only (relaxed, Active list excluded)';
-        return el;
-      }
-    }
-    return null;
+    diag.depthChosen = best ? diag.walk.filter(w => !w.hasActive).length - 1 : null;
+    return best;
   }
 
   function _findNextPageControl() {
@@ -1122,9 +1103,17 @@
     probe.candidates = cands.length;
     // Record what the section actually offers, so a miss is diagnosable from
     // the sync_runs row instead of requiring the tab's console.
-    probe.labels = cands.slice(0, 25).map(el =>
-      ((el.innerText || '').trim() || '') + (el.getAttribute('aria-label') ? '[' + el.getAttribute('aria-label') + ']' : ''))
-      .filter(Boolean);
+    // Record EVERY control, icon-only ones included. The previous version
+    // dropped anything with no text and no aria-label via .filter(Boolean) —
+    // which is precisely the shape an icon-only pager arrow takes, so the one
+    // control most worth seeing was the one guaranteed to be invisible here.
+    probe.labels = cands.slice(0, 30).map(el => {
+      const txt = (el.innerText || '').trim();
+      const aria = el.getAttribute('aria-label') || '';
+      const cls = (typeof el.className === 'string' ? el.className : '').slice(0, 40);
+      if (txt || aria) return txt + (aria ? '[' + aria + ']' : '');
+      return '<no-text ' + (el.tagName || '?').toLowerCase() + (cls ? ' .' + cls : '') + '>';
+    });
 
     // 1. Explicit accessible name — the most reliable when Upwork provides it.
     for (const el of cands) {
@@ -1153,6 +1142,16 @@
       probe.currentPage = curNum;
       const nxt = nums.find(el => parseInt((el.innerText || '').trim(), 10) === curNum + 1);
       if (nxt && !nxt.disabled) return pick(nxt, 'numbered');
+    }
+    // 4. "Load more" / "Show more" — an append-style control rather than a
+    //    pager. scrapeAllProposalPages re-scrapes the whole list each pass and
+    //    dedupes, so appending works with the existing loop unchanged: pass two
+    //    simply sees 20 rows and counts 10 as new.
+    for (const el of cands) {
+      const t = ((el.innerText || '').trim() + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase();
+      if (/^(load|show|view|see)\s+more/.test(t) || /more\s+proposals/.test(t)) {
+        if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return pick(el, 'load-more');
+      }
     }
     return null;
   }
