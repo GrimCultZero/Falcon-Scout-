@@ -156,7 +156,7 @@ async def _ping_cli_bridge() -> bool:
     import httpx as _httpx_ping
     try:
         async with _httpx_ping.AsyncClient(timeout=1.0) as c:
-            r = await c.get("http://127.0.0.1:27183/ping")
+            r = await c.get("http://127.0.0.1:27184/ping")
         return r.status_code == 200
     except Exception:
         return False
@@ -268,7 +268,7 @@ def _flatten_for_cli(request: dict) -> str:
 
 async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
     """Route a Messages-API-shaped {system?, messages} request through the local
-    CLI bridge (cli-bridge.js, port 27183) instead of api.anthropic.com.
+    CLI bridge (cli-bridge.js, port 27184) instead of api.anthropic.com.
 
     Mirrors the CLI branch in /claude (below) so every Claude-calling endpoint
     honors the API/CLI provider toggle — not just the main analyse/generate proxy.
@@ -276,17 +276,17 @@ async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
     it identically (parsed["content"][0]["text"], etc)."""
     import httpx as _httpx_cli
     prompt_text = _flatten_for_cli(request)
-    print(f"[CLI bridge] {kind}: {len(prompt_text)} chars -> http://127.0.0.1:27183/ai")
+    print(f"[CLI bridge] {kind}: {len(prompt_text)} chars -> http://127.0.0.1:27184/ai")
     try:
         async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-            br_resp = await br.post("http://127.0.0.1:27183/ai", json={"prompt": prompt_text, "model": model})
+            br_resp = await br.post("http://127.0.0.1:27184/ai", json={"prompt": prompt_text, "model": model})
     except _httpx_cli.ConnectError:
         # Self-heal: the bridge may have been closed or never started this
         # session — spawn it and retry the SAME request once before giving up.
         if await _ensure_cli_bridge_running(wait_for_ready=True):
             try:
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-                    br_resp = await br.post("http://127.0.0.1:27183/ai", json={"prompt": prompt_text, "model": model})
+                    br_resp = await br.post("http://127.0.0.1:27184/ai", json={"prompt": prompt_text, "model": model})
             except _httpx_cli.ConnectError:
                 raise HTTPException(
                     status_code=502,
@@ -3517,6 +3517,13 @@ def proposal_status_sync(data: dict):
         # looking" are the same observation, which is what let an 11.6-day
         # detection blackout pass unnoticed in August. Wrapped so a logging
         # failure can never break the sync itself.
+        # The outcome of this write is surfaced in the RESPONSE, not only stdout.
+        # A logging failure that only prints is invisible to anyone not watching
+        # the server terminal, and that invisibility burned a full day of
+        # diagnosis on 2026-09-16 while the endpoint kept returning 200 and
+        # writing nothing. flush() forces the INSERT here so a failure is caught
+        # by this except rather than surfacing later at commit().
+        _sync_run_error = None
         try:
             session.add(SyncRun(
                 leg="proposals-list",
@@ -3524,14 +3531,23 @@ def proposal_status_sync(data: dict):
                 matched=scanned - len(not_matched),
                 not_matched=len(not_matched),
                 newly_viewed=newly_viewed,
-                scroll_json=json.dumps(data.get("scroll")) if data.get("scroll") else None,
+                scroll_json=_json_mod.dumps(data.get("scroll")) if data.get("scroll") else None,
             ))
+            session.flush()
         except Exception as e:
-            print(f"[sync_runs] could not record run: {e}")
+            _sync_run_error = f"{type(e).__name__}: {e}"
+            print(f"[sync_runs] could not record run: {_sync_run_error}")
+            session.rollback()
 
-        session.commit()
+        try:
+            session.commit()
+        except Exception as e:
+            _sync_run_error = f"commit {type(e).__name__}: {e}"
+            print(f"[sync_runs] commit failed: {_sync_run_error}")
 
     return {
+        "sync_run_logged": _sync_run_error is None,
+        "sync_run_error": _sync_run_error,
         "scanned": scanned,
         "updated": updated,
         "newly_viewed": newly_viewed,
@@ -3565,7 +3581,7 @@ def list_sync_runs(limit: int = Query(50, ge=1, le=500), leg: Optional[str] = Qu
                 "matched": r.matched,
                 "not_matched": r.not_matched,
                 "newly_viewed": r.newly_viewed,
-                "scroll": json.loads(r.scroll_json) if r.scroll_json else None,
+                "scroll": _json_mod.loads(r.scroll_json) if r.scroll_json else None,
             } for r in runs],
         }
 
@@ -5379,7 +5395,7 @@ async def claude_proxy(request: dict):
         # ── CLI bridge routing ──────────────────────────────────────────────
         # When the user has switched to CLI mode, flatten the request into a
         # plain text prompt and pipe it through the local cli-bridge.js server
-        # (port 27183) instead of calling api.anthropic.com.
+        # (port 27184) instead of calling api.anthropic.com.
         if _get_ai_provider() == "cli":
             import httpx as _httpx_cli
             import traceback as _tb
@@ -5387,11 +5403,11 @@ async def claude_proxy(request: dict):
             while True:
               try:
                 prompt_text = _flatten_for_cli(request)
-                print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27183/ai")
+                print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27184/ai")
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
                     # Pass the requested model so the bridge forces it via --model
                     # (else the CLI uses its default — often Opus, the slowest).
-                    br_resp = await br.post("http://127.0.0.1:27183/ai", json={"prompt": prompt_text, "model": model})
+                    br_resp = await br.post("http://127.0.0.1:27184/ai", json={"prompt": prompt_text, "model": model})
                 if br_resp.status_code != 200:
                     raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")
                 text = br_resp.json().get("content", "")
