@@ -1245,7 +1245,20 @@
       // A page that contributes nothing new means we are re-reading the same
       // one — treat it as the end rather than trusting the pager control.
       if (added === 0 && page > 1) break;
-      if (!(await _goToNextProposalsPage())) break;
+      // Pagination is an enhancement over the first page, so a fault in it
+      // must degrade to "page 1 only" rather than throwing away rows already
+      // scraped. Before this, any error in the pager propagated out of the
+      // scrape entirely and lost all 10 rows plus the sync_runs record.
+      let advanced = false;
+      try {
+        advanced = await _goToNextProposalsPage();
+      } catch (e) {
+        _lastPagerDiag = Object.assign(_lastPagerDiag || {}, {
+          stopReason: 'pager threw: ' + ((e && (e.stack || e.message)) || e),
+        });
+        console.error('[Cockpit Proposal] pager threw — keeping page 1 rows:', e);
+      }
+      if (!advanced) break;
     }
 
     // Mirror the pagination summary into _lastPagerDiag as well as debug —
@@ -1825,6 +1838,11 @@
       ({ rows, debug } = await scrapeAllProposalPages());
     } catch (err) {
       console.error('[Cockpit Proposal] scrape threw:', err);
+      // Report it. The sibling call site has done this since failures started
+      // being recorded; this one did not, so a throw here returned silently
+      // with no POST and no sync_runs row — indistinguishable from the sync
+      // never running, which cost a diagnostic cycle on 2026-09-16.
+      await reportSyncFailure('scrape', (err && (err.stack || err.message)) || err);
       showSyncBanner({ phase: 'done', error: 'scrape failed: ' + (err && err.message || err) });
       return;
     }
