@@ -143,9 +143,10 @@ COLUMNS = [
     ("Category",             22, "category"),
     ("Project type",         13, "project_type"),
     ("Budget / rate",        18, "budget"),
-    ("My bid",               12, "bid_amount"),
-    ("Currency",              9, "bid_currency"),
-    ("Connects spent",       14, "connects_required"),
+    ("Connects bid",         13, "bid_amount"),
+    ("Connects (base cost)", 18, "connects_required"),
+    ("Boosted?",             10, "boosted"),
+    ("Bid cost $",           11, "bid_cost_usd"),
     ("Proposals @ send",     16, "n_proposals"),
     ("Interviewing @ send",  18, "interviewing"),
     ("Bid low @ send",       14, "bid_low"),
@@ -246,8 +247,11 @@ def load(conn):
             "category": d.get("category") or "",
             "project_type": pick("project_type", "project_type") or "",
             "budget": budget,
+            # bid_amount is the CONNECTS bid (what was bid in the boost auction),
+            # NOT money — Outcomes.jsx renders it as "{bid_amount} Connects", and
+            # bid_currency is the literal string "Connects" on 216 of 251 rows.
+            # Labelling it as a monetary bid understated real spend by ~4x.
             "bid_amount": num(d.get("bid_amount")),
-            "bid_currency": d.get("bid_currency") or "",
             "connects_required": pick("connects_required", "j_connects"),
             "n_proposals": pick("proposals", "j_proposals"),
             "interviewing": pick("interviewing", "j_interviewing"),
@@ -275,6 +279,9 @@ def load(conn):
             "description_full": (d.get("description_full") or "")[:32000],
             "url": d.get("url") or "",
         }
+        spent = rec["bid_amount"] or num(rec["connects_required"]) or 0
+        rec["bid_cost_usd"] = round(spent * 0.15, 2) if spent else None
+        rec["boosted"] = "BOOSTED" if spent > 30 else ("base" if spent else "")
         out.append(rec)
     return out
 
