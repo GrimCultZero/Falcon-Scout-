@@ -202,15 +202,41 @@ export default function Outcomes({ active = false }) {
     // relay event; it just confirms the tabs opened and points to the banners.
     // The Outcomes list refreshes from the backend so promoted statuses appear
     // here within a few seconds anyway.
+    // Wait for the bridge's verdict before claiming the sync is running.
+    // bridge.js already reports every failure it can see — orphaned content
+    // script after an extension reload, no ack from the service worker, tab
+    // creation refused — by dispatching cockpit:status:synced with a .error.
+    // Both existing listeners in this file deliberately drop errors (they only
+    // care about successful syncs), so nothing surfaced them and this button
+    // painted the green "SYNC RUNNING" banner on an unconditional 800ms timer
+    // whether or not anything had started. On 2026-09-16 it reported a running
+    // sync with both legs live while no tab had opened at all.
+    let failed = false
+    const onSyncError = (e) => {
+      const d = e.detail || {}
+      if (!d.error) return
+      failed = true
+      setSyncStatus({ err: true, msg: d.error })
+      // Leave a real failure up long enough to read and act on — the
+      // usual remedy (hard-refresh this tab) is in the message itself.
+      setTimeout(() => setSyncStatus(null), 15000)
+    }
+    window.addEventListener('cockpit:status:synced', onSyncError)
+    // Every bridge failure path is synchronous or one message round-trip, so
+    // silence after a few seconds means it really did start. Stop listening
+    // then, so a later genuine sync result can't be mistaken for this one.
+    setTimeout(() => window.removeEventListener('cockpit:status:synced', onSyncError), 5000)
+
     window.dispatchEvent(new CustomEvent('cockpit:sync-statuses'))
-    setTimeout(() => setSyncStatus({ ok: true, banner: true }), 800)
+    setTimeout(() => { if (!failed) setSyncStatus({ ok: true, banner: true }) }, 800)
     // Refresh the list a few times so newly-promoted statuses surface here
     // without a manual reload, then clear the banner.
     // The messages leg can walk up to 10 rooms (~2 min) — keep refreshing long
     // enough for late promotions to land here without a manual reload.
     const refreshes = [4000, 9000, 15000, 30000, 60000, 90000, 130000]
     refreshes.forEach(ms => setTimeout(() => { try { fetchProposals() } catch (_) {} }, ms))
-    setTimeout(() => setSyncStatus(null), 22000)
+    // Never clear a failure here — it owns its own (longer) timeout above.
+    setTimeout(() => { if (!failed) setSyncStatus(null) }, 22000)
   }
 
   // Snapshot the currently expanded proposal (or first one in view) to

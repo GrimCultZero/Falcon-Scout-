@@ -139,6 +139,14 @@
           return;
         }
         console.log('[Cockpit Bridge] background ack:', response);
+        // ok:true with no tab ids means the worker ran but every tab/window
+        // creation failed — a silent no-op that looks exactly like success.
+        if (response && response.ok === true && Array.isArray(response.tabIds) && response.tabIds.length === 0) {
+          window.dispatchEvent(new CustomEvent('cockpit:status:synced', {
+            detail: { error: 'Sync started but no Upwork tab could be opened — check the extension service worker console.' },
+          }));
+          return;
+        }
         if (!response || response.ok !== true) {
           window.dispatchEvent(new CustomEvent('cockpit:status:synced', {
             detail: { error: (response && response.error) || 'Background returned no ack — tab open may have failed' },
