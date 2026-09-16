@@ -467,6 +467,200 @@ def sheet_quality(wb, recs, conn):
     return ws
 
 
+# Findings and plan as of 2026-09-17. Each row carries its own evidence so a
+# claim can be re-checked rather than taken on trust, and a status so it is
+# obvious what has actually shipped versus what is still a recommendation.
+#
+# "Ruled out" rows are kept deliberately. Knowing that bid speed and letter
+# length do NOT move the numbers is worth as much as the positive findings —
+# each is a place weeks could be spent for nothing, and most of them are
+# standard advice.
+FINDINGS = [
+    # (area, finding, evidence, what to do, status)
+    ("Funnel", "84% of proposals are never opened",
+     "252 sent - 41 opened (16.3%) - 16 replied - 1 hired",
+     "Fix what the client sees BEFORE opening: the preview and the profile. Work on the letter body affects only the 16% that get that far.",
+     "Diagnosed"),
+    ("Funnel", "The letter converts well once it is actually read",
+     "39% of opened proposals got a reply",
+     "Do not rewrite the body of the letter. It is not the bottleneck.",
+     "Diagnosed"),
+    ("Funnel", "Reply-to-contract is the second leak",
+     "16 replies produced 1 contract (6.2%)",
+     "Reply capture only started working 2026-09-16, so there is no data on what happened in those threads. Revisit once there is.",
+     "Blocked on data"),
+    ("Preview", "Job-specific words in the first 180 chars predict being opened",
+     "0-1 words: 10.7% opened | 7+ words: 27.6% | p = 0.0018, the only significant letter-level effect",
+     "First 180 characters must carry 4+ concrete words from THIS posting. If the sentence could be pasted onto another job, it failed.",
+     "SHIPPED 2026-09-17"),
+    ("Preview", "The letters are one template with the variables swapped",
+     "98% contain '12 years'; the sentence '12 years running Google Ads, Google Premier Partner 2026.' appears 112 times; 59 letters open with the same six words",
+     "Standing opener banned in the prompt; deterministic check scores it 0 and flags previewNotSpecific.",
+     "SHIPPED 2026-09-17"),
+    ("Boost", "Boosting does not lift replies",
+     "boosted 6.3% vs base 5.9%, permutation p = 1.00",
+     "Stop paying for placement as if it were demand.",
+     "Recommended"),
+    ("Boost", "You overshoot the price of the top slot",
+     "median bid 62 vs visible top bid 42; outbid #1 on 76% of jobs; 3,495 connects (~$524) spent above the visible #1",
+     "Rule: read the visible #1, add 2, and skip the boost entirely if that exceeds 50. Never buy distance from second place.",
+     "Recommended"),
+    ("Boost", "The most expensive bids returned nothing",
+     "22 bids at 100+ connects = $402 = 0 dialogues",
+     "Hard cap. Nothing above 50 connects.",
+     "Recommended"),
+    ("Boost", "There is no control group",
+     "only 34 of 252 bids were unboosted in four months",
+     "Optional: 30 days with no boost at all settles whether it lifts opens. Costs ~$200 currently returning nothing measurable.",
+     "Optional experiment"),
+    ("Targeting", "Experienced clients filter you out before reading",
+     "clients with 20+ reviews reply 3.4% | 6-20: 6.4% | 1-5: 10.5% | none: 10.4%",
+     "Bid to newer and smaller clients until there is review history to survive their filters.",
+     "Recommended"),
+    ("Targeting", "Smaller clients convert far better",
+     "median total client spend: $1,440 on wins vs $4,981 on losses",
+     "Target clients in the roughly $1k-$10k lifetime spend band, not whales.",
+     "Recommended"),
+    ("Targeting", "Hourly mid-rate Expert roles are the worst segment",
+     "hourly $20-40: 2.4% across 42 bids | Expert level: 5.3% | fixed under $500: 12.9%",
+     "Stop bidding hourly $20-40 Expert roles outright. Prefer small fixed-price scopes.",
+     "Recommended"),
+    ("Targeting", "Very fresh jobs underperform jobs already being reviewed",
+     "'Less than 5' proposals: 4.5% | '10 to 50': 11.2% | '50+': 2.7% (p = 0.096, suggestive only)",
+     "Target jobs that already carry 10-50 proposals. Sub-5 jobs are often posted and abandoned.",
+     "Recommended (weak evidence)"),
+    ("Profile", "You perform at new-freelancer level despite 12 years experience",
+     "6.3% reply rate vs ~15% platform average; published new-freelancer band is 5-10%",
+     "Take 2-3 small fixed-price jobs at a price you would normally refuse. You are buying review history, not selling time.",
+     "Recommended"),
+    ("Content", "AI cliches are not a problem here",
+     "0 cliches across 251 letters against the published 11-phrase list; 0 emoji",
+     "No action. The generator's existing rules already handle this.",
+     "Already clean"),
+    ("Content", "You rarely invite a reply",
+     "ends with a question in ~6% of letters; 'guarantee' appears in 4 of 253",
+     "Add a low-friction close: remove the client's risk, make replying cost one sentence.",
+     "Recommended"),
+    ("Tracking", "The measurement was broken for most of this period",
+     "no proposal marked 'viewed' since 2026-09-03; the messages leg never ran at all; scraper still reads page 1 of 7",
+     "Sync logging, reply detection and failure reporting repaired 2026-09-16. Treat GHOSTED as 'no response detected'.",
+     "FIXED 2026-09-16"),
+    # ── ruled out ─────────────────────────────────────────────────────────
+    ("RULED OUT", "Bidding faster does not help",
+     "under 30 min: 5.4% replied | after 30 min: 7.1%. No effect at fine resolution either",
+     "Ignore 'be first' advice. NOTE: you have never bid under 5 minutes, so the 3-4 minute claim is untested, not refuted.",
+     "No effect"),
+    ("RULED OUT", "Letter length does not matter",
+     "150-200w: 6.5% | 300w+: 6.0%",
+     "Shorter is still preferable on cost grounds, but do not expect a lift. Only 7 letters under 150 words exist, so that range is untested.",
+     "No effect"),
+    ("RULED OUT", "Opener style does not matter",
+     "credential-first 7.7% vs situation-first 7.6%",
+     "Style is not the variable. Specificity is. See the Preview rows.",
+     "No effect"),
+    ("RULED OUT", "Business-led vs technical-led framing does not matter",
+     "business-led 15.4% opened | technical-led 11.5% | neither 20.3% | p = 0.77",
+     "Do not rewrite letters into 'business language'. Naming the client's specifics is what moves.",
+     "No effect"),
+    ("RULED OUT", "PPC vs SEO mix is not the cause of the decline",
+     "PPC 6.2% | SEO 6.2%; August was MORE PPC, not less",
+     "No action.",
+     "No effect"),
+    ("RULED OUT", "More case-study numbers and trial offers do not help",
+     "case numbers: winners 69% vs losers 83% | trial offers: 56% vs 68%",
+     "Both already appear in most letters and do not separate winners. One relevant case beats three.",
+     "No effect"),
+]
+
+PLAN = [
+    ("1", "Adopt the boost rule: visible #1 + 2, skip if that exceeds 50",
+     "Saves ~$684 per 157 bids on modelled history", "You", "Not started"),
+    ("1", "Stop bidding hourly $20-40 Expert-level roles",
+     "2.4% dialogue across 42 bids - worst segment", "You", "Not started"),
+    ("1", "Cut to ~10 bids/week",
+     "96 bids in August produced 6 dialogues; volume is not the constraint", "You", "Not started"),
+    ("2", "Take 2-3 fixed-price jobs under $500 to build review history",
+     "Best-converting band (12.9%) and the only fix for the 20+ review client filter", "You", "Not started"),
+    ("2", "Check whether you hold the Rising Talent badge",
+     "The only credibility signal available before review history exists", "You", "Not started"),
+    ("2", "Finish the white-label profile rewrite",
+     "Partnership jobs are where the dialogues actually come from", "You", "In progress"),
+    ("3", "180-character preview rule in the generator",
+     "previewNotSpecific check + prompt rule + KB Rule 439 precedence clause", "Claude", "SHIPPED 2026-09-17"),
+    ("3", "Add a low-friction close to the generator",
+     "Risk removal plus an explicit invitation to reply", "Claude", "Not started"),
+    ("3", "Cut letters to ~150 words for jobs under $1k",
+     "No measured effect, but cheaper and matches outside consensus", "Claude", "Not started"),
+    ("3", "One relevant case study instead of three",
+     "The same three cases are pasted into unrelated verticals", "Claude", "Not started"),
+    ("4", "Fix proposal-list pagination (reads page 1 of 7)",
+     "Root cause found: background tabs are throttled and the SPA ignores the click. Needs URL navigation, not clicking.", "Claude", "Deferred"),
+    ("4", "Fix the messages room walk (links_found: 0)",
+     "Same throttling cause; room-to-proposal matching falls back to title only", "Claude", "Deferred"),
+    ("4", "Re-run this analysis after ~6 weeks of working tracking",
+     "First trustworthy dataset. Re-check unboosted rate, small fixed-price work, and whether letter variation now shows an effect.", "Both", "Scheduled"),
+]
+
+
+def sheet_findings(wb):
+    ws = wb.create_sheet("Findings & Plan", 0)
+    widths = [14, 52, 62, 66, 22]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    r = 1
+    ws.cell(row=r, column=1, value="Findings and implementation plan").font = Font(bold=True, size=16, color="1F3864")
+    r += 1
+    ws.cell(row=r, column=1,
+            value="Every row carries the evidence behind it so it can be re-checked rather than taken on trust. "
+                  "Rows marked RULED OUT are kept on purpose — knowing what does NOT work is worth as much as what does.").font = NOTE_FONT
+    r += 2
+
+    hdr = ["Area", "Finding", "Evidence", "What to do", "Status"]
+    for i, h in enumerate(hdr, start=1):
+        ws.cell(row=r, column=i, value=h)
+    style_header(ws, len(hdr), row=r)
+    head_row = r
+    for area, finding, ev, todo, status in FINDINGS:
+        r += 1
+        for i, v in enumerate([area, finding, ev, todo, status], start=1):
+            cell = ws.cell(row=r, column=i, value=v)
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            cell.border = Border(bottom=THIN)
+        if status.startswith("SHIPPED") or status.startswith("FIXED"):
+            ws.cell(row=r, column=5).fill = PatternFill("solid", fgColor="C6EFCE")
+        elif area == "RULED OUT":
+            for i in range(1, 6):
+                ws.cell(row=r, column=i).font = Font(size=10, color="808080")
+        elif status.startswith("Recommended"):
+            ws.cell(row=r, column=5).fill = PatternFill("solid", fgColor="FFF2CC")
+    ws.auto_filter.ref = f"A{head_row}:E{r}"
+    ws.freeze_panes = f"A{head_row + 1}"
+
+    r += 3
+    ws.cell(row=r, column=1, value="The plan, in order").font = TITLE_FONT
+    r += 1
+    ws.cell(row=r, column=1,
+            value="Stage 1 stops the bleeding. Stage 2 fixes the 84% that is never opened. Stage 3 is generator work. "
+                  "Stage 4 is deferred until tracking has produced trustworthy data.").font = NOTE_FONT
+    r += 2
+    hdr2 = ["Stage", "Action", "Why", "Owner", "Status"]
+    for i, h in enumerate(hdr2, start=1):
+        ws.cell(row=r, column=i, value=h)
+    style_header(ws, len(hdr2), row=r)
+    for stage, action, why, owner, status in PLAN:
+        r += 1
+        for i, v in enumerate([stage, action, why, owner, status], start=1):
+            cell = ws.cell(row=r, column=i, value=v)
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            cell.border = Border(bottom=THIN)
+        if status.startswith("SHIPPED"):
+            ws.cell(row=r, column=5).fill = PatternFill("solid", fgColor="C6EFCE")
+        elif status == "Deferred":
+            ws.cell(row=r, column=5).fill = PatternFill("solid", fgColor="F2F2F2")
+    return ws
+
+
 def main():
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(r"D:\ITForce\upwork-applications.xlsx")
     conn = sqlite3.connect(str(DB))
@@ -477,6 +671,7 @@ def main():
     sheet_quality(wb, recs, conn)
     sheet_analysis(wb, recs)
     sheet_applications(wb, recs)
+    sheet_findings(wb)          # inserted at index 0 — the tab to open first
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
     print(f"wrote {out}  ({len(recs)} applications)")
