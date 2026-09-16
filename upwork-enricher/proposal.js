@@ -1006,6 +1006,120 @@
     return stats;
   }
 
+
+  // ── Pagination ────────────────────────────────────────────────────────────
+  // The submitted-proposals list is paginated (numbered pages plus prev/next
+  // arrows), NOT a virtualised infinite scroll. loadEntireProposalsList() above
+  // handles the latter and does nothing for the former, so every sync since it
+  // was written logged rows_scraped=9 — one page — while the account had 68
+  // proposals across ~7 pages. Six of every seven were never status-checked.
+  //
+  // Deliberately conservative: only ever moves FORWARD, never clicks a numbered
+  // page directly (the numbers shift as pages load), stops the moment the page
+  // content stops changing, and is hard-capped. A sync that reads too few rows
+  // is a bad day; one that loops forever inside the user's browser is worse.
+  const _PAGE_CAP = 15;
+
+  // A cheap signature of what is currently rendered. Used to confirm the click
+  // actually changed the page rather than assuming a fixed wait was enough.
+  function _listSignature() {
+    const t = document.body.innerText || '';
+    const rows = (t.match(/\binitiated\b/gi) || []).length;
+    // First two job-ish lines after an "Initiated" marker, as a content probe.
+    const lines = t.split('\n').map(s => s.trim()).filter(Boolean);
+    const idx = lines.findIndex(l => /\binitiated\b/i.test(l));
+    const probe = idx >= 0 ? lines.slice(idx, idx + 6).join('|') : lines.slice(0, 6).join('|');
+    return `${rows}::${probe.slice(0, 180)}`;
+  }
+
+  function _findNextPageControl() {
+    const cands = [...document.querySelectorAll('button, a, [role="button"]')];
+    // 1. Explicit accessible name — the most reliable when Upwork provides it.
+    for (const el of cands) {
+      const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.toLowerCase();
+      if (/\bnext\b/.test(label) && !/\bprevious\b/.test(label)) {
+        if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return el;
+      }
+    }
+    // 2. Chevron glyphs Upwork renders when there is no aria-label.
+    for (const el of cands) {
+      const txt = (el.innerText || el.textContent || '').trim();
+      if (txt === '>' || txt === '\u203a' || txt === '\u00bb' || txt === '\u2192') {
+        if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return el;
+      }
+    }
+    // 3. Numbered pagination: find the current page, then the element whose
+    //    text is exactly current+1. Re-read each pass — the DOM is rebuilt.
+    const nums = cands.filter(el => /^\d{1,3}$/.test((el.innerText || '').trim()));
+    if (nums.length) {
+      const cur = nums.find(el =>
+        el.getAttribute('aria-current') === 'page' ||
+        el.getAttribute('aria-current') === 'true' ||
+        /\b(active|current|selected)\b/i.test(el.className || ''));
+      const curNum = cur ? parseInt((cur.innerText || '').trim(), 10) : 1;
+      const nxt = nums.find(el => parseInt((el.innerText || '').trim(), 10) === curNum + 1);
+      if (nxt && !nxt.disabled) return nxt;
+    }
+    return null;
+  }
+
+  async function _goToNextProposalsPage() {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const before = _listSignature();
+    const ctl = _findNextPageControl();
+    if (!ctl) return false;
+    try { ctl.scrollIntoView({ block: 'center' }); } catch (_) {}
+    try { ctl.click(); } catch (_) { return false; }
+    // Poll for the content to actually change — a fixed sleep either wastes
+    // time or races the render, and this list re-renders at unpredictable speed.
+    for (let i = 0; i < 20; i++) {
+      await sleep(300);
+      if (_listSignature() !== before) { await sleep(400); return true; }
+    }
+    console.warn('[Cockpit Proposal] next-page click did not change the list — stopping.');
+    return false;
+  }
+
+  // Scrape EVERY page and merge. Returns the same { rows, debug } shape as the
+  // single-page scrape, so both call sites are unchanged apart from the name.
+  async function scrapeAllProposalPages() {
+    const merged = [];
+    const seen = new Set();
+    const perPage = [];
+    let debug = null;
+    let page = 0;
+
+    while (page < _PAGE_CAP) {
+      page++;
+      const res = await scrapeProposalsList();
+      if (!debug) debug = res.debug;               // keep page 1's diagnostics
+      let added = 0;
+      for (const r of (res.rows || [])) {
+        // Dedupe on the id when Upwork exposes it, else on title — the same
+        // precedence /proposal-status-sync uses to match rows to records.
+        const key = (r.upwork_job_id || '').trim() || `t:${(r.job_title || '').trim().toLowerCase()}`;
+        if (!key || key === 't:') continue;
+        if (seen.has(key)) continue;
+        seen.add(key); merged.push(r); added++;
+      }
+      perPage.push({ page, scraped: (res.rows || []).length, newRows: added });
+      console.log(`[Cockpit Proposal] page ${page}: ${(res.rows || []).length} rows, ${added} new`);
+      // A page that contributes nothing new means we are re-reading the same
+      // one — treat it as the end rather than trusting the pager control.
+      if (added === 0 && page > 1) break;
+      if (!(await _goToNextProposalsPage())) break;
+    }
+
+    if (debug) {
+      debug.pagination = { pagesVisited: page, perPage, totalMerged: merged.length };
+      debug.rowCount = merged.length;
+      debug.rowTitles = merged.map(r => `${r.viewed ? '\ud83d\udc41 ' : ''}${r.job_title || r.upwork_job_id || '?'}`);
+      debug.viewedRowCount = merged.filter(r => r.viewed).length;
+    }
+    console.log(`[Cockpit Proposal] pagination complete: ${page} page(s), ${merged.length} unique rows`);
+    return { rows: merged, debug };
+  }
+
   async function scrapeProposalsList() {
     const rows = [];
 
@@ -1294,7 +1408,7 @@
     // the dashboard panel to show what happened instead of "unavailable".
     let rows = [], debug = null;
     try {
-      ({ rows, debug } = await scrapeProposalsList());
+      ({ rows, debug } = await scrapeAllProposalPages());
     } catch (err) {
       console.error('[Cockpit Proposal] scrapeProposalsList threw:', err);
       return {
@@ -1506,7 +1620,7 @@
 
     let rows = [], debug = null;
     try {
-      ({ rows, debug } = await scrapeProposalsList());
+      ({ rows, debug } = await scrapeAllProposalPages());
     } catch (err) {
       console.error('[Cockpit Proposal] scrape threw:', err);
       showSyncBanner({ phase: 'done', error: 'scrape failed: ' + (err && err.message || err) });

@@ -8267,3 +8267,67 @@ others, noise in a list read line by line).
 Both point the same way: this posting wants proof Artem does not have, and the letter invented it. That is
 an ANALYSER decision (should he bid at all), not a generator one — and worth checking whether the
 analysis flagged the catalogue-size gap before the letter was written.
+
+## 2026-09-16 — Proposal sync was reading page 1 of 7, and had been dead for 12 days
+
+Artem: "I am winning many bids auctions, but having zero reviews and replies." Two separate
+problems behind that, one of them a measurement artifact.
+
+### The sync stopped on 2026-09-04
+
+`sync_runs` last row: 2026-09-04 15:10. Twelve days with no proposal-status check. The nine
+most recent proposals all read `sent` because nothing had asked, not because nobody looked.
+The SyncRun table added on 2026-08-31 did exactly its job here — "no views" and "no
+measurement" were finally distinguishable. It just needed someone to read it.
+
+### And when it was alive it read one page in seven
+
+Every logged run: `rows_scraped=9`, `matched=9`. Upwork shows **68 submitted proposals**,
+paginated at ~10 per page across ~7 pages. The scraper was reading page 1 and stopping, so
+roughly 6 of every 7 proposals were never status-checked.
+
+`loadEntireProposalsList()` scrolls the window and the tallest inner scroller until the row
+count stabilises. That is the correct fix for a virtualised infinite list and does nothing
+whatever for numbered pages — the mechanism this list actually uses. The earlier fix was not
+wrong, it was aimed at a different page shape.
+
+### Fix
+
+Wrapped rather than refactored: `scrapeProposalsList()` already scrapes whatever is on screen
+correctly, so it needed calling once per page with results merged, not rewriting.
+
+- `_findNextPageControl()` — three strategies in order: an accessible name containing "next"
+  (and not "previous"), a chevron glyph, or numbered pagination where it locates the current
+  page via `aria-current`/active class and takes current+1. Honours `disabled` and
+  `aria-disabled`.
+- `_goToNextProposalsPage()` — clicks, then POLLS a content signature until the list actually
+  changes, up to 6s. A fixed sleep either wastes time or races the render.
+- `scrapeAllProposalPages()` — loops, dedupes on `upwork_job_id` then title (the same
+  precedence `/proposal-status-sync` uses), and stops on: no next control, content not
+  changing, a page contributing zero new rows, or a hard cap of 15 pages.
+
+Both call sites switched. Returns the same `{ rows, debug }` shape, with `debug.pagination`
+added so `sync_runs` shows pages visited and per-page yield.
+
+Deliberately conservative — only ever moves forward, never clicks a numbered page directly
+(the numbers shift as pages load). A sync reading too few rows is a bad day; one looping
+forever inside Artem's browser is worse.
+
+### Verified
+
+`node --check` clean. `_findNextPageControl` extracted from source and tested against eight
+DOM shapes: aria-label Next, disabled Next (last page), chevron glyph, numbered with
+`aria-current`, numbered with an active class, last numbered page, no pagination at all, and a
+Previous-only control that must never be picked. 8/8.
+
+(The test harness itself failed first: the repo checks out CRLF, so a `\n  }\n` probe for the
+function's closing brace never matched and the extraction silently returned an empty slice.
+Third CRLF/quoting casualty in this project — normalise line endings before probing source.)
+
+### Still open, and now answerable
+
+Boost buys placement, not engagement — "winning the auction" means top of the client's list,
+nothing more. With 68 proposals nearly all boosted and lifetime numbers of 194 ghosted / 25
+viewed / 14 replied / 1 hired, visibility does not look like the binding constraint. But that
+cannot be claimed until the sync has run properly for a couple of weeks. Suggested to Artem:
+fix the sync first, then run two weeks unboosted and compare viewed-rate.
