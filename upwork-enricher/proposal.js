@@ -1441,10 +1441,43 @@
     return { rows, debug };
   }
 
+  // Tell the backend a sync attempt FAILED, and why. Without this a failure is
+  // silent: the early-returns below only console.warn, inside a background tab that
+  // closes itself after a few minutes. sync_runs then shows nothing, which is
+  // indistinguishable from "the sync never ran" — the precise ambiguity that table
+  // exists to remove.
+  //
+  // rows:[] gives rows_scraped=0, and the ghost gate only ghosts when a run scraped
+  // MORE than zero rows. So reporting a failure can never change a proposal status.
+  async function reportSyncFailure(stage, detail) {
+    try {
+      const payload = {
+        rows: [],
+        scroll: {
+          failed: true,
+          stage,
+          detail: String(detail || "").slice(0, 400),
+          url: location.href.slice(0, 200),
+          rowsVisible: (((document.body.innerText || "").match(/\binitiated\b/gi)) || []).length,
+          lastScroll: _lastScrollStats || null,
+        },
+      };
+      console.warn("[Cockpit Proposal] reporting sync failure:", stage, detail);
+      await fetch(`${FALCON_API_BASE}/proposal-status-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      console.warn("[Cockpit Proposal] could not report failure:", e);
+    }
+  }
+
   async function syncProposalsList() {
     const ok = await waitForListContent();
     if (!ok) {
       console.warn('[Cockpit Proposal] List page did not render in time');
+      await reportSyncFailure('waitForListContent', 'list page did not render in time');
       return { ok: false, error: 'List page did not render', debug: { rowCount: 0, viewedIndicatorsOnPage: 0, viewedRowCount: 0, rowTitles: [], note: 'list did not render' } };
     }
     // Scrape inside a guard so a throw NEVER loses the debug — we still want
@@ -1454,6 +1487,7 @@
       ({ rows, debug } = await scrapeAllProposalPages());
     } catch (err) {
       console.error('[Cockpit Proposal] scrapeProposalsList threw:', err);
+      await reportSyncFailure('scrape', (err && (err.stack || err.message)) || err);
       return {
         ok: false,
         error: 'scrape error: ' + (err && err.message || err),
