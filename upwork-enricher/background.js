@@ -333,19 +333,23 @@ function _openMessagesSyncWindow(cb) {
   _openSyncWindow('https://www.upwork.com/ab/messages/rooms/?falconsync=1', 'messages-sync', cb);
 }
 
-function _openProposalsSyncWindow(cb) {
-  _openSyncWindow('https://www.upwork.com/nx/proposals/?falconsync=1', 'proposals-sync', cb);
-}
 
 async function _startSync(source) {
   console.log('[Cockpit BG] auto-sync triggered:', source);
   // Proposals list: unchanged, stays a plain background tab in the current
   // window — never implicated in the tab-switch complaint, out of scope here.
-  // Its own unfocused window, not a background tab — see _openSyncWindow.
-  // A background tab is document.hidden, where Upwork's SPA ignores the
-  // pagination click and Chrome clamps our polling timers.
-  _openProposalsSyncWindow((tab) => {
-    if (tab && tab.id) console.log('[Cockpit BG] auto-sync proposals window opened:', tab.id);
+  // Stays a plain background tab. An unfocused window was tried on 2026-09-16
+  // to escape background-tab throttling and measured NO better: Chrome on
+  // Windows tracks occlusion, so a window fully covered by the maximised
+  // Falcon Scout window reports visibilityState "hidden" just as a background
+  // tab does (run 67: hidden true, elapsedMs 27985 — identical to the tab).
+  // It only added a visible window for no gain, so it was reverted.
+  chrome.tabs.create({ url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false }, (tab) => {
+    if (tab && tab.id) {
+      _persistSyncTab(tab.id);
+      _scheduleTabCleanup(tab.id, 4);
+      console.log('[Cockpit BG] auto-sync tab opened:', tab.id, 'proposals (background)');
+    }
   });
   // Messages inbox: its own unfocused off-screen window (see
   // _openMessagesSyncWindow above), not an active tab in the current window.
@@ -890,11 +894,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // window — never takes focus, so there's nothing to restore afterward.
     _openMessagesSyncWindow((mtab) => {
       if (mtab && mtab.id) openedTabIds.push(mtab.id);
-      _openProposalsSyncWindow((tab) => {
-        if (tab && tab.id) openedTabIds.push(tab.id);
-        console.log('[Cockpit BG] sync proposals window opened:', tab && tab.id);
-        sendResponse({ ok: true, tabIds: openedTabIds });
-      });
+      chrome.tabs.create(
+        { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
+        (tab) => {
+          if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 4); }
+          console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
+          sendResponse({ ok: true, tabIds: openedTabIds });
+        }
+      );
     });
     return true; // async
   }
