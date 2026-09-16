@@ -255,20 +255,34 @@ let _autoBidsInFlight = false;
 // If the move is refused the window simply stays visible — unfocused, so it still
 // never steals input focus. A visible window is a nuisance; a leg that never runs
 // costs contracts, so correctness wins over invisibility here.
-function _openMessagesSyncWindow(cb) {
-  const URL_ = 'https://www.upwork.com/ab/messages/rooms/?falconsync=1';
+//
+// 2026-09-16: generalised from messages-only to both legs. The proposals leg was
+// deliberately left as a background tab ("never implicated in the tab-switch
+// complaint, out of scope"), but it was measured failing for exactly the reason
+// this helper exists. Pagination clicked the right button twice, with two event
+// strategies, and the page never advanced:
+//
+//   pageAfter: 1, hidden: true, visibilityState: "hidden", elapsedMs: 27984
+//
+// A background TAB is document.hidden, so Upwork's SPA never processed the
+// click, and ~9s of intended polling took 28s because Chrome clamps timers
+// there. The active tab of an unfocused WINDOW is visibilityState "visible" —
+// not hidden, not clamped — while still never taking OS focus. Same reasoning
+// that was applied to the room walk's 0/10 links; now it has measurements
+// behind it rather than a hypothesis.
+function _openSyncWindow(URL_, label, cb) {
 
   // Last resort: a plain background tab. Known to be throttle-prone for the
   // room walk (0/10 links, 2026-08-18) — but a degraded leg beats no leg.
   const fallbackToTab = (why) => {
-    console.warn('[Cockpit BG] messages window unavailable (' + why + ') — falling back to a background tab');
+    console.warn('[Cockpit BG] ' + label + ' window unavailable (' + why + ') — falling back to a background tab');
     chrome.tabs.create({ url: URL_, active: false }, (tab) => {
       if (tab && tab.id) {
         _persistSyncTab(tab.id);
         _scheduleTabCleanup(tab.id, 4);
-        console.log('[Cockpit BG] messages-sync fallback tab opened:', tab.id);
+        console.log('[Cockpit BG] ' + label + ' fallback tab opened:', tab.id);
       } else {
-        console.error('[Cockpit BG] messages-sync fallback tab ALSO failed:', chrome.runtime.lastError);
+        console.error('[Cockpit BG] ' + label + ' fallback tab ALSO failed:', chrome.runtime.lastError);
       }
       if (cb) cb(tab || null);
     });
@@ -300,31 +314,38 @@ function _openMessagesSyncWindow(cb) {
     try {
       chrome.windows.update(win.id, { left: -3000, top: -3000 }, () => {
         if (chrome.runtime.lastError) {
-          console.log('[Cockpit BG] messages-sync window stays on-screen (unfocused):',
+          console.log('[Cockpit BG] ' + label + ' window stays on-screen (unfocused):',
             chrome.runtime.lastError.message);
         } else {
-          console.log('[Cockpit BG] messages-sync window moved off-screen:', tab.id);
+          console.log('[Cockpit BG] ' + label + ' window moved off-screen:', tab.id);
         }
       });
     } catch (e) {
       console.log('[Cockpit BG] could not move messages-sync window:', e && e.message);
     }
 
-    console.log('[Cockpit BG] messages-sync window opened (unfocused):', tab.id);
+    console.log('[Cockpit BG] ' + label + ' window opened (unfocused):', tab.id);
     if (cb) cb(tab);
   });
+}
+
+function _openMessagesSyncWindow(cb) {
+  _openSyncWindow('https://www.upwork.com/ab/messages/rooms/?falconsync=1', 'messages-sync', cb);
+}
+
+function _openProposalsSyncWindow(cb) {
+  _openSyncWindow('https://www.upwork.com/nx/proposals/?falconsync=1', 'proposals-sync', cb);
 }
 
 async function _startSync(source) {
   console.log('[Cockpit BG] auto-sync triggered:', source);
   // Proposals list: unchanged, stays a plain background tab in the current
   // window — never implicated in the tab-switch complaint, out of scope here.
-  chrome.tabs.create({ url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false }, (tab) => {
-    if (tab && tab.id) {
-      _persistSyncTab(tab.id);
-      _scheduleTabCleanup(tab.id, 4);
-      console.log('[Cockpit BG] auto-sync tab opened:', tab.id, 'proposals (background)');
-    }
+  // Its own unfocused window, not a background tab — see _openSyncWindow.
+  // A background tab is document.hidden, where Upwork's SPA ignores the
+  // pagination click and Chrome clamps our polling timers.
+  _openProposalsSyncWindow((tab) => {
+    if (tab && tab.id) console.log('[Cockpit BG] auto-sync proposals window opened:', tab.id);
   });
   // Messages inbox: its own unfocused off-screen window (see
   // _openMessagesSyncWindow above), not an active tab in the current window.
@@ -869,14 +890,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // window — never takes focus, so there's nothing to restore afterward.
     _openMessagesSyncWindow((mtab) => {
       if (mtab && mtab.id) openedTabIds.push(mtab.id);
-      chrome.tabs.create(
-        { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
-        (tab) => {
-          if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 4); }
-          console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
-          sendResponse({ ok: true, tabIds: openedTabIds });
-        }
-      );
+      _openProposalsSyncWindow((tab) => {
+        if (tab && tab.id) openedTabIds.push(tab.id);
+        console.log('[Cockpit BG] sync proposals window opened:', tab && tab.id);
+        sendResponse({ ok: true, tabIds: openedTabIds });
+      });
     });
     return true; // async
   }
