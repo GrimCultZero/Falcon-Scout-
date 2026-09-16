@@ -1042,33 +1042,67 @@
   // the Active list's pager, which would page the wrong list indefinitely while
   // Submitted never advanced past row 1.
   function _submittedSectionRoot() {
-    // Find the "Submitted proposals" heading, then walk up to the smallest
-    // ancestor that also contains pagination-looking controls.
-    // Take the MOST SPECIFIC match, not the first one in document order. A
-    // section wrapper also contains the phrase, and walking up from the wrapper
-    // lands on <body> — where the Active list's pager is found instead. The
-    // element with the shortest own text is the heading itself.
+    // Locate the "Submitted proposals" section and return the smallest ancestor
+    // that owns BOTH its rows and its pager. Scoping matters: /nx/proposals/
+    // renders two independently paginated lists, and an unscoped search returns
+    // the Active list's pager, which would page the wrong list forever.
+    //
+    // Everything here is recorded into _lastPagerDiag and POSTed with the sync.
+    // The 2026-09-16 run reported sectionFound:false with no further detail, so
+    // it was impossible to tell "heading not found" from "walk never satisfied
+    // both conditions" — two different fixes. Never again.
+    const diag = { headFound: false, headText: null, walk: [], labels: [], hasInitiated: false };
+    _lastPagerDiag = Object.assign(_lastPagerDiag || {}, { section: diag });
+
+    const bodyText = (document.body && document.body.innerText) || '';
+    diag.hasInitiated = /initiated/i.test(bodyText);
+
+    const isPagerish = (el) => {
+      const txt = (el.innerText || '').trim();
+      const lab = (el.getAttribute('aria-label') || '').toLowerCase();
+      return /^\d{1,3}$/.test(txt) || txt === '›' || txt === '>' || /\bnext\b/.test(lab);
+    };
+
     let head = null, headLen = Infinity;
     for (const el of document.querySelectorAll('h1,h2,h3,h4,[role="heading"],div,span')) {
       const t = (el.innerText || '').trim();
+      if (t.length < 60 && /proposals/i.test(t) && diag.labels.length < 20 && !diag.labels.includes(t)) {
+        diag.labels.push(t);   // every short "…proposals…" label on the page
+      }
+      // Most specific wins: a section wrapper contains the phrase too, and
+      // walking up from the wrapper lands on <body>.
       if (t.length < 60 && /submitted\s+proposals/i.test(t) && t.length < headLen) {
         head = el; headLen = t.length;
       }
     }
     if (!head) return null;
+    diag.headFound = true; diag.headText = (head.innerText || '').trim().slice(0, 60);
+
+    // Pass 1: ancestor owning both a pager and the rows.
     let cur = head;
+    const chain = [];
     for (let i = 0; i < 10 && cur; i++) {
       cur = cur.parentElement;
       if (!cur) break;
-      const hasPager = [...cur.querySelectorAll('button, a, [role="button"]')].some(el => {
-        const txt = (el.innerText || '').trim();
-        const lab = (el.getAttribute('aria-label') || '').toLowerCase();
-        return /^\d{1,3}$/.test(txt) || txt === '\u203a' || txt === '>' || /\bnext\b/.test(lab);
-      });
-      // Must contain the rows too, or we have walked past into the page wrapper
-      // and picked up the Active list's pager again.
-      const hasRows = /\binitiated\b/i.test(cur.innerText || '');
-      if (hasPager && hasRows) return cur;
+      chain.push(cur);
+      const hasPager = [...cur.querySelectorAll('button, a, [role="button"]')].some(isPagerish);
+      const hasRows = /initiated/i.test(cur.innerText || '');
+      const hasActive = /active\s+proposals/i.test(cur.innerText || '');
+      diag.walk.push({ i, hasPager, hasRows, hasActive });
+      if (hasPager && hasRows) { diag.via = 'rows+pager'; return cur; }
+    }
+
+    // Pass 2: the rows anchor ("Initiated") may simply not be this list's
+    // wording any more — that alone should not block paging. Relax it, but
+    // refuse any ancestor that has swallowed the Active list, since that is
+    // the specific mistake the rows anchor existed to prevent.
+    for (let i = 0; i < chain.length; i++) {
+      const el = chain[i];
+      const hasPager = [...el.querySelectorAll('button, a, [role="button"]')].some(isPagerish);
+      if (hasPager && !/active\s+proposals/i.test(el.innerText || '')) {
+        diag.via = 'pager-only (relaxed, Active list excluded)';
+        return el;
+      }
     }
     return null;
   }
