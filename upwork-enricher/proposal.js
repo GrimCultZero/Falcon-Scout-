@@ -1115,6 +1115,50 @@
       return '<no-text ' + (el.tagName || '?').toLowerCase() + (cls ? ' .' + cls : '') + '>';
     });
 
+    // 0. Upwork's own "air3" pagination — what this page actually renders.
+    //    Its controls embed accessible text, so a page button's innerText is
+    //    "Current page 1 of 7" followed by "1", or "go to page" followed by
+    //    "2" — never a bare "2" (the digit sits on its own line after the
+    //    accessible prefix).
+    //    never a bare "2". That is why the numbered strategy below reported
+    //    numericControls: 0 on a plainly paginated page, and why the prev/next
+    //    arrows (icon-only, no text, no aria-label, class air3-pagination) were
+    //    invisible to every strategy here.
+    //
+    //    "Current page X of Y" gives both the position and the total, so we can
+    //    ask for page X+1 by name instead of inferring it from DOM order, and
+    //    know when we have reached the end without relying on a disabled arrow.
+    //    Match each accessible string on its own and ANCHORED. A parent element
+    //    contains every child's text, so an unanchored search inside combined
+    //    text happily matches the pagination container rather than the page
+    //    button inside it — and then clicks a element that does nothing.
+    const strs = (el) => [el.innerText || '', el.getAttribute('aria-label') || '']
+      .map(t => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    for (const el of cands) {
+      // The visible digit follows the accessible prefix, so the normalised text
+      // is "Current page 1 of 7 1" — allow that trailing repeat, but keep the
+      // anchors so a container holding several controls still cannot match.
+      const m = strs(el).map(t => t.match(/^current\s+page\s+(\d+)\s+of\s+(\d+)(?:\s+\d+)?$/i)).find(Boolean);
+      if (m) { probe.currentPage = parseInt(m[1], 10); probe.totalPages = parseInt(m[2], 10); break; }
+    }
+    if (probe.currentPage && probe.totalPages) {
+      if (probe.currentPage >= probe.totalPages) {
+        probe.via = 'air3 (already on the last page)';
+        return null;
+      }
+      const want = probe.currentPage + 1;
+      for (const el of cands) {
+        const hit = strs(el).some(t => {
+          const m = t.match(/^go\s+to\s+page\s+(\d+)$/i);
+          return m && parseInt(m[1], 10) === want;
+        });
+        if (hit && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
+          return pick(el, 'air3 go-to-page ' + want);
+        }
+      }
+      probe.air3Miss = 'no "go to page ' + want + '" control among ' + cands.length;
+    }
+
     // 1. Explicit accessible name — the most reliable when Upwork provides it.
     for (const el of cands) {
       const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.toLowerCase();

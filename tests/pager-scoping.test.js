@@ -19,10 +19,20 @@ function E(tag, opts = {}) {
     },
     get textContent() { return this.innerText; },
     getAttribute(k) { return this._attrs[k] ?? null; },
-    querySelectorAll() {          // selector ignored: stub returns all descendants
+    querySelectorAll(sel) {
+      // Honour the selector. An earlier version ignored it and returned every
+      // descendant, so a pagination CONTAINER was offered as a candidate
+      // control — its joined text contains each child's label, which made a
+      // loose text match appear to succeed against an unclickable div.
       const out = [];
       (function walk(n) { for (const c of n.children) { out.push(c); walk(c); } })(this);
-      return out;
+      if (!sel) return out;
+      const parts = sel.split(',').map(s => s.trim()).filter(Boolean);
+      return out.filter(el => parts.some(pt => {
+        const role = pt.match(/^\[role="?([^"\]]+)"?\]$/);
+        if (role) return (el._attrs.role || '') === role[1];
+        return el.tag === pt;
+      }));
     },
   };
   ALL.push(el);
@@ -131,4 +141,50 @@ function run(body) {
   const { _findNextPageControl } = run(body);
   const got = _findNextPageControl();
   console.log(`${got === null ? 'PASS' : 'FAIL'}  guard: only ancestor with a pager owns the Active list -> refuses  -> got ${got ? '"' + got.innerText + '"' : 'null'}`);
+}
+
+// ── case 5 — the REAL Upwork air3 pagination, using the exact control text
+// captured from production (sync_runs id 60). The page buttons embed accessible
+// text, so their innerText is never a bare digit, and the arrows are icon-only
+// with no text and no aria-label. Every earlier strategy reported
+// numericControls: 0 against this and gave up.
+{
+  ALL = [];
+  const body = E('body');
+  const active = add(body, E('section'));
+  add(active, E('h2', { text: 'Active proposals  (13)' }));
+
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals  (67)' }));
+  const srow = add(submitted, E('div'));
+  add(srow, E('div', { text: 'Initiated Sep 16, 2026' }));
+  const pager = add(submitted, E('div'));
+  add(pager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  add(pager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  add(pager, E('button', { text: 'Current page 1 of 7\n             1' }));
+  const go2 = add(pager, E('button', { text: 'go to page\n             2' }));
+  add(pager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+
+  const { _findNextPageControl } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got === go2 ? 'PASS' : 'FAIL'}  air3: picks "go to page 2" from page 1 of 7  -> got ${got ? JSON.stringify(got.innerText.replace(/\s+/g, ' ')) : 'null'}`);
+}
+
+// ── case 6 — on the last page there is no page 8 to ask for. It must stop
+// cleanly rather than clicking an arrow that reloads page 7.
+{
+  ALL = [];
+  const body = E('body');
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals  (67)' }));
+  const srow = add(submitted, E('div'));
+  add(srow, E('div', { text: 'Initiated Sep 16, 2026' }));
+  const pager = add(submitted, E('div'));
+  add(pager, E('button', { text: 'go to page\n             6' }));
+  add(pager, E('button', { text: 'Current page 7 of 7\n             7' }));
+  add(pager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+
+  const { _findNextPageControl } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got === null ? 'PASS' : 'FAIL'}  air3: last page (7 of 7) -> stops  -> got ${got ? JSON.stringify(got.innerText.replace(/\s+/g, ' ')) : 'null'}`);
 }
