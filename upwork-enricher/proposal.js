@@ -1690,7 +1690,28 @@
     if (!isList) return;
     const requested = await falconSyncRequested();
     console.log('[Cockpit Proposal] Auto-sync check — isList:', isList, 'falconsync:', requested, 'path:', window.location.pathname + window.location.search);
-    if (!requested) return;
+    if (!requested) {
+      // Do not just return. A silent decline here is indistinguishable from the
+      // script never running, and that ambiguity has cost several diagnostic cycles.
+      // Report which of the three gates said no, but ONLY on the list page — the
+      // detail pages fire this script constantly during normal browsing and would
+      // flood sync_runs.
+      if (isList) {
+        let marker = null, stash = null, bg = null;
+        try { marker = new URL(window.location.href).searchParams.get("falconsync"); } catch (_) {}
+        try { stash = sessionStorage.getItem("falcon_sync_requested"); } catch (_) {}
+        try {
+          bg = await new Promise(resolve => {
+            chrome.runtime.sendMessage({ type: "ASK_AUTO_SYNC" }, (r) => {
+              resolve(chrome.runtime.lastError ? ("lastError: " + chrome.runtime.lastError.message) : JSON.stringify(r));
+            });
+          });
+        } catch (e) { bg = "threw: " + (e && e.message); }
+        await reportSyncFailure("gate-declined",
+          `urlParam=${marker} sessionStash=${stash} background=${bg}`);
+      }
+      return;
+    }
 
     clearFalconSyncMarker();
     showSyncBanner({ phase: 'scraping' });
