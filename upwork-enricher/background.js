@@ -242,22 +242,75 @@ let _autoBidsInFlight = false;
 // messages_sync_debug.json's walk_info.links_found after the next real sync;
 // if it's back to 0/N, this off-screen-window approach doesn't dodge the
 // throttling and needs a different fix (e.g. accepting a brief flash again).
+//
+// 2026-09-16: the off-screen coordinates above were REJECTED BY CHROME. Passing
+// left/top of -3000 to windows.create fails validation ("Bounds must be at least
+// 50% within visible screen space"), so `win` came back undefined, no tab was
+// ever created, and the messages leg never ran — meaning reply detection has been
+// dead the whole time this was in place, not merely throttled. A client reply
+// arrived during that window and was never captured.
+//
+// Chrome applies that 50% rule on CREATE only, so: create at legal coordinates,
+// then move off-screen via windows.update, which is not validated the same way.
+// If the move is refused the window simply stays visible — unfocused, so it still
+// never steals input focus. A visible window is a nuisance; a leg that never runs
+// costs contracts, so correctness wins over invisibility here.
 function _openMessagesSyncWindow(cb) {
+  const URL_ = 'https://www.upwork.com/ab/messages/rooms/?falconsync=1';
+
+  // Last resort: a plain background tab. Known to be throttle-prone for the
+  // room walk (0/10 links, 2026-08-18) — but a degraded leg beats no leg.
+  const fallbackToTab = (why) => {
+    console.warn('[Cockpit BG] messages window unavailable (' + why + ') — falling back to a background tab');
+    chrome.tabs.create({ url: URL_, active: false }, (tab) => {
+      if (tab && tab.id) {
+        _persistSyncTab(tab.id);
+        _scheduleTabCleanup(tab.id, 4);
+        console.log('[Cockpit BG] messages-sync fallback tab opened:', tab.id);
+      } else {
+        console.error('[Cockpit BG] messages-sync fallback tab ALSO failed:', chrome.runtime.lastError);
+      }
+      if (cb) cb(tab || null);
+    });
+  };
+
   chrome.windows.create({
-    url: 'https://www.upwork.com/ab/messages/rooms/?falconsync=1',
+    url: URL_,
     focused: false,
     type: 'normal',
     state: 'normal',
-    left: -3000, top: -3000, width: 1280, height: 900,
+    width: 1280, height: 900,   // legal position: let Chrome place it
   }, (win) => {
-    const tab = win && Array.isArray(win.tabs) ? win.tabs[0] : null;
-    if (tab && tab.id) {
-      _persistSyncTab(tab.id);        // durable across MV3 worker restarts
-      _scheduleTabCleanup(tab.id, 4);  // failsafe — never leave a zombie tab/window
-      console.log('[Cockpit BG] messages-sync window opened (unfocused, off-screen):', tab.id);
-    } else {
-      console.warn('[Cockpit BG] messages-sync window creation returned no tab:', win);
+    // windows.create reports failure via lastError, NOT via a thrown error.
+    // Reading it here is what turns a silent no-op into a diagnosable event.
+    if (chrome.runtime.lastError || !win) {
+      fallbackToTab((chrome.runtime.lastError && chrome.runtime.lastError.message) || 'no window returned');
+      return;
     }
+    const tab = Array.isArray(win.tabs) ? win.tabs[0] : null;
+    if (!tab || !tab.id) {
+      fallbackToTab('window returned no tab');
+      return;
+    }
+
+    _persistSyncTab(tab.id);        // durable across MV3 worker restarts
+    _scheduleTabCleanup(tab.id, 4);  // failsafe — never leave a zombie tab/window
+
+    // Now try to get it out of sight. Best-effort by design.
+    try {
+      chrome.windows.update(win.id, { left: -3000, top: -3000 }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('[Cockpit BG] messages-sync window stays on-screen (unfocused):',
+            chrome.runtime.lastError.message);
+        } else {
+          console.log('[Cockpit BG] messages-sync window moved off-screen:', tab.id);
+        }
+      });
+    } catch (e) {
+      console.log('[Cockpit BG] could not move messages-sync window:', e && e.message);
+    }
+
+    console.log('[Cockpit BG] messages-sync window opened (unfocused):', tab.id);
     if (cb) cb(tab);
   });
 }
