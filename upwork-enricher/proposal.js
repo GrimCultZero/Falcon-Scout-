@@ -1091,7 +1091,15 @@
   function _findNextPageControl() {
     const probe = { sectionFound: false, candidates: 0, labels: [], via: null };
     _lastPagerDiag = Object.assign(_lastPagerDiag || {}, { probe });
-    const pick = (el, via) => { probe.via = via; probe.picked = (el.innerText || '').trim() || (el.getAttribute('aria-label') || ''); return el; };
+    const pick = (el, via) => {
+      probe.via = via;
+      probe.picked = ((el.innerText || '').trim() || el.getAttribute('aria-label') || '').slice(0, 60);
+      // Identify the element itself, not just its label — a wrapper and the
+      // button inside it read identically but behave completely differently.
+      probe.pickedEl = (el.tagName || '?').toLowerCase() +
+        (typeof el.className === 'string' && el.className ? '.' + el.className.slice(0, 40) : '');
+      return el;
+    };
 
     const root = _submittedSectionRoot();
     if (!root) {
@@ -1147,15 +1155,22 @@
         return null;
       }
       const want = probe.currentPage + 1;
-      for (const el of cands) {
-        const hit = strs(el).some(t => {
+      const hits = cands.filter(el => {
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+        return strs(el).some(t => {
           const m = t.match(/^go\s+to\s+page\s+(\d+)$/i);
           return m && parseInt(m[1], 10) === want;
         });
-        if (hit && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
-          return pick(el, 'air3 go-to-page ' + want);
-        }
-      }
+      });
+      // Take the INNERMOST match. A [role="button"] wrapper whose only child is
+      // the real <button> has identical text, so both match and document order
+      // hands back the wrapper — and a click on a wrapper never reaches the
+      // handler bound to the child, which is how "clicked, but the list never
+      // changed (6s)" happened with the correct control located.
+      const inner = hits.filter(el => !hits.some(o =>
+        o !== el && typeof el.contains === 'function' && el.contains(o)));
+      probe.hitCount = hits.length;
+      if (inner.length) return pick(inner[inner.length - 1], 'air3 go-to-page ' + want);
       probe.air3Miss = 'no "go to page ' + want + '" control among ' + cands.length;
     }
 
@@ -1207,15 +1222,43 @@
     const ctl = _findNextPageControl();
     if (!ctl) return note('no next-page control found');
     try { ctl.scrollIntoView({ block: 'center' }); } catch (_) {}
-    try { ctl.click(); } catch (e) { return note('click threw: ' + (e && e.message)); }
+
     // Poll for the content to actually change — a fixed sleep either wastes
     // time or races the render, and this list re-renders at unpredictable speed.
-    for (let i = 0; i < 20; i++) {
-      await sleep(300);
-      if (_listSignature() !== before) { await sleep(400); return true; }
+    const changed = async (ticks) => {
+      for (let i = 0; i < ticks; i++) {
+        await sleep(300);
+        if (_listSignature() !== before) { await sleep(400); return true; }
+      }
+      return false;
+    };
+
+    // Attempt 1: the plain click. Enough for most handlers.
+    try { ctl.click(); } catch (e) { return note('click threw: ' + (e && e.message)); }
+    if (await changed(14)) { _lastPagerDiag = Object.assign(_lastPagerDiag || {}, { clickVia: 'click()' }); return true; }
+
+    // Attempt 2: a full pointer/mouse sequence on the deepest descendant.
+    // Some handlers listen for pointerdown/mouseup rather than click, and some
+    // bind to an inner node; el.click() satisfies neither. This is cheap and
+    // only runs when the list demonstrably did not move.
+    let leaf = ctl;
+    for (let i = 0; i < 4 && leaf.firstElementChild; i++) leaf = leaf.firstElementChild;
+    try {
+      const opts = { bubbles: true, cancelable: true, view: window };
+      for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        const Ctor = type.startsWith('pointer') && typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+        leaf.dispatchEvent(new Ctor(type, opts));
+      }
+    } catch (e) {
+      return note('synthetic click threw: ' + (e && e.message));
     }
+    if (await changed(14)) {
+      _lastPagerDiag = Object.assign(_lastPagerDiag || {}, { clickVia: 'synthetic events on leaf' });
+      return true;
+    }
+
     console.warn('[Cockpit Proposal] next-page click did not change the list — stopping.');
-    return note('clicked, but the list never changed (6s)');
+    return note('clicked twice (plain + synthetic), list never changed (~9s)');
   }
 
   // Scrape EVERY page and merge. Returns the same { rows, debug } shape as the

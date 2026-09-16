@@ -19,6 +19,16 @@ function E(tag, opts = {}) {
     },
     get textContent() { return this.innerText; },
     getAttribute(k) { return this._attrs[k] ?? null; },
+    get tagName() { return this.tag.toUpperCase(); },
+    get firstElementChild() { return this.children[0] || null; },
+    contains(other) {
+      // Needed by the innermost-match selection: a wrapper and the button
+      // inside it can carry identical text, and only containment tells them
+      // apart.
+      let found = false;
+      (function walk(n) { for (const c of n.children) { if (c === other) found = true; walk(c); } })(this);
+      return found || this === other;
+    },
     querySelectorAll(sel) {
       // Honour the selector. An earlier version ignored it and returned every
       // descendant, so a pagination CONTAINER was offered as a candidate
@@ -187,4 +197,26 @@ function run(body) {
   const { _findNextPageControl } = run(body);
   const got = _findNextPageControl();
   console.log(`${got === null ? 'PASS' : 'FAIL'}  air3: last page (7 of 7) -> stops  -> got ${got ? JSON.stringify(got.innerText.replace(/\s+/g, ' ')) : 'null'}`);
+}
+
+// ── case 7 — a [role="button"] wrapper whose only child is the real <button>.
+// Both carry the identical accessible text, so both match and document order
+// offers the wrapper first. Clicking a wrapper never reaches the handler bound
+// to the child — this is what produced "clicked, but the list never changed"
+// on a run where the correct control had been located (sync_runs id 61).
+{
+  ALL = [];
+  const body = E('body');
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals \u00a0(67)' }));
+  const srow = add(submitted, E('div'));
+  add(srow, E('div', { text: 'Initiated Sep 16, 2026' }));
+  const pager = add(submitted, E('div'));
+  add(pager, E('button', { text: 'Current page 1 of 7\n             1' }));
+  const wrapper = add(pager, E('div', { attrs: { role: 'button' } }));
+  const realBtn = add(wrapper, E('button', { text: 'go to page\n             2' }));
+
+  const { _findNextPageControl } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got === realBtn ? 'PASS' : 'FAIL'}  nested: picks the inner <button>, not the role=button wrapper  -> got ${got ? got.tag : 'null'}`);
 }
