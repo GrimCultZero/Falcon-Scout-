@@ -6619,6 +6619,43 @@ long-form.)
 1. DIAGNOSE FIRST — DO NOT INTRODUCE YOURSELF. The first 1-2 lines must name the
    client's specific problem/goal FROM THEIR POSTING, in their words, plus the
    angle you'd take. NOT your credentials, years, partner status, or a pleasantry.
+
+   THE 180-CHARACTER TEST — this is the single measurable rule in this prompt and
+   it is checked deterministically after you write:
+   Upwork shows the client ONLY the first ~150-200 characters of this letter in
+   their proposal list. Everything after that is behind a click they have not made
+   yet. So the first 180 characters are not the introduction to the letter — for
+   the decision that matters, open or archive, they ARE the letter.
+   REQUIREMENT: the first 180 characters must contain AT LEAST FOUR distinct,
+   concrete words taken from THIS posting — the platform, the vertical, the city,
+   the product, the specific symptom, the tool they named. Industry furniture does
+   NOT count: "google", "ads", "seo", "marketing", "campaign", "years", "premier",
+   "partner", "agency", "client", "business", "traffic", "revenue" are words that
+   appear in every posting and every competing proposal, so they carry no
+   information. Aim for 7+; that is where the measured open rate roughly doubles.
+   THE TEST: if you could paste your first sentence onto a different job posting
+   without editing it, it has failed, no matter how well written it is.
+   Evidence (Artem's own 251 sent proposals, analysed 2026-09-16): letters whose
+   first 180 characters carried 0-1 posting-specific words were opened 10.7% of
+   the time; 7+ words, 27.6%. p = 0.0018. This was the ONLY letter-level factor
+   with a statistically significant effect. Length, opener style, business-vs-
+   technical framing and bid speed ALL came back null — so do not spend effort
+   on those at the expense of this.
+   Note what this does NOT mean: do not quote or paraphrase their posting back at
+   them (that is banned below, and letters that copied 3+ phrases verbatim were
+   opened 9.1% vs 16.5%). Name their situation in your OWN words.
+   PRECEDENCE vs KB Rule 439 — resolve this ordering explicitly, do not improvise:
+   Rule 439 requires the "12 years" credential baseline early. The 180-character
+   rule outranks it on POSITION. The credential is NOT dropped, it MOVES: spend
+   the first 180 characters on the client, then state the credential immediately
+   after. Rule 439 is satisfied by its presence early in the body, and the
+   deterministic check for it scans the WHOLE letter, not the opener — so moving
+   it costs you nothing and cannot fail that check.
+   Do NOT satisfy both by opening "12 years running Google Ads, Google Premier
+   Partner 2026." and then adding client detail. That spends 56 of your 180
+   characters — nearly a third of everything the client will see — on a sentence
+   that is identical in 112 of Artem's past 251 proposals, and it is the specific
+   failure documented at job 15246 (2026-09-15).
    BANNED opening lines (they blend into the pile and lower reply rates):
    "12 years running Google Ads...", "12 years across SEO and Google Ads...",
    "As a Google Premier Partner...", "I'm a PPC/SEO specialist with...",
@@ -7861,6 +7898,63 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _postingOnlyLower = [job?.title, job?.category, job?.keywords, fullDescription]
               .filter(Boolean).join('\n').toLowerCase()
 
+            // ── Preview-window specificity — the 180-character rule ──────────
+            // Upwork shows the client roughly the first 150-200 characters of the
+            // cover letter in their proposal list, beside the profile card;
+            // everything else sits behind a click. So for the decision that
+            // actually matters -- open or archive -- the preview is not the start
+            // of the letter, it IS the letter.
+            //
+            // Measured over Artem's own 251 sent proposals (2026-09-16):
+            //
+            //   job-specific words in first 180 chars    n     opened
+            //   0-1                                      93     10.8%
+            //   2-3                                      98     17.3%
+            //   4-6                                      48     16.7%
+            //   7+                                       14     42.9%
+            //
+            // mean 3.46 opened vs 2.33 not opened, permutation p = 0.0018. That
+            // was the ONLY statistically significant letter-level effect in the
+            // whole analysis, and it survives correction for the ~15 hypotheses
+            // tested. Everything else came back null: credential-first vs
+            // situation-first openers split 7.7%/7.6%, business-led vs
+            // technical-led framing p = 0.77, length p ~ 1, bid speed no effect.
+            // Density of THIS client's own specifics is what moves the open rate.
+            // The register it is written in does not.
+            //
+            // Why the generic list below matters: 98% of those 251 letters
+            // contain "12 years" and the sentence "12 years running Google Ads,
+            // Google Premier Partner 2026." appears 112 times. Counting trade
+            // vocabulary as "specific" would score that exact opener as a pass,
+            // which is the letter shape this check exists to catch. Only words
+            // that appear in THIS posting and are not industry furniture count.
+            const _PREVIEW_CHARS = 180
+            const _PREVIEW_MIN_SPECIFIC = 4
+            const _PREVIEW_GENERIC = new Set((
+              'google ads adwords sem ppc paid search marketing digital campaign campaigns ' +
+              'year years experience premier partner specialist expert agency team client clients ' +
+              'business businesses company website site online traffic revenue growth grow scale ' +
+              'scaling management manage managing service services strategy strategies process ' +
+              'work working help need needs want looking about with your their this that from ' +
+              'have here what when where which will would could should more most just also than'
+            ).split(' '))
+            const _previewWordSet = (s) => new Set(
+              (String(s || '').toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || [])
+                .filter(w => !_PREVIEW_GENERIC.has(w))
+            )
+            const _postingWordSet = _previewWordSet(_postingOnlyLower)
+            const _previewSpecificWords = [..._previewWordSet(String(text || '').trim().slice(0, _PREVIEW_CHARS))]
+              .filter(w => _postingWordSet.has(w))
+            const previewNotSpecific = _previewSpecificWords.length < _PREVIEW_MIN_SPECIFIC
+            if (previewNotSpecific) {
+              console.warn(
+                `[Falcon] preview-window check: only ${_previewSpecificWords.length} job-specific word(s) ` +
+                `in the first ${_PREVIEW_CHARS} characters (want ${_PREVIEW_MIN_SPECIFIC}+). ` +
+                `This is what the client sees before deciding to open it: ` +
+                `"${String(text || '').trim().slice(0, _PREVIEW_CHARS)}"`
+              )
+            }
+
             const REGULATED_VERTICAL_RE =
               /\b(hemp|CBD|cannabis|marijuana|THC|vape|vaping|e-?cig(?:arette)?|nicotine|kratom|mushroom|psilocybin|supplement|nutraceutical|peptides?|SARMs?|bio[-\s]?hacking|med[-\s]?spa|medspa|aesthetics?|cosmetic|skincare|skin\s+care|dermatology|botox|filler|YMYL|salmon\s+dna|micro-?infusion)\b/i
             const jobIsRegulated = REGULATED_VERTICAL_RE.test(jobContextLower)
@@ -8688,6 +8782,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !timelineRequestedButMissing && !hasEchoedQuestion && !fabricatedGeoExperience && !openerEchoesPostingLine
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
               && !hasBannedOpener && !hasExplainerOpener && !fabricatedToolClaim && !seoWrongPremierPartner
+              && !previewNotSpecific
 
             // Telemetry (Phase C): record every guard that fired this run.
             // Captured into a named list (not passed inline) because the enforcer's
@@ -8695,6 +8790,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // it now drives the console warning and the UI flag strip as well.
             const _firedChecks = [
               hasBannedOpener && 'hasBannedOpener',
+              previewNotSpecific && 'previewNotSpecific',
               hasExplainerOpener && 'hasExplainerOpener',
               hasForbiddenPhrase && 'hasForbiddenPhrase',
               missingAuditSampleMention && 'missingAuditSampleMention',

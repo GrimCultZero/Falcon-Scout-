@@ -43,3 +43,6 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Test fixture built from the local DB — contains real client postings
+tests/.letters.json
