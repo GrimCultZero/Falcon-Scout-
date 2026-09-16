@@ -1219,6 +1219,7 @@
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const note = (why) => { _lastPagerDiag = Object.assign(_lastPagerDiag || {}, { stopReason: why }); return false; };
     const before = _listSignature();
+    const _pagerClickStartedAt = Date.now();
     const ctl = _findNextPageControl();
     if (!ctl) return note('no next-page control found');
     try { ctl.scrollIntoView({ block: 'center' }); } catch (_) {}
@@ -1257,6 +1258,34 @@
       return true;
     }
 
+    // Both click strategies hit a real <button class="air3-pagination-nr-btn">
+    // (hitCount 1, so no wrapper ambiguity) and the list did not move. Two very
+    // different failures remain and they need opposite fixes, so measure rather
+    // than guess:
+    //
+    //   pageAfter === 2  -> the click WORKED and _listSignature() cannot see it
+    //   pageAfter === 1  -> the click never registered
+    //
+    // Also record wall-clock time and tab visibility. The proposals leg runs in
+    // a BACKGROUND tab, where Chrome clamps setTimeout; if ~9s of intended
+    // polling actually took far longer, the re-render may simply be arriving
+    // after we stopped looking.
+    let pageAfter = null;
+    try {
+      for (const el of document.querySelectorAll('button, a, [role="button"]')) {
+        const t = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '')).replace(/\s+/g, ' ').trim();
+        const m = t.match(/^current\s+page\s+(\d+)\s+of\s+(\d+)(?:\s+\d+)?$/i);
+        if (m) { pageAfter = parseInt(m[1], 10); break; }
+      }
+    } catch (_) {}
+    _lastPagerDiag = Object.assign(_lastPagerDiag || {}, {
+      pageAfter,
+      elapsedMs: Date.now() - _pagerClickStartedAt,
+      hidden: (typeof document.hidden === 'boolean') ? document.hidden : null,
+      visibility: document.visibilityState || null,
+      sigBefore: before.slice(0, 80),
+      sigAfter: _listSignature().slice(0, 80),
+    });
     console.warn('[Cockpit Proposal] next-page click did not change the list — stopping.');
     return note('clicked twice (plain + synthetic), list never changed (~9s)');
   }
