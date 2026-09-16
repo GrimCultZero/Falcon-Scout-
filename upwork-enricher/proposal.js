@@ -961,6 +961,9 @@
   // Last list-load stats, sent to the backend with the sync so /sync-runs can
   // show whether the virtualised list actually expanded on that run.
   let _lastScrollStats = null;
+  // Why pagination stopped. POSTed with the sync so the reason survives the
+  // proposals tab closing itself — that tab's console is unreadable in practice.
+  let _lastPagerDiag = null;
   async function loadEntireProposalsList() {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     // Cheap row proxy: Upwork prints "Initiated" once per submitted proposal.
@@ -1071,48 +1074,63 @@
   }
 
   function _findNextPageControl() {
+    const probe = { sectionFound: false, candidates: 0, labels: [], via: null };
+    _lastPagerDiag = Object.assign(_lastPagerDiag || {}, { probe });
+    const pick = (el, via) => { probe.via = via; probe.picked = (el.innerText || '').trim() || (el.getAttribute('aria-label') || ''); return el; };
+
     const root = _submittedSectionRoot();
     if (!root) {
       console.warn('[Cockpit Proposal] could not locate the "Submitted proposals" section — not paging.');
       return null;
     }
+    probe.sectionFound = true;
     const cands = [...root.querySelectorAll('button, a, [role="button"]')];
+    probe.candidates = cands.length;
+    // Record what the section actually offers, so a miss is diagnosable from
+    // the sync_runs row instead of requiring the tab's console.
+    probe.labels = cands.slice(0, 25).map(el =>
+      ((el.innerText || '').trim() || '') + (el.getAttribute('aria-label') ? '[' + el.getAttribute('aria-label') + ']' : ''))
+      .filter(Boolean);
+
     // 1. Explicit accessible name — the most reliable when Upwork provides it.
     for (const el of cands) {
       const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.toLowerCase();
       if (/\bnext\b/.test(label) && !/\bprevious\b/.test(label)) {
-        if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return el;
+        if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return pick(el, 'aria-label');
       }
     }
     // 2. Chevron glyphs Upwork renders when there is no aria-label.
     for (const el of cands) {
       const txt = (el.innerText || el.textContent || '').trim();
-      if (txt === '>' || txt === '\u203a' || txt === '\u00bb' || txt === '\u2192') {
-        if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return el;
+      if (txt === '>' || txt === '›' || txt === '»' || txt === '→') {
+        if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return pick(el, 'chevron');
       }
     }
     // 3. Numbered pagination: find the current page, then the element whose
     //    text is exactly current+1. Re-read each pass — the DOM is rebuilt.
     const nums = cands.filter(el => /^\d{1,3}$/.test((el.innerText || '').trim()));
+    probe.numericControls = nums.length;
     if (nums.length) {
       const cur = nums.find(el =>
         el.getAttribute('aria-current') === 'page' ||
         el.getAttribute('aria-current') === 'true' ||
         /\b(active|current|selected)\b/i.test(el.className || ''));
       const curNum = cur ? parseInt((cur.innerText || '').trim(), 10) : 1;
+      probe.currentPage = curNum;
       const nxt = nums.find(el => parseInt((el.innerText || '').trim(), 10) === curNum + 1);
-      if (nxt && !nxt.disabled) return nxt;
+      if (nxt && !nxt.disabled) return pick(nxt, 'numbered');
     }
     return null;
   }
 
   async function _goToNextProposalsPage() {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const note = (why) => { _lastPagerDiag = Object.assign(_lastPagerDiag || {}, { stopReason: why }); return false; };
     const before = _listSignature();
     const ctl = _findNextPageControl();
-    if (!ctl) return false;
+    if (!ctl) return note('no next-page control found');
     try { ctl.scrollIntoView({ block: 'center' }); } catch (_) {}
-    try { ctl.click(); } catch (_) { return false; }
+    try { ctl.click(); } catch (e) { return note('click threw: ' + (e && e.message)); }
     // Poll for the content to actually change — a fixed sleep either wastes
     // time or races the render, and this list re-renders at unpredictable speed.
     for (let i = 0; i < 20; i++) {
@@ -1120,7 +1138,7 @@
       if (_listSignature() !== before) { await sleep(400); return true; }
     }
     console.warn('[Cockpit Proposal] next-page click did not change the list — stopping.');
-    return false;
+    return note('clicked, but the list never changed (6s)');
   }
 
   // Scrape EVERY page and merge. Returns the same { rows, debug } shape as the
@@ -1153,6 +1171,11 @@
       if (!(await _goToNextProposalsPage())) break;
     }
 
+    // Mirror the pagination summary into _lastPagerDiag as well as debug —
+    // debug only reaches the on-page banner, which dies with the tab.
+    _lastPagerDiag = Object.assign(_lastPagerDiag || {}, {
+      pagesVisited: page, perPage, totalMerged: merged.length, pageCap: _PAGE_CAP,
+    });
     if (debug) {
       debug.pagination = { pagesVisited: page, perPage, totalMerged: merged.length };
       debug.rowCount = merged.length;
@@ -1600,7 +1623,11 @@
       resp = await fetch(`${FALCON_API_BASE}/proposal-status-sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows, scroll: _lastScrollStats }),
+        // Send the pager diagnostics alongside the scroll stats. Without this the
+        // reason pagination stopped lives only in the proposals tab's console,
+        // and that tab closes itself — the same blind spot that hid the
+        // sync_runs NameError for weeks.
+        body: JSON.stringify({ rows, scroll: { ...(_lastScrollStats || {}), pager: _lastPagerDiag } }),
         signal: ctrl.signal,
       });
     } catch (e) {
