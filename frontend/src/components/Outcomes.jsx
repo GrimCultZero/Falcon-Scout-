@@ -9,6 +9,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 // Artem opens this tab, scans recent sends, finds the title, pastes the
 // reply into the row's textarea, and PUT-saves.
 
+// Backend timestamps are UTC but serialised WITHOUT a zone
+// ("2026-08-28T12:43:08.437948"), and JavaScript reads a zone-less ISO datetime
+// as LOCAL time. Every time on these cards therefore displayed three hours
+// early for a UTC+3 user (found 2026-09-24 while adding the reply time). Read
+// them as UTC. Strings that already carry a zone, and date-only strings (which
+// JavaScript already treats as UTC), pass through unchanged.
+function parseUtc(s) {
+  if (!s) return null
+  let str = String(s).trim().replace(' ', 'T')
+  if (/T\d{2}:\d{2}/.test(str) && !/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(str)) str += 'Z'
+  const d = new Date(str)
+  return isNaN(d.getTime()) ? null : d
+}
+
 const STATUSES = [
   'sent', 'viewed', 'replied', 'interviewing',
   'hired', 'declined', 'ghosted', 'expired', 'withdrawn', 'invited',
@@ -486,8 +500,19 @@ export default function Outcomes({ active = false }) {
         }
       })
       const uniqueKbRows = filteredKbRows.filter(r => !matchedKbKeys.has(stripSuffix(r.job_title_live)))
+      let rowsOut = [...enrichedData, ...uniqueKbRows]
+      // Replied view: newest reply first, by when the reply was SEEN
+      // (status_updated_at — set when the status became 'replied'; nothing
+      // re-ghosts a replied proposal, so it stays put). Every other view keeps
+      // the backend's sent-date order. Rows without it (KB entries) fall back
+      // to their sent date. Deliberately client-side: other callers of
+      // /proposals?status=... depend on the backend's sent-date ordering.
+      if (filter === 'replied') {
+        const ts = (r) => (parseUtc(r.status_updated_at) || parseUtc(r.sent_at) || new Date(0)).getTime()
+        rowsOut = rowsOut.slice().sort((a, b) => ts(b) - ts(a))
+      }
       if (seq !== fetchSeq.current) return   // superseded by a newer fetch — never overwrite it
-      setProposals([...enrichedData, ...uniqueKbRows])
+      setProposals(rowsOut)
     } catch (e) {
       if (seq === fetchSeq.current) setError(e.message)
     } finally {
@@ -894,8 +919,17 @@ export default function Outcomes({ active = false }) {
                       ? (p._sourceUrl && /upwork\.com\/(nx\/|ab\/)?messages\/rooms/.test(p._sourceUrl)
                           ? '📩 captured from Upwork Messages'
                           : 'from Knowledge Base')
-                      : `sent ${p.sent_at ? new Date(p.sent_at).toLocaleString() : '—'}`
+                      : `sent ${parseUtc(p.sent_at) ? parseUtc(p.sent_at).toLocaleString() : '—'}`
                     }
+                    {/* In the Replied view the list is ordered by this, so show it.
+                        Worded "reply seen", not "replied": it is when Falcon Scout
+                        detected the reply, which for replies recovered from the
+                        tracking blackout can be weeks after the client wrote. */}
+                    {!isKb && filter === 'replied' && parseUtc(p.status_updated_at) && (
+                      <span style={{ marginLeft: 8, color: 'var(--text2)', fontWeight: 600 }}>
+                        · reply seen {parseUtc(p.status_updated_at).toLocaleString()}
+                      </span>
+                    )}
                     {p.bid_amount && (
                       <span style={{ marginLeft: 8, color: '#00c8d4', fontWeight: 600 }}>
                         · {p.bid_amount} Connects
