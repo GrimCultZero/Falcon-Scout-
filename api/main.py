@@ -3682,6 +3682,30 @@ def messages_status_sync(data: dict):
     # invited proposal never advances when the client actually responds.
     _PROMOTABLE_TO_REPLIED = {"draft", "sent", "viewed", "invited"}
 
+    # 'ghosted' is an INFERENCE, not an observation. _auto_ghost_proposals sets
+    # it after 10 days of nothing updating the row -- its own docstring (owner
+    # audit 2026-08-31) says it has "always meant 'nothing updated this row for
+    # 10 days' -- NOT 'the client ignored him'". A conversation in the inbox is
+    # direct evidence of a reply, and evidence must override inference.
+    #
+    # Without this, any client who answers after day 10 is matched and then
+    # silently discarded. Confirmed 2026-09-24: proposal 222 (job 13621, UNIHOST,
+    # sent 2026-08-28, ghosted 2026-09-14) -- the client replied, a call was
+    # booked, and the sync that saw it recorded nothing. Clients answering after
+    # two weeks is ordinary, and for most of the 194 ghosted proposals the reply
+    # detector was not running at all, so this is not an edge case.
+    #
+    # Deliberately stricter than _PROMOTABLE_TO_REPLIED: un-ghosting is allowed
+    # only on EXACT evidence -- the job id read from the room, or an exact title
+    # that identifies exactly one job with a proposal. The substring-title and
+    # greeting-name paths stay fuzzy-promotion-only, because widening them to
+    # 194 extra candidates would multiply the chance of promoting the wrong one.
+    # 'replied' is never re-ghosted (the timer only touches status == 'sent'),
+    # so this cannot flip back on the next sweep.
+    _RESURRECTABLE_TO_REPLIED = {"ghosted"}
+    _EXACT_MATCH_PATHS = {"job_id", "exact_title_unique"}
+    resurrected = []
+
     # Pre-compute each promotable proposal's greeting name from its cover letter
     # ("Hi Susie …" → "susie"). Upwork's inbox shows the client/company NAME (not
     # the job title), so the reliable join is: proposal greeting name ↔ a name
@@ -3706,6 +3730,7 @@ def messages_status_sync(data: dict):
             upwork_job_id = (row.get("upwork_job_id") or "").lstrip("~").strip()
 
             proposal = None
+            match_via = None
 
             # 0) Strongest: upwork_job_id from the room walk (the extension now
             #    visits candidate rooms and reads the job link from each room's
@@ -3719,16 +3744,32 @@ def messages_status_sync(data: dict):
                 ).first()
                 if matched_job:
                     proposal = session.query(Proposal).filter_by(job_id=matched_job.id).first()
+                    if proposal is not None:
+                        match_via = "job_id"
 
             # 1) Job-title match — kept for the rare case the inbox exposes a real
             #    title (mostly it doesn't; it shows the client/company name).
             if proposal is None and job_title and len(job_title) >= 5 and not _MSG_NONTITLE_RE.match(job_title):
-                matched_job = (
-                    session.query(Job).filter(Job.title.ilike(job_title)).first()
-                    or session.query(Job).filter(Job.title.ilike(f"%{job_title[:60]}%")).first()
-                )
+                exact_jobs = session.query(Job).filter(Job.title.ilike(job_title)).all()
+                if exact_jobs:
+                    matched_job = exact_jobs[0]
+                    title_via = "exact_title"
+                    # "Unique" = exactly one job with this exact title has a
+                    # proposal. Generic titles ("Google Ads Specialist") recur
+                    # across unrelated clients, so a title hit that is one of
+                    # several is not evidence about any particular proposal.
+                    with_props = [j for j in exact_jobs
+                                  if session.query(Proposal).filter_by(job_id=j.id).first() is not None]
+                    if len(with_props) == 1:
+                        matched_job = with_props[0]
+                        title_via = "exact_title_unique"
+                else:
+                    matched_job = session.query(Job).filter(Job.title.ilike(f"%{job_title[:60]}%")).first()
+                    title_via = "substring_title"
                 if matched_job:
                     proposal = session.query(Proposal).filter_by(job_id=matched_job.id).first()
+                    if proposal is not None:
+                        match_via = title_via
 
             # 2) Client-name match — the reliable path. Both `client_name` and
             #    `job_title` fields can hold the conversation's name (the scraper
@@ -3746,12 +3787,20 @@ def messages_status_sync(data: dict):
                             hits.append(p)
                 if len(hits) == 1:
                     proposal = hits[0]
+                    match_via = "greeting_name"
 
             if proposal is None:
                 not_matched.append({"job_title": job_title, "client_name": client_name})
                 continue
 
             if proposal.status in _PROMOTABLE_TO_REPLIED:
+                proposal.status = "replied"
+                proposal.status_updated_at = datetime.now(timezone.utc)
+                updated += 1
+                newly_replied += 1
+            elif proposal.status in _RESURRECTABLE_TO_REPLIED and match_via in _EXACT_MATCH_PATHS:
+                resurrected.append({"proposal_id": proposal.id, "from": proposal.status,
+                                    "via": match_via, "client_name": client_name})
                 proposal.status = "replied"
                 proposal.status_updated_at = datetime.now(timezone.utc)
                 updated += 1
@@ -3777,6 +3826,8 @@ def messages_status_sync(data: dict):
             "scanned": scanned,
             "newly_replied": newly_replied,
             "not_matched_count": len(not_matched),
+            # Ghosted proposals un-ghosted by a real reply this run (exact matches only).
+            "resurrected_from_ghosted": resurrected,
             # Self-diagnosis: running extension version + what the room walk did.
             # If this is missing entirely, the extension predates v3.7.
             "walk_info": data.get("walk_info"),
