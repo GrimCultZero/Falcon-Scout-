@@ -7955,6 +7955,40 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               )
             }
 
+            // ── Budget-based length cap (enforcing the 2026-06-16 prompt rule) ──
+            // The prompt at "BUDGET-BASED LENGTH CAP" has said since 2026-06-16:
+            // fixed-price jobs under $1000 get a 200-word ceiling, 150-200 target,
+            // one case study max. It has never had a deterministic check behind
+            // it — every other hard rule in this file (banned opener, filler
+            // closer, the preview window) does. Checked against the real corpus
+            // (2026-09-17): of the 5 most recent sub-$1000 fixed-price letters,
+            // 4 exceeded 200 words (273, 390, 295, 246) and only one (170)
+            // actually complied. A rule that is only ever stated, never verified,
+            // is indistinguishable from no rule — the same lesson the preview
+            // check and every sync-pipeline fix this week already taught.
+            //
+            // Reuses the exact budget-parsing shape already used for job scoring
+            // (see _budgetNum around the FIXED/FLAT-PRICE rate line) rather than
+            // inventing a second way to read the same field.
+            const _budgetLengthNum = job?.fixed_budget
+              ? parseFloat(String(job.fixed_budget).replace(/[^0-9.]/g, '')) || 0
+              : 0
+            const _isSmallFixedJob = job?.fixed_budget != null
+              && String(job.fixed_budget).trim() !== ''
+              && _budgetLengthNum > 0 && _budgetLengthNum < 1000
+            const _draftWordCount = String(text || '').trim().split(/\s+/).filter(Boolean).length
+            // 220 rather than a bare 200: word-splitting conventions differ by a
+            // few words at the margin, and the goal is to catch the rule being
+            // ignored (390 words), not to flag a letter that landed at 204.
+            const overBudgetLengthCap = _isSmallFixedJob && _draftWordCount > 220
+            if (overBudgetLengthCap) {
+              console.warn(
+                `[Falcon] budget-length check: fixed budget $${job.fixed_budget} (<$1000) but the draft ` +
+                `is ${_draftWordCount} words — the prompt's own cap is 200. Client evaluating a small ` +
+                `fixed-price job reads length as scope confusion, not thoroughness.`
+              )
+            }
+
             const REGULATED_VERTICAL_RE =
               /\b(hemp|CBD|cannabis|marijuana|THC|vape|vaping|e-?cig(?:arette)?|nicotine|kratom|mushroom|psilocybin|supplement|nutraceutical|peptides?|SARMs?|bio[-\s]?hacking|med[-\s]?spa|medspa|aesthetics?|cosmetic|skincare|skin\s+care|dermatology|botox|filler|YMYL|salmon\s+dna|micro-?infusion)\b/i
             const jobIsRegulated = REGULATED_VERTICAL_RE.test(jobContextLower)
@@ -8783,6 +8817,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !openCartMislabeledAsPlatform && !seoLedOnMaintenanceWebdev && !hasListyOutline
               && !hasBannedOpener && !hasExplainerOpener && !fabricatedToolClaim && !seoWrongPremierPartner
               && !previewNotSpecific
+              && !overBudgetLengthCap
 
             // Telemetry (Phase C): record every guard that fired this run.
             // Captured into a named list (not passed inline) because the enforcer's
@@ -8791,6 +8826,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _firedChecks = [
               hasBannedOpener && 'hasBannedOpener',
               previewNotSpecific && 'previewNotSpecific',
+              overBudgetLengthCap && 'overBudgetLengthCap',
               hasExplainerOpener && 'hasExplainerOpener',
               hasForbiddenPhrase && 'hasForbiddenPhrase',
               missingAuditSampleMention && 'missingAuditSampleMention',

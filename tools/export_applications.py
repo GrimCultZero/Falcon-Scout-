@@ -537,10 +537,22 @@ FINDINGS = [
      "0 cliches across 251 letters against the published 11-phrase list; 0 emoji",
      "No action. The generator's existing rules already handle this.",
      "Already clean"),
-    ("Content", "You rarely invite a reply",
-     "ends with a question in ~6% of letters; 'guarantee' appears in 4 of 253",
-     "Add a low-friction close: remove the client's risk, make replying cost one sentence.",
-     "Recommended"),
+    ("Content", "You rarely invite a reply — but adding one is not the fix",
+     "ends with a question in ~6% of letters; 'guarantee' appears in 4 of 253. On review (2026-09-24) this "
+     "conflicts with KB Rule 436, a deliberate hard rule from documented past failures: the ONLY valid "
+     "ending is 'Artem' alone, no CTA, no question. n=1 in this analysis cannot override a rule built from "
+     "Artem's own failure history.",
+     "Do not add a closing question or CTA. If low-friction asks matter, they belong earlier in the letter "
+     "(e.g. the audit offer), not as a tacked-on closer — which is the exact failure KB Rule 436 exists to stop.",
+     "Rejected — conflicts with policy"),
+    ("Content", "The <$1k length cap has been unenforced for 3 months",
+     "prompt rule since 2026-06-16 said 'cap at 200 words' for fixed-price jobs under $1000, but had no "
+     "deterministic check behind it. Checked against history: 40 of 51 such letters (78%) exceeded it "
+     "(examples: 273, 390, 295, 246 words).",
+     "Added overBudgetLengthCap — deterministic, gated into draftCompliant, tested against all 254 sent "
+     "letters (9/9 pass). A stated-but-unchecked rule behaves like no rule; every other hard rule in the "
+     "file already had this kind of check.",
+     "SHIPPED 2026-09-24"),
     ("Tracking", "The measurement was broken for most of this period",
      "no proposal marked 'viewed' since 2026-09-03; the messages leg never ran at all; scraper still reads page 1 of 7",
      "Sync logging, reply detection and failure reporting repaired 2026-09-16. Treat GHOSTED as 'no response detected'.",
@@ -588,11 +600,19 @@ PLAN = [
     ("3", "180-character preview rule in the generator",
      "previewNotSpecific check + prompt rule + KB Rule 439 precedence clause", "Claude", "SHIPPED 2026-09-17"),
     ("3", "Add a low-friction close to the generator",
-     "Risk removal plus an explicit invitation to reply", "Claude", "Not started"),
-    ("3", "Cut letters to ~150 words for jobs under $1k",
-     "No measured effect, but cheaper and matches outside consensus", "Claude", "Not started"),
+     "REJECTED on review (2026-09-24): conflicts with KB Rule 436, a deliberate hard rule from documented "
+     "past failures banning any closing line beyond 'Artem' alone. Internal evidence was n=1; not enough to "
+     "override a rule built from Artem's own failure history.", "Claude", "Rejected — conflicts with policy"),
+    ("3", "Enforce the budget-based length cap (<$1k fixed-price jobs)",
+     "The 200-word cap has been PROMPT-ONLY since 2026-06-16 with no deterministic check behind it, unlike "
+     "every other hard rule in the file. Checked against history: 40 of 51 sub-$1000 fixed-price letters "
+     "(78%) exceeded it. Added overBudgetLengthCap, gated and tested against all 254 sent letters.",
+     "Claude", "SHIPPED 2026-09-24"),
     ("3", "One relevant case study instead of three",
-     "The same three cases are pasted into unrelated verticals", "Claude", "Not started"),
+     "Already covered: a CASE STUDY VOLUME CAP and per-domain matching already exist in the prompt "
+     "(stop at 2 strong matches; a 3rd only if it adds a new dimension). The 'same three cases repeatedly' "
+     "pattern in the original analysis likely predates these rules. No new code — re-check on the next "
+     "letter batch instead of assuming still broken.", "Claude", "Believed already covered"),
     ("4", "Fix proposal-list pagination (reads page 1 of 7)",
      "Root cause found: background tabs are throttled and the SPA ignores the click. Needs URL navigation, not clicking.", "Claude", "Deferred"),
     ("4", "Fix the messages room walk (links_found: 0)",
