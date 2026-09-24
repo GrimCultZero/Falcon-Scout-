@@ -529,10 +529,18 @@ FINDINGS = [
      "'Less than 5' proposals: 4.5% | '10 to 50': 11.2% | '50+': 2.7% (p = 0.096, suggestive only)",
      "Target jobs that already carry 10-50 proposals. Sub-5 jobs are often posted and abandoned.",
      "Recommended (weak evidence)"),
-    ("Profile", "You perform at new-freelancer level despite 12 years experience",
-     "6.3% reply rate vs ~15% platform average; published new-freelancer band is 5-10%",
-     "Take 2-3 small fixed-price jobs at a price you would normally refuse. You are buying review history, not selling time.",
-     "Recommended"),
+    ("Profile", "CORRECTED 2026-09-24: the 'thin profile' theory was wrong",
+     "Live profile inspected via browser: Top Rated, 100% JSS, 4.5 stars (53 reviews), 70 completed jobs, "
+     "2.8K hours. None of the 10 visible completed jobs match anything in this DB even fuzzily, and all "
+     "started before or at the edge of when Falcon Scout tracking began (2026-05-23) — they came through "
+     "invites/direct search, a channel this DB never sees.",
+     "The original recommendation ('take small jobs to build review history') is WITHDRAWN — you do not "
+     "need review history, you already have it. The 6.3% figure measures the COLD-BID channel specifically, "
+     "not your standing on Upwork, and is not comparable to platform-wide new-freelancer benchmarks that "
+     "blend invites and repeat clients in. The real open question is why cold-bidding specifically converts "
+     "worse than your profile strength would predict — not yet answered, worth investigating before assuming "
+     "a cause.",
+     "CORRECTED — see note"),
     ("Content", "AI cliches are not a problem here",
      "0 cliches across 251 letters against the published 11-phrase list; 0 emoji",
      "No action. The generator's existing rules already handle this.",
@@ -591,12 +599,23 @@ PLAN = [
      "2.4% dialogue across 42 bids - worst segment", "You", "Not started"),
     ("1", "Cut to ~10 bids/week",
      "96 bids in August produced 6 dialogues; volume is not the constraint", "You", "Not started"),
-    ("2", "Take 2-3 fixed-price jobs under $500 to build review history",
-     "Best-converting band (12.9%) and the only fix for the 20+ review client filter", "You", "Not started"),
-    ("2", "Check whether you hold the Rising Talent badge",
-     "The only credibility signal available before review history exists", "You", "Not started"),
-    ("2", "Finish the white-label profile rewrite",
-     "Partnership jobs are where the dialogues actually come from", "You", "In progress"),
+    ("2", "WITHDRAWN 2026-09-24: 'take small jobs to build review history'",
+     "Live profile check (browser, 2026-09-24) found Top Rated, 100% JSS, 53 reviews, 70 completed jobs — "
+     "review history was never the problem. This item was built on the DB looking like Artem's whole Upwork "
+     "history; it is only the cold-bid slice tracked since 2026-05-23. No action needed here.",
+     "You", "Withdrawn — false premise"),
+    ("2", "WITHDRAWN 2026-09-24: 'check the Rising Talent badge'",
+     "Rising Talent is a new-freelancer credibility signal, retired once real history exists. Artem is Top "
+     "Rated with 70 completed jobs — well past the stage where this badge would even apply. Recommending it "
+     "came from external research about zero-review freelancers, applied without checking it fit.",
+     "You", "Withdrawn — does not apply"),
+    ("2", "CORRECTED 2026-09-24: profile rewrite was never actually started",
+     "The live profile (checked via browser) already shows account type 'ITForce / Agency', a complete, "
+     "polished About section (Full-Funnel Conversion Partner framing, bulleted results, closing CTA) — not "
+     "the placeholder or half-done state 'In progress' implied. It is positioned as an individual expert "
+     "('I build...', 'when you hire me') rather than explicit white-label/team language. Whether that's worth "
+     "changing is a real open question, not a known gap — Claude asserted 'we started this' without evidence.",
+     "You", "Needs a decision, not a finish"),
     ("3", "180-character preview rule in the generator",
      "previewNotSpecific check + prompt rule + KB Rule 439 precedence clause", "Claude", "SHIPPED 2026-09-17"),
     ("3", "Add a low-friction close to the generator",
