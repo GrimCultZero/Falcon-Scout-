@@ -487,15 +487,33 @@
       await new Promise(r => setTimeout(r, 500));
     }
 
+    // READ-ONLY rooms: the page loads but offers no compose editor, so the panel
+    // anchor never appears. Seen 2026-09-24 on a Feb-2026 conversation that
+    // failed three syncs running — the third with the window visible and a
+    // proposal reference present in the page, so it had loaded; it simply had
+    // nothing to type into. Without this, such a room costs 15s on EVERY sync
+    // forever and never resolves. Concluded only after the full 15s (one room
+    // took 9.7s to render, so a shorter cut-off would misfile slow rooms), only
+    // while the window is visible (a hidden window proves nothing), and only
+    // once the conversation list itself has loaded. Nothing is extracted from
+    // such a room — without the panel anchor there is no safe way to keep the
+    // sidebar out — it is just cached as empty, retried on the 3-day TTL.
+    const readonly = renderedAt === null
+      && document.visibilityState === 'visible'
+      && document.querySelectorAll('a[href*="/messages/rooms/"]').length >= 3;
+
     const doc = document.documentElement.outerHTML || '';
     const count = (re) => (doc.match(re) || []).length;
     return {
       rendered: renderedAt !== null,
+      observed: renderedAt !== null || readonly,   // what caching keys on
       job_ids: got.job_ids, proposal_ids: got.proposal_ids, titles,
       diag: {
         room: String(cur.room_id).slice(-10),
         vis: document.visibilityState,
         rendered: renderedAt !== null,
+        readonly,
+        has_textarea: !!document.querySelector('textarea'),
         ms: Date.now() - t0,
         panel_chars: panel ? (panel.innerText || '').length : 0,
         kinds: got.kinds,
@@ -511,7 +529,7 @@
 
   // Attach observations to a list row — fresh from this walk, else cached.
   function attachObs(r, fresh, cached) {
-    const o = (fresh && fresh.rendered) ? fresh : (obsUsable(cached) ? cached : null);
+    const o = (fresh && fresh.observed) ? fresh : (obsUsable(cached) ? cached : null);
     if (!o) return { ...r, walk: fresh ? 'visited-unrendered' : 'skipped' };
     return {
       ...r,
@@ -544,9 +562,11 @@
     const byRoom = q.results || {};
     const obs = await loadRoomObs();
     for (const [room_id, res] of Object.entries(byRoom)) {
-      // Cache only what a RENDERED room showed. One that never rendered told us
-      // nothing, so it stays uncached and is retried on the next sync.
-      if (res && res.rendered) {
+      // Cache only what an OBSERVED room showed: one that rendered, or one that
+      // loaded read-only (cached as empty, so retried on the 3-day TTL rather
+      // than every sync). One that never loaded told us nothing, so it stays
+      // uncached and is retried on the next sync.
+      if (res && res.observed) {
         obs[room_id] = {
           v: PROBE_VERSION, at: Date.now(),
           job_ids: res.job_ids, proposal_ids: res.proposal_ids, titles: res.titles,
