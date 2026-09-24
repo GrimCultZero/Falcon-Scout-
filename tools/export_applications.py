@@ -433,7 +433,10 @@ def sheet_quality(wb, recs, conn):
     lines.append(("", "n"))
     lines.append(("2. REPLY DETECTION WAS DEAD. The messages leg never opened its window at all "
                   "(a Chrome bounds error), so replies were only recorded when noticed by hand. "
-                  "Fixed 2026-09-16. 'Replied' is therefore a floor, not a true count.", "b"))
+                  "Fixed 2026-09-16. Then on 2026-09-24 the room walk was repaired (it had never "
+                  "matched a conversation to a proposal); with the same-day un-ghost fix, 7 replies that "
+                  "had been recorded as 'ghosted' were recovered. 'Replied' is still a floor: only the ~20 most recent inbox "
+                  "conversations are reached, so older replied-to threads may remain unrecorded.", "b"))
     lines.append(("", "n"))
     lines.append(("3. VIEWS ARE STILL PARTIAL. The proposals scraper reads only page 1 of 7 "
                   "(10 of 67 live proposals). Older applications cannot be re-checked, so their "
@@ -477,20 +480,24 @@ def sheet_quality(wb, recs, conn):
 # standard advice.
 FINDINGS = [
     # (area, finding, evidence, what to do, status)
-    ("Funnel", "84% of proposals are never opened",
-     "252 sent - 41 opened (16.3%) - 16 replied - 1 hired",
-     "Fix what the client sees BEFORE opening: the preview and the profile. Work on the letter body affects only the 16% that get that far.",
+    ("Funnel", "~81% of proposals are never opened",
+     "257 sent - 48 opened (18.7%) - 23 replied - 1 hired. Corrected 2026-09-24: 7 replies recovered by the "
+     "repaired room walk (the analysis of 2026-09-16 had 41 opened / 16 replied / 84% never opened).",
+     "Fix what the client sees BEFORE opening: the preview and the profile. Work on the letter body affects only the ~19% that get that far.",
      "Diagnosed"),
     ("Funnel", "The letter converts well once it is actually read",
-     "39% of opened proposals got a reply",
+     "48% of opened proposals got a reply (was 39% before the 7 recovered replies were counted)",
      "Do not rewrite the body of the letter. It is not the bottleneck.",
      "Diagnosed"),
     ("Funnel", "Reply-to-contract is the second leak",
-     "16 replies produced 1 contract (6.2%)",
+     "23 replies produced 1 contract (4.3%)",
      "Reply capture only started working 2026-09-16, so there is no data on what happened in those threads. Revisit once there is.",
      "Blocked on data"),
     ("Preview", "Job-specific words in the first 180 chars predict being opened",
-     "0-1 words: 10.7% opened | 7+ words: 27.6% | p = 0.0018, the only significant letter-level effect",
+     "CORRECTED 2026-09-24: 4+ words 24.2% opened vs 15.5% for fewer, p = 0.10 — suggestive, not significant. "
+     "First reported as p = 0.0018 while 7 replied-to proposals were recorded as never-opened (reply "
+     "detection was dead); room walk v5 recovered them and the effect weakened. Still the strongest "
+     "letter-level signal, and every other letter factor tested showed nothing.",
      "First 180 characters must carry 4+ concrete words from THIS posting. If the sentence could be pasted onto another job, it failed.",
      "SHIPPED 2026-09-17"),
     ("Preview", "The letters are one template with the variables swapped",
@@ -498,7 +505,7 @@ FINDINGS = [
      "Standing opener banned in the prompt; deterministic check scores it 0 and flags previewNotSpecific.",
      "SHIPPED 2026-09-17"),
     ("Boost", "Boosting does not lift replies",
-     "boosted 6.3% vs base 5.9%, permutation p = 1.00",
+     "boosted 9.6% vs base 10.5% replied, permutation p = 1.00 (re-checked on corrected data 2026-09-24)",
      "Stop paying for placement as if it were demand.",
      "Recommended"),
     ("Boost", "You overshoot the price of the top slot",
@@ -535,7 +542,7 @@ FINDINGS = [
      "started before or at the edge of when Falcon Scout tracking began (2026-05-23) — they came through "
      "invites/direct search, a channel this DB never sees.",
      "The original recommendation ('take small jobs to build review history') is WITHDRAWN — you do not "
-     "need review history, you already have it. The 6.3% figure measures the COLD-BID channel specifically, "
+     "need review history, you already have it. The 8.9% reply rate (6.3% before the recovered replies) measures the COLD-BID channel specifically, "
      "not your standing on Upwork, and is not comparable to platform-wide new-freelancer benchmarks that "
      "blend invites and repeat clients in. The real open question is why cold-bidding specifically converts "
      "worse than your profile strength would predict — not yet answered, worth investigating before assuming "
@@ -635,7 +642,10 @@ PLAN = [
     ("4", "Fix proposal-list pagination (reads page 1 of 7)",
      "Root cause found: background tabs are throttled and the SPA ignores the click. Needs URL navigation, not clicking.", "Claude", "Deferred"),
     ("4", "Fix the messages room walk (links_found: 0)",
-     "Same throttling cause; room-to-proposal matching falls back to title only", "Claude", "Deferred"),
+     "Rebuilt as room walk v5: reads each room's own panel (proposal id, job id, header title), caches it, "
+     "backend matches only on unambiguous evidence. First three runs: 20 rooms read, 10 matched to tracked "
+     "proposals, 6 recovered from 'ghosted' (7 today counting Mykola's, via the un-ghost fix), 0 wrong matches — every match verified by exact id or by "
+     "decoding the proposal id's embedded timestamp.", "Claude", "SHIPPED 2026-09-24"),
     ("4", "Re-run this analysis after ~6 weeks of working tracking",
      "First trustworthy dataset. Re-check unboosted rate, small fixed-price work, and whether letter variation now shows an effect.", "Both", "Scheduled"),
 ]

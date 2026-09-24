@@ -6635,12 +6635,12 @@ long-form.)
    information. Aim for 7+; that is where the measured open rate roughly doubles.
    THE TEST: if you could paste your first sentence onto a different job posting
    without editing it, it has failed, no matter how well written it is.
-   Evidence (Artem's own 251 sent proposals, analysed 2026-09-16): letters whose
-   first 180 characters carried 0-1 posting-specific words were opened 10.7% of
-   the time; 7+ words, 27.6%. p = 0.0018. This was the ONLY letter-level factor
-   with a statistically significant effect. Length, opener style, business-vs-
-   technical framing and bid speed ALL came back null — so do not spend effort
-   on those at the expense of this.
+   Evidence (Artem's own 256 sent proposals, re-checked 2026-09-24 after reply
+   tracking was repaired): letters whose first 180 characters carried 4+
+   posting-specific words were opened 24% of the time, against 15.5% for fewer.
+   Suggestive rather than proven — but it is the strongest letter-level signal
+   found, and length, opener style, business-vs-technical framing and bid speed
+   showed no effect at all. So do not spend effort on those at its expense.
    Note what this does NOT mean: do not quote or paraphrase their posting back at
    them (that is banned below, and letters that copied 3+ phrases verbatim were
    opened 9.1% vs 16.5%). Name their situation in your OWN words.
@@ -7905,22 +7905,28 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // actually matters -- open or archive -- the preview is not the start
             // of the letter, it IS the letter.
             //
-            // Measured over Artem's own 251 sent proposals (2026-09-16):
+            // Measured over Artem's own sent proposals, with this shipped scorer:
             //
-            //   job-specific words in first 180 chars    n     opened
-            //   0-1                                      93     10.8%
-            //   2-3                                      98     17.3%
-            //   4-6                                      48     16.7%
-            //   7+                                       14     42.9%
+            //   job-specific words      2026-09-16 (n=253)    2026-09-24 (n=256)
+            //   in first 180 chars      opened                opened, corrected
+            //   0-1                     10.7%                 15.8%
+            //   2-3                     14.3%                 15.3%
+            //   4-6                     20.0%                 22.7%
+            //   7+                      27.6%                 27.6%
             //
-            // mean 3.46 opened vs 2.33 not opened, permutation p = 0.0018. That
-            // was the ONLY statistically significant letter-level effect in the
-            // whole analysis, and it survives correction for the ~15 hypotheses
-            // tested. Everything else came back null: credential-first vs
+            // CORRECTED 2026-09-24. The first column was computed while 7
+            // proposals that had been replied to were recorded as never-opened
+            // (the reply detector was dead; room walk v5 recovered them). That
+            // artefact inflated the effect: it was reported as p = 0.0018 and
+            // "the only significant letter-level finding". On corrected data, at
+            // this check's own threshold, 4+ words open 24.2% vs 15.5% for fewer
+            // -- p = 0.10 two-sided. Suggestive, not significant. The rule stays
+            // because the direction holds, the step in the corrected data sits
+            // exactly at 4, and the cost is nil. But do not cite it as proven.
+            //
+            // Everything else still came back null: credential-first vs
             // situation-first openers split 7.7%/7.6%, business-led vs
             // technical-led framing p = 0.77, length p ~ 1, bid speed no effect.
-            // Density of THIS client's own specifics is what moves the open rate.
-            // The register it is written in does not.
             //
             // Why the generic list below matters: 98% of those 251 letters
             // contain "12 years" and the sentence "12 years running Google Ads,
