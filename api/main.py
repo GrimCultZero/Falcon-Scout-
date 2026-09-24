@@ -3653,6 +3653,66 @@ def _msg_identity_tokens(client_name: str, job_title: str) -> set:
     return out
 
 
+# ── Room evidence (messages sync, room walk v5) ─────────────────────────────
+# The extension OBSERVES each room it visits — ids found in the room's own panel
+# and header-title candidates — and caches those observations per room. These
+# helpers RESOLVE the observations to at most one proposal. They are pure
+# functions over plain data, so tests/test_room_evidence.py can run them against
+# the real DB without the endpoint's side effects.
+_ROOM_TITLE_MIN_LEN = 20
+
+
+def _build_room_index(pairs, title_job_counts):
+    """pairs: iterable of (proposal_id, upwork_proposal_id, job_upwork_id, job_title).
+    title_job_counts: {title.strip().lower(): number of jobs with that title},
+    counted over ALL jobs, not just ones with proposals."""
+    by_pid, by_jid, by_title = {}, {}, {}
+    for pid, up_pid, j_uid, j_title in pairs:
+        if up_pid and str(up_pid).strip():
+            by_pid.setdefault(str(up_pid).strip(), set()).add(pid)
+        if j_uid and str(j_uid).strip():
+            by_jid.setdefault(str(j_uid).lstrip("~").strip(), set()).add(pid)
+        if j_title and j_title.strip():
+            by_title.setdefault(j_title.strip().lower(), set()).add(pid)
+    return {"by_pid": by_pid, "by_jid": by_jid, "by_title": by_title,
+            "title_job_counts": title_job_counts}
+
+
+def _resolve_room_evidence(row, idx):
+    """Resolve a room's observations to exactly one proposal, or none.
+
+    Returns (proposal_id | None, via | None, ambiguous_proposal_ids).
+
+    All evidence must agree. If the room's ids and titles point at two different
+    proposals nothing is matched: the observations contradict each other, so
+    none of them can be trusted.
+
+    A title only counts when it is long enough to be specific AND belongs to
+    exactly one job in the whole jobs table. Generic titles recur across
+    unrelated clients -- the DB holds five jobs titled "Google Ads Specialist"
+    -- and a room for an untracked job with a common title must never be pinned
+    to a tracked job that merely shares it.
+    """
+    found = {}   # proposal id -> strongest path that produced it
+    for up_pid in row.get("room_proposal_ids") or []:
+        for pid in idx["by_pid"].get(str(up_pid).strip(), ()):
+            found.setdefault(pid, "room_proposal_id")
+    for j_uid in row.get("room_job_ids") or []:
+        for pid in idx["by_jid"].get(str(j_uid).lstrip("~").strip(), ()):
+            found.setdefault(pid, "room_job_id")
+    for t in row.get("room_titles") or []:
+        key = (t or "").strip().lower() if isinstance(t, str) else ""
+        if len(key) < _ROOM_TITLE_MIN_LEN or idx["title_job_counts"].get(key, 0) != 1:
+            continue
+        hits = idx["by_title"].get(key, set())
+        if len(hits) == 1:
+            found.setdefault(next(iter(hits)), "room_title")
+    if len(found) == 1:
+        (pid, via), = found.items()
+        return pid, via, []
+    return None, None, sorted(found)
+
+
 @app.post("/messages-status-sync")
 def messages_status_sync(data: dict):
     """
@@ -3703,7 +3763,10 @@ def messages_status_sync(data: dict):
     # 'replied' is never re-ghosted (the timer only touches status == 'sent'),
     # so this cannot flip back on the next sweep.
     _RESURRECTABLE_TO_REPLIED = {"ghosted"}
-    _EXACT_MATCH_PATHS = {"job_id", "exact_title_unique"}
+    # Room-evidence paths are exact too: an id read from the room's own panel,
+    # or a title from its header that is unique across every job we know.
+    _EXACT_MATCH_PATHS = {"job_id", "exact_title_unique",
+                          "room_proposal_id", "room_job_id", "room_title"}
     resurrected = []
 
     # Pre-compute each promotable proposal's greeting name from its cover letter
@@ -3722,6 +3785,23 @@ def messages_status_sync(data: dict):
             if gname:
                 greet_index.setdefault(gname, []).append(p)
 
+        # Room-evidence index, built once per sync. Title counts are taken in
+        # Python, not SQL: SQLite's lower() folds ASCII only, so a title with an
+        # accented capital would count under a different key than the one the
+        # resolver looks up.
+        _title_counts = {}
+        for (t,) in session.query(Job.title).all():
+            if t and t.strip():
+                k = t.strip().lower()
+                _title_counts[k] = _title_counts.get(k, 0) + 1
+        room_idx = _build_room_index(
+            session.query(Proposal.id, Proposal.upwork_proposal_id, Job.upwork_job_id, Job.title)
+                   .join(Job, Job.id == Proposal.job_id).all(),
+            _title_counts,
+        )
+        room_ambiguous = []
+        match_log = []
+
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -3732,10 +3812,22 @@ def messages_status_sync(data: dict):
             proposal = None
             match_via = None
 
-            # 0) Strongest: upwork_job_id from the room walk (the extension now
+            # R) Room evidence — what the extension saw INSIDE the room: ids from
+            #    the room's own panel, and its header title. Strongest signal
+            #    available, so it runs first; the list-row paths below are only
+            #    consulted when the room told us nothing.
+            _r_pid, _r_via, _r_amb = _resolve_room_evidence(row, room_idx)
+            if _r_pid is not None:
+                proposal = session.query(Proposal).filter_by(id=_r_pid).first()
+                if proposal is not None:
+                    match_via = _r_via
+            elif _r_amb:
+                room_ambiguous.append({"client_name": client_name[:60], "proposal_ids": _r_amb})
+
+            # 0) upwork_job_id from the room walk (the extension now
             #    visits candidate rooms and reads the job link from each room's
             #    page — exact key, no fuzzy matching needed).
-            if upwork_job_id:
+            if proposal is None and upwork_job_id:
                 matched_job = session.query(Job).filter(
                     or_(
                         Job.upwork_job_id == upwork_job_id,
@@ -3789,6 +3881,8 @@ def messages_status_sync(data: dict):
                     proposal = hits[0]
                     match_via = "greeting_name"
 
+            match_log.append({"client_name": client_name[:60], "walk": row.get("walk"),
+                              "via": match_via, "proposal_id": proposal.id if proposal else None})
             if proposal is None:
                 not_matched.append({"job_title": job_title, "client_name": client_name})
                 continue
@@ -3828,6 +3922,10 @@ def messages_status_sync(data: dict):
             "not_matched_count": len(not_matched),
             # Ghosted proposals un-ghosted by a real reply this run (exact matches only).
             "resurrected_from_ghosted": resurrected,
+            # Per-row outcome: which path matched (or none) — room walk v5.
+            "match_log": match_log,
+            # Rooms whose ids/titles pointed at MORE than one proposal: not matched.
+            "room_ambiguous": room_ambiguous,
             # Self-diagnosis: running extension version + what the room walk did.
             # If this is missing entirely, the extension predates v3.7.
             "walk_info": data.get("walk_info"),
@@ -3840,6 +3938,9 @@ def messages_status_sync(data: dict):
                     "has_unread": r.get("has_unread"),
                     "last_from_client": r.get("last_from_client"),
                     "last_message": (r.get("last_message") or "")[:120],
+                    "room_proposal_ids": r.get("room_proposal_ids"),
+                    "room_job_ids": r.get("room_job_ids"),
+                    "room_titles": (r.get("room_titles") or [])[:4],
                 }
                 for r in rows if isinstance(r, dict)
             ],
@@ -3856,6 +3957,8 @@ def messages_status_sync(data: dict):
         "newly_replied": newly_replied,
         "not_matched_count": len(not_matched),
         "not_matched_sample": not_matched[:10],
+        "matched_by_room": sum(1 for m in match_log if (m.get("via") or "").startswith("room_")),
+        "room_ambiguous": len(room_ambiguous),
     }
 
 

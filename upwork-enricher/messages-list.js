@@ -301,11 +301,29 @@
   };
 
   // ── Room walk ──────────────────────────────────────────────────────────────
-  // The inbox LIST shows only client names — no job link — so name-matching
-  // against anonymous job postings is impossible. But each ROOM's page shows
-  // the job posting link (title + ~hex job id). So after scraping the list we
-  // WALK the candidate rooms (client acted last, or unread) in this same tab,
-  // read the job link from each, and POST one batch matched by upwork_job_id.
+  // The inbox LIST shows a name and sometimes the job title — but often a date
+  // in its place ("9/16/26"), and client names never appear in job postings or
+  // in Artem's letters. So the list alone cannot say which proposal a
+  // conversation belongs to. The ROOM page can: its header carries the job
+  // title, and its markup may carry the proposal or job id. So we visit rooms in
+  // this same tab and record what each one CONTAINS.
+  //
+  // Division of labour (v5, 2026-09-24): the extension OBSERVES, the backend
+  // RESOLVES. Observations (ids + header-title candidates) are cached per room
+  // id in chrome.storage.local — a room never changes which job it belongs to,
+  // so each room is walked once instead of every sync, and a proposal captured
+  // later still gets matched from the cached observation.
+  //
+  // What v4 got wrong, per the 2026-09-24 debug dump:
+  //   * It looked ONLY for /jobs/~ links. Byron Rennie's room — a known proposal
+  //     room (proposal 248) — was visited and had none. The single signal it
+  //     searched for is the signal proposal rooms lack.
+  //   * It walked only rooms where the CLIENT spoke last or which were unread.
+  //     The moment Artem answers — which he does fast on a hot lead — the room
+  //     leaves the walk. Mykola (UNIHOST), with a call booked, was 'skipped' for
+  //     exactly that reason, and was caught only because Upwork happened to
+  //     show his job title in the list row.
+  //
   // Each navigation reloads this content script, so walk state lives in
   // sessionStorage and the walk resumes on every load until the queue drains.
   const QUEUE_KEY = 'falcon_room_walk';
@@ -313,56 +331,205 @@
   const saveQueue  = (q) => { try { sessionStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (_) {} };
   const clearQueue = () => { try { sessionStorage.removeItem(QUEUE_KEY); } catch (_) {} };
 
-  // In a room view, hunt for the job posting id two ways:
-  //   1. The job-link anchor (same proven selector messages.js uses).
-  //   2. RAW innerHTML regex for /jobs/~hex, in case the anchor query misses
-  //      while the id still sits in the markup. The id alone is enough to
-  //      match (title is a bonus).
-  // This tab now opens ACTIVE (background.js — a real sync's debug dump
-  // confirmed 0/10 job links found when this ran in a background tab; Chrome
-  // throttles background tabs enough that neither the anchor nor the raw-HTML
-  // fallback ever saw the loaded page within the old 12s budget). Bumped
-  // modestly to 15s as a safety margin now that rendering should be fast and
-  // reliable — NOT trying to compensate for background-tab throttling anymore.
-  // Returns { upwork_job_id, job_title } or null after timeout.
-  async function waitForRoomJobLink(maxMs = 15000) {
-    const start = Date.now();
-    while (Date.now() - start < maxMs) {
-      const anchors = document.querySelectorAll('a[href*="/jobs/~"], a[href*="/job/~"]');
-      for (const a of anchors) {
-        const href = a.getAttribute('href') || '';
-        const m = href.match(/~([0-9a-zA-Z]{16,})/);
-        if (m) {
-          const t = (a.innerText || '').trim().split('\n')[0].slice(0, 200);
-          return { upwork_job_id: m[1], job_title: t.length > 4 ? t : null };
-        }
-      }
-      // Raw-HTML fallback — any /jobs/~hex in the markup, hydrated or not.
-      const raw = (document.body.innerHTML || '').match(/\/(?:nx\/|ab\/)?jobs\/~([0-9a-zA-Z]{16,})/);
-      if (raw) return { upwork_job_id: raw[1], job_title: null };
-      await new Promise(r => setTimeout(r, 500));
-    }
-    return null;
+  // Bump PROBE_VERSION whenever probeRoom's extraction changes, so observations
+  // cached by an older probe are re-collected instead of trusted forever.
+  const ROOM_OBS_KEY  = 'falcon_room_obs_v1';
+  const PROBE_VERSION = 2;
+  const EMPTY_TTL_MS  = 3 * 24 * 3600 * 1000;   // re-check "saw nothing" rooms after 3 days
+  const WALK_CAP      = 8;                        // rooms per sync — each one is a page load
+
+  function loadRoomObs() {
+    return new Promise(resolve => {
+      try {
+        chrome.storage.local.get(ROOM_OBS_KEY, (v) => {
+          void chrome.runtime.lastError;
+          resolve((v && v[ROOM_OBS_KEY]) || {});
+        });
+      } catch (_) { resolve({}); }
+    });
+  }
+  function saveRoomObs(obs) {
+    return new Promise(resolve => {
+      try {
+        chrome.storage.local.set({ [ROOM_OBS_KEY]: obs }, () => { void chrome.runtime.lastError; resolve(); });
+      } catch (_) { resolve(); }
+    });
+  }
+  function obsUsable(o) {
+    if (!o || o.v !== PROBE_VERSION) return false;
+    if (o.empty) return (Date.now() - (o.at || 0)) < EMPTY_TTL_MS;
+    return true;
   }
 
-  async function finishWalk(q) {
-    // Merge walked job links into the original list rows, then POST the batch.
-    // Each row carries `walk` telemetry so the backend debug dump shows exactly
-    // what the walk did (visited-link / visited-no-link / skipped).
-    const byRoom = q.results || {};
-    const rows = (q.rows || []).map(r => {
-      if (!(r.room_id in byRoom)) return { ...r, walk: 'skipped' };
-      const hit = byRoom[r.room_id];
-      if (!hit) return { ...r, walk: 'visited-no-link' };
-      return { ...r, upwork_job_id: hit.upwork_job_id, job_title: hit.job_title || r.job_title, walk: 'visited-link' };
-    });
-    clearQueue();
-    const walked = Object.keys(byRoom).length;
-    const linked = Object.values(byRoom).filter(Boolean).length;
-    console.log(`[Cockpit Messages-List] room walk done: ${walked} visited, ${linked} job links found`);
-    showBanner({ phase: 'posting', scraped: rows.length, rows, note: `Visited ${walked} conversations, ${linked} job links found.` });
+  // Identity fragments (person / company names) from a list row, for telling
+  // THIS room apart from the rest. When client_name is just the avatar initials
+  // ("BL", "DM") the scraper has put the real name into job_title, so use that.
+  // Otherwise job_title may hold the ACTUAL job title — and treating a job title
+  // as a name is how the first cut of this filtered the room's own title out as
+  // "the client's name line" (caught by tests/room-probe.test.js, 2026-09-24).
+  // Dates, short fragments and "David M"-style abbreviated stubs are dropped.
+  function _nameFrags(row) {
+    const cn = String(row.client_name || '').trim();
+    const identity = /^[A-Z]{1,3}$/.test(cn) ? String(row.job_title || '') : cn;
+    return identity.split(',').map(s => s.trim())
+      .filter(s => s.length >= 6
+        && !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)
+        && !/^\S+ \S\.?$/.test(s));
+  }
+
+  // The room page ALSO renders the conversation list in a sidebar, and that
+  // list carries every OTHER conversation's name and title. Anything collected
+  // from the whole document can therefore belong to a different room. So scope
+  // to the main panel: start at the compose editor (only the open room has one)
+  // and keep the largest ancestor that still mentions at most ONE other
+  // conversation. The sidebar mentions all of them. Counted per CONVERSATION,
+  // not per name fragment, so "Sofia Toro" and "Speedrack West" are one sighting.
+  function _roomMainPanel(otherRowsFrags) {
+    const compose = document.querySelector('[contenteditable="true"]');
+    if (!compose) return null;
+    let best = null;
+    for (let el = compose; el && el !== document.body; el = el.parentElement) {
+      const txt = el.innerText || '';
+      if (otherRowsFrags.filter(frags => frags.some(n => txt.includes(n))).length > 1) break;
+      best = el;
+    }
+    return best;
+  }
+
+  // Ids inside the panel. The proposal id is the best key available — exact,
+  // and stored on every proposal since submission capture landed. The room's
+  // "View proposal" link is known to point at a workroom MODAL rather than at
+  // /nx/proposals/<id> (see messages.js findViewDetailsUrl), so the modal's
+  // query string is searched too. `;` is accepted before a query key because
+  // outerHTML encodes `&` as `&amp;`.
+  const _JOB_RE  = /\/(?:nx\/|ab\/)?(?:jobs?|proposals\/job)\/~([0-9a-zA-Z]{16,})/i;
+  const _PROP_RE = /\/(?:nx|ab)\/proposals\/(\d{10,})/i;
+  const _QS_RE   = /[?&;](?:proposal|proposalId|proposal_id|proposalUid)=(\d{10,})/i;
+  function _collectIds(root) {
+    const job = new Set(), prop = new Set();
+    const kinds = { anchors: 0, jobs: 0, proposals: 0, workroom: 0, contracts: 0, offers: 0 };
+    for (const a of root.querySelectorAll('a[href]')) {
+      const href = a.getAttribute('href') || '';
+      kinds.anchors++;
+      if (/\/jobs?\/~|\/proposals\/job\/~/i.test(href)) kinds.jobs++;
+      if (/proposal/i.test(href)) kinds.proposals++;
+      if (/\/workroom\//i.test(href)) kinds.workroom++;
+      if (/\/contracts?\//i.test(href)) kinds.contracts++;
+      if (/\/offers?\//i.test(href)) kinds.offers++;
+      let m = href.match(_JOB_RE);  if (m) job.add(m[1]);
+      m = href.match(_PROP_RE);     if (m) prop.add(m[1]);
+      m = href.match(_QS_RE);       if (m) prop.add(m[1]);
+    }
+    const html = root.outerHTML || '';
+    for (const m of html.matchAll(new RegExp(_JOB_RE.source, 'gi')))  job.add(m[1]);
+    for (const m of html.matchAll(new RegExp(_PROP_RE.source, 'gi'))) prop.add(m[1]);
+    for (const m of html.matchAll(new RegExp(_QS_RE.source, 'gi')))   prop.add(m[1]);
+    return { job_ids: [...job].slice(0, 5), proposal_ids: [...prop].slice(0, 5), kinds };
+  }
+
+  // Lines that are never a job title.
+  const _NOT_TITLE = /^(\d{1,2}:\d{2}\s*(am|pm)?(\s+local time)?|.*\blocal time|view (proposal|contract|offer|details|job post)|proposal submitted|search messages|meeting recaps|client profile|people|files and links|personal notepad|messages|unread|favorites|today|yesterday|\d{1,2}\/\d{1,2}\/\d{2,4})$/i;
+
+  // Header-title candidates from the top of the panel. The BACKEND decides
+  // which, if any, is really a job title, by exact comparison against the
+  // titles it knows — so this deliberately offers a few candidate lines rather
+  // than guessing which single line is the title. A header rendered as
+  // "3:51 PM local time · PPC Specialist …" has its time prefix stripped, and
+  // every line is also split on its separators, so the title can stand alone.
+  // The unsplit line is still offered, for titles that contain a "|" or "·".
+  const _TIME_PREFIX = /^\d{1,2}:\d{2}\s*(?:am|pm)?\s*(?:local time)?\s*[·•|]?\s*/i;
+  function _titleCandidates(panel, selfNames) {
+    const out = [];
+    const lines = (panel.innerText || '').split('\n').map(s => s.trim()).filter(Boolean).slice(0, 25);
+    for (const raw of lines) {
+      const line = raw.replace(_TIME_PREFIX, '');
+      for (const seg of [line, ...line.split(/\s*[·•|]\s*|\s{2,}/)]) {
+        const s = seg.trim();
+        if (s.length < 12 || s.length > 150 || _NOT_TITLE.test(s)) continue;
+        if (selfNames.some(n => s.startsWith(n))) continue;   // the client's own name line
+        if (!out.includes(s)) out.push(s);
+        if (out.length >= 12) return out;
+      }
+    }
+    return out;
+  }
+
+  // Visit-time probe. Waits for the room to render (compose editor present),
+  // collects ids + title candidates, stops early once an id turns up or 3s after
+  // render when there is nothing left to wait for; hard cap 15s. Also returns a
+  // diagnostic record that lands in the backend's messages_sync_debug.json, so
+  // a miss says WHY — never rendered? sidebar not excluded? no ids in the
+  // markup? — instead of a bare "0 links found".
+  async function probeRoom(q, cur) {
+    const t0 = Date.now();
+    const rows = q.rows || [];
+    const self = rows.find(r => r.room_id === cur.room_id) || {};
+    const selfNames = _nameFrags(self);
+    // One entry per OTHER conversation (deduped — the same client can own two
+    // rooms, e.g. Balagan), minus anything shared with this room's identity.
+    const seen = new Set();
+    const otherRowsFrags = rows
+      .filter(r => r.room_id !== cur.room_id)
+      .map(r => _nameFrags(r).filter(n => !selfNames.includes(n)))
+      .filter(f => f.length && !seen.has(f.join('|')) && seen.add(f.join('|')));
+
+    let renderedAt = null, panel = null, titles = [];
+    let got = { job_ids: [], proposal_ids: [], kinds: {} };
+    while (Date.now() - t0 < 15000) {
+      panel = _roomMainPanel(otherRowsFrags);
+      if (panel) {
+        if (renderedAt === null) renderedAt = Date.now();
+        got = _collectIds(panel);
+        titles = _titleCandidates(panel, selfNames);
+        if (got.job_ids.length || got.proposal_ids.length) break;
+        if (Date.now() - renderedAt > 3000) break;
+      }
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    const doc = document.documentElement.outerHTML || '';
+    const count = (re) => (doc.match(re) || []).length;
+    return {
+      rendered: renderedAt !== null,
+      job_ids: got.job_ids, proposal_ids: got.proposal_ids, titles,
+      diag: {
+        room: String(cur.room_id).slice(-10),
+        vis: document.visibilityState,
+        rendered: renderedAt !== null,
+        ms: Date.now() - t0,
+        panel_chars: panel ? (panel.innerText || '').length : 0,
+        kinds: got.kinds,
+        n_job: got.job_ids.length, n_prop: got.proposal_ids.length, n_title: titles.length,
+        // Whole-document counts: diagnostic only, never used for matching.
+        doc_prop_refs: count(/\/(?:nx|ab)\/proposals\/\d{10,}/gi),
+        doc_job_refs: count(/\/jobs?\/~[0-9a-zA-Z]{16,}/gi),
+        doc_propid_json: count(/["']proposal[_-]?id["']\s*:\s*["']?\d{10,}/gi),
+        title_sample: titles.slice(0, 3).map(t => t.slice(0, 60)),
+      },
+    };
+  }
+
+  // Attach observations to a list row — fresh from this walk, else cached.
+  function attachObs(r, fresh, cached) {
+    const o = (fresh && fresh.rendered) ? fresh : (obsUsable(cached) ? cached : null);
+    if (!o) return { ...r, walk: fresh ? 'visited-unrendered' : 'skipped' };
+    return {
+      ...r,
+      upwork_job_id: r.upwork_job_id || (o.job_ids || [])[0] || null,   // legacy exact path
+      room_job_ids: o.job_ids || [],
+      room_proposal_ids: o.proposal_ids || [],
+      room_titles: o.titles || [],
+      walk: fresh ? 'visited' : 'cached',
+    };
+  }
+
+  async function postAndFinish(rows, walkInfo) {
+    const note = walkInfo && walkInfo.rooms_visited
+      ? `Read ${walkInfo.rooms_visited} conversation(s); ${walkInfo.rooms_cached || 0} already known.`
+      : undefined;
+    showBanner({ phase: 'posting', scraped: rows.length, rows, note });
     try {
-      const result = await postDirect(rows, { rooms_visited: walked, links_found: linked, attempts: q.attempts || 0 });
+      const result = await postDirect(rows, walkInfo);
       console.log('[Cockpit Messages-List] direct POST result:', result);
       showBanner({ phase: 'done', scraped: rows.length, result, rows });
       _done(result);
@@ -371,6 +538,38 @@
       showBanner({ phase: 'done', scraped: rows.length, rows, error: 'save failed: ' + (e && e.message || e) });
       _done({ scanned: rows.length, error: 'save failed: ' + (e && e.message || e) });
     }
+  }
+
+  async function finishWalk(q) {
+    const byRoom = q.results || {};
+    const obs = await loadRoomObs();
+    for (const [room_id, res] of Object.entries(byRoom)) {
+      // Cache only what a RENDERED room showed. One that never rendered told us
+      // nothing, so it stays uncached and is retried on the next sync.
+      if (res && res.rendered) {
+        obs[room_id] = {
+          v: PROBE_VERSION, at: Date.now(),
+          job_ids: res.job_ids, proposal_ids: res.proposal_ids, titles: res.titles,
+          empty: !(res.job_ids.length || res.proposal_ids.length || res.titles.length),
+        };
+      }
+    }
+    await saveRoomObs(obs);
+    clearQueue();
+    const rows = (q.rows || []).map(r => attachObs(r, byRoom[r.room_id], obs[r.room_id]));
+    const walked = Object.values(byRoom);
+    const walkInfo = {
+      probe_version: PROBE_VERSION,
+      rooms_visited: walked.length,
+      rooms_cached: rows.filter(r => r.walk === 'cached').length,
+      links_found: walked.filter(x => x && (x.job_ids.length || x.proposal_ids.length)).length,
+      rooms_with_titles: walked.filter(x => x && x.titles.length).length,
+      deferred_unread: q.deferred_unread || 0,
+      attempts: q.attempts || 0,
+      rooms: walked.map(x => x && x.diag).filter(Boolean),
+    };
+    console.log('[Cockpit Messages-List] room walk done:', walkInfo);
+    await postAndFinish(rows, walkInfo);
   }
 
   async function stepWalk(q) {
@@ -382,7 +581,7 @@
 
     const cur = q.queue[q.index];
     showBanner({ phase: 'walking', note: `Reading conversation ${q.index + 1} of ${q.queue.length}…` });
-    q.results[cur.room_id] = await waitForRoomJobLink();  // {upwork_job_id, job_title} | null
+    q.results[cur.room_id] = await probeRoom(q, cur);
     q.index++;
     if (q.index < q.queue.length) {
       saveQueue(q);
@@ -413,32 +612,41 @@
     console.log('[Cockpit Messages-List] Scraped', rows.length, 'conversation rows');
     if (!rows.length) { showBanner({ phase: 'done', scraped: 0, rows, error: 'no conversations scraped' }); _done({ scanned: 0, error: 'no conversations scraped' }); return; }
 
-    // Candidate rooms for the walk: the client acted last OR the row is unread.
-    // Cap to keep the sync fast — each visit is a page load.
-    const candidates = rows.filter(r => r.last_from_client || r.has_unread).slice(0, 10);
+    // Walk every room we have no usable observation for — REGARDLESS of who
+    // spoke last (v4 walked only client-last / unread rooms, which drops a
+    // conversation out of the walk the moment Artem answers it). Most recent
+    // first; capped per sync, and the rest are picked up by the next one.
+    //
+    // UNREAD rooms are deferred, not walked. Opening a conversation generally
+    // marks it read, so walking one could clear the unread marker on a client's
+    // new message before Artem has seen it — and the client may see it as read.
+    // The tool must never change what Artem or his client sees in Upwork. v4
+    // walked unread rooms on every sync; here they are simply picked up on the
+    // first sync after Artem opens them himself. The cost is small: a new reply
+    // whose inbox row already shows its job title is matched without any walk.
+    const obs = await loadRoomObs();
+    const unobserved = rows.filter(r => !obsUsable(obs[r.room_id]));
+    const deferredUnread = unobserved.filter(r => r.has_unread).length;
+    const candidates = unobserved.filter(r => !r.has_unread).slice(0, WALK_CAP);
     if (candidates.length) {
-      console.log('[Cockpit Messages-List] starting room walk over', candidates.length, 'candidate rooms');
+      console.log('[Cockpit Messages-List] walking', candidates.length, 'room(s) not yet observed;',
+                  deferredUnread, 'unread room(s) deferred until read');
       const q = {
         state: 'walking', index: 0, attempts: 0,
         queue: candidates.map(c => ({ room_id: c.room_id, room_url: c.room_url })),
-        rows, results: {},
+        rows, results: {}, deferred_unread: deferredUnread,
       };
       saveQueue(q);
       window.location.href = q.queue[0].room_url;
       return;
     }
 
-    // No candidates — nothing new from clients; post the plain list as before.
-    showBanner({ phase: 'posting', scraped: rows.length, rows });
-    try {
-      const result = await postDirect(rows);
-      console.log('[Cockpit Messages-List] direct POST result:', result);
-      showBanner({ phase: 'done', scraped: rows.length, result, rows });
-      _done(result);
-    } catch (e) {
-      console.error('[Cockpit Messages-List] direct POST failed:', e);
-      showBanner({ phase: 'done', scraped: rows.length, rows, error: 'save failed: ' + (e && e.message || e) });
-      _done({ scanned: rows.length, error: 'save failed: ' + (e && e.message || e) });
-    }
+    // Every room already observed — send the cached observations, no walk needed.
+    const enriched = rows.map(r => attachObs(r, null, obs[r.room_id]));
+    await postAndFinish(enriched, {
+      probe_version: PROBE_VERSION, rooms_visited: 0, links_found: 0, attempts: 0,
+      rooms_cached: enriched.filter(r => r.walk === 'cached').length, rooms: [],
+      deferred_unread: deferredUnread,
+    });
   })();
 })();
