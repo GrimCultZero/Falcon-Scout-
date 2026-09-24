@@ -275,7 +275,30 @@ export default function Outcomes({ active = false }) {
     }
   }
 
+  // Latest-wins guard for the list. Many things refetch it concurrently: the
+  // filter effect, window focus / visibility, capture events, and the seven
+  // delayed refreshes the Sync button schedules over ~2 minutes. Before this,
+  // whichever response ARRIVED last won — and a slow unfiltered response could
+  // land after a fast filtered one and overwrite it. Worse, those delayed Sync
+  // refreshes are closures created when Sync was pressed, so they re-fetched the
+  // filter from THAT moment: switch to Replied within two minutes of syncing and
+  // the list kept reverting to All under an active Replied chip.
+  //
+  // Seen 2026-09-24: Mykola's reply (proposal 222) was correctly recorded as
+  // 'replied' and returned by /proposals?status=replied, yet "missing" from the
+  // Replied view. Reproduced by delaying only the unfiltered response 2.5s and
+  // switching chips while it was in flight: Replied active, list showing SENT.
+  //
+  // Two parts, both needed: every fetch reads the CURRENT filter (so a stale
+  // caller cannot resurrect an old one), and only the most recently STARTED
+  // fetch may write, so arrival order no longer matters.
+  const filterRef = useRef(filter)
+  filterRef.current = filter
+  const fetchSeq = useRef(0)
+
   const fetchProposals = useCallback(async () => {
+    const seq = ++fetchSeq.current
+    const filter = filterRef.current   // intentionally shadows the closure's (possibly stale) copy
     setLoading(true)
     setError(null)
     try {
@@ -463,11 +486,12 @@ export default function Outcomes({ active = false }) {
         }
       })
       const uniqueKbRows = filteredKbRows.filter(r => !matchedKbKeys.has(stripSuffix(r.job_title_live)))
+      if (seq !== fetchSeq.current) return   // superseded by a newer fetch — never overwrite it
       setProposals([...enrichedData, ...uniqueKbRows])
     } catch (e) {
-      setError(e.message)
+      if (seq === fetchSeq.current) setError(e.message)
     } finally {
-      setLoading(false)
+      if (seq === fetchSeq.current) setLoading(false)
     }
   }, [filter])
 
