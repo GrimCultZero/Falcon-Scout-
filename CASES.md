@@ -142,3 +142,29 @@ Owner supplied `Cases recap.docx` with REAL numbers for all cases → stored as 
 - **Confirmed gaps:** NO CallRail/DNI case and NO SaaS case exist — so prior letters claiming CallRail experience were unbacked; the SaaS-mislabel and CallRail concerns stand.
 
 Full per-case numbers live in KB #506; CASES.md keeps just the deltas.
+
+---
+
+## Finding — case locations and timeframes drift in sent letters (Sep 24, 2026)
+
+**Context.** Job 16113 (Data Pivot Consulting) asked for an example with "the starting situation,
+changes made, timeframe, and measurable results". The draft wrote Nectar Flowers up as a "UK florist"
+whose results came "over 90 days" — it is an Ottawa, Canada florist, and no period is on record. The
+metrics were correct; everything the case record didn't contain was invented.
+
+**What we found.** Checked against the ledger across all 256 sent letters: **21 unsupported locations or
+timeframes on named cases**, each confirmed by hand — FridgeFix (Orange County, CA) placed in "Vienna" and
+in "Dallas"; House Painting in "San Diego"; Atlant (Ukraine) as a "US market", "Chicago-adjacent" and
+"Dallas" developer; ChronoCash as "German"; "Korean products" on Derma Solution (that attribute is Skin
+Reboot's); Skin Reboot "7 months" against a 14-month record. None of these were caught by the metric
+checks, because the numbers themselves were right.
+
+**The reusable lesson.** When a posting asks for detail a case record doesn't hold, the model supplies it
+rather than leave a gap — and a place or a period reads as plausible as a real one. Location and
+timeframe have to be treated as data exactly like the metrics: recorded per case, stated explicitly as
+"none on record" where absent, and checked (`caseGeoNotInLedger` / `caseTimeframeNotInLedger`). When
+the posting asks for a timeframe, prefer a case whose record has one (Skin Reboot Sep 2024 – Oct 2025;
+Atlant Jun–Nov 2023 vs the prior 6 months; ChronoCash Feb 2025; FridgeFix's highlighted Jul–Aug 2023).
+
+**Open.** KB #1 labels Atlant's exact figures "Real Estate Complex (USA)"; KB #502 says Ukrainian
+(Kyiv & region). The US label is the likely source of the three letters that placed Atlant in the US.

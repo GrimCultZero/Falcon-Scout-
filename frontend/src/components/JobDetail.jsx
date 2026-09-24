@@ -3,11 +3,14 @@ import * as XLSX from 'xlsx'
 // Step 21-A: structured case ledger + {{case:id}} placeholder expansion (DESIGN.md §21.3).
 // Runs as the FIRST output step (before _cleanPasteText + the _strip* pile) so a case
 // placeholder becomes its canonical, deduped line before any prose processing.
-import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine } from '../lib/caseLedger'
+import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, renderCaseFactsBlock, findCaseFactConflicts, listClaimedAttachments } from '../lib/caseLedger'
 // Step 21-B: deterministic grounding checker. Wired in SHADOW / record-only mode
 // (enforce:false) — it reports violation codes to telemetry without altering the
 // letter. Do NOT flip to enforce without checking in (ANTIFAB_HANDOFF.md §0/§8).
 import { groundingCheck } from '../lib/groundingCheck'
+// Owner rules made certain rather than re-asked of the model (2026-09-24):
+// no call offers, and an offered audit always mentions its sample.
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -2882,6 +2885,31 @@ function _ensureManualAuditClaim(text) {
   return paras.join('\n\n')
 }
 
+// AUDIT SAMPLE + CALL OFFERS (job 16113, 2026-09-24). One draft broke both rules
+// the prompt states in full: it quoted "$300 flat for the audit" with no sample
+// mentioned (missingAuditSampleMention fired, and nothing could act on it), and
+// asked for "Admin access … plus a quick call to confirm what counts as a
+// qualified lead" — a call, which Artem never does. Same answer as the manual-
+// audit claim above: make the outcome certain. The logic lives in
+// lib/letterGuards.js (tested there against the sent-letter corpus); these
+// wrappers only add the console line and the telemetry, like every strip here.
+function _ensureAuditSampleMention(text, postingLower) {
+  const r = ensureAuditSampleMention(text, { postingLower })
+  if (!r.inserted) return text
+  const kind = r.inserted === 'seo' ? 'technical SEO' : r.inserted === 'both' ? 'Google Ads + technical SEO' : 'Google Ads'
+  console.log(`[Falcon] Audit offered with no sample mentioned — added the ${kind} audit sample sentence to the fee paragraph.`)
+  _recordViolations('generator', null, ['auditSampleMentionAutoInserted'])
+  return r.text
+}
+function _stripCallOffers(text) {
+  const r = stripCallOffers(text)
+  if (!r.changed) return text
+  for (const x of r.rewritten) console.log(`[Falcon] Call offer rewritten to ask in writing: "${x.from}" → "${x.to}"`)
+  for (const x of r.removed) console.log(`[Falcon] Call offer removed: "${x}"`)
+  _recordViolations('generator', null, ['callOfferStripped'])
+  return r.text
+}
+
 // Strip any sentence where the model leaks its internal KB terminology to the client.
 // "I don't have B2B case studies in the KB right now" is never acceptable in a
 // client-facing message — it exposes internal tooling and signals a gap before one
@@ -3709,7 +3737,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
         const _chatJobContextLower = `${job?.title || ''} ${job?.description_full || job?.description_snippet || ''}`.toLowerCase()
-        const newProposal  = proposalMatch ? _humanizeCasing(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))), _chatJobContextLower)))))) : null
+        const newProposal  = proposalMatch ? _humanizeCasing(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))), _chatJobContextLower))))))) : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // SAFETY NET: verify a chat-requested case actually landed in the
@@ -5789,6 +5817,18 @@ function ProposalColumn({
   // the list under the letter is what replaces the rewrite: Artem sees what the
   // system noticed and decides, instead of a rewriter silently making it worse.
   const [ruleFlags, setRuleFlags] = useState([])
+  // What the letter in the box says RIGHT NOW — recomputed on every edit, so a
+  // line Artem fixes drops off. ruleFlags above describe the last generation;
+  // these describe the current text:
+  //   case facts   a place or period stated for a named case that its record
+  //                doesn't support (lib/caseLedger.js)
+  //   call offers  whatever the call strip couldn't safely rewrite
+  //   attachments  what the letter says is attached. Upwork attachments are added
+  //                by hand on the proposal form, so the letter is only true if
+  //                Artem attaches them.
+  const _liveCaseFacts = proposal ? findCaseFactConflicts(proposal) : { geo: [], time: [] }
+  const _liveCallOffers = proposal ? findCallOffers(proposal) : []
+  const _claimedAttachments = proposal ? listClaimedAttachments(proposal) : []
   // preEnforcerDraft retired 2026-09-02 with the enforcer itself. It existed to
   // show a before/after in the share snapshot so a garbled sentence could be traced
   // to the first pass or the rewrite. There is no rewrite now — the letter Artem
@@ -6796,6 +6836,15 @@ number, metric, client detail, diagnosis, claim of past work) MUST trace to one:
      metric, round it, transfer a metric to a different client, or attribute an
      outcome to a case whose entry doesn't state it (e.g. do NOT claim an older
      case "fed LLM citations" / "got cited by AI" unless its entry says exactly that).
+     A case's LOCATION and TIMEFRAME are facts too, exactly like its metrics: the
+     "CASE FACTS ON RECORD" list further down gives both, and where it says "none
+     on record" you say nothing. Never move a case to another country or city
+     (shipped: Nectar Flowers, an Ottawa florist, written up as a "UK florist"),
+     never give it a period its record lacks (shipped: "... over 90 days"), and
+     never invent its starting situation or the specific changes made beyond what
+     its entry states. When the posting asks for a timeframe or a starting
+     situation, prefer a case whose record has one; otherwise give what the record
+     has and leave the rest out.
 ${_hasVerifiedSiteData ? `
  (3) VERIFIED SITE DATA = the "CLIENT WEBSITE CONTENT" and/or "PROSPECT SITE SEO
      PROFILE" blocks, which appear in the same "Write a cover letter for this job"
@@ -6896,7 +6945,7 @@ The imperfections should feel like someone typed fast and didn't proofread, NOT 
 - Sound like a human, not AI
 - PLAIN TEXT ONLY — absolutely no markdown: no **bold**, no *italic*, no ## headings, no asterisks of any kind. Use plain dashes or line breaks for lists.
 - NEVER offer to walk through, demo, or show anything — no "happy to walk through", "walk you through", "hop on a call", "schedule a demo", "book a call", or any similar phrase that implies initiating a synchronous session. If the client wants a call they will ask.
-- LIVE CALLS / SCREEN-SHARES / WALKTHROUGHS — NEVER OFFER OR ACCEPT (owner policy, no exceptions): Artem does not do ANY live call, screen-share, video meeting, or live walkthrough — not recurring, not a one-time wrap-up, not even "just to explain what changed". Do NOT confirm availability for a call, do NOT say "happy to join a screen share", do NOT commit to any synchronous session. If the posting explicitly asks about a live call / screen-share / review call, do NOT agree to it and do NOT refuse rudely — REDIRECT to the written deliverable: state that everything is delivered as a clear written findings-and-recommendations document plus a before/after report (e.g. a Looker Studio report showing what changed and why), which covers exactly what a walkthrough would, on the client's own time. Frame it as a strength (a written record they can re-read and share internally), not an apology. Still banned regardless of phrasing: committing to diagnose/fix/execute anything "in real time", "together", "work directly in the account with you", or "during the call/screen-share". (Note: the analyser SKIPs jobs that mandate a live walkthrough, so usually you won't be generating for one — but if you are, this is how you handle it.)
+- LIVE CALLS / SCREEN-SHARES / WALKTHROUGHS — NEVER OFFER OR ACCEPT (owner policy, no exceptions): Artem does not do ANY live call, screen-share, video meeting, or live walkthrough — not recurring, not a one-time wrap-up, not even "just to explain what changed". Do NOT confirm availability for a call, do NOT say "happy to join a screen share", do NOT commit to any synchronous session. If the posting explicitly asks about a live call / screen-share / review call, do NOT agree to it and do NOT refuse rudely — REDIRECT to the written deliverable: state that everything is delivered as a clear written findings-and-recommendations document plus a before/after report (e.g. a Looker Studio report showing what changed and why), which covers exactly what a walkthrough would, on the client's own time. Frame it as a strength (a written record they can re-read and share internally), not an apology. Still banned regardless of phrasing: committing to diagnose/fix/execute anything "in real time", "together", "work directly in the account with you", or "during the call/screen-share". This includes listing a call as something you NEED from the client (shipped on job 16113: "Admin access to Google Ads + GA4/GTM, plus a quick call to confirm what counts as a qualified lead") — ask for that information in writing instead ("plus a short note on what counts as a qualified lead on your end"), and never put a kick-off / onboarding / intro call into a plan. (Note: the analyser SKIPs jobs that mandate a live walkthrough, so usually you won't be generating for one — but if you are, this is how you handle it.)
 - NEVER mention Loom in ANY context in a cover letter — not as a deliverable, not as a comms tool, not as "recorded Loom messages", not as "Loom updates". Loom is a screen-recording tool and its mention implies a Rule 2 deliverable. If you need to describe async communication cadence, describe the OUTPUT ("weekly written summary", "same-day Slack reply", "priority doc before each sprint") — never name a recording tool.
 - THE ONLY VALID ENDING IS "Artem" (capital A) on its own line — nothing else. No CTA, no closing filler, no invitation, no question, no next-step prompt. Every one of these is banned as a closing line: "happy to answer questions", "feel free to reach out", "let me know if you have questions", "looking forward to hearing from you", "happy to discuss further", "happy to chat", "reach out anytime", "let's talk", "keen to hear more", "would love to connect", "open to a quick call", "communication will be efficient", or ANY variation. The letter ends with the last content sentence and then "Artem" on its own line. Period.
 - NEVER write "i work async" anywhere in the letter — not as a closing line, not as a mid-letter description of communication style. This phrase is banned entirely. If you need to explain communication cadence, describe it concretely ("weekly summary report covering spend, leads, CPL, and next actions") without the phrase "async".
@@ -7124,7 +7173,7 @@ PRECEDENCE — READ THIS BEFORE OBEYING ANY CREDENTIAL RULE: KB Rule 439 require
 
 After this opening, proceed with the rest of the letter NORMALLY per the rules above. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.
 ═══════════════════════════════════════════════════════════════════
-` : ''}${portfolioText}${referenceText}${pastProposalsText}${examplesText}${adjustments}
+` : ''}${portfolioText}${portfolioText ? renderCaseFactsBlock() : ''}${referenceText}${pastProposalsText}${examplesText}${adjustments}
 ${kbRulesText ? `
 RULE COMPLIANCE GATE (silent, mandatory):
 Before you emit the cover letter, run this checklist *internally* (do NOT include it in your output):
@@ -7267,7 +7316,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       // _requiredOpenerPhrase). The six single strips above already followed this
       // pattern — see _stripSeoAuditTurnaround's "before the compliance checks"
       // comment — and the chain re-applies some of them, which is idempotent.
-      text = _fixCaseCountClaim(_restoreRequiredOpenerCasing(_ensureManualAuditClaim(_stripRedundantTrailingCaseBlock(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text, _postingAsksRate), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip))))))), _postingAsksRate))).trim()), job), _digitBombCase))), _requiredOpenerPhrase))
+      // The client's own words (title, category, keywords, description) — the same
+      // composition as _postingOnlyLower in the check block, built from `job`
+      // directly — for the strips below that must read the posting.
+      const _postingOnlyLowerForStrips = [job?.title, job?.category, job?.keywords, job?.description_full || job?.description_snippet || job?.raw_message]
+        .filter(Boolean).join('\n').toLowerCase()
+      text = _fixCaseCountClaim(_restoreRequiredOpenerCasing(_ensureAuditSampleMention(_ensureManualAuditClaim(_stripRedundantTrailingCaseBlock(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text, _postingAsksRate), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip)))))))), _postingAsksRate))).trim()), job), _digitBombCase))), _postingOnlyLowerForStrips), _requiredOpenerPhrase))
 
       // ── Rule-compliance enforcement pass ────────────────────────────────
       // Prompt engineering alone has proven unreliable for hard rule
@@ -7635,6 +7689,27 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                   }
                 }
               }
+            }
+
+            // ── Call offers left after _stripCallOffers (job 16113) ──────────
+            // The strip rewrites "…, plus a quick call to confirm X" into a written
+            // ask and drops a sentence whose whole point is a call. A call woven
+            // into anything else ("Week 1: kick-off call to align on goals, then…")
+            // is left alone — cutting it safely needs judgment — and this is what
+            // surfaces it. No posting-side exception: Artem does not do calls at
+            // all, and the analyser SKIPs jobs that require one (Rule 2).
+            const _callOffersLeft = findCallOffers(text)
+            const offersCall = _callOffersLeft.length > 0
+            if (offersCall) console.warn('[Falcon] Call offer still in the letter — edit before sending:', _callOffersLeft.map(o => o.sentence))
+
+            // Case location / timeframe. The flags come from the grounding checker
+            // in the strip chain (caseGeoNotInLedger / caseTimeframeNotInLedger,
+            // record-only); logged here with the specifics, which the note under
+            // the letter also shows live.
+            {
+              const _cf = findCaseFactConflicts(text)
+              for (const g of _cf.geo) console.warn(`[Falcon] ${g.name} placed in "${g.term}" — on record: ${g.on_record}. ${g.excerpt}`)
+              for (const t of _cf.time) console.warn(`[Falcon] ${t.name} given the timeframe "${t.phrase}" — on record: ${t.on_record}. ${t.excerpt}`)
             }
 
             // ── Echoed-question check (mechanical AI-form-fill tell) ─────────
@@ -8379,7 +8454,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // format" when the client just said they already have one reads as if
             // the posting wasn't read. Hoisted here (before both the plan-vs-audit
             // block and the missing-audit-sample block below) so both can use it.
-            const _ALREADY_AUDITED_RE = /\balready\s+(?:have\s+|had\s+)?(?:done|completed|conducted|run|performed)\s+(?:a|an|the)?\s*(?:full\s+|complete\s+)?(?:technical\s+)?(?:seo\s+)?audit\b|\balready\s+(?:have|had|has)\s+(?:a|an|the)\s+(?:technical\s+)?(?:seo\s+)?audit\b/i
+            // One definition, shared with _ensureAuditSampleMention (lib/letterGuards.js),
+            // so the insert and this check can never disagree about "already audited".
+            const _ALREADY_AUDITED_RE = ALREADY_AUDITED_RE
             const clientAlreadyAudited = _ALREADY_AUDITED_RE.test(jobContextLower)
             let wrongAuditSampleOnAlreadyAudited = false
             if (jobIsSeo && !jobIsPpc && !jobIsWebdev) {
@@ -8824,6 +8901,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !hasBannedOpener && !hasExplainerOpener && !fabricatedToolClaim && !seoWrongPremierPartner
               && !previewNotSpecific
               && !overBudgetLengthCap
+              && !offersCall
 
             // Telemetry (Phase C): record every guard that fired this run.
             // Captured into a named list (not passed inline) because the enforcer's
@@ -8833,6 +8911,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               hasBannedOpener && 'hasBannedOpener',
               previewNotSpecific && 'previewNotSpecific',
               overBudgetLengthCap && 'overBudgetLengthCap',
+              offersCall && 'offersCall',
               hasExplainerOpener && 'hasExplainerOpener',
               hasForbiddenPhrase && 'hasForbiddenPhrase',
               missingAuditSampleMention && 'missingAuditSampleMention',
@@ -9144,10 +9223,47 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               <span style={{ fontWeight: 700, color: '#e0a000', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 {ruleFlags.length} rule check{ruleFlags.length === 1 ? '' : 's'} fired
               </span>
-              <span style={{ color: 'var(--text3)' }}> — caught on the raw draft, before the deterministic strips ran. Some may already be fixed in the text above; check before acting.</span>
+              <span style={{ color: 'var(--text3)' }}> — on the last generation, checked after the automatic fixes. Names ending in AutoInserted or Stripped are fixes already applied; the rest may need an edit.</span>
               <div style={{ marginTop: 4, fontFamily: 'ui-monospace, monospace', color: 'var(--text2)' }}>
                 {ruleFlags.join('  ·  ')}
               </div>
+            </div>
+          )}
+
+          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0) && (
+            <div style={{
+              fontSize: 10, lineHeight: 1.55, padding: '7px 10px', borderRadius: 3,
+              color: 'var(--text2)', background: 'rgba(239,68,68,0.08)',
+              border: '1px solid rgba(239,68,68,0.35)',
+            }}>
+              <span style={{ fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Fix before sending
+              </span>
+              <span style={{ color: 'var(--text3)' }}> — found in the letter as it reads now.</span>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                {_liveCaseFacts.geo.map((g, i) => (
+                  <li key={`g${i}`}>{g.name} is placed in “{g.term}” — on record: {g.on_record}</li>
+                ))}
+                {_liveCaseFacts.time.map((t, i) => (
+                  <li key={`t${i}`}>{t.name} is given the timeframe “{t.phrase}” — on record: {t.on_record}</li>
+                ))}
+                {_liveCallOffers.map((o, i) => (
+                  <li key={`c${i}`}>Call offer: “{o.sentence}” — no calls; ask for it in writing instead</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {_claimedAttachments.length > 0 && (
+            <div style={{
+              fontSize: 10, lineHeight: 1.55, padding: '7px 10px', borderRadius: 3,
+              color: 'var(--text2)', background: 'var(--bg2)', border: '1px solid var(--border)',
+            }}>
+              <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                📎 Attach on Upwork before sending
+              </span>
+              <span style={{ color: 'var(--text3)' }}> — the letter says {_claimedAttachments.length === 1 ? 'this is' : 'these are'} attached: </span>
+              {_claimedAttachments.join('  ·  ')}
             </div>
           )}
 

@@ -8391,3 +8391,139 @@ error field, without confirming anything reached `/proposal-status-sync`. It sho
 "SYNCED" while the bridge was dead and nothing had been scraped. That is the same class of
 false green light the `SyncRun` table was built to eliminate — and it is how a twelve-day
 blackout goes unnoticed. Gate the badge on a real response from the endpoint.
+
+## 2026-09-17 → 2026-09-24 — back-fill: work committed without a WORKLOG entry
+
+Ten commits on `generator-rebuild` landed with no entry here. Short version, so the next
+iteration isn't blind to them (details are in each commit message):
+
+- `6c72011` **The 180-character rule.** `previewNotSpecific` checks the ~180 characters Upwork
+  shows in the client's proposal list (4+ posting-specific words), not the whole letter.
+- `5f07549`, `d14df31` **Applications workbook** (`tools/export_applications.py`, output in
+  `D:\ITForce\`) gained a "Findings & Plan" tab. The second commit withdrew advice built on false
+  premises after inspecting the live profile: Artem is Top Rated with 53 reviews, so the "Rising
+  Talent" and "finish the profile rewrite" items were wrong.
+- `28a1950` **Budget length cap enforced** (`overBudgetLengthCap`: fixed budget under $1,000 and
+  over 220 words). The "low-friction close" idea was rejected — it conflicts with KB Rule 436.
+- `8a93606` **A late reply can un-ghost a proposal**, on exact evidence only. The UNIHOST reply
+  was stuck behind the automatic 10-day `ghosted`.
+- `b7ac9cc` **Room walk v5.** The extension observes each inbox room once (panel-scoped ids +
+  header titles, cached per room); the backend resolves, accepting only unambiguous evidence.
+  It had never matched a single conversation before. Recovered **7 replies recorded as ghosted**
+  (proposals 222, 234, 238, 223, 202, 213, 191 — all sent 19 Aug – 3 Sep, when the reply detector
+  wasn't running). Corrected funnel: 257 sent / 48 opened (18.7%) / 23 replied (8.9%); 47.9% reply
+  once opened. Matches were verified by identical proposal ids or by decoding the timestamp in
+  Upwork's snowflake proposal ids (`(id >> 22) + 1288834974657` ms, within 6 s of known sends).
+- `1f0f056` **Preview evidence corrected** after the recovery: 24.2% vs 15.5% opened at the
+  4-word threshold, p ≈ 0.10 — not the p = 0.0018 first reported. Suggestive, not proven.
+- `124f251` The room walk stops retrying read-only rooms on every sync.
+- `23f3ed1` **Outcomes race:** a slow response for the previous filter could overwrite the list
+  (why the UNIHOST reply didn't show under Replied). Latest-wins fetch guard.
+- `de7126d` Replied sorted by when the reply was seen; zone-less UTC timestamps parsed as UTC.
+
+Still open: proposals-list pagination stops at page 1 of 7 (background-tab throttling; needs URL
+navigation), and the room walk only reaches the ~20 most recent conversations, so reply counts
+are a floor.
+
+## 2026-09-24 — generator guardrails: case location/timeframe, the audit sample, no call offers
+
+Owner's ask, after job 16113 (Data Pivot Consulting): "build the case geography and timeframe
+check. Make sure that when we offering audit we are attaching samples. Make sure we dont offer
+any calls."
+
+Job 16113's draft broke all three in one letter:
+- "Nectar Flowers (attached in profile highlights): **UK florist** … grew transaction income 350%
+  **over 90 days**." Nectar Flowers is an Ottawa, Canada florist and no period is on record. The
+  posting asked for "starting situation, changes made, timeframe", and the model filled every gap.
+- "$300 flat for the audit" with no sample mentioned (`missingAuditSampleMention` fired; nothing
+  could act on it).
+- "I'd need Admin access to Google Ads + GA4/GTM, **plus a quick call** to confirm what counts as a
+  qualified lead." Artem does no calls (analyser Rule 2, zero exceptions), and the prompt already
+  said so in two places.
+
+### 1. Case location + timeframe — facts, like the metrics
+
+`CASE_LEDGER` entries gained `geo` / `location` / `periods` / `years` / `period_label`, seeded only
+from verified records: KB #1 headers and "Period:" lines, KB #506 (owner's authoritative recap),
+KB #32, #502, #507, #487/#518, CASES.md. `findCaseFactConflicts(text)` (caseLedger.js) reads each
+case mention's window (its paragraph if the paragraph opens with the case, else its sentence, cut
+at the next case) and reports places and periods the record doesn't support.
+- Closed place vocabulary, case-sensitive: an unknown place is never flagged ("polish", "turkey",
+  the pronoun "us" can't match). The check can miss; it can't invent.
+- A place or period in a clause about the CLIENT ("the same spikes you'd see in London", "on your
+  account within 60 days") is the bridge, not a claim.
+- Durations match the record within ±20% ("over a year" stands for Skin Reboot's 14 months;
+  "7 months" doesn't). Artem's own "12 years", "Premier Partner 2026" and "1 working day" are
+  never read as case periods; "$600 a month" is a rate.
+- Wired into the grounding checker as `caseGeoNotInLedger` / `caseTimeframeNotInLedger`,
+  **record-only even under `GC_ENFORCE`**: a new claim class ships as a flag first (owner rule),
+  and sentence removal would take the case name with it. The prompt gets a generated "CASE FACTS
+  ON RECORD" block (every case's location + timeframe, including "none on record") and a line in
+  the grounding contract.
+
+**Corpus result (256 sent letters): 21 unsupported case facts, every one confirmed by hand** —
+FridgeFix placed in "Vienna" and "Dallas", House Painting in "San Diego" and "California", Atlant
+as a "US market" / "Chicago-adjacent" / "Dallas" developer, ChronoCash as "German", Vape Shop
+"(USA)", "Korean products" on Derma Solution (that's Skin Reboot), Skin Reboot "7 months" against
+14, Derma "in under a year" / "18-month rebuild", House Painting "within the first two weeks".
+Pinned in `tests/case-facts.test.js`.
+
+**KB conflict found (open, owner decision):** KB #1 lists "Real Estate Complex (USA)" carrying
+Atlant's exact figures (+144.25% / +56.51% / -31.02%). KB #502/#245 and CASES.md say Atlant is a
+Ukrainian developer (Kyiv & region); KB #506 gives no location. The ledger follows #502, so "US"
+claims about Atlant are flagged — but the KB #1 label is still in the prompt and is the likely
+source of the three sent letters that placed Atlant in the US. Not edited: it's Artem's KB, and
+the label may have been deliberate.
+
+Also decided: **Golden State Trailers stays USA only.** "California" appears only in saved sent
+letters (KB #491, #531, #683 — next to invented figures like "cost per lead −63%"), never in KB #1
+or #506.
+
+### 2. The audit sample — guaranteed in the text
+
+`ensureAuditSampleMention` (lib/letterGuards.js): when the draft states an audit price ($300 PPC /
+$700 SEO, price and "audit" in the same sentence; "$300/month" budgets and the "$700 first month"
+retainer excluded) and mentions no sample, it appends Artem's own most-used sentence to the fee
+paragraph ("I'm attaching a sample of a recent Google Ads audit so you can see the format and
+depth." — 33 uses; the technical-SEO variant, 9). Same gating as `missingAuditSampleMention`:
+skipped when the letter offers the SEO promotion plan (one deliverable per letter) or the posting
+says the client already has an audit. `_ALREADY_AUDITED_RE` is now one shared definition. Records
+`auditSampleMentionAutoInserted`. Corpus: 41 of 42 sent audit offers already had the sample; the
+insert fires on exactly the one that didn't.
+
+**The file itself is attached by hand** — nothing in the extension uploads files (apply.js only
+scrapes the boost table). So the letter panel now shows "📎 Attach on Upwork before sending",
+listing what the letter promises: audit / SEO-plan samples and the PDF cases (Skin Reboot, Derma
+Solution). Recomputed live as Artem edits.
+
+### 3. No call offers
+
+`stripCallOffers` (lib/letterGuards.js), run in both the generate chain and the chat-revision
+chain. Offer shapes only — "call" in these letters is nearly always a phone-call conversion: 58
+corpus sentences mention a call or meeting, 1 was an offer, 2 more were "walk you through" offers.
+- "…, plus a quick call to confirm X" → "…, plus a short written note to confirm X" when the verb
+  is about getting information; otherwise the clause is cut.
+- A sentence whose whole point is the call ("Happy to hop on a quick call…", "Would you be open
+  to a 15-minute call?") is removed.
+- Anything woven into other content ("Week 1: kick-off call to align on goals, then…") is left
+  alone and reported as `offersCall`, plus a line in the new "Fix before sending" note.
+- Negated / client-owned / funnel shapes are exempt ("without waiting on a call", "your weekly
+  Zoom calls", "a CTA so prospects can book a quick call"). No posting-side exception: jobs that
+  require a call are SKIPped by the analyser.
+- Prompt: the LIVE CALLS rule now names the "listing a call as something you need" shape.
+
+### UI
+
+Under the letter: "Fix before sending" (case facts + call offers, computed on the text as it
+reads now) and the attach reminder. The rule-flag strip's caption was wrong since the strips
+moved before the checks (2026-09-15) — it still said "caught on the raw draft"; corrected.
+
+### Verified
+
+`tests/case-facts.test.js` 47/47, `tests/letter-guards.test.js` 49/49 (corpus sections included);
+existing suites unchanged (budget-length-cap 9, pager-scoping 10, preview-specificity 7,
+room-probe 19, room-evidence). esbuild + `vite build` clean. In the running app, saved letters
+show the notes with the right specifics: job 14073 lists FridgeFix/House Painting/Atlant placed
+in Dallas / San Diego / Dallas; job 10507 lists its call offer and the Skin Reboot PDF. Not
+verified: a fresh generation end to end (it costs a paid call) — the strip and insert are covered
+by the tests on the real 16113 draft.

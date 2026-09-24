@@ -23,11 +23,20 @@
 //   attachmentUnbacked — wrong or duplicated attachment label on a case (defect #5)
 //   marketNotInPosting — geo/market not authorised by the posting (2026-07-24 "Israel")
 //   seoAuditTurnaround — a non-PPC audit given a day-count turnaround (defect #6)
+//   caseGeoNotInLedger       — a place stated for a named case that its record doesn't
+//                              support (job 16113: Nectar Flowers, an Ottawa florist, as
+//                              a "UK florist")
+//   caseTimeframeNotInLedger — a period stated for a named case that its record doesn't
+//                              support (same letter: "… over 90 days", none on record)
+//     Both are RECORD-ONLY even when enforce is on: a new claim class ships as a
+//     flag first (owner rule, ANTIFAB_HANDOFF.md §0/§8), and removing the enclosing
+//     sentence would take the case name with it — "UK florist" sits in the case's
+//     opening sentence.
 //   (*#1/#2/#3's ANONYMIZED/relabeled forms are killed by the ledger at 21-C — once the
 //    model must emit {{case:id}} it can't write an anonymized fabricated story or relabel
 //    a vertical at all. The checker owns the NAMED-case classes.)
 
-import { CASE_LEDGER, CASE_BY_ID } from './caseLedger'
+import { CASE_LEDGER, CASE_BY_ID, findCaseFactConflicts } from './caseLedger'
 
 // ── case name matchers (mirror _CASE_META shapes) ──
 const _NAME_RES = {
@@ -246,6 +255,11 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
   // fabrication was that case's only sentence) rather than leaving an
   // orphan blank paragraph in the joined letter.
   if (enforce) out = newParas.filter(p => p && p.trim()).join('\n\n')
+
+  // ── caseGeoNotInLedger + caseTimeframeNotInLedger: record-only (see header) ──
+  const facts = findCaseFactConflicts(out)
+  if (facts.geo.length) record('caseGeoNotInLedger')
+  if (facts.time.length) record('caseTimeframeNotInLedger')
 
   // ── marketNotInPosting: a geo/market claim not authorised by the posting body ──
   // Collected first (not mutated in-place) so enforcement can remove the

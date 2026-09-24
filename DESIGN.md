@@ -1352,6 +1352,8 @@ Runs on the generated draft *before* it reaches the textarea. For each **determi
 | **Geo / market nouns** (country, region, city, "launching in X") | gazetteer + `\b(launching\|expanding\|targeting) in <Place>\b` | **must appear in the job posting text** — the client's *account country* does NOT count | strip the market claim; flag `marketNotInPosting` |
 | **Attachment claims** ("attached as PDF", "in profile highlights", "i'm attaching X") | phrase match | must map to a real ledger `attachment` for a cited case | strip claim; flag `attachmentUnbacked` (this is §16 line 1005's check) |
 | **Deliverable / turnaround** | reuse existing `_stripSeoAuditTurnaround` family | KB turnaround map (§20) | already deterministic — fold under this checker |
+| **Case location** (added 2026-09-24) | closed place vocabulary, case-sensitive, in the case's window (paragraph it opens, else its sentence) | the case's ledger `geo` groups | **record-only**: flag `caseGeoNotInLedger` |
+| **Case timeframe** (added 2026-09-24) | durations / years / month ranges / quarters in the case's window | the case's ledger `periods` / `years` (durations ±20%) | **record-only**: flag `caseTimeframeNotInLedger` |
 
 **Design rules:**
 - **Checker, not rewriter.** It removes or reverts specific spans and records a violation code; it never paraphrases. Deterministic and idempotent.
@@ -1411,6 +1413,7 @@ Not "zero bugs" — the honest target is: **the fabrication/structural-bug rate 
   1. **Enforce soak** (§21.6) — **CLEAR as of 2026-08-26** (WORKLOG.md, "gate 1 hand-review pass" entry). Verified against real `rule_violations` telemetry: no new/unrecognized violation shapes since the 2026-08-19 fixes, no `groundingCheck.js` changes in that window, and the two high-volume days both traced to already-documented real bugs (not checker false-positives) — evidence-based, not just absence of complaints.
   2. **Case-relevance pre-filter — BUILT as of 2026-08-26** (WORKLOG.md, two entries: "gate 2: started the case-relevance pre-filter" then "gate 2 finished"). `caseStudyDomainMismatch` (`JobDetail.jsx`) is now fully derived from `CASE_LEDGER.service` instead of three hand-written name lists that had drifted badly out of sync with the ledger, and covers all three service axes (PPC/SEO/web-dev) instead of just PPC-vs-SEO — the ledger-matching mechanism §21-C's own plan calls for ("structured inputs — ledger case list for this job's domain"). The job-classification signal feeding it (`jobIsWebdev`) was also fixed: the old bare platform-name matching (shopify/woocommerce/opencart/magento firing on any mention, no build-intent check) is now gated behind `WEBDEV_INTENT_REQUIRED` — verified against all 172 real postings in the DB mentioning these platforms, not synthetic examples. End-to-end verified against the original motivating bug (job 13091, "Google Merchant Center Manager" citing SMASH/GKit) — now correctly caught. `WEBDEV_INTENT_REQUIRED` is a kill-switch (same pattern as `GC_ENFORCE`): flip to `false` to instantly restore the old bare-match behavior if it regresses something in real usage, no revert needed. One known residual edge case (an adjacent-technical-domain role listing "html/css knowledge" as a skill, not a build ask) deliberately left open — documented in the code comment, affected exactly 1 of 172 real postings tested.
   Both gates are now clear — 21-C can start whenever the owner is ready to check in on it.
+- **Two claim classes added 2026-09-24 — `caseGeoNotInLedger`, `caseTimeframeNotInLedger`.** A case's location and timeframe are ledger facts now (`geo` / `location` / `periods` / `years` / `period_label`, seeded from KB #1, #506, #32, #502, #507, #487/#518 and CASES.md); `findCaseFactConflicts()` in `caseLedger.js`, called by `groundingCheck()`. Both are **record-only even with `GC_ENFORCE = true`**: a new class ships as a flag first (owner rule, as for 21-B itself), and sentence removal would delete the case name along with the claim (the claim usually sits in the case's opening sentence). Candidate for enforce once telemetry matches hand review; on 2026-09-24 the corpus gave 21 hits in 256 sent letters, all genuine. The prompt also gets a generated "CASE FACTS ON RECORD" block, which states "none on record" explicitly rather than leaving the gap for the model to fill. Open: KB #1 labels Atlant's figures "Real Estate Complex (USA)" while KB #502 says Ukraine — the ledger follows #502; the KB label is the owner's to fix.
 
 ## 22. Classification vs. rewriting — the architectural principle behind the job-classification pilot (2026-08-26)
 
@@ -1443,3 +1446,34 @@ log output).
 before extending it. If a future session wants to extend this, the two real gotchas already found (the
 `job` prop being stale — use a session-local ref cache; `/jobs/{id}/analysis` having no GET route, a
 separate pre-existing bug, still open) apply to every future classification field, not just this one.
+
+## 23. Owner-rule guards: no call offers, the audit sample, the attach reminder (2026-09-24)
+
+Two owner rules the prompt already stated in full were both broken by one draft (job 16113), so they are
+now made certain in code rather than re-asked of the model — the `_ensureManualAuditClaim` precedent.
+Logic lives in `frontend/src/lib/letterGuards.js` (pure, tested in `tests/letter-guards.test.js` against the
+sent-letter corpus); `JobDetail.jsx` wraps it to add telemetry. Evidence: WORKLOG.md, 2026-09-24.
+
+**No call offers — zero exceptions.** Artem does not do calls (analyser Rule 2); jobs that require one are
+SKIPped upstream, so there is no posting-side exception in the generator. `stripCallOffers` runs in the
+generate chain and the chat-revision chain and does only what is mechanically safe:
+- "…, plus a quick call to confirm X" → "…, plus a short written note to confirm X" (information-gathering
+  verbs only); any other trailing call clause is cut;
+- a sentence whose whole point is the call ("Happy to hop on a quick call…") is removed;
+- a call woven into other content is left alone and reported (`offersCall`) — cutting it needs judgment.
+Detection is offer-shaped only: in these letters "call" is almost always a phone-call conversion.
+
+**An offered audit always mentions its sample.** `ensureAuditSampleMention` appends Artem's own sentence to
+the fee paragraph when an audit price is stated and no sample is mentioned; same gating as
+`missingAuditSampleMention` (not with the SEO promotion plan — one deliverable per letter — and not when
+the client already has an audit). `ALREADY_AUDITED_RE` is one shared definition.
+
+**Attachments are manual, so the app reminds.** The extension uploads nothing; a letter that says "I'm
+attaching…" or "(attached as PDF)" is only true once Artem attaches the file on Upwork's form. The letter
+panel lists what the current text promises ("📎 Attach on Upwork before sending"). Deliberately not built
+yet: verifying after sending that the file was actually attached (the proposal page lists attachments;
+the scraper currently cuts them out of the cover letter) — needs a column and a scrape change.
+
+**Live notes vs. rule flags.** `ruleFlags` describe the last generation. The "Fix before sending" note
+(case facts, call offers) and the attach reminder are computed from the textarea as it reads now, so a
+line Artem fixes by hand drops off.
