@@ -73,6 +73,9 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(P('Monthly retainer $950 for full scope.')[0]?.kind === 'monthly', '"Monthly retainer $950" reads as monthly and is flagged');
   assert(P('No retainer needed: $700 flat for the audit.').length === 0, '"No retainer needed: $700 flat" is the flat audit price, not a monthly one');
   assert(P('$500 flat, as posted.', { postedFixed: '500' }).length === 0, 'the posting\'s own fixed budget is allowed');
+  assert(P('Premium welcome kits have two buyers, and $1K a month only works hard if they are kept apart.', { postingText: "We're starting with about $1K/month in ad spend." }).length === 0,
+    'a figure the posting gives (the client\'s $1K/month spend, restated) is not a price (job 16269)');
+  assert(P('Cost: $3,500 flat.', { postingText: 'Budget around $1K/month.' }).length === 1, '…while a figure the posting never mentions is still checked');
 
   // ── the corpus ──────────────────────────────────────────────────────────
   if (!fs.existsSync(DATA)) {
@@ -114,7 +117,7 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
       if (!SEO.test(p) || PPC.test(p)) continue;
       seo++;
       if (!ASKS.test(p)) continue;
-      for (const h of G.findOffLedgerSeoPrices(r.text || '', { postedFixed: r.fixed_budget })) flagged.push(`[${r.status}] $${h.amount}${h.high ? '-' + h.high : ''} ${h.kind} | ${h.sentence.slice(0, 110)}`);
+      for (const h of G.findOffLedgerSeoPrices(r.text || '', { postedFixed: r.fixed_budget, postingText: r.posting || '' })) flagged.push(`[${r.status}] $${h.amount}${h.high ? '-' + h.high : ''} ${h.kind} | ${h.sentence.slice(0, 110)}`);
     }
     console.log(`\ncorpus: ${seo} SEO-only letters; off-ledger prices where the posting asked for one:`);
     flagged.forEach(s => console.log('      ' + s));

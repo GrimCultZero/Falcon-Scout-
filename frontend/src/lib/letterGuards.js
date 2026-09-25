@@ -299,9 +299,13 @@ export function caseStudiesCrammed(text) {
 // hourly (the rate-anchor checks own those), and money that isn't Artem's
 // price — case metrics, the client's budget or spend, CPC / CPA / revenue.
 const _NOT_A_PRICE_NEAR_RE = /\b(?:ad\s+spend|spend|budget|revenue|sales|cpc|cpa|cpl|roas|aov|per\s+(?:lead|conversion|click|sale|order|customer|booking|call)|cost\s+per|avg|average|mrr|arr|profit|turnover|valuation|funding)\b/i
-export function findOffLedgerSeoPrices(text, { postedFixed = null } = {}) {
+export function findOffLedgerSeoPrices(text, { postedFixed = null, postingText = '' } = {}) {
   const out = []
   const posted = Number(String(postedFixed ?? '').replace(/[^0-9.]/g, '')) || null
+  // A figure the POSTING itself gives is the client's money (their budget or ad
+  // spend) restated — "$1K a month only works hard if…" — never Artem's price.
+  const postingAmounts = new Set([...String(postingText || '').matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*([kK])?\b/g)]
+    .map(m => parseFloat(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)))
   for (const para of String(text || '').split(/\n\s*\n/)) {
     if (casesMentioned(para).length) continue          // a case's own figures
     for (const line of para.split('\n')) {
@@ -326,6 +330,7 @@ export function findOffLedgerSeoPrices(text, { postedFixed = null } = {}) {
           if (high == null) {
             if (monthly ? amount === 1050 : amount === 700) continue
             if (posted && amount === posted) continue
+            if (postingAmounts.has(amount)) continue
           }
           out.push({ amount, ...(high != null ? { high } : {}), kind: monthly ? 'monthly' : 'flat', sentence: s.trim() })
         }

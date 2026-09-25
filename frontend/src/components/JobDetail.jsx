@@ -8728,7 +8728,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // audit-context check above already reported it, so one problem = one flag.
             const _seoPricingContext = jobIsSeo && !jobIsPpc && !jobIsWebdev
             const _offLedgerSeoPrices = (_postingAsksRate && _seoPricingContext)
-              ? findOffLedgerSeoPrices(text, { postedFixed: job?.fixed_budget }) : []
+              ? findOffLedgerSeoPrices(text, { postedFixed: job?.fixed_budget, postingText: fullDescription }) : []
             const seoPriceOffLedger = _offLedgerSeoPrices.length > 0 && !wrongSeoAuditPrice && !wrongSeoRetainerFee
             if (seoPriceOffLedger) console.warn('[Falcon] SEO price not on the ledger ($700 flat audit, included in the $1,050/month retainer — KB Rule 426):', _offLedgerSeoPrices.map(p => `$${p.amount}${p.high ? `–$${p.high}` : ''} ${p.kind}: "${p.sentence}"`))
 
