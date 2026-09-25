@@ -1290,6 +1290,13 @@ mis-borrowed the **"2 working days"** turnaround that belongs ONLY to the **SEO 
 
 The deterministic strip is the guarantee; the prompt edit just reduces how often Claude emits it.
 
+**Gap closed 2026-09-25 (job 16252):** a BARE sentence — "Audit delivered within 1 working day." after a
+technical-SEO diagnostic offer — carries no SEO noun, so the strip above couldn't see it. On a PPC job that
+exact sentence is the required Google Ads turnaround (6 of the 7 in the sent corpus), so the text alone
+can't decide. `_stripBareSeoAuditTurnaround` decides from the POSTING: on SEO-only postings (SEO signal, no
+paid-media signal) it drops the day-count, unless the paragraph itself names Google Ads / PPC. Corpus: 0 of
+the 7 real letters changed. Also added: the comma form ("technical SEO audit, delivered within N days").
+
 ---
 
 ## 21. Anti-fabrication rearchitecture — the grounding rework (scoped 2026-07-24)

@@ -2670,8 +2670,9 @@ function _stripFabricatedVerticalOpener(text) {
 //     a "Timeline:" label ("Timeline: audit delivered within 2 working days of GSC
 //     access."). Strip the whole sentence if it starts with "Timeline:", otherwise
 //     strip just the timing suffix.
+// (Also "technical SEO audit, delivered within 2 working days" — the comma form.)
 const _SEO_AUDIT_TURNAROUND_RE =
-  /((?:technical\s+seo|seo|diagnostic|indexation|crawl|redirect|canonical|schema|core\s+web\s+vitals|migration)\b[^.]{0,60}\baudit)\s+(?:in|within|delivered\s+(?:in|within)?|turned?\s+around\s+in)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b/gi
+  /((?:technical\s+seo|seo|diagnostic|indexation|crawl|redirect|canonical|schema|core\s+web\s+vitals|migration)\b[^.]{0,60}\baudit)(?:\s*,\s*|\s+)(?:in|within|delivered\s+(?:in|within)?|turned?\s+around\s+in)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b/gi
 // Catches "Timeline: audit delivered within N days of ..." — strip the whole sentence
 const _AUDIT_TIMELINE_LABEL_RE =
   /^[ \t]*Timeline\s*:\s*audit\b[^\n.]*(?:in|within)\s+\d+[^\n.]*days?\b[^\n.]*[.\n]?/gim
@@ -2708,6 +2709,39 @@ function _stripSeoAuditTurnaround(text) {
   // Strip "... diagnostic in/within N days" (keep the diagnostic phrase)
   text = text.replace(_DIAGNOSTIC_TURNAROUND_RE, '$1')
   return text
+}
+
+// (D) A BARE "Audit delivered within 1 working day." sentence (job 16252,
+// 2026-09-25: it followed a technical-SEO "full diagnostic crawl" offer). No SEO
+// noun sits in that sentence, so (A) can't see it — and on a PPC job the very same
+// sentence is the REQUIRED Google Ads turnaround (Rule 402): 6 of the 7 such
+// sentences in the sent corpus are exactly that, one of them in a paragraph that
+// never says "Google Ads". The sentence can't tell the two apart; the POSTING can.
+// On an SEO-only posting (SEO signal, no paid-media signal) the audit on offer is
+// the technical SEO audit, which carries no timeline in the letter (Rule 416) —
+// drop the day-count — the whole sentence when that's all it says ("Audit
+// delivered within 1 working day."), otherwise just the timing ("The audit is
+// delivered as a prioritised findings doc: …"). Kept whenever its own paragraph
+// names Google Ads / PPC.
+const _BARE_AUDIT_TURNAROUND_SENTENCE_RE = /(^|[.!?][ \t]+|\n)((?:the\s+)?(?:full\s+|complete\s+)?audit\s+(?:is\s+|will\s+be\s+|gets\s+)?(?:delivered|ready|done|completed?|turned\s+around))(\s+(?:in|within)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b)([^.!?\n]*)([.!?]?)/gi
+const _PPC_NAMED_RE = /\b(?:google\s+ads|adwords|ppc|paid\s+(?:search|media|ads)|pmax|performance\s+max|shopping\s+ads?)\b/i
+function _stripBareSeoAuditTurnaround(text, seoOnlyPosting) {
+  if (!text || !seoOnlyPosting) return text
+  const paras = text.split(/\n\s*\n/)
+  const kept = paras.map(p => {
+    if (_PPC_NAMED_RE.test(p)) return p
+    _BARE_AUDIT_TURNAROUND_SENTENCE_RE.lastIndex = 0
+    if (!_BARE_AUDIT_TURNAROUND_SENTENCE_RE.test(p)) return p
+    _BARE_AUDIT_TURNAROUND_SENTENCE_RE.lastIndex = 0
+    return p.replace(_BARE_AUDIT_TURNAROUND_SENTENCE_RE, (_m, lead, head, _timing, rest, punct) =>
+      rest.trim() ? `${lead}${head}${rest}${punct}` : lead.replace(/[ \t]+$/, ''))
+      .replace(/^[ \t]+/, '').replace(/\n[ \t]+/g, '\n').trimEnd()
+  })
+  const out = kept.filter(p => p.trim() !== '').join('\n\n')
+  if (out === paras.join('\n\n')) return text
+  // Telemetry: the caller records seoAuditTurnaround for any change this step makes.
+  console.log('[Falcon] SEO-only job: removed a bare "audit delivered within N days" turnaround — a technical SEO audit carries no timeline in the letter (Rule 416; "1 working day" is the Google Ads audit only).')
+  return out
 }
 
 // Deterministic strip of Loom references in generated cover letters.
@@ -7249,6 +7283,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       // the enforcer paths. Idempotent. (DESIGN.md §16 + §20.)
       const _preAuditStrip = text
       text = _stripSeoAuditTurnaround(text)
+      // The bare "Audit delivered within 1 working day." form, SEO-only postings
+      // only (the posting is what tells a technical audit from a Google Ads one).
+      text = _stripBareSeoAuditTurnaround(text, _caseSeoSignal && !_casePpcSignal)
       if (text !== _preAuditStrip) {
         console.log('[Falcon] Rule pre-check: stripped a day-count turnaround off an SEO technical audit (KB Rule 416) — "2 working days" is the SEO PLAN only, never the audit.')
         _recordViolations('generator', job?.id, ['seoAuditTurnaround'])

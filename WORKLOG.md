@@ -8600,3 +8600,28 @@ Verified: `tests/posting-asks.test.js` 34/34 (corpus sections included), all oth
 `vite build` clean (its CSS warning comes from `index.css`, untouched since June). In the running
 app, saved letter for job 8484 shows "No example: the posting asks for one (“Examples of Shopify
 stores you've audited”) — the letter names no case study".
+
+## 2026-09-25 — job 16252: "Audit delivered within 1 working day" on a technical SEO audit
+
+Owner, sharing job 16252 (Technical SEO Specialist, SEO-only, hourly $20-60): "audit term?" The
+letter offered "a full diagnostic crawl … a prioritized findings doc" and then, as its own sentence,
+"Audit delivered within 1 working day." That is the Google Ads audit's turnaround (Rule 402); a
+technical SEO audit carries no timeline in the letter (Rule 416, ~2 weeks internally). The existing
+strip only removes a day-count when an SEO noun sits in the same sentence as "audit";
+`coverHasTimeline` did fire, but it only reports.
+
+Fixed (correctness bug, working agreement #1): `_stripBareSeoAuditTurnaround` drops the bare
+day-count on SEO-only postings — the whole sentence when that's all it says, only the timing when
+the sentence goes on. It can't be decided from the text: 7 sent letters carry the same bare
+sentence and 6 are Google Ads audits where it's required, one in a paragraph that never names
+Google Ads. So the gate is the posting (`_caseSeoSignal && !_casePpcSignal`), plus "keep it if the
+paragraph names Google Ads/PPC". Corpus: 0 of the 7 changed. The comma form ("technical SEO audit,
+delivered within 2 working days") is now caught by the existing strip too.
+`tests/seo-audit-turnaround.test.js` 11/11, lifting the strip out of JobDetail.jsx.
+
+Seen in the same letter, logged not patched: "HowTo" schema (Google retired HowTo rich results in
+2023) and "SGE" (renamed AI Overviews in 2024) on a posting that stresses being current;
+`hasCircumventionRisk` fired on "I wire schema" ("wire" is on the payment-word list); the Derma
+Solution line calls it a "clinic" (its record is medical-aesthetics ecommerce); `missingSeoPlanOffer`
+looks like a false flag — its audit-sample detector wants "attach … sample … audit" in that order and
+the letter says "Attaching a recent technical SEO audit sample".
