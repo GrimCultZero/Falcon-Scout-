@@ -11,6 +11,8 @@
 // spirit as _ensureManualAuditClaim / _stripUnaskedRate in JobDetail.jsx. Pure
 // functions: JobDetail.jsx wraps them to record telemetry.
 
+import { casesMentioned } from './caseLedger.js'
+
 // ── call offers ──────────────────────────────────────────────────────────────
 // Offer shapes only. A bare "call" is nearly always a phone-call CONVERSION in
 // these letters ("call tracking", "booked calls", "a phone call or a form
@@ -183,6 +185,126 @@ export const AUDIT_SAMPLE_SENTENCES = {
   ppc: "I'm attaching a sample of a recent Google Ads audit so you can see the format and depth.",
   seo: "I'm attaching a sample technical SEO audit so you can see the format and depth.",
   both: "I'm attaching a sample of a recent Google Ads audit and a sample technical SEO audit so you can see the format and depth.",
+}
+
+// ── what the posting asks for (2026-09-25, job 16242) ───────────────────────
+// Validated against all 476 postings in the DB; every added alternative was
+// read match by match (WORKLOG.md, 2026-09-25).
+
+// Does the posting ask for a timeline? The first alternative group is the
+// original inline regex from JobDetail.jsx, unchanged. It missed "timeline" as
+// one item in a list of requested things — job 16242: "Please apply with a
+// relevant before-and-after project example, your proposed first steps,
+// timeline, and cost." — so coverHasTimeline flagged the timeline the client
+// had asked for. The added shapes found 11 more genuine requests in the DB
+// ("Give us a timeline and a fixed price", "Your timeline in business days",
+// "confirm your fixed price and timeline"). A label followed by a colon is the
+// client stating THEIR terms ("**Project Timeline & Budget:** …"), not a
+// request, so it is excluded.
+export const _TIMELINE_ASK_ORIGINAL_RE = /\b(rough\s+timelines?|timelines?\s+for|provide\s+(?:a\s+)?timelines?|estimated?\s+(?:timelines?|completions?|deliver(?:y|ies)|durations?)|how\s+long\s+(?:will|would|does|it|to)\b|turn[\s-]?around\s+times?|delivery\s+times?(?:frames?|lines?)?|when\s+(?:can|could|will)\s+you\s+(?:complete|finish|deliver|start|have)|time\s*frames?|timeframes?|\beta\b|how\s+(?:soon|quickly)|completion\s+times?|expected\s+(?:timelines?|durations?|completions?))\b/i
+const _PRICE_WORD = '(?:costs?|budget|price|pricing|rates?|quotes?|fees?|estimates?)'
+const _LIST_JOIN = '(?:\\s*,\\s*(?:and\\s+)?|\\s+and\\s+|\\s*&\\s*|\\s*\\/\\s*|\\s*\\+\\s*)'
+const _TIMELINE_ASK_ADDED_RES = [
+  // "timeline, and cost" / "timeline and fixed-price quote"
+  new RegExp(`\\btimelines?${_LIST_JOIN}(?:(?:the|your|a|an)\\s+)?(?:estimated\\s+|proposed\\s+|expected\\s+|total\\s+|fixed[\\s-]price\\s+)?${_PRICE_WORD}\\b(?!\\s*\\*{0,2}\\s*:)`, 'i'),
+  // "fixed price and timeline" / "costs and timelines"
+  new RegExp(`\\b${_PRICE_WORD}${_LIST_JOIN}(?:(?:the|your|a|an)\\s+)?(?:estimated\\s+|proposed\\s+|expected\\s+)?timelines?\\b(?!\\s*\\*{0,2}\\s*:)`, 'i'),
+  // "Your timeline", "your proposed timeline", "realistic timeline"
+  /\b(?:your|proposed|estimated|anticipated|approximate|realistic|suggested)\s+timelines?\b(?!\s*\*{0,2}\s*:)/i,
+  // "Give us a timeline …", "share … your proposed strategy, timeline …"
+  /\b(?:include|provide|share|send|give|outline|submit|propose|state|tell\s+us|let\s+us\s+know|apply\s+with)\b[^.\n?!]{0,120}\btimelines?\b(?!\s*\*{0,2}\s*:)/i,
+  // "What's your timeline?"
+  /\btimelines?\s*\?/i,
+]
+export function postingAsksForTimeline(text) {
+  const t = String(text || '')
+  return _TIMELINE_ASK_ORIGINAL_RE.test(t) || _TIMELINE_ASK_ADDED_RES.some(re => re.test(t))
+}
+
+// Does the posting ask for an example / case study / portfolio? Returns the
+// phrase that asks (for the note under the letter), or null. On the DB, 131 of
+// 476 postings ask; the matches read as genuine asks. Deliberately NOT matched:
+// "for example", "e.g.", and a posting describing its OWN reporting ("reporting
+// should show results by campaign").
+const _EXAMPLE_ASK_RES = [
+  /\bbefore[\s/-]+(?:and|&)?[\s/-]*after\b/i,
+  /\b(?:an?|one|two|three|\d+)(?:\s*[-–]\s*\d+)?\s+(?:(?:relevant|recent|specific|real|concrete|similar|detailed|past|previous|brief|short|quick|good|comparable)\s+)*examples?\s+(?:of|where|when|in\s+which|from|that|you|showing)\b/i,
+  /\bexamples?\s+of\s+(?:[\w'-]+\s+){0,3}?(?:work|projects?|campaigns?|results?|clients?|sites?|websites?|accounts?|stores?|audits?|successes|wins)\b/i,
+  /\b(?:share|send|include|provide|show|attach|link|with|relevant|similar|recent)\b[^.\n]{0,40}\bcase\s+stud(?:y|ies)\b|\bcase\s+stud(?:y|ies)\s+(?:of|from|showing|that|where|you)\b/i,
+  /\byour\s+portfolio\b|\bportfolio\s+(?:links?|samples?|examples?|of\s+(?:your|past|previous|similar|relevant)\b)|\b(?:share|send|include|provide|attach|show)\s+(?:us\s+)?(?:a\s+|your\s+)?portfolio\b/i,
+  /\b(?:share|describe|tell\s+(?:us|me)\s+about|walk\s+(?:us|me)\s+through|give\s+(?:us|me))\s+(?:an?\s+|one\s+|your\s+)?(?:[\w-]+\s+){0,3}?(?:project|campaign|account|client|site|website|store|situation|time)\s+(?:where|when|that|you|in\s+which)\b/i,
+  /\b(?:share|show|include|provide)\s+(?:us\s+)?(?:your\s+|some\s+)?(?:past|previous|recent|proven|measurable|real)\s+results\b/i,
+  /\blinks?\s+to\s+(?:[\w'-]+\s+){0,3}?(?:sites?|websites?|stores?|projects?|examples?)\b/i,
+]
+export function findRequestedExample(text) {
+  const t = String(text || '')
+  let best = null
+  for (const re of _EXAMPLE_ASK_RES) {
+    const m = t.match(re)
+    if (m && (!best || m.index < best.index)) best = { index: m.index, phrase: m[0] }
+  }
+  if (!best) return null
+  // The sentence around the ask, trimmed, so the note can quote it.
+  const from = Math.max(t.lastIndexOf('.', best.index) + 1, t.lastIndexOf('\n', best.index) + 1, best.index - 90)
+  const endDot = t.slice(best.index).search(/[.\n?!]/)
+  const to = Math.min(endDot === -1 ? t.length : best.index + endDot, best.index + best.phrase.length + 70)
+  return { phrase: best.phrase, sentence: t.slice(from, to).replace(/\s+/g, ' ').trim() }
+}
+
+// Does the letter give an example — a named case, or a link to real work?
+// A live URL answers a portfolio ask as well as a case study does (KB #518:
+// "Live proof sites — share the URL when a client wants examples").
+const _URL_RE = /\bhttps?:\/\/\S+|\b[a-z0-9-]+\.(?:com|net|org|io|co|build|store|shop|ua|ca|de|uk|us)(?:\.[a-z]{2})?\b/i
+export function letterGivesExample(text) {
+  const t = String(text || '')
+  return casesMentioned(t).length > 0 || _URL_RE.test(t)
+}
+
+// ── SEO prices (KB Rule 426) ─────────────────────────────────────────────────
+// Artem's SEO prices are fixed: the technical audit is $700 flat, and it is
+// included in the $1,050/month optimization retainer. Job 16242 quoted "$3,500
+// flat" for "the diagnostic phase + implementation coordination + follow-up
+// audit" and no check saw it: the SEO price checks only ran when the POSTING
+// was classified as an audit request, and this one asked for fixes from an
+// audit the client already had. This reads what the LETTER quotes instead.
+// Allowed: $700 flat, $1,050/month, the posting's own fixed budget, anything
+// hourly (the rate-anchor checks own those), and money that isn't Artem's
+// price — case metrics, the client's budget or spend, CPC / CPA / revenue.
+const _NOT_A_PRICE_NEAR_RE = /\b(?:ad\s+spend|spend|budget|revenue|sales|cpc|cpa|cpl|roas|aov|per\s+(?:lead|conversion|click|sale|order|customer|booking|call)|cost\s+per|avg|average|mrr|arr|profit|turnover|valuation|funding)\b/i
+export function findOffLedgerSeoPrices(text, { postedFixed = null } = {}) {
+  const out = []
+  const posted = Number(String(postedFixed ?? '').replace(/[^0-9.]/g, '')) || null
+  for (const para of String(text || '').split(/\n\s*\n/)) {
+    if (casesMentioned(para).length) continue          // a case's own figures
+    for (const line of para.split('\n')) {
+      for (const { text: s } of _sentencePieces(line)) {
+        // A range ("$1,200 - $1,800") is ONE quote: the ledger prices are fixed
+        // numbers, so a range is never on it.
+        const re = /\$\s?(\d[\d,]*(?:\.\d+)?)\s*([kK])?\b(?:\s*(?:-|–|to)\s*\$?\s?(\d[\d,]*(?:\.\d+)?)\s*([kK])?\b)?/g
+        let m
+        while ((m = re.exec(s))) {
+          const num = (d, k) => parseFloat(d.replace(/,/g, '')) * (k ? 1000 : 1)
+          const amount = num(m[1], m[2])
+          const high = m[3] ? num(m[3], m[4]) : null
+          const after = s.slice(m.index + m[0].length, m.index + m[0].length + 30)
+          const around = s.slice(Math.max(0, m.index - 30), m.index + m[0].length + 30)
+          if (/^\s*(?:\/\s*(?:hr|hour|h)\b|per\s+hour|an\s+hour|hourly|за\s+годину)/i.test(after)) continue
+          if (_NOT_A_PRICE_NEAR_RE.test(around)) continue
+          const before = s.slice(Math.max(0, m.index - 40), m.index)
+          if (/\byour\b/i.test(before)) continue   // their money
+          // "$950/month", and "monthly around $1,200" / "Monthly retainer $950" (a real letter each)
+          const monthly = /^\s*(?:\/\s*(?:mo|month)\b|per\s+month|a\s+month|monthly)/i.test(after)
+            || /\b(?:monthly|per\s+month|a\s+month)\b[^$\n]{0,15}$|\bretainer\s*(?:of|at|is|:)?\s*$/i.test(before)
+          if (high == null) {
+            if (monthly ? amount === 1050 : amount === 700) continue
+            if (posted && amount === posted) continue
+          }
+          out.push({ amount, ...(high != null ? { high } : {}), kind: monthly ? 'monthly' : 'flat', sentence: s.trim() })
+        }
+      }
+    }
+  }
+  return out
 }
 
 export function ensureAuditSampleMention(text, { postingLower = '' } = {}) {

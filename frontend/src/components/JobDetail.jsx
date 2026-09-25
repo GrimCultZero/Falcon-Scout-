@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -5829,6 +5829,14 @@ function ProposalColumn({
   const _liveCaseFacts = proposal ? findCaseFactConflicts(proposal) : { geo: [], time: [] }
   const _liveCallOffers = proposal ? findCallOffers(proposal) : []
   const _claimedAttachments = proposal ? listClaimedAttachments(proposal) : []
+  //   no example   the posting asks for one and the letter names no case (job
+  //                16242: a chat rewrite swapped the example for Game-X, the
+  //                web-dev-case strip removed it, and nothing noticed — the
+  //                checks only run on generation, this reads the text as it is)
+  const _exampleAsk = proposal
+    ? findRequestedExample([job?.title, job?.description_full || job?.description_snippet || job?.raw_message].filter(Boolean).join('\n'))
+    : null
+  const _liveMissingExample = !!(_exampleAsk && !letterGivesExample(proposal))
   // preEnforcerDraft retired 2026-09-02 with the enforcer itself. It existed to
   // show a before/after in the share snapshot so a garbled sentence could be traced
   // to the first pass or the rewrite. There is no rewrite now — the letter Artem
@@ -7418,7 +7426,10 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // timeline in the letter is REQUIRED, not forbidden — so we must NOT
             // strip it (gate coverHasTimeline off), and we separately REQUIRE that
             // a concrete estimate is present.
-            const _postingAsksTimeline = /\b(rough\s+timelines?|timelines?\s+for|provide\s+(?:a\s+)?timelines?|estimated?\s+(?:timelines?|completions?|deliver(?:y|ies)|durations?)|how\s+long\s+(?:will|would|does|it|to)\b|turn[\s-]?around\s+times?|delivery\s+times?(?:frames?|lines?)?|when\s+(?:can|could|will)\s+you\s+(?:complete|finish|deliver|start|have)|time\s*frames?|timeframes?|\beta\b|how\s+(?:soon|quickly)|completion\s+times?|expected\s+(?:timelines?|durations?|completions?))\b/i.test(`${job.title || ''} ${fullDescription}`)
+            // lib/letterGuards.js — the original regex, verbatim, plus the list shapes it
+            // missed (job 16242: "…your proposed first steps, timeline, and cost" was
+            // read as NOT asking, so the timeline the client asked for got flagged).
+            const _postingAsksTimeline = postingAsksForTimeline(`${job.title || ''} ${fullDescription}`)
             // Only fire the "strip the timeline" guard when the client did NOT ask.
             // KB Rule 402 REQUIRES a Google Ads / PPC audit to carry a "1 working
             // day" delivery commitment — but COVER_TIMELINE_RE's audit-days pattern
@@ -8627,6 +8638,21 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _seoMonthlyPricesNearby = _jobIsSeoAuditContext ? _extractAllDollarsNear(text, _DOLLAR_NEAR_MONTHLY_RE) : []
             const wrongSeoRetainerFee = _postingAsksRate && _seoMonthlyPricesNearby.length > 0 && !_seoMonthlyPricesNearby.includes(1050)
 
+            // SEO PRICE OFF THE LEDGER (job 16242, 2026-09-25). The three checks above
+            // only run when the POSTING is classified as an audit request, so a
+            // fix-the-issues job whose letter quoted "$3,500 flat" for "the diagnostic
+            // phase + implementation coordination + follow-up audit" passed every
+            // check. KB Rule 426 has exactly two SEO prices — $700 flat audit, included
+            // in the $1,050/month retainer — so on ANY SEO job where the posting asks for
+            // pricing, read what the LETTER quotes (lib/letterGuards.js). Gated on
+            // _postingAsksRate like every price check (owner rule). Suppressed when an
+            // audit-context check above already reported it, so one problem = one flag.
+            const _seoPricingContext = jobIsSeo && !jobIsPpc && !jobIsWebdev
+            const _offLedgerSeoPrices = (_postingAsksRate && _seoPricingContext)
+              ? findOffLedgerSeoPrices(text, { postedFixed: job?.fixed_budget }) : []
+            const seoPriceOffLedger = _offLedgerSeoPrices.length > 0 && !wrongSeoAuditPrice && !wrongSeoRetainerFee
+            if (seoPriceOffLedger) console.warn('[Falcon] SEO price not on the ledger ($700 flat audit, included in the $1,050/month retainer — KB Rule 426):', _offLedgerSeoPrices.map(p => `$${p.amount}${p.high ? `–$${p.high}` : ''} ${p.kind}: "${p.sentence}"`))
+
             // MISSING MANUAL-AUDIT CLAIM (owner request, 2026-08-13): both audit
             // offerings — the $300 flat PPC/Google Ads audit and the $700 flat
             // technical SEO audit — must convey the audit itself is performed
@@ -8902,6 +8928,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !previewNotSpecific
               && !overBudgetLengthCap
               && !offersCall
+              && !seoPriceOffLedger
 
             // Telemetry (Phase C): record every guard that fired this run.
             // Captured into a named list (not passed inline) because the enforcer's
@@ -8966,6 +8993,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               missingDigitBombResonance && 'missingDigitBombResonance',
               wrongSeoAuditPrice && 'wrongSeoAuditPrice',
               wrongSeoRetainerFee && 'wrongSeoRetainerFee',
+              seoPriceOffLedger && 'seoPriceOffLedger',
               missingHighlightsPhrase && 'missingHighlightsPhrase',
               missingPdfLabel && 'missingPdfLabel',
               !timingCompliant && 'timingViolation',
@@ -9230,7 +9258,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             </div>
           )}
 
-          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0) && (
+          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0 || _liveMissingExample) && (
             <div style={{
               fontSize: 10, lineHeight: 1.55, padding: '7px 10px', borderRadius: 3,
               color: 'var(--text2)', background: 'rgba(239,68,68,0.08)',
@@ -9241,6 +9269,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               </span>
               <span style={{ color: 'var(--text3)' }}> — found in the letter as it reads now.</span>
               <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                {_liveMissingExample && (
+                  <li>No example: the posting asks for one (“{_exampleAsk.sentence}”) — the letter names no case study</li>
+                )}
                 {_liveCaseFacts.geo.map((g, i) => (
                   <li key={`g${i}`}>{g.name} is placed in “{g.term}” — on record: {g.on_record}</li>
                 ))}

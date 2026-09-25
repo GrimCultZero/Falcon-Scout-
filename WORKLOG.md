@@ -8552,3 +8552,51 @@ is true. Corpus count moves from 21 to 24 — three sent letters named Atlant's 
 Pushed `generator-rebuild` to origin at the owner's request — its first push (40 commits since
 `main`, starting with the 2026-09-03 tracker-integrity fix and the enforcer deletion). `main`
 itself is unchanged; nothing is merged.
+
+## 2026-09-25 — job 16242: three check gaps fixed (missing example, timeline flag, SEO price)
+
+Job 16242 (MediaZilla, "Technical SEO Lead to Fix SAAS website") was the first letter generated
+with yesterday's guardrails live. (Confirmed from telemetry, not assumed: the cached prompt prefix
+went 20,130 → 20,387 tokens at 17:20 UTC yesterday — +257, exactly the prompt lines added — and
+today's generation wrote 20,387.) None of the new guards needed to act. What went wrong was
+elsewhere, and the owner said "fix" to all three gaps:
+
+**1. The example vanished, silently.** The posting's first ask was "a relevant before-and-after
+project example". The letter as shared had none — but at generation it must have had one:
+`missingCaseStudy` would otherwise have fired (the KB portfolio was loaded; prompt size normal).
+The only later event was a chat turn (the screening question) whose remarks say it rebuilt the
+example around Game-X and Vape Shop; `_stripOffDomainWebDevCases` then removed the Game-X
+paragraph on an SEO job, taking the example with it. The checks never re-ran — they run on
+generation only. **Fix:** a live line in "Fix before sending" when the posting asks for an example
+(`findRequestedExample`) and the letter as it reads now names no case or links no live site
+(`letterGivesExample`). On the DB: 131 of 476 postings ask; the matches read as genuine asks.
+On the sent-letter corpus: 67 letters answered such a posting and 6 gave no example — all 6 real
+misses ("Examples of Shopify stores you've audited" answered with no store at all).
+
+**2. `coverHasTimeline` flagged a requested timeline.** `_postingAsksTimeline` missed "timeline"
+as one item in a list ("…your proposed first steps, timeline, and cost"). Moved to
+`postingAsksForTimeline()` in letterGuards.js — the original regex verbatim plus list shapes.
+DB: 41 → 51 postings recognized; the 10 gained were each read as genuine requests ("Give us a
+timeline and a fixed price", "Your timeline in business days"); 0 lost. One candidate match was a
+client's own header ("**Project Timeline & Budget:**") — labels followed by a colon are excluded.
+
+**3. "$3,500 flat" passed every check.** KB Rule 426: $700 flat technical audit, included in the
+$1,050/month retainer. The SEO price checks only ran when the POSTING was classified as an audit
+request; 16242 wanted fixes from an audit the client already had. **Fix:** `seoPriceOffLedger`
+(`findOffLedgerSeoPrices`) reads what the LETTER quotes on any SEO-only job, gated on
+`_postingAsksRate` like every price check (working agreement #4). Allowed: $700 flat, $1,050/month,
+the posting's own fixed budget, hourly figures (the rate-anchor checks own those), and money that
+isn't Artem's price (case paragraphs, the client's budget/spend, CPC/CPA/revenue). A range is one
+quote and is never on the ledger. Suppressed when `wrongSeoAuditPrice` / `wrongSeoRetainerFee`
+already fired. Corpus: 2 of 79 SEO-only letters flagged where the posting asked for a price
+("monthly around $1,200 - $1,800", "$950/month").
+
+**Owner question raised by (3):** sent SEO letters also quoted $900/month, $950/month, a $1,200
+project, a $1,050 flat package and a "$3,500–$5,500" phase 2 (on postings the rate-ask regex
+fallback doesn't read as asking — the live app asks the classifier first, so some would flag). If
+any of those were deliberate, Rule 426 is incomplete and the check will flag them in future.
+
+Verified: `tests/posting-asks.test.js` 34/34 (corpus sections included), all other suites green,
+`vite build` clean (its CSS warning comes from `index.css`, untouched since June). In the running
+app, saved letter for job 8484 shows "No example: the posting asks for one (“Examples of Shopify
+stores you've audited”) — the letter names no case study".

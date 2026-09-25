@@ -377,6 +377,18 @@ const _CASE_NAME_RES = {
   'casa-eleganza': /\bcasa\s+eleganza\b/gi,
 }
 
+// The ids of every case a text names, in ledger order.
+export function casesMentioned(text) {
+  const t = String(text || '')
+  return CASE_LEDGER.filter(c => {
+    const re = _CASE_NAME_RES[c.id] || new RegExp(`\\b${_escRe(c.name)}\\b`, 'gi')
+    re.lastIndex = 0
+    const hit = re.test(t)
+    re.lastIndex = 0
+    return hit
+  }).map(c => c.id)
+}
+
 // Sentence boundary: . ! ? followed by whitespace, except after a common
 // abbreviation or a dotted initialism ("U.S.", "e.g."). Decimals never split,
 // because the character after "693." is a digit, not whitespace.

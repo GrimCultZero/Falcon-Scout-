@@ -1475,5 +1475,17 @@ yet: verifying after sending that the file was actually attached (the proposal p
 the scraper currently cuts them out of the cover letter) — needs a column and a scrape change.
 
 **Live notes vs. rule flags.** `ruleFlags` describe the last generation. The "Fix before sending" note
-(case facts, call offers) and the attach reminder are computed from the textarea as it reads now, so a
-line Artem fixes by hand drops off.
+(case facts, call offers, a missing example) and the attach reminder are computed from the textarea as it
+reads now, so a line Artem fixes by hand drops off — and a chat rewrite that breaks something shows up,
+which the generation-time checks cannot see (job 16242: a chat turn lost the only example; added
+2026-09-25).
+
+**SEO prices are fixed (KB Rule 426), whatever the job type (2026-09-25).** $700 flat technical audit,
+included in the $1,050/month retainer. `seoPriceOffLedger` reads what the LETTER quotes on every SEO-only
+job where the posting asks for pricing — not only on audit-classified jobs, which is how "$3,500 flat"
+passed on job 16242. Hourly figures stay with the rate-anchor checks. If Artem prices SEO projects any
+other way on purpose, Rule 426 must say so first.
+
+**"Does the posting ask for X" detectors live in `letterGuards.js`** (`postingAsksForTimeline`,
+`findRequestedExample`), each validated match by match against every posting in the DB, so the check and
+the live note share one definition.
