@@ -1716,12 +1716,37 @@ function _stripGenericCaseParagraphs(text, isRegulated) {
 // job 12883's own posting: "new store launches" describes a recurring
 // business process, not a build ask directed at Artem, and false-matched
 // an earlier looser version of this regex).
-const _WEBDEV_BUILD_ASK_RE = /\b(?:build|develop|create|design)\s+(?:a|an|our|my|the)\s+(?:new\s+)?(?:website|site|online\s+store|ecommerce\s+(?:store|site)|shopify\s+store|store)\b|\bredesign\b|\brebuild\b|\bcustom\s+theme\b|\btheme\s+customi[sz]ation\b|\bweb\s*(?:site|store)?\s*(?:developer|development|design(?:er)?)\b/i
+// "rebuild" / "redesign" count only when aimed at a site, store, theme or page
+// (2026-09-25, job 16269: "audit, rebuild, and manage campaigns for our Shopify
+// gift brand" read as a site build, so Casa Eleganza — a Shopify BUILD case —
+// stayed in a Google Ads letter). Validated on all 476 DB postings: 8 stop
+// counting as build asks (7 ad-account / tracking / traffic rebuilds, 1 with no
+// PPC/SEO wording, where this strip never applies); "rebuild my shopify beauty
+// store" still counts.
+const _WEBDEV_BUILD_ASK_RE = /\b(?:build|develop|create|design)\s+(?:a|an|our|my|the)\s+(?:new\s+)?(?:website|site|online\s+store|ecommerce\s+(?:store|site)|shopify\s+store|store)\b|\b(?:redesign|rebuild)(?:ing|ed)?\s+(?:of\s+)?(?:(?!(?:tracking|campaigns?|account|ads?|structure|traffic|feed|keywords?|funnel|strategy)\b)[\w-]+\s+){0,3}?(?:website|site|store|shop|theme|homepage|pdp|product\s+pages?)\b|\b(?:website|site|store|shop|theme|homepage)\s+(?:redesign|rebuild)\b|\bredesign\b(?!\s+(?:(?:the|our|your)\s+)?(?:campaigns?|ads?|account|ad\s+copy|funnel|strategy|creatives?)\b)|\bcustom\s+theme\b|\btheme\s+customi[sz]ation\b|\bweb\s*(?:site|store)?\s*(?:developer|development|design(?:er)?)\b/i
 const _NON_WEBDEV_SPECIALIST_RE = /\bmerchant\s+center\b|\bproduct\s+feed\b|\bshopping\s+ads?\b|\bgoogle\s+shopping\b|\bppc\b|\bgoogle\s+ads\b|\bpaid\s+(?:search|media|ads?)\b|\bseo\b|\bsearch\s+engine\s+optimi[sz]ation\b/i
-function _stripOffDomainWebDevCases(text, jobContextLower) {
+// Web-dev cases (SMASH, Game-X, GKit, Casa Eleganza) prove STORE BUILDS, not ad
+// or search results — owner rule, 2026-09-25: "we should never choose web
+// development case studies for google ads". Off-domain whenever the posting is a
+// PPC / SEO / feed specialist role that doesn't ask for a site or store to be
+// built, even when the client's store runs on Shopify or OpenCart (job 16269).
+// Shared by the strip below and by the prompt, which drops the web-dev portfolio
+// entry for the same postings so the model never sees those cases.
+function _webDevCasesOffDomain(postingLower) {
+  return !!postingLower && _NON_WEBDEV_SPECIALIST_RE.test(postingLower) && !_WEBDEV_BUILD_ASK_RE.test(postingLower)
+}
+// The owner's rule names GOOGLE ADS, and generation enforces exactly that. On SEO
+// postings a web-dev case can be real SEO proof — a sent SEO letter that got a
+// reply cited GKit's bilingual hreflang / filter-URL setup — so SEO postings are
+// left alone at generation; the chat-rewrite strip keeps its older, wider scope
+// (_webDevCasesOffDomain, job 12883).
+const _PPC_POSTING_RE = /\bgoogle\s+ads\b|\badwords\b|\bppc\b|\bpaid\s+(?:search|media|ads?)\b|\bpmax\b|\bperformance\s+max\b|\bshopping\s+ads?\b|\bgoogle\s+shopping\b|\bmerchant\s+center\b|\bad\s+spend\b/i
+function _webDevCasesOffForGoogleAds(postingLower) {
+  return !!postingLower && _PPC_POSTING_RE.test(postingLower) && !_WEBDEV_BUILD_ASK_RE.test(postingLower)
+}
+function _stripOffDomainWebDevCases(text, jobContextLower, gate = _webDevCasesOffDomain) {
   if (!text || !jobContextLower) return text
-  if (_WEBDEV_BUILD_ASK_RE.test(jobContextLower)) return text
-  if (!_NON_WEBDEV_SPECIALIST_RE.test(jobContextLower)) return text
+  if (!gate(jobContextLower)) return text
   const webDevCases = CASE_LEDGER.filter(c => c.service === 'web-dev')
   if (!webDevCases.length) return text
   const _escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -1749,11 +1774,14 @@ function _stripOffDomainWebDevCases(text, jobContextLower) {
   // own, immediately before the first removed paragraph, is that block's
   // intro sentence — remove it too so nothing dangles (a promise like
   // "...so I know what breaks at the feed level:" with no case studies
-  // following it reads worse than no intro at all).
+  // following it reads worse than no intro at all). Only when nothing it
+  // introduces survives: on job 16269 "Relevant work:" introduced Casa
+  // Eleganza AND Nectar Flowers — dropping it would orphan Nectar Flowers.
   const firstRemoved = toRemove.indexOf(true)
   if (firstRemoved > 0) {
     const prev = paras[firstRemoved - 1].trim()
-    if (prev.length <= 250 && /:$/.test(prev) && !allCaseNameRe.test(prev)) {
+    const caseSurvivesBelow = paras.some((p, i) => i > firstRemoved && !toRemove[i] && allCaseNameRe.test(p))
+    if (prev.length <= 250 && /:$/.test(prev) && !allCaseNameRe.test(prev) && !caseSurvivesBelow) {
       toRemove[firstRemoved - 1] = true
     }
   }
@@ -6444,8 +6472,14 @@ function ProposalColumn({
           )
           if (portfolioEntries.length > 0) {
             const _jobTextForCaseFilter = `${job?.title || ''} ${fullDescription}`
+            // Owner rule (2026-09-25, job 16269): no web-dev cases on a Google Ads
+            // posting that doesn't ask for a build — so the model is not even shown
+            // the web-development portfolio for those postings. The deterministic
+            // strip (_stripOffDomainWebDevCases in the emit chain) is the guarantee.
+            const _hideWebDevPortfolio = _webDevCasesOffForGoogleAds(_jobTextForCaseFilter.toLowerCase())
+            const _shownEntries = portfolioEntries.filter(e => !(_hideWebDevPortfolio && /web\s+development/i.test(e.title || '')))
             portfolioText = '\n\nARTEM\'S APPROVED CASE STUDIES (the ONLY case studies you may reference or suggest attaching — do not invent or cite any others):\n' +
-              portfolioEntries.map(e => `--- ${e.title} ---\n${_filterCaseStudyBlocks(e.content || '', _jobTextForCaseFilter).slice(0, 8000)}`).join('\n\n')
+              _shownEntries.map(e => `--- ${e.title} ---\n${_filterCaseStudyBlocks(e.content || '', _jobTextForCaseFilter).slice(0, 8000)}`).join('\n\n')
           }
           // Reference/template entries = manual entries containing vertical prompt
           // templates and real client metrics (e.g. "Upwork Prompt Gemini + template examples").
@@ -7100,6 +7134,7 @@ Case studies by domain (use ONLY case studies whose domain matches the job):
 - Mixed-discipline jobs: pick one from each domain.
 
 CRITICAL: NEVER cite a PPC-only case study (FridgeFix, House Painting, Nectar Flowers) in an SEO proposal. NEVER cite an SEO-only case study (Derma Solution organic traffic, Multilingual Site rankings) in a PPC proposal. Skin Reboot is the only case study with both PPC and SEO angles — pick the metric that matches.
+NEVER cite a web-development case study (SMASH, Game-X, GKit, Casa Eleganza) in a Google Ads / PPC proposal — they prove store BUILDS, not ad results — even when the client's store runs on Shopify or OpenCart (shipped on job 16269: Casa Eleganza, a Shopify build, cited as "relevant work" for a Google Ads job). On a Google Ads job they belong only when the posting also asks you to build or redesign the site or store itself.
 
 MULTI-MARKET / MULTILINGUAL JOBS — narrow exception to the channel rule above (confirmed gap, job 12008: "Dutch, English, French, German markets" cited Skin Reboot + ChronoCash, neither of which is multi-market, while Multilingual Site — the one case that actually demonstrates it — sat unused because it's tagged SEO on a PPC job): when the posting explicitly requires managing campaigns/work across MULTIPLE LANGUAGES OR COUNTRIES as a core requirement (not just "we're an international company" background, but an explicit ask like "Dutch, English, French, German markets" or "multilingual keyword research and ad-copy validation"), Multilingual Site (bilingual Italian+German, 17,100 new monthly visits, 18 Top-1 + 47 Top-3 keywords) may be cited as SUPPORTING proof of the multi-market METHODOLOGY even on a PPC job, despite being an SEO case — bridge it explicitly rather than presenting it as PPC proof: "same multi-market discipline — running parallel-language keyword research and localized content — applied here to PPC keyword research and ad copy across your four markets." This is the one exception to the channel rule above, reserved specifically for the multi-market/multilingual dimension when no PPC-channel case in the ledger demonstrates it. It SUPPLEMENTS a real PPC case (still lead with one of the PPC case studies above) — it never substitutes for one.
 
@@ -7366,7 +7401,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       // directly — for the strips below that must read the posting.
       const _postingOnlyLowerForStrips = [job?.title, job?.category, job?.keywords, job?.description_full || job?.description_snippet || job?.raw_message]
         .filter(Boolean).join('\n').toLowerCase()
-      text = _fixCaseCountClaim(_restoreRequiredOpenerCasing(_ensureAuditSampleMention(_ensureManualAuditClaim(_stripRedundantTrailingCaseBlock(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text, _postingAsksRate), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip)))))))), _postingAsksRate))).trim()), job), _digitBombCase))), _postingOnlyLowerForStrips), _requiredOpenerPhrase))
+      // Title + description only — no Upwork skill tags. "Is this a Google Ads job?"
+      // must not come from a tag list: an SEO posting tagged "…, SEO Backlinking,
+      // Google Ads" is still an SEO job (a replied SEO letter, 2026-09-25).
+      const _postingTitleDescLower = [job?.title, job?.description_full || job?.description_snippet || job?.raw_message]
+        .filter(Boolean).join('\n').toLowerCase()
+      text = _fixCaseCountClaim(_restoreRequiredOpenerCasing(_ensureAuditSampleMention(_ensureManualAuditClaim(_stripRedundantTrailingCaseBlock(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text, _postingAsksRate), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip)), _postingTitleDescLower, _webDevCasesOffForGoogleAds))))))), _postingAsksRate))).trim()), job), _digitBombCase))), _postingOnlyLowerForStrips), _requiredOpenerPhrase))
 
       // ── Rule-compliance enforcement pass ────────────────────────────────
       // Prompt engineering alone has proven unreliable for hard rule

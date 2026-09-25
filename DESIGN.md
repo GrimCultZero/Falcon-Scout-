@@ -1500,3 +1500,12 @@ the live note share one definition. So do the letter-shape detectors the checks 
 check block can't be tested, and both old inline versions were wrong for months (one missed 85 of 173
 audit-sample letters; the other counted metrics instead of cases). Rule of thumb: a detector that decides
 a check gets a lib function and a corpus test.
+
+**No web-development case studies on Google Ads jobs (owner rule, 2026-09-25).** SMASH, Game-X, GKit and
+Casa Eleganza prove store builds, not ad results. On a posting whose title or description (never the
+Upwork skill tags) carries a paid-media signal and that doesn't ask for a site or store to be built, the
+prompt is not shown the web-dev portfolio (KB #518) and `_stripOffDomainWebDevCases` removes any web-dev
+case paragraph at generation. "rebuild" / "redesign" count as a build ask only when aimed at a site,
+store, theme or page — "rebuild campaigns" is ad work. SEO postings are deliberately outside this rule at
+generation (GKit's hreflang / URL setup is genuine SEO proof and won a reply); the chat-rewrite strip keeps
+its wider PPC + SEO scope from job 12883.

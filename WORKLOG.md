@@ -8646,3 +8646,33 @@ Owner: "fix" (the two false flags on job 16252). Both detectors now live in `let
 - **Alias:** "Real Estate Complex" (KB #1's header for Atlant, cited by that name in letters) now
   maps to Atlant in `casesMentioned` / the case-fact windows. Without it, a letter citing only "Real
   Estate Complex" would have got a false "No example" note. No new case-fact findings resulted.
+
+## 2026-09-25 — owner rule: never web-development case studies for Google Ads (job 16269)
+
+Owner, sharing job 16269 (Google Ads for a Shopify gift brand): "we should never choose web
+development case studies for google ads." The letter's "Relevant work" led with Casa Eleganza — a
+Shopify BUILD case (custom theme, +41% conversion on filtered pages) — as proof for ad management.
+Three causes, all fixed:
+
+1. `_stripOffDomainWebDevCases` ran only on chat rewrites, never on generation. Now in the
+   generate chain too, gated by `_webDevCasesOffForGoogleAds`: a paid-media signal in the TITLE +
+   DESCRIPTION (not Upwork's skill tags) and no site-build ask.
+2. `_WEBDEV_BUILD_ASK_RE` matched a bare "rebuild" — 16269 says "audit, rebuild, and manage
+   campaigns". "rebuild" / "redesign" now count only when aimed at a site, store, theme or page. On
+   all 476 DB postings: 8 stop counting as build asks (7 ad-account / tracking / traffic rebuilds,
+   1 with no PPC/SEO wording where the strip never applies); "rebuild my shopify beauty store" still
+   counts.
+3. The prompt showed the whole web-dev portfolio (KB #518) — `_filterCaseStudyBlocks` falls back to
+   the full entry when it can't match two cases. KB #518 is now left out of the case material on
+   those postings, and the CASE STUDY SELECTION rule names web-dev cases explicitly.
+
+Also: the strip's lead-in pass removed "Relevant work:" whenever the first case under it went —
+on 16269 that would have orphaned Nectar Flowers. It now goes only when no case survives below it.
+
+**Scope decision:** generation enforces this on Google Ads postings only, as the owner said. SEO
+postings are left alone there: a sent SEO letter that got a REPLY cited GKit for its bilingual
+hreflang / filter-URL setup — real SEO proof. (That posting's only ad wording was Upwork's skill-tag
+list, "…SEO Backlinking, Google Ads", which is why the gate reads title + description only.) The
+chat-rewrite strip keeps its older, wider scope (PPC + SEO + feed roles, job 12883).
+Corpus: 11 sent letters cite a web-dev case, all on build or web-dev postings — 16269 was the first
+on a Google Ads job. `tests/webdev-cases.test.js` 16/16. Open: should SEO jobs follow the same rule?
