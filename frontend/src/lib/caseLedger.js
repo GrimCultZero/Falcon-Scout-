@@ -28,7 +28,9 @@
 //   geo          place groups the record supports (keys of _GEO_GROUPS below, or
 //                a lowercased place name). [] = the record names no location, so
 //                ANY place attached to the case is unsupported.
-//   location     the same, human-readable — rendered into the prompt.
+//   location     what a letter may say about where the case is, human-readable —
+//                rendered into the prompt. `location_note` instead, when the
+//                answer is "never state one" (see OWNER DECISIONS below).
 //   periods      { from, to } calendar months ('YYYY-MM', inclusive),
 //                { duration: 'N unit' } where the record gives a length but no
 //                dates, or { months: [m1, m2] } for a month span with no year.
@@ -39,11 +41,14 @@
 // KB #32 (Oxytec); KB #502 / #245 + CASES.md (Atlant); KB #507 (ChronoCash);
 // KB #487 / #518 + CASES.md (SMASH, Game-X, GKit, Casa Eleganza).
 //
-// KNOWN SOURCE CONFLICT — Atlant. KB #1 lists "Real Estate Complex (USA)" with
-// Atlant's exact figures (+144.25% clicks, +56.51% conversions, -31.02% CPC),
-// while KB #502 (core, distilled from the Ukrainian source #245) and CASES.md
-// say Atlant (atlant.build) is a Ukrainian developer building in Kyiv & region.
-// The ledger follows #502, so a "US developer" claim about Atlant is flagged.
+// OWNER DECISIONS (2026-09-25) — what a letter may SAY can be narrower than
+// what is true, so `location` is what may be stated, not the whole record:
+//   Atlant — a Ukrainian developer (KB #502), but letters state NO location:
+//     neither Ukraine nor the "(USA)" that KB #1's header carried (removed from
+//     KB #1 the same day; it had put Atlant in the US in three sent letters).
+//     geo: [] with a `location_note` instead of a location.
+//   Golden State Trailers — based in California, but letters say only "US";
+//     the state is deliberately not allowed.
 //
 // Skin Reboot: KB #1 places it in the USA; "Korean" is in the canonical line
 // because the brand sells Korean medical-aesthetic skincare, so both stand.
@@ -75,8 +80,8 @@ export const CASE_LEDGER = [
     attachment: 'profile-highlights', is_real: true,
     metrics: ['+350% organic traffic', '67 keywords in Top 3', '110 referring domains'],
     one_liner: 'SEO geo-expansion for a US B2B custom-trailer / food-truck manufacturer — commercial-intent semantic core, 72 state/city landing pages, and steady link building',
-    geo: ['us', 'north-america'],
-    location: 'USA',
+    geo: ['us', 'north-america'],   // California-based, but "US" only (owner, 2026-09-25)
+    location: 'USA — say "US" only, never the state',
     periods: [],
   },
   {
@@ -153,8 +158,8 @@ export const CASE_LEDGER = [
     attachment: 'profile-highlights', is_real: true,
     metrics: ['+56.5% conversions', '-31% CPC', '+144% clicks'],
     one_liner: 'Google Ads audit + management for a residential property developer — per-complex branded campaigns + PMax + DSA + remarketing for new-listing lead gen',
-    geo: ['ukraine', 'kyiv'],
-    location: 'Ukraine (Kyiv & region)',
+    geo: [],   // Ukrainian (KB #502), but no location is ever stated (owner, 2026-09-25)
+    location_note: 'never state one',
     periods: [{ from: '2023-06', to: '2023-11' }],
     period_label: 'Jun–Nov 2023, compared with the prior 6 months',
   },
@@ -264,9 +269,13 @@ export function expandCasePlaceholders(text) {
 // location is a section header at best and a period is often absent. This block
 // states both explicitly, including the absences, so a gap reads as "none on
 // record" rather than as room to fill in.
+// What a letter may say about a case's location: the allowed wording, an
+// explicit "never state one", or "none on record".
+const _locationSay = (c) => c.location || c.location_note || 'none on record'
+
 export function renderCaseFactsBlock() {
   const rows = CASE_LEDGER.map(c =>
-    `- ${c.name}: location — ${c.location || 'none on record'}; timeframe — ${c.period_label || 'none on record'}`)
+    `- ${c.name}: location — ${_locationSay(c)}; timeframe — ${c.period_label || 'none on record'}`)
   return '\n\nCASE FACTS ON RECORD (location + timeframe — FIXED DATA, exactly like the metrics):\n' +
     'State a case\'s location or timeframe ONLY as written here. "none on record" means say nothing about it: never supply one, never estimate one, never borrow the client\'s own country or timeline for it. Never tie a period to a metric unless this list ties them together.\n' +
     rows.join('\n')
@@ -576,7 +585,7 @@ export function findCaseFactConflicts(text) {
       const key = `g|${c.id}|${m[0]}`
       if (seen.has(key)) continue
       seen.add(key)
-      geo.push({ case: c.id, name: c.name, term: m[0], on_record: c.location || 'none on record', excerpt: _excerpt(w.text, a, b) })
+      geo.push({ case: c.id, name: c.name, term: m[0], on_record: _locationSay(c), excerpt: _excerpt(w.text, a, b) })
     }
     for (const h of _timeHits(w.text)) {
       if (_timeAllowed(c, h)) continue

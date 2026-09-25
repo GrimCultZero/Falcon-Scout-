@@ -8527,3 +8527,28 @@ show the notes with the right specifics: job 14073 lists FridgeFix/House Paintin
 in Dallas / San Diego / Dallas; job 10507 lists its call offer and the Skin Reboot PDF. Not
 verified: a fresh generation end to end (it costs a paid call) — the strip and insert are covered
 by the tests on the real 16113 draft.
+
+## 2026-09-25 — owner decisions on case geography; generator-rebuild pushed
+
+Answers to the two open questions from yesterday's entry:
+
+- **Atlant:** "it's Ukrainian developer, but we shouldnt mention anything here, neither USA nor
+  Ukraine, just skip the geo for this particular case." Ledger: `geo: []` plus
+  `location_note: 'never state one'`, so any place stated for Atlant is flagged — Kyiv and
+  "Ukrainian" included — and the prompt's CASE FACTS row says "never state one".
+  **KB #1 edited** (via `PUT /kb/1`): the header `### 10. Real Estate Complex (USA) — Google Ads`
+  is now `### 10. Real Estate Complex — Google Ads`. Only those 6 characters changed; the other
+  "(USA)" labels in KB #1 belong to genuinely US cases and stay. To revert, put " (USA)" back.
+  This was the only route by which the generator was told Atlant is American — KB #502 ("Ukrainian
+  … Kyiv") and #506 are not loaded by the generator.
+- **Golden State Trailers:** "suprisingly in.... Golden State! But we shouldnt clarify here, let
+  it just be US customer." It is California-based; letters say only "US", so "California" stays
+  flagged. The ledger's `location` now reads `USA — say "US" only, never the state`.
+
+The general point: a ledger `location` is what a letter may SAY, which can be narrower than what
+is true. Corpus count moves from 21 to 24 — three sent letters named Atlant's real location
+(Kyiv ×2, "Ukrainian"), now reviewed and pinned in `tests/case-facts.test.js` (51 checks).
+
+Pushed `generator-rebuild` to origin at the owner's request — its first push (40 commits since
+`main`, starting with the 2026-09-03 tracker-integrity fix and the enforcer deletion). `main`
+itself is unchanged; nothing is merged.

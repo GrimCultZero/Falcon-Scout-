@@ -166,5 +166,8 @@ timeframe have to be treated as data exactly like the metrics: recorded per case
 the posting asks for a timeframe, prefer a case whose record has one (Skin Reboot Sep 2024 – Oct 2025;
 Atlant Jun–Nov 2023 vs the prior 6 months; ChronoCash Feb 2025; FridgeFix's highlighted Jul–Aug 2023).
 
-**Open.** KB #1 labels Atlant's exact figures "Real Estate Complex (USA)"; KB #502 says Ukrainian
-(Kyiv & region). The US label is the likely source of the three letters that placed Atlant in the US.
+**Resolved 2026-09-25 (owner).** Atlant is a Ukrainian developer, but letters state no location for it —
+neither Ukraine nor the US. KB #1's header "Real Estate Complex (USA)", the likely source of the three
+letters that placed Atlant in the US, is now "Real Estate Complex". Golden State Trailers is in
+California, but letters say only "US". What a letter may say can be narrower than what's true — the
+ledger's `location` records the former.

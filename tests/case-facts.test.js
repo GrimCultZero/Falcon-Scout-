@@ -8,6 +8,8 @@
 // "Vienna" and "Dallas", Atlant as a "US market" / "Chicago-adjacent"
 // developer, Skin Reboot given "7 months" against a 14-month record, …).
 // Those are pinned below so a future change can't quietly stop catching them.
+// 2026-09-25: 24, after the owner ruled that Atlant's location is never
+// stated (three more letters had named it correctly — Kyiv / Ukrainian).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -44,15 +46,17 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(clean('Nectar Flowers (attached in profile highlights): Ottawa florist — the same seasonal spikes you\'d see in London around Mother\'s Day.'),
     'a place in a clause about the CLIENT ("you\'d see in London") is the bridge, not a claim about the case');
   assert(geoTerms('Atlant (attached in profile highlights): property developer, new-listing lead gen, US market.').join() === 'atlant:US',
-    'Atlant as a "US market" developer is flagged (KB #502: Ukrainian, Kyiv & region — KB #1\'s "(USA)" label is the outlier)');
-  assert(clean('Atlant: one of the largest developers in Kyiv, Ukrainian residential complexes.'), 'Atlant in Kyiv / Ukrainian passes');
+    'Atlant as a "US market" developer is flagged');
+  assert(geoTerms('Atlant: one of the largest developers in Kyiv, Ukrainian residential complexes.').sort().join() === 'atlant:Kyiv,atlant:Ukrainian',
+    'Atlant\'s REAL location is flagged too — owner, 2026-09-25: letters state no location for it, neither Ukraine nor the US');
+  assert(facts('Atlant (attached in profile highlights): Dallas developer.').geo[0].on_record === 'never state one', 'and the flag says so ("never state one")');
   assert(clean('Skin Reboot (attached as PDF): Korean medical-aesthetic skincare sold in the US.'), 'Skin Reboot: Korean (the products) and US (the business) both pass');
   assert(geoTerms('Derma Solution (attached as PDF): YMYL medical aesthetics (Korean products).').join() === 'derma-solution:Korean',
     '"Korean" on Derma Solution is flagged — that is Skin Reboot\'s attribute, not Derma\'s');
   assert(clean('FridgeFix (attached in profile highlights): refrigerator repair in Orange County, Southern California.'), 'FridgeFix in Orange County / Southern California passes');
   assert(geoTerms('FridgeFix (attached in profile highlights): Appliance repair, Dallas, Fort Worth metro.').join() === 'fridgefix:Dallas', 'FridgeFix in Dallas is flagged');
   assert(geoTerms('Golden State Trailers (attached in profile highlights): B2B manufacturer selling cargo trailers across California.').join() === 'golden-state-trailers:California',
-    'Golden State Trailers "across California" is flagged — KB #1 and #506 say USA only; California appears only in saved letters');
+    'Golden State Trailers "across California" is flagged — it IS California-based, but the owner wants letters to say only "US" (2026-09-25)');
   assert(clean('Golden State Trailers (attached in profile highlights): US B2B manufacturer, 72 state/city landing pages.'), 'Golden State Trailers as US passes');
   assert(geoTerms('Vape Shop (USA): restricted e-commerce, new site launch.').join() === 'vape-shop:USA', 'Vape Shop has no location on record, so "(USA)" is flagged');
   assert(clean('Multilingual Site (attached in profile highlights): South Tyrol, Italian + German, on the Italian–Austrian border.'), 'the multilingual case\'s real geography passes');
@@ -89,6 +93,10 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(L.CASE_LEDGER.every(c => block.includes(`- ${c.name}:`)), 'the CASE FACTS ON RECORD block lists every case');
   assert(/Luxury Parfums: location — none on record; timeframe — none on record/.test(block), 'a case with nothing on record says so explicitly');
   assert(/Nectar Flowers: location — Ottawa, Canada; timeframe — none on record/.test(block), 'Nectar Flowers: Ottawa, Canada, no timeframe');
+  assert(/Atlant: location — never state one;/.test(block), 'Atlant: the prompt is told to state no location');
+  assert(/Golden State Trailers: location — USA — say "US" only, never the state;/.test(block), 'Golden State Trailers: the prompt is told "US" only');
+  const atlantRow = block.split('\n').find(l => l.startsWith('- Atlant:')) || '';
+  assert(atlantRow && !/Ukrain|Kyiv|USA|\bUS\b/.test(atlantRow), 'the prompt\'s Atlant row names no place at all (SMASH / Game-X / GKit still say Ukraine — that rule is Atlant\'s only)');
 
   // ── grounding checker integration (record-only) ─────────────────────────
   // groundingCheck.js imports './caseLedger' extensionless (Vite resolves it,
@@ -123,6 +131,9 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
       ['derma-solution', 'a year'], ['house-painting', 'two weeks'], ['fridgefix', 'Vienna'],
       ['derma-solution', '18-month'], ['fridgefix', 'Dallas'], ['house-painting', 'San Diego'],
       ['atlant', 'Dallas'], ['skin-reboot', '7 months'],
+      // Added 2026-09-25 with the owner's rule that Atlant's location is never
+      // stated — these three letters named its real one (Kyiv / Ukrainian).
+      ['atlant', 'Kyiv'], ['atlant', 'Ukrainian'],
     ];
     const reviewed = new Set(REVIEWED.map(([c, t]) => `${c}|${t}`));
     const found = new Set();
