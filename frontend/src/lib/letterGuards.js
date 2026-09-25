@@ -260,6 +260,34 @@ export function letterGivesExample(text) {
   return casesMentioned(t).length > 0 || _URL_RE.test(t)
 }
 
+// ── letter shapes the generator's checks read (2026-09-25, job 16252) ────────
+// Does the letter say it attaches an AUDIT sample? Any word order, singular or
+// plural, within one sentence. The old inline test only accepted "attach … sample
+// … audit" and "audit … sample … attach" with singular words, so it missed 85 of
+// the 173 sent letters that do attach one ("I'm attaching recent audit samples",
+// "Attaching a recent technical SEO audit sample") — and missingSeoPlanOffer then
+// demanded the SEO plan on top of an audit offer that was already there.
+export function draftAttachesAuditSample(text) {
+  return String(text || '').split('\n').some(line =>
+    _sentencePieces(line).some(({ text: s }) => /\battach/i.test(s) && /\bsamples?\b/i.test(s) && /\baudits?\b/i.test(s)))
+}
+
+// Are two different case studies run together in one paragraph? (The rule: each
+// case study is its own paragraph.) The old inline test counted METRICS, so one
+// case quoting two figures — "Derma Solution: +1,861% organic traffic, +14,342%
+// conversions" — read as crammed: 22 of its 26 corpus hits were a single case.
+// A short lead-in label naming the cases that follow ("Here are some relevant
+// results, FridgeFix and House Painting are:") is not cramming. Known limit: two
+// ANONYMIZED cases in one paragraph go unseen (1 corpus letter) — those break the
+// named-case rule anyway.
+export function caseStudiesCrammed(text) {
+  return String(text || '').split(/\n\s*\n/).some(p => {
+    const t = p.trim()
+    if (t.length <= 160 && /:\s*$/.test(t)) return false
+    return casesMentioned(t).length >= 2
+  })
+}
+
 // ── SEO prices (KB Rule 426) ─────────────────────────────────────────────────
 // Artem's SEO prices are fixed: the technical audit is $700 flat, and it is
 // included in the $1,050/month optimization retainer. Job 16242 quoted "$3,500

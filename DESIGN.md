@@ -1495,4 +1495,8 @@ other way on purpose, Rule 426 must say so first.
 
 **"Does the posting ask for X" detectors live in `letterGuards.js`** (`postingAsksForTimeline`,
 `findRequestedExample`), each validated match by match against every posting in the DB, so the check and
-the live note share one definition.
+the live note share one definition. So do the letter-shape detectors the checks read
+(`draftAttachesAuditSample`, `caseStudiesCrammed`, 2026-09-25): an inline regex inside the ~1,000-line
+check block can't be tested, and both old inline versions were wrong for months (one missed 85 of 173
+audit-sample letters; the other counted metrics instead of cases). Rule of thumb: a detector that decides
+a check gets a lib function and a corpus test.

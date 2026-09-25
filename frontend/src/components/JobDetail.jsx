@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -8529,8 +8529,10 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               const jobIsTechFixOnly = _TECH_FIX_RE.test(jobContextLower) && !_GROWTH_RE.test(jobContextLower) && !_RETAINER_SIGNAL_RE.test(jobContextLower)
               jobIsAuditOnly = (/\baudit\b/i.test(jobContextLower) || jobIsTechFixOnly) &&
                 !_RETAINER_SIGNAL_RE.test(jobContextLower)
-              const draftHasAuditSampleAttach = /\battach(?:ing|ed)?\b[^.]{0,60}\bsample\b[^.]{0,80}\baudit\b/i.test(text) ||
-                /\baudit\b[^.]{0,60}\bsample\b[^.]{0,60}\battach/i.test(text)
+              // Any word order, singular or plural (lib/letterGuards.js) — the two fixed
+              // orders this used to test missed 85 of 173 sent letters that attach a
+              // sample, and missingSeoPlanOffer fired on them (job 16252, 2026-09-25).
+              const draftHasAuditSampleAttach = draftAttachesAuditSample(text)
               // Wrong deliverable: the client already has an audit done, but the
               // draft still offers/attaches an audit sample anyway.
               wrongAuditSampleOnAlreadyAudited = clientAlreadyAudited && draftHasAuditSampleAttach
@@ -8926,20 +8928,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /increased?\s+(?:roas|revenue|traffic|conversions?|sales|leads?)/i,
             ].some(re => re.test(text))
             const hasHighlightsPhrase = /profile\s+highlights?/i.test(text)
-            // Detect cramming: look for 2+ distinct metric values (percentages,
-            // ROAS numbers, dollar amounts like "$12k") — each signals a separate
-            // case study. If they appear without a \n\n paragraph break between
-            // the first and last, the case studies are run together in one paragraph.
-            const metricRe = /\d+(?:[.,]\d+)?(?:\s*%|\s*×|\s*roas\b|\s*k\/month|\s*k\s+(?:month|revenue))/gi
-            const metricMatches = [...text.matchAll(metricRe)]
-            let csCrammed = false
-            if (metricMatches.length >= 2) {
-              const between = text.slice(
-                metricMatches[0].index,
-                metricMatches[metricMatches.length - 1].index
-              )
-              csCrammed = !between.includes('\n\n')
-            }
+            // Detect cramming by CASE NAMES, as the header above always said: two
+            // different cases in one paragraph (lib/letterGuards.js). This used to
+            // count metric values instead, so one case quoting two figures ("Derma
+            // Solution: +1,861% organic traffic, +14,342% conversions") read as
+            // crammed — 22 of its 26 hits in the sent corpus (job 16252, 2026-09-25).
+            const csCrammed = caseStudiesCrammed(text)
             const missingHighlightsPhrase = hasNonPdfResultSignal && (!hasHighlightsPhrase || csCrammed)
 
             const draftCompliant = timingCompliant && !hasForbiddenPhrase && !hasCircumventionRisk && !missingPdfLabel

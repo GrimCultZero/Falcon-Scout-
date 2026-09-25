@@ -369,7 +369,8 @@ const _CASE_NAME_RES = {
   'oxytec': /\boxytec\b/gi,
   'luxury-parfums': /\bluxury\s+parfums\b/gi,
   'chronocash': /\bchrono\s*cash\b/gi,
-  'atlant': /\bAtlant\b/g,
+  // KB #1 files Atlant's figures under "Real Estate Complex", and letters cite it by that name.
+  'atlant': /\bAtlant\b|\bReal\s+Estate\s+Complex\b/g,
   'vape-shop': /\bVape\s+[Ss]hop\b/g,
   'smash': /\bSMASH\b/g,
   'game-x': /\bgame-?x\b/gi,

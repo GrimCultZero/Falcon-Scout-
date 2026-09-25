@@ -8625,3 +8625,24 @@ Seen in the same letter, logged not patched: "HowTo" schema (Google retired HowT
 Solution line calls it a "clinic" (its record is medical-aesthetics ecommerce); `missingSeoPlanOffer`
 looks like a false flag — its audit-sample detector wants "attach … sample … audit" in that order and
 the letter says "Attaching a recent technical SEO audit sample".
+
+## 2026-09-25 — two false flags fixed: missingSeoPlanOffer, missingHighlightsPhrase
+
+Owner: "fix" (the two false flags on job 16252). Both detectors now live in `letterGuards.js`
+(`tests/letter-shapes.test.js`, 16/16, with a before/after over the sent corpus):
+
+- **`draftAttachesAuditSample`** (feeds `missingSeoPlanOffer` and `wrongAuditSampleOnAlreadyAudited`):
+  attach + sample + audit in one sentence, any order, singular or plural. The old inline test
+  accepted two fixed orders with singular words only — it found 88 of the corpus letters that attach
+  an audit sample; the real number is **173**. So `missingSeoPlanOffer` had been demanding the SEO
+  plan on top of an audit offer on a large share of SEO letters, and `wrongAuditSampleOnAlreadyAudited`
+  was under-firing. The new detector loses none of the old matches.
+- **`caseStudiesCrammed`** (feeds `missingHighlightsPhrase`): two DIFFERENT named cases in one
+  paragraph, excluding a short lead-in label ("Here are some relevant results, FridgeFix and House
+  Painting are:"). The old code counted metric values — contradicting its own header comment — so
+  one case quoting two figures read as crammed: 26 corpus hits, 22 of them a single case; now 8.
+  Known limit: two ANONYMIZED cases in one paragraph go unseen (1 corpus letter: "a fridge repair
+  shop … a painting contractor …") — those break the named-case rule anyway.
+- **Alias:** "Real Estate Complex" (KB #1's header for Atlant, cited by that name in letters) now
+  maps to Atlant in `casesMentioned` / the case-fact windows. Without it, a letter citing only "Real
+  Estate Complex" would have got a false "No example" note. No new case-fact findings resulted.
