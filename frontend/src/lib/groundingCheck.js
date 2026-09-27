@@ -28,15 +28,16 @@
 //                              a "UK florist")
 //   caseTimeframeNotInLedger — a period stated for a named case that its record doesn't
 //                              support (same letter: "… over 90 days", none on record)
-//     Both are RECORD-ONLY even when enforce is on: a new claim class ships as a
-//     flag first (owner rule, ANTIFAB_HANDOFF.md §0/§8), and removing the enclosing
-//     sentence would take the case name with it — "UK florist" sits in the case's
-//     opening sentence.
+//     Shipped record-only (a new claim class ships as a flag first, owner rule,
+//     ANTIFAB_HANDOFF.md §0/§8). 2026-09-27, owner-approved after job 16378 ("Atlant
+//     … California property developer"): under enforce, a place in a clear-cut shape
+//     is DELETED (fixCaseGeoClaims — never the whole sentence, which would take the
+//     case name with it) and recorded caseGeoStripped. Timeframes stay record-only.
 //   (*#1/#2/#3's ANONYMIZED/relabeled forms are killed by the ledger at 21-C — once the
 //    model must emit {{case:id}} it can't write an anonymized fabricated story or relabel
 //    a vertical at all. The checker owns the NAMED-case classes.)
 
-import { CASE_LEDGER, CASE_BY_ID, findCaseFactConflicts } from './caseLedger'
+import { CASE_LEDGER, CASE_BY_ID, findCaseFactConflicts, fixCaseGeoClaims } from './caseLedger'
 
 // ── case name matchers (mirror _CASE_META shapes) ──
 const _NAME_RES = {
@@ -256,7 +257,14 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
   // orphan blank paragraph in the joined letter.
   if (enforce) out = newParas.filter(p => p && p.trim()).join('\n\n')
 
-  // ── caseGeoNotInLedger + caseTimeframeNotInLedger: record-only (see header) ──
+  // ── caseGeoNotInLedger + caseTimeframeNotInLedger (see header) ──
+  // Places: under enforce, clear-cut shapes are fixed by deleting the place
+  // (owner-approved 2026-09-27) and recorded as caseGeoStripped; whatever the
+  // fixer can't safely rewrite stays caseGeoNotInLedger. Timeframes: record-only.
+  if (enforce && findCaseFactConflicts(out).geo.length) {
+    const r = fixCaseGeoClaims(out)
+    if (r.fixed.length) { out = r.text; record('caseGeoStripped') }
+  }
   const facts = findCaseFactConflicts(out)
   if (facts.geo.length) record('caseGeoNotInLedger')
   if (facts.time.length) record('caseTimeframeNotInLedger')

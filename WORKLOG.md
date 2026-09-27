@@ -8676,3 +8676,39 @@ list, "…SEO Backlinking, Google Ads", which is why the gate reads title + desc
 chat-rewrite strip keeps its older, wider scope (PPC + SEO + feed roles, job 12883).
 Corpus: 11 sent letters cite a web-dev case, all on build or web-dev postings — 16269 was the first
 on a Google Ads job. `tests/webdev-cases.test.js` 16/16. Open: should SEO jobs follow the same rule?
+
+## 2026-09-27 — job 16378: case places auto-fixed; "from scratch" and "signal" false alarms
+
+Owner, sharing job 16378 (Google Ads, multi-location electronics recycling, Southern California):
+"atland geo?" The letter called Atlant a "California property developer" — the client's region
+given to the case, against the owner's rule that Atlant's location is never stated.
+`caseGeoNotInLedger` caught it, but the class was record-only. Owner: "fix all three" (the three
+options offered):
+
+1. **Case places are auto-fixed** (`fixCaseGeoClaims`, applied by `groundingCheck` under
+   `GC_ENFORCE`): the place is DELETED, never replaced, in four clear-cut shapes — adjective
+   ("California property developer" → "property developer", article and capital repaired), short
+   parenthetical ("Vape Shop (USA):"), list item / appositive (", US market." / "(appliance repair,
+   Vienna)" / "ChronoCash, Germany (…)"), clause-final preposition ("geo expansion across
+   California."). Recorded `caseGeoStripped`; anything else stays `caseGeoNotInLedger`. On the
+   sent corpus: 13 letters, 18 places fixed, every result read by hand as clean English; 2 left as
+   flags ("Chicago-adjacent vertical", "California" inside a quoted keyword example). Letters with
+   no conflict are never touched. Timeframes remain record-only. US cities added to the place
+   vocabulary (a sent letter: "Dallas, Fort Worth metro").
+2. **Negated "from scratch"** (`blankNegatedLaunch`): "improve performance rather than simply
+   starting over from scratch" had fired `wrongAuditOfferOnLaunch` and `launchJobMissingCTA` on
+   an existing account. Negated from-scratch / new-account phrases are blanked before BOTH launch
+   detectors run. On all 476 DB postings: 9 reclassified, each a genuine "this is not a new
+   account" / "not starting from scratch" / "rather than rebuilding from scratch". Side effect,
+   intended: `jobIsPpcAuditExisting` was false on those postings, which had switched off the PPC
+   audit-price and ongoing-fee checks for real existing accounts.
+3. **"signal" out of the contact-channel list.** The circumvention check flagged **41 of 256** sent
+   letters; "signal" ("trust signal", "signal streams") caused about 36 of them. Signal the app is
+   still matched where it reads as a channel ("message me on Signal", "Signal app", next to
+   WhatsApp). Same category, fixed alongside: "Process-wise" had matched the Wise payment service.
+   Now 4 letters flag, all genuine — including the June 11 enforcement letter ("managing through
+   Upwork hits friction") and one sent letter offering "a shared Slack channel or Whatsapp group
+   chat".
+
+`tests/geo-fix-and-flags.test.js` 32/32; `tests/case-facts.test.js` updated for the new
+behaviour (52/52).

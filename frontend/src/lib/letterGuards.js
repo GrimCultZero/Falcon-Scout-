@@ -260,6 +260,16 @@ export function letterGivesExample(text) {
   return casesMentioned(t).length > 0 || _URL_RE.test(t)
 }
 
+// Is this a from-scratch LAUNCH? A negated mention is the opposite signal — job
+// 16378: "improve performance rather than simply starting over from scratch" (an
+// existing account) read as a launch, so wrongAuditOfferOnLaunch flagged the
+// correct audit offer and launchJobMissingCTA asked for a launch CTA. Blank the
+// negated phrases before the launch patterns run.
+export const NEGATED_LAUNCH_RE = /\b(?:rather\s+than|instead\s+of|not|n['’]t|no\s+need\s+to|without|never|avoid(?:ing)?|(?:don['’]?t|do\s+not|does\s+not|doesn['’]?t)\s+(?:want|need)\s+to|isn['’]?t|is\s+not|are\s+not|aren['’]?t)\b[^.\n]{0,40}?\b(?:(?:start(?:ing)?|build(?:ing)?|rebuild(?:ing)?|begin(?:ning)?|launch(?:ing)?|redo(?:ing)?)\s+(?:(?:it|everything|the\s+account|over|again|all\s+over)\s+)*)?(?:from\s+(?:scratch|zero)|a\s+(?:brand[-\s]?)?new\s+(?:google\s+ads?\s+|ad\s+)?account)\b/gi
+export function blankNegatedLaunch(text) {
+  return String(text || '').replace(NEGATED_LAUNCH_RE, ' ')
+}
+
 // ── letter shapes the generator's checks read (2026-09-25, job 16252) ────────
 // Does the letter say it attaches an AUDIT sample? Any word order, singular or
 // plural, within one sentence. The old inline test only accepted "attach … sample

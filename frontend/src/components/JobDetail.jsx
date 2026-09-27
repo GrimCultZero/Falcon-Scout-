@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -7642,9 +7642,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\bupwork\b[^.\n]{0,70}\b(?:friction|work[\s-]?around|limitations?|restrict\w*|gets?\s+in\s+the\s+way)/i,
               /\b(?:friction|work[\s-]?around|limitations?)\b[^.\n]{0,70}\bupwork\b/i,
               // Off-platform payment rails
-              /\b(?:paypal|payoneer|wise|revolut|bank\s+transfer|wire\s+transfer|crypto|usdt|direct\s+payment|pay\s+(?:me\s+)?directly)\b/i,
-              // Off-platform contact channels (pre-contract contact sharing is also flagged)
-              /\b(?:whatsapp|telegram|signal|discord|viber|wechat)\b/i,
+              // "(?<!-)wise": the Wise payment service, not the "-wise" suffix — a sent
+              // letter's "Process-wise:" was flagged as a payment rail (2026-09-27).
+              /\b(?:paypal|payoneer|(?<!-)wise|revolut|bank\s+transfer|wire\s+transfer|crypto|usdt|direct\s+payment|pay\s+(?:me\s+)?directly)\b/i,
+              // Off-platform contact channels (pre-contract contact sharing is also flagged).
+              // "signal" is NOT in this list: in SEO/PPC letters it is everyday vocabulary
+              // ("trust signal", "three separate signal streams" — false flags on jobs
+              // 16252 and 16378, owner-approved change 2026-09-27). Signal the APP is
+              // matched on the next line only where it reads as a channel; next to
+              // WhatsApp/Telegram etc. this line already flags the letter.
+              /\b(?:whatsapp|telegram|discord|viber|wechat)\b/i,
+              /\b(?:on|via|through|over|using|use|add\s+me\s+on|message\s+me\s+on|text\s+me\s+on)\s+Signal\b|\bSignal\s+(?:app|messenger|chat|number)\b/,
               /\b(?:email|reach)\s+me\s+(?:at|on|directly)\b/i,
               /\b[\w.+-]+@(?:gmail|outlook|yahoo|proton)\w*\.\w+/i,
             ]
@@ -8329,7 +8337,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             //     posting actually signals ongoing potential.
             const _PPC_AUDIT_EXISTING_RE = /\b(?:audit|review|assessment|health\s*check|analys[ei]s|analyse|analyze)\b/i
             const _PPC_LAUNCH_FROM_SCRATCH_RE = /\b(?:launch|from\s+scratch|new\s+brand|starting\s+from\s+zero|no\s+existing\s+campaigns?|build\s+and\s+launch|zero[\s-]?pixel)\b/i
-            const jobIsPpcAuditExisting = jobIsPpc && _PPC_AUDIT_EXISTING_RE.test(jobContextLower) && !_PPC_LAUNCH_FROM_SCRATCH_RE.test(jobContextLower)
+            // Negated mentions ("rather than simply starting over from scratch") are
+            // blanked first — they describe an EXISTING account (job 16378, 2026-09-27).
+            const jobIsPpcAuditExisting = jobIsPpc && _PPC_AUDIT_EXISTING_RE.test(jobContextLower) && !_PPC_LAUNCH_FROM_SCRATCH_RE.test(blankNegatedLaunch(jobContextLower))
             const _AUDIT_ONLY_NO_ONGOING_RE = /\b(?:one[\s-]?time|one[\s-]?off|single|standalone|isolated)\b[^.\n]{0,40}\b(?:audit|project|task|engagement|job)\b|\baudit\s+only\b|\bnot\s+(?:looking\s+for|seeking|interested\s+in|needing)\s+(?:ongoing|recurring|a\s+retainer|long[\s-]?term|monthly)\b|\bno\s+(?:ongoing|recurring|retainer|long[\s-]?term)\s+(?:work|commitment|engagement|management|help)\b|\bthis\s+is\s+(?:a\s+)?(?:one[\s-]?time|one[\s-]?off|single|standalone)\s+(?:project|job|task|engagement|audit)\b/i
             const _ONGOING_SIGNAL_PPC_RE = /\b(?:could\s+lead\s+to|potential\s+for|possibility\s+of|may\s+lead\s+to|if\s+(?:this|it)\s+(?:works?\s+out|goes\s+well)|looking\s+for\s+a\s+long[\s-]?term|ongoing\s+(?:management|support|optimi[sz]ation|work|help|relationship|basis)|continu(?:e|ed|ing)\s+(?:to\s+)?(?:work|manage|optimi[sz]e)|\bretainer\b|long[\s-]?term\s+(?:partner|partnership|relationship|engagement|collaboration|role)|monthly\s+(?:management|retainer)|future\s+work|potential\s+long[\s-]?term|room\s+for\s+ongoing|this\s+could\s+(?:turn\s+into|become)\s+(?:ongoing|regular|recurring))\b/i
             const jobHasOngoingSignal = jobIsPpcAuditExisting && _ONGOING_SIGNAL_PPC_RE.test(jobContextLower) && !_AUDIT_ONLY_NO_ONGOING_RE.test(jobContextLower)
@@ -8867,7 +8877,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               // never matched the posting in the first place.
               /\b(?:new|brand[-\s]?new)\s+google\s+(?:ads?|ppc)\s+account\b/i,
             ]
-            const jobIsLaunchFromScratch = LAUNCH_FROM_SCRATCH_RE.some(re => re.test(jobContextLower))
+            // A NEGATED mention is the opposite signal (job 16378, 2026-09-27: "improve
+            // performance rather than simply starting over from scratch" — an existing
+            // account — fired wrongAuditOfferOnLaunch on the correct audit offer and
+            // launchJobMissingCTA). blankNegatedLaunch (lib/letterGuards.js) removes those
+            // phrases first; on all 476 DB postings it reclassified 9, each a genuine
+            // "this is not a new account / not starting from scratch".
+            const jobIsLaunchFromScratch = LAUNCH_FROM_SCRATCH_RE.some(re => re.test(blankNegatedLaunch(jobContextLower)))
             // Draft "offers an audit": attach+audit in proximity, "audit sample",
             // "sample ... audit", or an audit-delivery turnaround promise.
             const AUDIT_OFFER_IN_DRAFT_RE = [

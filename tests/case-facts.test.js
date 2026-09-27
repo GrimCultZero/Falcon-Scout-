@@ -10,6 +10,8 @@
 // Those are pinned below so a future change can't quietly stop catching them.
 // 2026-09-25: 24, after the owner ruled that Atlant's location is never
 // stated (three more letters had named it correctly — Kyiv / Ukrainian).
+// 2026-09-27: 25, with US cities added to the place vocabulary (Fort Worth).
+// Places are now also auto-fixed — see tests/geo-fix-and-flags.test.js.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -54,7 +56,7 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(geoTerms('Derma Solution (attached as PDF): YMYL medical aesthetics (Korean products).').join() === 'derma-solution:Korean',
     '"Korean" on Derma Solution is flagged — that is Skin Reboot\'s attribute, not Derma\'s');
   assert(clean('FridgeFix (attached in profile highlights): refrigerator repair in Orange County, Southern California.'), 'FridgeFix in Orange County / Southern California passes');
-  assert(geoTerms('FridgeFix (attached in profile highlights): Appliance repair, Dallas, Fort Worth metro.').join() === 'fridgefix:Dallas', 'FridgeFix in Dallas is flagged');
+  assert(geoTerms('FridgeFix (attached in profile highlights): Appliance repair, Dallas, Fort Worth metro.').sort().join() === 'fridgefix:Dallas,fridgefix:Fort Worth', 'FridgeFix in Dallas / Fort Worth is flagged');
   assert(geoTerms('Golden State Trailers (attached in profile highlights): B2B manufacturer selling cargo trailers across California.').join() === 'golden-state-trailers:California',
     'Golden State Trailers "across California" is flagged — it IS California-based, but the owner wants letters to say only "US" (2026-09-25)');
   assert(clean('Golden State Trailers (attached in profile highlights): US B2B manufacturer, 72 state/city landing pages.'), 'Golden State Trailers as US passes');
@@ -107,9 +109,13 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   fs.writeFileSync(tmp, gcSrc);
   const { groundingCheck } = await import(pathToFileURL(tmp).href);
   fs.unlinkSync(tmp);
+  // Since 2026-09-27 (owner-approved) a place in a clear-cut shape is fixed under
+  // enforce; timeframes are still record-only.
+  const gcShadow = groundingCheck(nectar16113, { postingText: '', enforce: false });
+  assert(gcShadow.violations.includes('caseGeoNotInLedger') && gcShadow.violations.includes('caseTimeframeNotInLedger') && gcShadow.text === nectar16113, 'shadow mode: both claim classes recorded, text untouched');
   const gc = groundingCheck(nectar16113, { postingText: '', enforce: true });
-  assert(gc.violations.includes('caseGeoNotInLedger') && gc.violations.includes('caseTimeframeNotInLedger'), 'groundingCheck records both new claim classes on the 16113 paragraph');
-  assert(gc.text === nectar16113, 'and, even with enforce on, leaves the text untouched (record-only)');
+  assert(gc.violations.includes('caseGeoStripped') && !gc.violations.includes('caseGeoNotInLedger') && gc.text.includes('(attached in profile highlights): florist running broad Search'), 'enforce: "UK florist" → "florist", recorded caseGeoStripped');
+  assert(gc.violations.includes('caseTimeframeNotInLedger') && gc.text.includes('over 90 days'), 'enforce: the unsupported "over 90 days" stays, flagged (timeframes are record-only)');
   assert(!groundingCheck(expanded, { enforce: true }).violations.some(v => /^case(Geo|Timeframe)/.test(v)), 'canonical lines raise neither class');
 
   // ── the corpus ──────────────────────────────────────────────────────────
@@ -134,6 +140,8 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
       // Added 2026-09-25 with the owner's rule that Atlant's location is never
       // stated — these three letters named its real one (Kyiv / Ukrainian).
       ['atlant', 'Kyiv'], ['atlant', 'Ukrainian'],
+      // Added 2026-09-27 with the US-city vocabulary: the same letter as FridgeFix/Dallas.
+      ['fridgefix', 'Fort Worth'],
     ];
     const reviewed = new Set(REVIEWED.map(([c, t]) => `${c}|${t}`));
     const found = new Set();

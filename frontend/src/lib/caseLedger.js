@@ -342,6 +342,12 @@ const _GEO_OTHER = [
   'Mississippi', 'Louisiana', 'Arkansas', 'Oklahoma', 'Kansas', 'Nebraska', 'Montana', 'Idaho', 'Wyoming',
   'Alaska', 'Hawaii', 'Maryland', 'Massachusetts', 'Connecticut', 'New Mexico', 'New Hampshire', 'Vermont',
   'Maine', 'Delaware', 'Rhode Island', 'North Dakota', 'South Dakota',
+  // US cities letters have put cases in, or might (a sent letter: "Dallas, Fort Worth metro")
+  'Fort Worth', 'San Antonio', 'Philadelphia', 'Sacramento', 'San Jose', 'Orlando', 'Tampa', 'Nashville',
+  'Detroit', 'Minneapolis', 'Pittsburgh', 'Cleveland', 'Baltimore', 'Irvine', 'Anaheim', 'Santa Ana',
+  'Newport Beach', 'Long Beach', 'Oakland', 'Scottsdale', 'Salt Lake City', 'Kansas City', 'St. Louis',
+  'Raleigh', 'Indianapolis', 'Portland', 'Honolulu', 'Tucson', 'Albuquerque', 'Omaha', 'Memphis',
+  'Louisville', 'Milwaukee', 'Cincinnati', 'New Orleans',
 ]
 const _escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const _GEO_GROUP_OF = (() => {
@@ -413,7 +419,7 @@ function _sentenceBounds(para, pos) {
 // another's.
 function _caseWindows(text) {
   const out = []
-  for (const para of String(text).split(/\n\s*\n/)) {
+  String(text).split(/\n\s*\n/).forEach((para, pi) => {
     const hits = []
     for (const c of CASE_LEDGER) {
       const re = _CASE_NAME_RES[c.id] || new RegExp(`\\b${_escRe(c.name)}\\b`, 'gi')
@@ -432,9 +438,9 @@ function _caseWindows(text) {
         from = i > 0 ? Math.max(s, hits[i - 1].end) : s
         to = Math.min(e, nextStart)
       }
-      out.push({ c: h.c, text: para.slice(from, to), nameStart: h.start - from, nameEnd: h.end - from })
+      out.push({ c: h.c, text: para.slice(from, to), nameStart: h.start - from, nameEnd: h.end - from, pi, from })
     })
-  }
+  })
   return out
 }
 
@@ -610,6 +616,95 @@ export function findCaseFactConflicts(text) {
     }
   }
   return { geo, time }
+}
+
+// ── Auto-fix for a case's place (owner-approved 2026-09-27, job 16378) ─────────
+// "Atlant Real Estate (…): California property developer" — the model gave the
+// case the CLIENT's region. Only clear-cut shapes are rewritten, each by DELETING
+// the place, never by substituting another; anything else stays a flag:
+//   (P) a short parenthetical that is just the place  "Vape Shop (USA):", "(Korean products)"
+//   (L) a list item or appositive                     ", US market."  "(appliance repair, Vienna)"  "ChronoCash, Germany ("
+//   (R) a place ending a clause after a preposition   "geo expansion across California."  "in Kyiv - …"
+//   (A) a place used as an adjective                  "California property developer"  "a Dallas property developer"
+// Timeframes stay record-only.
+function _geoConflictSpans(text) {
+  const spans = []
+  const seen = new Set()
+  for (const w of _caseWindows(text)) {
+    const c = w.c
+    _GEO_RE.lastIndex = 0
+    let m
+    while ((m = _GEO_RE.exec(w.text))) {
+      const a = m.index, b = a + m[0].length
+      if (a < w.nameEnd && b > w.nameStart) continue
+      if ((c.geo || []).includes(_GEO_GROUP_OF.get(m[0]))) continue
+      if (_isClientClause(w.text, a)) continue
+      const key = `${w.pi}|${w.from + a}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      spans.push({ pi: w.pi, start: w.from + a, end: w.from + b, term: m[0], case: c.id })
+    }
+  }
+  return spans
+}
+const _CLAUSE_END_AHEAD = /^(?=\s*[.,;:)]|\s+\(|\s+[-–—]\s|\s*$)/
+function _joinCut(p, s, e) {
+  let left = p.slice(0, s), right = p.slice(e)
+  if (/ $/.test(left) && /^ /.test(right)) right = right.slice(1)
+  if (/ $/.test(left) && /^[,.;:)]/.test(right)) left = left.replace(/ +$/, '')
+  return left + right
+}
+function _fixOneGeo(p, s, e) {
+  const before = p.slice(0, s), after = p.slice(e)
+  let m, n
+  // (P) "(USA)", "(Korean products)" — the whole parenthetical goes
+  if ((m = before.match(/ ?\(\s*$/)) && (n = after.match(/^([^()\n,]{0,40})\)/)) && n[1].trim().split(/\s+/).filter(Boolean).length <= 2) {
+    return _joinCut(p, s - m[0].length, e + n[0].length)
+  }
+  // (L) ", US market." / "(appliance repair, Vienna)" / "ChronoCash, Germany (attached …)"
+  if ((m = before.match(/\s*,\s*$/)) && (n = after.match(/^(?:\s+(?:metro|area|region|market|markets))?/i)) && _CLAUSE_END_AHEAD.test(after.slice(n[0].length))) {
+    return _joinCut(p, s - m[0].length, e + n[0].length)
+  }
+  // (R) "… across California." / "… in Kyiv - …"
+  if ((m = before.match(/\s+(?:in|across|from|throughout|around|near|based\s+in|out\s+of)\s+(?:the\s+)?$/i)) && _CLAUSE_END_AHEAD.test(after)) {
+    return _joinCut(p, s - m[0].length, e)
+  }
+  // (A) "California property developer", "a Dallas property developer", "UK florist running …"
+  if ((n = after.match(/^(?:-(?:based|area|market))?\s+(?=[A-Za-z0-9])/)) && !/^(?:-\w+)?\s+(?:and|or|to|in|for|with|at|of|on|by)\b/i.test(after)) {
+    let out = p.slice(0, s) + p.slice(e + n[0].length)
+    const art = p.slice(0, s).match(/\b(an?)\s+$/i)
+    if (art) {
+      const nextWord = p.slice(e + n[0].length)
+      const want = /^[aeiou]/i.test(nextWord) ? 'an' : 'a'
+      const fixed = art[1][0] === art[1][0].toUpperCase() ? want[0].toUpperCase() + want.slice(1) : want
+      out = p.slice(0, s - art[0].length) + fixed + ' ' + p.slice(e + n[0].length)
+    }
+    // a sentence that now starts lower-case gets its capital back
+    const at = s - (art ? art[0].length : 0)
+    if (/(?:^|[.!?]\s+)$/.test(out.slice(0, at))) out = out.slice(0, at) + out.charAt(at).toUpperCase() + out.slice(at + 1)
+    return out
+  }
+  return null
+}
+export function fixCaseGeoClaims(text) {
+  const src = String(text || '')
+  const spans = _geoConflictSpans(src)
+  if (!spans.length) return { text: src, fixed: [], left: [] }
+  const parts = src.split(/(\n\s*\n)/)            // paragraph k is parts[2k]
+  const fixed = [], left = []
+  const byPara = new Map()
+  for (const sp of spans) { if (!byPara.has(sp.pi)) byPara.set(sp.pi, []); byPara.get(sp.pi).push(sp) }
+  for (const [pi, list] of byPara) {
+    let p = parts[2 * pi]
+    for (const sp of list.sort((x, y) => y.start - x.start)) {   // right to left keeps offsets valid
+      const next = _fixOneGeo(p, sp.start, sp.end)
+      if (next == null) { left.push(sp); continue }
+      p = next
+      fixed.push(sp)
+    }
+    parts[2 * pi] = p
+  }
+  return { text: parts.join(''), fixed, left }
 }
 
 // ── What the letter says is attached ──────────────────────────────────────────
