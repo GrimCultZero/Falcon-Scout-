@@ -446,3 +446,114 @@ export function findWhiteLabelPitch(text, { postingText = '' } = {}) {
   }
   return out
 }
+
+// ── logistics the client didn't ask about (KB Rule 436, 2026-09-29) ──────────
+// "Never volunteer logistics (timezone, hours, reporting cadence, availability)
+// the client did not ask for." The check (moved here from JobDetail.jsx) had no
+// posting side: its comment said a rewrite pass would keep the ones the client
+// asked for, and that pass was deleted on 2026-09-02. So job 16684, whose posting
+// lists "Your availability to start.", got "Available to start immediately"
+// flagged as volunteered. Each group's patterns are the old ones, unchanged; the
+// posting side is new.
+const _LOGISTICS = [
+  { kind: 'timezone',
+    res: [/\b(?:i'?m|i\s+am|based|operate|working)\s+(?:in\s+)?(?:UTC|GMT|EST|PST|CET|EET|CST|MST)\b/i, /\btime\s*zone\s+(?:overlap|isn'?t|is\s+not|won'?t)\b/i],
+    asked: /\btime\s*zones?\b|\b(?:UTC|GMT|EST|EDT|PST|PDT|CET|CEST|EET|CST|MST|AEST|BST)\b|\boverlap\b|\b(?:business|working|office)\s+hours\b/i },
+  { kind: 'working hours',
+    res: [/\b(?:working\s+hours?|work\s+async|async\s+(?:work|with\s+structured))\b/i, /\bdaily\s+stand-?ups?\b/i],
+    asked: /\b(?:business|working|office)\s+hours\b|\basync(?:hronous(?:ly)?)?\b|\bstand-?ups?\b|\bwork(?:ing)?\s+schedule\b|\boverlap\b/i },
+  { kind: 'reporting cadence',
+    res: [/\bstructured\s+(?:weekly|monthly|biweekly)\s+report/i, /\b(?:weekly|monthly|biweekly)\s+(?:performance\s+)?report(?:s|ing)\s+(?:so|on|of|covering|against)\b/i],
+    asked: /\b(?:weekly|monthly|bi-?weekly|daily|regular)\s+(?:reports?|reporting|updates?|summar(?:y|ies)|check-?ins?|calls?)\b|\breport(?:s|ing)?\s+(?:weekly|monthly|every|on\s+a\s+(?:weekly|monthly))\b|\bhow\s+(?:often|frequently)\b[^.?\n]{0,60}\b(?:report|update|communicat)/i },
+  { kind: 'availability',
+    res: [/\b(?:i'?m\s+)?available\s+(?:immediately|right\s+away|asap|now|to\s+start)\b/i, /\bcan\s+start\s+(?:immediately|right\s+away|asap|today|tomorrow|this\s+week|next\s+week)\b/i, /\b\d+\+?\s*hours?\s+(?:per|a)\s+week\s+available\b/i],
+    asked: /\byour\s+availability\b|\bavailability\s+(?:to\s+start|for\s+(?:this|the)\s+(?:role|project|job))\b|\bavailable\s+to\s+(?:start|begin)\b|\b(?:when|how\s+soon)\s+(?:can|could|would)\s+you\s+(?:start|begin)\b|\bstart\s+date\b|\b(?:able|ready)\s+to\s+start\b|\bstart\s+(?:immediately|asap|right\s+away|within|this\s+week|next\s+week)\b|\bhow\s+many\s+hours\b|\bhours?\s+(?:per|a|each)\s+week\b|\bweekly\s+hours\b/i },
+]
+export function findUnsolicitedLogistics(text, { postingText = '' } = {}) {
+  const t = String(text || '')
+  const p = String(postingText || '')
+  const out = []
+  for (const g of _LOGISTICS) {
+    if (g.asked.test(p)) continue
+    for (const re of g.res) {
+      const m = t.match(re)
+      if (m) { out.push({ kind: g.kind, phrase: m[0] }); break }
+    }
+  }
+  return out
+}
+
+// ── the posting turns down an audit as the deliverable (2026-09-29) ──────────
+// Job 16684: "Please focus on concrete actions and implementation rather than a
+// general audit or review process" — and missingAuditPriceEntirely still demanded
+// the $300 audit. Two opposite shapes, read posting by posting on 758 postings:
+//   declined   "not just an audit", "NOT an audit-only project", "rather than a
+//              standalone CRO audit", "We do not want someone who only gives us
+//              an audit document", "not looking for another audit" — they want
+//              the work done; an audit is not the product.
+//   NOT declined  "not a generic / standard / basic SEO audit", "not looking for
+//              an automated audit" — they still want an audit, a real one, which
+//              is what Artem's manual audit is.
+// Bare "reviews" is never read: in these postings it is nearly always customer
+// reviews ("not simply to collect more reviews", "no fake reviews").
+const _AUDIT_DECLINED_RES = [
+  /\bnot\s+(?:just|only|simply|merely)\s+(?:[\w-]+\s+){0,3}?(?:audits?|audit\s+(?:documents?|reports?))\b/i,
+  /\bnot\s+(?:an?\s+)?audit[\s-]only\b/i,
+  /\bnot\s+(?:looking\s+for|after|interested\s+in|seeking|asking\s+for|paying\s+for)\s+(?:another|an?)\s+(?:(?:seo|ppc|google\s+ads|account|site)\s+)?audits?\b/i,
+  /\b(?:rather\s+than|instead\s+of)\s+(?:(?:simply|just|only)\s+)?(?:(?:send(?:ing)?|provid(?:e|ing)|deliver(?:ing)?|giv(?:e|ing))\s+(?:us\s+)?)?(?:an?\s+)?(?:(?:general|standalone|full|lengthy|formal|big|long|separate|one[\s-]off|automated)\s+)?(?:(?:seo|ppc|cro|google\s+ads|account|site|technical)\s+)?audits?\b/i,
+  /\b(?:do\s+not|don['’]?t)\s+(?:want|need)\s+(?:(?:someone|anyone)\s+who\s+(?:only|just)\s+(?:gives?|provides?|sends?|delivers?)\s+(?:us\s+)?)?(?:another\s+|an?\s+)?(?:[\w-]+\s+){0,2}?(?:audits?|audit\s+documents?)\b/i,
+]
+export function postingDeclinesAudit(text) {
+  const t = String(text || '')
+  for (const re of _AUDIT_DECLINED_RES) {
+    const m = t.match(re)
+    if (m) return { phrase: m[0] }
+  }
+  return null
+}
+
+// ── Google Ads AND Meta in scope (2026-09-29) ────────────────────────────────
+// Job 16684 asked to "take over and directly manage our existing Google Ads and
+// Meta Ads accounts" (Meta: 3 active Sales campaigns) and the letter planned its
+// 24 h / 48 h / week 1 in Google alone — Meta was never named. Meta is in scope
+// when the TITLE names it, or when a sentence gives the freelancer Meta work
+// ("manage Google Ads and Meta Ads campaigns") outside a nice-to-have. Not in
+// scope, each seen in the DB: a nice-to-have (job 16678, "Nice to have •
+// Experience with Meta Ads alongside Google"; "Nice to Have (Not Required) Meta
+// Ads experience"), a maybe-later ("Possibly … adding Meta Ads"), and the
+// client's own channel ("growing two brands through Meta and Google Ads, and
+// we're looking for someone who can assess our Google Ads").
+const _GOOGLE_ADS_RE = /\b(?:google\s+ads?|adwords|google\s+shopping|performance\s+max|pmax|google\s+ppc)\b/i
+const _META_ADS_RE = /\bmeta\s+(?:ads?|advertising|campaigns?|sales\s+campaigns?|business\s+(?:manager|suite)|pixel|ads\s+manager)\b|\bfacebook\s+(?:ads?|advertising|campaigns?|pixel)\b|\binstagram\s+(?:ads?|advertising)\b|\bgoogle(?:\s+ads)?\s*(?:and|&|\+|\/)\s*meta\b|\bmeta\s*(?:and|&|\+|\/)\s*google\b/i
+const _OPTIONAL_RE = /\bnice[\s-]to[\s-]haves?\b|\b(?:a|big|huge|major)\s+plus\b|\bbonus\b|\bpreferred\b|\bideally\b|\boptional\b|\bwould\s+be\s+(?:great|nice|helpful|a\s+plus)\b|\bbeneficial\b|\badvantage(?:ous)?\b|\bnot\s+required\b|\bpossibly\b|\bpotentially\b|\bin\s+the\s+future\b|\blater\s+on\b|\bdown\s+the\s+(?:line|road)\b/i
+const _WORK_VERB_RE = /\b(?:manag(?:e|es|ed|ing|ement)|run(?:s|ning)?|handl(?:e|ing)|take\s+over|taking\s+over|optimi[sz](?:e|ing|ation)|scal(?:e|ing)|launch(?:ing)?|set(?:ting)?\s+up|build(?:ing)?|audit(?:ing)?|own(?:ing)?|oversee(?:ing)?|improv(?:e|ing)|execut(?:e|ing)|specialist|expert|manager|buyer)\b/i
+// A short line without end punctuation is a heading; one naming a normal section
+// (or ending in ":") closes a nice-to-have section, a nice-to-have heading opens one.
+const _SECTION_HEADING_RE = /:\s*$|^(?:what\s+(?:you['’]?ll|you\s+will)\s+do|what\s+we['’]?re\s+looking\s+for|what\s+we\s+need|requirements?|responsibilities|key\s+responsibilities|qualifications|must[\s-]haves?|about\s+(?:us|you|the\s+(?:role|job|project|company))|how\s+to\s+apply|to\s+apply|scope|deliverables|budget|timeline|summary|the\s+(?:role|project)|your\s+role|skills|in\s+your\s+proposal|please\s+include|account\s+context|immediate\s+priority|goals?|kpis?|tools|who\s+you\s+are|ideal\s+candidate)\b/i
+export function postingNamesGoogleAndMeta(text) {
+  const t = String(text || '')
+  if (!_GOOGLE_ADS_RE.test(t)) return false
+  const [title = '', ...body] = t.split('\n')
+  if (_META_ADS_RE.test(title) || /\bmeta\b/i.test(title)) return true
+  let optionalSection = false
+  for (const raw of body) {
+    const line = raw.trim()
+    if (!line) continue
+    const bullet = /^(?:[•\-*–]|\d+[.)])\s*/.test(line)
+    if (!bullet && line.length <= 60 && !/[.!?]\s*$/.test(line)) {
+      if (_OPTIONAL_RE.test(line)) optionalSection = true
+      else if (_SECTION_HEADING_RE.test(line)) optionalSection = false
+    }
+    if (optionalSection) continue
+    for (const { text: s } of _sentencePieces(line)) {
+      if (_META_ADS_RE.test(s) && _WORK_VERB_RE.test(s) && !_OPTIONAL_RE.test(s)) return true
+    }
+  }
+  return false
+}
+// Does the letter name any Meta work? Meta / Facebook / Instagram as a platform,
+// the Conversions API. "meta description / meta tags" are SEO and don't count.
+const _META_IN_LETTER_RE = /\bmeta\b(?![\s-]*(?:descriptions?|tags?|titles?|data|keywords?|fields?|robots)\b)|\bfacebook\b|\binstagram\b|\bcapi\b|\bconversions\s+api\b/i
+export function letterCoversMeta(text) {
+  return _META_IN_LETTER_RE.test(String(text || ''))
+}

@@ -18,7 +18,11 @@
 // NOT a licence to name a target market.
 //
 // Claim classes (maps to the six job-8484 fixture defects, ANTIFAB_HANDOFF.md §9):
-//   metricNotInLedger  — fabricated numbers on a named case (defects #1*/#4)
+//   metricNotInLedger  — fabricated numbers on a named case (defects #1*/#4); a
+//                        figure the posting states is the client's, never a
+//                        case metric (job 16684)
+//   caseMetricsOrphaned — enforce removed the sentence naming the case while
+//                        another sentence still states its results (reported)
 //   caseDuplicated     — a case cited in 2+ blocks (defect #3 / 2026-07-24 dup block)
 //   attachmentUnbacked — wrong or duplicated attachment label on a case (defect #5)
 //   marketNotInPosting — geo/market not authorised by the posting (2026-07-24 "Israel")
@@ -82,6 +86,28 @@ const _caseNumbers = (id) => {
   for (const m of c.metrics || []) for (const n of String(m).match(/\d[\d.,]*/g) || []) set.add(n.replace(/,/g, '').replace(/\.$/, ''))
   return set
 }
+// Figures the POSTING states are the client's facts, not case metrics. Job 16684
+// (2026-09-29): the draft tied Nectar Flowers to the client's "$2,000–$3,000 per
+// month", metricNotInLedger took those for fabricated case numbers, and enforce
+// deleted the whole sentence — case name, attachment note and the bridge to the
+// client with it — leaving "Dropped CPA 72%, grew transaction revenue 350% inside
+// 90 days." with no case at all. One set per metric shape ($ with $, % with %),
+// so a posting's "3 campaigns" never licenses a "3x" on a case. "$2K" and
+// "$2,000" are the same figure either way round.
+const _postingMetricNumbers = (posting) => _METRIC_RES.map(re => {
+  const set = new Set()
+  const re2 = new RegExp(re.source, re.flags)
+  let m
+  while ((m = re2.exec(posting))) {
+    const n = _numOf(m[0])
+    if (!n) continue
+    set.add(n)
+    const v = Number(n)
+    if (/\d\s?k\b/i.test(m[0])) set.add(String(v * 1000))
+    if (v >= 1000 && v % 1000 === 0) set.add(String(v / 1000))
+  }
+  return set
+})
 
 // ── attachment labels ──
 const _PDF_LABEL_RE = /\(\s*(?:case\s+study\s+)?attached\s+as\s+a?\s*pdf\s*\)/gi
@@ -191,30 +217,35 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
   if (_allCasesInLetter.length > 2) record('tooManyCaseStudies')
 
   // ── metricNotInLedger + attachmentUnbacked: scoped to case paragraphs ──
+  const postingNums = _postingMetricNumbers(posting)
   const newParas = paras.map((para, pi) => {
     const ids = paraCases[pi]
     if (!ids.length) return para
     let p = para
 
-    // metrics must trace (by number) to one of the cases named in this paragraph
+    // metrics must trace (by number) to one of the cases named in this paragraph,
+    // or be a figure the posting itself states
     const allowed = new Set()
     ids.forEach(id => _caseNumbers(id).forEach(n => allowed.add(n)))
     const badSpans = []
-    for (const re of _METRIC_RES) {
+    _METRIC_RES.forEach((re, ri) => {
       const re2 = new RegExp(re.source, re.flags)
       let m
       while ((m = re2.exec(p))) {
         const n = _numOf(m[0])
-        if (n && !allowed.has(n)) {
+        if (n && !allowed.has(n) && !postingNums[ri].has(n)) {
           record('metricNotInLedger')
           badSpans.push([m.index, m.index + m[0].length])
         }
       }
-    }
+    })
     if (enforce && badSpans.length) {
       // Remove the whole sentence(s) carrying the fabricated number(s) rather
       // than just the number token — see _removeEnclosingSentences above.
       p = _removeEnclosingSentences(p, badSpans)
+      // If that took the case's name with it while another sentence still states
+      // results, the letter now claims numbers with no case attached. Reported.
+      if (!_casesIn(p).length && _METRIC_RES.some(re => new RegExp(re.source, 'i').test(p))) record('caseMetricsOrphaned')
     }
 
     // attachment label must match the (single) cited case's ledger attachment,

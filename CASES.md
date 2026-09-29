@@ -136,6 +136,7 @@ as off-platform intent. Context didn't save it; the pattern alone fired.
 
 Owner supplied `Cases recap.docx` with REAL numbers for all cases → stored as core KB note **#506** (single source of truth). Key reconciliations vs what the generator had been citing:
 - **Skin Reboot "$12k→$95k revenue" was FABRICATED** — real figures: +91.58% traffic, +134.12% conv, **+693.8% revenue, 17.51 PMax ROAS** (overall ROAS 15.04, 50,036 clicks). Removed the dollar figure from both generator case menus.
+  - *2026-09-29:* two KB rules still carried it into every prompt — #407 (scope:always, "cite the paid result (e.g. Skin Reboot's 17.51 ROAS, $12k to $95k revenue)") and #437 (regulated). Both now say "17.51 PMax ROAS, +693.8% revenue" (originals backed up in the session scratchpad). The code backstop had been catching it on every regeneration (job 16678's `fabricatedSkinRebootRevenue`).
 - **Golden State Trailers "+350% organic / 72 city pages" is REAL** (67 kw Top 3, 110 ref domains) — an earlier review wrongly flagged it as conflated; the generator was accurate.
 - **ChronoCash = NEW case** (KB **#507**): European luxury watch dealer, Google Ads — €0.52 CPC, +42% conv, 4.69K conv from 9.21K clicks, €4.83K/mo (Video+PMax+DSA+Demand Gen). Added to PPC menu as the lead luxury/high-ticket case.
 - **Luxury Parfums** added to SEO menu (+79% visits, +143% revenue, 33 kw Top 1).

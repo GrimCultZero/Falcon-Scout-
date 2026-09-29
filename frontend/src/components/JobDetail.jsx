@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -3014,6 +3014,16 @@ function _setCurrentJobId(id) { _currentJobId = id ?? null }
 let _runViolations = []
 function _beginViolationRun() { _runViolations = [] }
 function _getRunViolations() { return [..._runViolations] }
+// Recorded for telemetry, never shown under the letter: none of these says the
+// letter has a problem. A roll-up, two measurements of the job classification,
+// an "armed" marker, and an analyser event.
+const _INFO_ONLY_CODES = new Set([
+  'draftNotCompliant',
+  'agencyClassificationOverrodeRegex',
+  'jobTypeBlobContamination',
+  'digitBombArmedForThisRun',
+  'auditJobVerdictOverridden',
+])
 
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
@@ -3068,7 +3078,11 @@ function _recordViolations(surface, jobId, checks) {
 const GC_ENFORCE = true
 function _gcShadow(finalText, jobObj) {
   try {
-    const posting = (jobObj && (jobObj.description_full || jobObj.description_snippet || jobObj.raw_message)) || ''
+    // Title + description: both are the client's own words (a figure in the title,
+    // "$2K/month budget", is as much theirs as one in the body).
+    const posting = jobObj
+      ? [jobObj.title, jobObj.description_full || jobObj.description_snippet || jobObj.raw_message].filter(Boolean).join('\n')
+      : ''
     const gc = groundingCheck(finalText, { postingText: posting, enforce: GC_ENFORCE })
     if (gc.violations.length) _recordViolations('generator', jobObj && jobObj.id, gc.violations)
     return GC_ENFORCE ? gc.text : finalText
@@ -6644,6 +6658,20 @@ function ProposalColumn({
       const _caseDomainNote = (_caseSeoSignal && _casePpcSignal)
         ? `MIXED SEO + PPC JOB (mandatory): this posting needs BOTH SEO and paid-ads proof — do not treat it as PPC-only. You MUST cite ONE case study from each domain: an SEO case (Golden State Trailers, Multilingual Site, Derma Solution, Luxury Parfums, or Skin Reboot's SEO angle) AND a PPC case (FridgeFix, House Painting, Nectar Flowers, or Skin Reboot's PPC angle). Citing two PPC-only cases with zero SEO cases (or vice versa) fails this job's actual scope.`
         : ''
+      // Job 16684 (2026-09-29): both notes below, same pattern as the case-domain
+      // note — a job-specific directive the model can't skim past. The posting
+      // wanted its Google Ads AND Meta accounts taken over and got a plan that
+      // never named Meta; it asked for "concrete actions and implementation rather
+      // than a general audit or review process" and got a first 24 hours of pure
+      // review. Detectors: lib/letterGuards.js.
+      const _postingTitleDesc = `${job.title || ''}\n${fullDescription}`
+      const _dualChannelNote = postingNamesGoogleAndMeta(_postingTitleDesc)
+        ? `GOOGLE ADS + META JOB (mandatory): this posting has you running Google Ads AND Meta Ads. Cover BOTH in every plan, timeline or first-steps answer — name the Meta work next to the Google work (its campaigns, pixel / Conversions API and attribution, audiences, creative fatigue — only what fits this posting). A plan that only mentions Google reads as if you skipped half the brief. None of the approved case studies is a Meta case: describe the Meta work, never a Meta track record or result.`
+        : ''
+      const _auditDeclinedAsk = postingDeclinesAudit(_postingTitleDesc)
+      const _actionOverAuditNote = _auditDeclinedAsk
+        ? `ACTION OVER AUDIT (mandatory): the posting turns down an audit as the deliverable ("${_auditDeclinedAsk.phrase}") — it wants the work done. Do not pitch an audit as the product. In any timeline or first-steps answer, the EARLIEST block must contain real changes, not only analysis: say which changes you would make straight away and which genuinely need more data first — only what fits this posting, never invented account facts. If the posting asks when results should start to recover, give a realistic estimate.`
+        : ''
       // Job 13394 (Scilumen.com, 2026-08-27): posting's actual screening ask
       // ("Please visit Scilumen.com and review the homepage and at least one
       // article. In 2-3 sentences, tell us which area you would investigate
@@ -6670,6 +6698,8 @@ function ProposalColumn({
         `Rate: ${job.hourly_rate_min ? `$${job.hourly_rate_min}-$${job.hourly_rate_max}/hr` : job.fixed_budget || 'not specified'}`,
         _rateAnchorNote,
         _caseDomainNote,
+        _dualChannelNote,
+        _actionOverAuditNote,
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
         whiteLabelFraming
@@ -7726,25 +7756,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // reporting cadence, or availability unless the client asked, and
             // never end with filler closers ("looking forward to working with
             // you", "happy to discuss", "let me know your thoughts", etc.).
-            // These regexes flag potential violations; the enforcer decides
-            // whether to trim (when unsolicited) or keep (when the client
-            // explicitly asked OR it's inside a case-study description).
-            const UNSOLICITED_LOGISTICS_RE = [
-              // Timezone self-identification
-              /\b(?:i'?m|i\s+am|based|operate|working)\s+(?:in\s+)?(?:UTC|GMT|EST|PST|CET|EET|CST|MST)\b/i,
-              /\btime\s*zone\s+(?:overlap|isn'?t|is\s+not|won'?t)\b/i,
-              // Working-hours / async self-description
-              /\b(?:working\s+hours?|work\s+async|async\s+(?:work|with\s+structured))\b/i,
-              /\bdaily\s+stand-?ups?\b/i,
-              // Reporting cadence volunteered ("weekly/monthly reporting" as
-              // an offer, not a case-study metric).
-              /\bstructured\s+(?:weekly|monthly|biweekly)\s+report/i,
-              /\b(?:weekly|monthly|biweekly)\s+(?:performance\s+)?report(?:s|ing)\s+(?:so|on|of|covering|against)\b/i,
-              // Availability / start-date volunteered
-              /\b(?:i'?m\s+)?available\s+(?:immediately|right\s+away|asap|now|to\s+start)\b/i,
-              /\bcan\s+start\s+(?:immediately|right\s+away|asap|today|tomorrow|this\s+week|next\s+week)\b/i,
-              /\b\d+\+?\s*hours?\s+(?:per|a)\s+week\s+available\b/i,
-            ]
+            // The logistics patterns live in lib/letterGuards.js
+            // (findUnsolicitedLogistics), each group with the posting shapes that
+            // count as the client asking — this check used to leave that to the
+            // enforcer, which was deleted on 2026-09-02, so it flagged answers to
+            // direct questions (job 16684: "Your availability to start.").
+            const _logisticsVolunteered = findUnsolicitedLogistics(text, { postingText: `${job.title || ''}\n${fullDescription}` })
+            if (_logisticsVolunteered.length) console.warn('[Falcon] Logistics the posting never asked about:', _logisticsVolunteered.map(l => `${l.kind}: "${l.phrase}"`))
             const FILLER_CLOSER_RE = [
               /\blooking\s+forward\s+to\s+(?:working|hearing|chatting|connecting|speaking|the\s+opportunity)/i,
               /\bhappy\s+to\s+(?:discuss|chat|connect|jump\s+on|hop\s+on|talk)/i,
@@ -7753,7 +7771,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\bfeel\s+free\s+to\s+(?:reach\s+out|message|contact|ping)/i,
               /\bavailable\s+to\s+(?:chat|connect|discuss|jump\s+on\s+a\s+call|hop\s+on\s+a\s+call)/i,
             ]
-            const hasUnsolicitedLogistics = UNSOLICITED_LOGISTICS_RE.some(re => re.test(text))
+            const hasUnsolicitedLogistics = _logisticsVolunteered.length > 0
             const hasFillerCloser = FILLER_CLOSER_RE.some(re => re.test(text))
 
             // ── Assumed-vertical / fabricated-brand check ────────────────────
@@ -7842,6 +7860,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _wlPitch = _whiteLabelAsk ? [] : findWhiteLabelPitch(text, { postingText: fullDescription })
             const unrequestedWhiteLabel = _wlPitch.length > 0
             if (unrequestedWhiteLabel) console.warn('[Falcon] White-label / agency pitch the posting never asked for — rewrite as a specialist:', _wlPitch)
+
+            // Google Ads + Meta posting, letter never names Meta (job 16684). The
+            // prompt note (_dualChannelNote) asks for both; this reports a miss.
+            const metaChannelMissing = !!_dualChannelNote && !letterCoversMeta(text)
+            if (metaChannelMissing) console.warn('[Falcon] The posting has Google Ads AND Meta in scope — the letter never mentions Meta.')
 
             // Case location / timeframe. The flags come from the grounding checker
             // in the strip chain (caseGeoNotInLedger / caseTimeframeNotInLedger,
@@ -8431,8 +8454,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // enforcer's must-keep-pricing regression check below (present
             // pre-enforcer, then dropped) — this catches the first pass never
             // stating it at all.
-            // Same _postingAsksRate gate as wrongAuditPrice above.
-            const missingAuditPriceEntirely = _postingAsksRate && jobIsPpcAuditExisting && !draftOffersPpcAudit
+            // Same _postingAsksRate gate as wrongAuditPrice above. Not when the
+            // posting turns down an audit as the deliverable (job 16684: "concrete
+            // actions and implementation rather than a general audit or review
+            // process", pricing the takeover review in hours) — lib/letterGuards.js.
+            const missingAuditPriceEntirely = _postingAsksRate && jobIsPpcAuditExisting && !draftOffersPpcAudit && !_auditDeclinedAsk
             // Webdev detection: if the job is about building a site (WordPress dev,
             // Shopify, OpenCart, web dev, build a website), suppress the SEO promotion
             // plan requirement — that deliverable is wrong for a development scope.
@@ -9062,6 +9088,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !offersCall
               && !seoPriceOffLedger
               && !unrequestedWhiteLabel
+              && !metaChannelMissing
 
             // Telemetry (Phase C): record every guard that fired this run.
             // Captured into a named list (not passed inline) because the enforcer's
@@ -9073,6 +9100,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               overBudgetLengthCap && 'overBudgetLengthCap',
               offersCall && 'offersCall',
               unrequestedWhiteLabel && 'unrequestedWhiteLabel',
+              metaChannelMissing && 'metaChannelMissing',
               hasExplainerOpener && 'hasExplainerOpener',
               hasForbiddenPhrase && 'hasForbiddenPhrase',
               missingAuditSampleMention && 'missingAuditSampleMention',
@@ -9134,9 +9162,12 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             ].filter(Boolean)
             _recordViolations('generator', job?.id, _firedChecks)
             // Union of the check block AND everything the strips raised earlier in
-            // this run — draftNotCompliant excluded, it is a roll-up of the others
-            // and only adds noise to a list Artem reads line by line.
-            setRuleFlags(_getRunViolations().filter(n => n !== 'draftNotCompliant'))
+            // this run, minus what says nothing about the letter: draftNotCompliant
+            // (a roll-up of the others) and the telemetry-only notes — they still
+            // reach the rule_violations table, just not the list Artem reads line by
+            // line (job 16684 listed agencyClassificationOverrodeRegex, which only
+            // meant the classifier had read the posting correctly).
+            setRuleFlags(_getRunViolations().filter(n => !_INFO_ONLY_CODES.has(n)))
 
             // ── ENFORCER DELETED (2026-09-02) ──────────────────────────────
             // Step 6 of the generator audit's migration plan. The second

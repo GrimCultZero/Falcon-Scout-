@@ -8764,3 +8764,60 @@ on purpose, KB #478). Reported, not stripped: the pitch is usually the whole ope
 every one read by hand as a genuine white-label ask; 15 known traps come back null. 256 sent letters:
 17 pitch white-label — 5 to postings that asked, **12 to postings that never did** (ghosted 7,
 invited 2, viewed 1, replied 2). `tests/white-label.test.js` 54/54; every other suite passes.
+
+## 2026-09-29 — job 16684: letter vs the posting's questions — five fixes
+
+Owner asked for the letter to be analysed against the posting's questions, then "fix all". An
+e-commerce Google Ads + Meta takeover that wants "concrete actions and implementation rather than a
+general audit or review process" and a 24 h / 48 h / first-week plan. The letter answered the five
+listed asks, but planned in Google only, spent its first 24 hours on review, never said when the
+decline would turn, and opened "Dropped CPA 72%, grew transaction revenue 350% inside 90 days." —
+Nectar Flowers' numbers with no case name, plus a timeframe the case doesn't have.
+
+1. **The grounding checker deleted the case name.** `metricNotInLedger` counts any $/%/x figure in a
+   case paragraph that isn't in that case's ledger as fabricated, and under enforce removes the whole
+   sentence. The draft (reconstructed — the pre-strip text isn't stored; the reconstruction gives the
+   shipped opener exactly and the same single code) tied the case to the client's "$2,000–$3,000 per
+   month", so the sentence with the case name, the attachment note and the bridge went. A figure the
+   posting states (title + description, same metric shape: $ with $, % with %) is now the client's,
+   never a case metric; "$2K" and "$2,000" are one figure. New record-only `caseMetricsOrphaned` when
+   enforce removes the sentence naming a case while another still states its results. Sent corpus:
+   no change (those sentences were already deleted before sending).
+2. **`hasUnsolicitedLogistics` had no posting side** — its comment left that to the enforcer, deleted
+   2026-09-02 — so "Available to start immediately" was flagged on a posting listing "Your
+   availability to start." Moved to `findUnsolicitedLogistics` (letterGuards.js): the same patterns in
+   four groups (timezone, working hours, reporting cadence, availability), each skipped when the
+   posting asks about it. Sent letters flagged: 10 → 6; the 4 dropped all answer an explicit ask.
+3. **`missingAuditPriceEntirely` demanded the $300 audit** from a posting that turns audits down.
+   `postingDeclinesAudit`: "not just an audit", "NOT an audit-only project", "rather than a
+   standalone … audit", "only gives us an audit document" — but NOT "not a generic / standard /
+   automated audit" (those still want a real one, which Artem's manual audit is), and never bare
+   "reviews" (customer reviews). 15 of 758 postings, each read by hand; none is a Google Ads posting,
+   so the gate only changes 16684-shaped jobs.
+4. **Telemetry-only codes off the flag list** (`_INFO_ONLY_CODES`): draftNotCompliant,
+   agencyClassificationOverrodeRegex, jobTypeBlobContamination, digitBombArmedForThisRun,
+   auditJobVerdictOverridden — still recorded, no longer shown under the letter.
+5. **Two job-specific prompt notes + a check.** `postingNamesGoogleAndMeta`: Meta in the title, or a
+   sentence giving the freelancer Meta work, outside nice-to-have sections (job 16678's "Nice to have •
+   Experience with Meta Ads alongside Google" stays out; so do "Possibly … adding Meta Ads" and the
+   client's own channel). 34 of 758 postings. GOOGLE ADS + META note: cover both in every plan, never
+   a Meta track record (no approved case is a Meta case). ACTION OVER AUDIT note (on
+   `postingDeclinesAudit`): the earliest block must contain real changes; give a recovery estimate if
+   asked. `metaChannelMissing` reports a letter that never names Meta — 2 of 11 sent letters on such
+   postings (one titled "Google Ads and Meta Ads Specialist").
+
+**Also fixed — KB #407 and #437 still carried the fabricated Skin Reboot "$12k to $95k revenue"**
+(CASES.md, 2026-06-30), #407 into every prompt. Both now read "17.51 PMax ROAS, +693.8% revenue";
+originals backed up (`kb407_before_2026-09-29.json`, `kb437_before_2026-09-29.json`, session
+scratchpad). The backstop in `_ensureCaseStudyHighlightsLeadIn` had been catching it on regeneration.
+
+**Found, not fixed:** 42 of 256 sent letters carry a figure `metricNotInLedger` flags. The 78 flagged
+tokens are a mix: the fabricated $12k→$95k (23); real figures the ledger doesn't hold — it has headline
+metrics only (FridgeFix's $0.67 per conversion and its 2,587 clicks / 1,134 conversions, Skin Reboot's
+overall ROAS 15.04 and 50,036 clicks, CASES.md / KB #506); product details that aren't results (a 25–35%
+discount, 0% financing, "$40 serums to $400 device bundles" — copied from the DIGIT BOMB prompt's own
+illustrative example); and figures that look invented (ChronoCash "ROAS from 1.8× to 4.2×", Skin Reboot
+"spend +55%, CPA −33%", FridgeFix "$0.29 CPC"). Under enforce the real ones' sentences are deleted too.
+Adding KB #506's real numbers to the ledger would leave the deletions to the invented ones.
+
+`tests/posting-scope.test.js` 54/54; every other suite passes.

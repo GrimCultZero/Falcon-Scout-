@@ -1518,3 +1518,13 @@ specialist hire / direct), the agency-scoped KB rules (#406, #408 — the scope 
 and the white-label few-shot filters. `unrequestedWhiteLabel` and the live note flag a white-label or
 "I run … agency" pitch on a posting that didn't ask; "IT Force" / "my team" alone are fine (KB #478).
 Reported, not stripped — the pitch is usually the opener, and cutting it leaves no start.
+
+**A check that reads the letter must also read the posting (2026-09-29, job 16684).** Several checks were
+written for the deleted rewrite pass, which was supposed to tell "asked for" from "volunteered"; without
+it they flag answers. Now: `findUnsolicitedLogistics` skips a logistics group the posting asks about;
+`missingAuditPriceEntirely` stands down when `postingDeclinesAudit`; the grounding checker treats a figure
+the posting states as the client's, not a case metric (it had been deleting the sentence that named the
+case). Job-specific prompt notes, gated on posting detectors, carry what a posting needs beyond its
+bullet list: GOOGLE ADS + META (cover both, no Meta track record) and ACTION OVER AUDIT (the first block
+holds real changes). The flag list under the letter shows letter problems only — telemetry-only codes
+(`_INFO_ONLY_CODES`) are recorded but not shown.
