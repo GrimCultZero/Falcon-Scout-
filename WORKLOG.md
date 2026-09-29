@@ -8821,3 +8821,41 @@ illustrative example); and figures that look invented (ChronoCash "ROAS from 1.8
 Adding KB #506's real numbers to the ledger would leave the deletions to the invented ones.
 
 `tests/posting-scope.test.js` 54/54; every other suite passes.
+
+## 2026-09-29 — the closing audit offer on running accounts (owner: "happening constantly")
+
+Owner, sharing the 16684 regeneration: "I dont understand why generator stopped offering audits as CTA
+in the end where the job posting explicitly states that accounts are already running. It is happening
+constantly." Both 16684 drafts ended on the week-one plan. The share snapshots show drafts closing on
+the audit through 27 Sep; the sent corpus can't show it (Artem adds the close by hand before sending —
+all 67 sent letters on running-account postings end with one). Nothing held the close in place:
+- the prompt never said WHERE the offer goes — WHEN TO OFFER AN AUDIT lists what to state, not
+  "last"; the ending rule says "No CTA"; the no-pricing note said the model "may" offer it;
+- "we're not starting from scratch" matched "from scratch" in the prompt's WHEN NOT TO OFFER list,
+  and in `jobScopes` it routed KB #450 ("never offer an audit on a launch job") — the 09-27 negation
+  fix covered the launch checks, not routing;
+- the audit rules (#402, #404) route on audit vocabulary; "take over and directly manage our existing
+  Google Ads and Meta Ads accounts" has none (16684 got them only through "rather than a general audit");
+- no check reports a running-account letter with no audit offer — `missingAuditPriceEntirely` needs
+  the posting to ask for a rate.
+- and today's ACTION OVER AUDIT note said "Do not pitch an audit as the product" (fix 3/5 above),
+  with `missingAuditPriceEntirely` standing down on the same postings. Both reverted — the owner wants
+  the offer on every running account, 16684 included.
+
+Fix: `postingHasRunningAccount` (letterGuards.js) — the posting stating a live account: existing
+accounts / campaigns, take over, current / active campaigns, historical data, monthly spend, a drop in
+performance, "manage and optimize our campaigns"; not with "no existing account", a non-negated launch,
+or "set up our account / campaigns" (the prompt's own rule: a setup has nothing to audit). Calibrated on
+the sent letters: of 67 postings it reads as running, 61 got an audit close from Artem and the other 6
+are running accounts too. It now routes the `audit` scope, puts a RUNNING ACCOUNT note in the prompt
+("the LAST paragraph before 'Artem' is the Google Ads audit offer"), and `ensureRunningAccountAuditCta`
+adds Artem's standard offer as the last paragraph when a running-account Google Ads letter has none —
+price-free unless the posting asks for pricing, the fee credit only with an ongoing signal, worded so
+the manual-claim / sample / complimentary checks read it as complete. Recorded `auditCtaAutoInserted`.
+On the 67 sent letters it fires 0 times (every one already offers an audit, in eight different
+wordings — all now recognised). Prompt: WHEN TO OFFER says "last paragraph, every time" and lists the
+running-account signals; WHEN NOT TO OFFER says a negated mention is not a launch; the ending rule
+carves out the deliverable offer; the no-pricing note says the offer stays. `jobScopes` blanks negated
+launch wording before routing `launch`.
+
+`tests/audit-cta.test.js` 42/42; `tests/posting-scope.test.js` updated (55/55); every suite passes.

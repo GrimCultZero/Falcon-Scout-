@@ -115,7 +115,9 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   // ── rule routing, lifted from JobDetail.jsx ─────────────────────────────
   const from = src.indexOf('function parseRuleScopes');
   const to = src.indexOf('function rulesForAnalyser');
-  const R = new Function(`${src.slice(from, to)}; return { jobScopes, rulesForGenerator }`)();
+  // jobScopes calls two letterGuards imports (running-account audit scope, negated
+  // launch blanking — 2026-09-29), so the lifted copy gets them as parameters.
+  const R = new Function('postingHasRunningAccount', 'blankNegatedLaunch', `${src.slice(from, to)}; return { jobScopes, rulesForGenerator }`)(G.postingHasRunningAccount, G.blankNegatedLaunch);
   const RULES = [
     { id: 406, tags: 'scope:agency', content: 'When the job posting explicitly mentions they are an agency, state that you work with digital marketing agencies as a white label partner …' },
     { id: 407, tags: 'scope:always', content: 'Include ONLY case studies that are genuinely relevant …' },

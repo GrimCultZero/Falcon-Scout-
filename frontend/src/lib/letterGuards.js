@@ -557,3 +557,88 @@ const _META_IN_LETTER_RE = /\bmeta\b(?![\s-]*(?:descriptions?|tags?|titles?|data
 export function letterCoversMeta(text) {
   return _META_IN_LETTER_RE.test(String(text || ''))
 }
+
+// ── the posting says the account is already running (2026-09-29) ────────────
+// Owner: "I dont understand why generator stopped offering audits as CTA in the
+// end where the job posting explicitly states that accounts are already running.
+// It is happening constantly." The prompt's audit rules keyed on audit / review
+// vocabulary ("optimise", "fix", "our campaigns", "audit"), so a takeover posting
+// ("take over and directly manage our existing Google Ads and Meta Ads accounts",
+// job 16684) never counted as an existing account — and "we're not starting from
+// scratch" read as a launch. This is the posting stating a live account in its
+// own words. Returns the phrase that says so, or null.
+const _RUNNING_ACCOUNT_RES = [
+  /\bexisting\s+(?:(?:google\s+ads|google|ads?|ppc|sem|meta(?:\s+ads)?|facebook|paid|search|shopping|and|&|\/)\s+){0,5}(?:accounts?|campaigns?|setup|set[\s-]up|structure)\b/i,
+  /\b(?:current|active|live|running)\s+(?:(?:google\s+ads|ppc|search|shopping|pmax|performance\s+max|ad)\s+)?(?:campaigns?|accounts?)\b/i,
+  /\b(?:campaigns?|accounts?|ads)\s+(?:are|is|have\s+been|has\s+been)\s+(?:already\s+|currently\s+)?(?:running|live|active)\b/i,
+  /\balready\s+(?:running|live|spending|advertising|have\s+(?:an?\s+|our\s+)?(?:google\s+ads\s+|ads?\s+)?(?:account|campaigns?))\b/i,
+  /\bcurrently\s+(?:running|spending|advertising|have\s+(?:\d+|an?|two|three|four|five|several)\b)/i,
+  /\b(?:take|taking)\s+over\s+(?:and\s+(?:directly\s+)?manage\s+)?(?:our|the|an?|this|my)\s+(?:existing\s+|current\s+)?(?:google\s+ads|ppc|ads?|accounts?|campaigns?|management)\b/i,
+  /\bhistorical\s+(?:data|performance)\b|\baccount\s+history\b/i,
+  /\bmonthly\s+(?:ad\s+)?spend\b|\b(?:ad\s+)?spend(?:ing)?\s+(?:is\s+)?(?:currently\s+)?(?:around|about|approximately|~)?\s*[$€£]\s?[\d,.]+\s?k?\s*(?:\/|per|a)\s*(?:month|mo|day)\b/i,
+  /\b(?:underperform\w*|not\s+converting|wasted?\s+(?:ad\s+)?spend|(?:cpa|cpc|roas|conversions?|sales|performance)\s+(?:has|have)\s+(?:dropped|declined|increased|risen|fallen|gone\s+(?:up|down)|decreased|tanked))\b/i,
+  /\b(?:optimi[sz]e|improve|fix|audit|review|restructure|clean\s+up|scale)\s+(?:our|my|the)\s+(?:existing\s+|current\s+)?(?:google\s+ads\s+|ppc\s+|ads?\s+)?(?:account|campaigns)\b/i,
+  // "manage and optimize our advertising campaigns", "review and improve my Google
+  // AdWords search and shopping campaigns" — THEIR campaigns, to be run on
+  /\b(?:manag(?:e|ing)|optimi[sz](?:e|ing)|improv(?:e|ing)|enhanc(?:e|ing)|review(?:ing)?|audit(?:ing)?|maintain(?:ing)?)\s+(?:and\s+(?:manag|optimi[sz]|improv|maintain|enhanc)\w*\s+)?(?:our|my)\s+(?:(?:existing|current|google|adwords|ads|ppc|paid|search|shopping|advertising|ad|and|&)\s+){0,6}(?:campaigns?|accounts?|ads)\b/i,
+]
+const _NO_ACCOUNT_RE = /\bno\s+(?:existing|current|active|prior|previous)\s+(?:(?:google\s+ads|ad|ads|ppc)\s+)?(?:accounts?|campaigns?|data|history)\b|\b(?:don['’]?t|do\s+not)\s+(?:yet\s+)?have\s+(?:an?\s+|any\s+)?(?:(?:google\s+ads|ad|ads)\s+)?(?:account|campaigns?)\b|\bnever\s+(?:run|ran|advertised|used\s+google\s+ads)\b/i
+// A launch, or a setup — the prompt's rule: "a client asking you to SET UP
+// campaigns has nothing running yet to audit". Negated mentions are blanked first.
+const _LAUNCH_ONLY_RE = /\b(?:from\s+scratch|from\s+zero|brand[\s-]new\s+(?:ad\s+|google\s+ads\s+)?account|zero[\s-]?pixel|launch(?:ing)?\s+(?:our|a|the)\s+(?:first|new)\b|set(?:ting)?[\s-]*up\s+(?:and\s+(?:manage|run|optimi[sz]e)\s+)?(?:(?:a|an|our|my|the|new|first|google|ads|adwords|ppc|search)\s+){1,4}(?:account|campaigns?))\b/i
+export function postingHasRunningAccount(text) {
+  const t = String(text || '')
+  if (_NO_ACCOUNT_RE.test(t)) return null
+  if (_LAUNCH_ONLY_RE.test(blankNegatedLaunch(t))) return null
+  for (const re of _RUNNING_ACCOUNT_RES) {
+    const m = t.match(re)
+    if (m) return { phrase: m[0] }
+  }
+  return null
+}
+
+// Future work after the audit — the FEE STRUCTURE's "credited back" trigger — and
+// its opposite, an audit-only engagement. Moved here from JobDetail.jsx unchanged
+// so the check block and the closing-audit insert below share one definition.
+export const ONGOING_SIGNAL_RE = /\b(?:could\s+lead\s+to|potential\s+for|possibility\s+of|may\s+lead\s+to|if\s+(?:this|it)\s+(?:works?\s+out|goes\s+well)|looking\s+for\s+a\s+long[\s-]?term|ongoing\s+(?:management|support|optimi[sz]ation|work|help|relationship|basis)|continu(?:e|ed|ing)\s+(?:to\s+)?(?:work|manage|optimi[sz]e)|\bretainer\b|long[\s-]?term\s+(?:partner|partnership|relationship|engagement|collaboration|role)|monthly\s+(?:management|retainer)|future\s+work|potential\s+long[\s-]?term|room\s+for\s+ongoing|this\s+could\s+(?:turn\s+into|become)\s+(?:ongoing|regular|recurring))\b/i
+export const AUDIT_ONLY_NO_ONGOING_RE = /\b(?:one[\s-]?time|one[\s-]?off|single|standalone|isolated)\b[^.\n]{0,40}\b(?:audit|project|task|engagement|job)\b|\baudit\s+only\b|\bnot\s+(?:looking\s+for|seeking|interested\s+in|needing)\s+(?:ongoing|recurring|a\s+retainer|long[\s-]?term|monthly)\b|\bno\s+(?:ongoing|recurring|retainer|long[\s-]?term)\s+(?:work|commitment|engagement|management|help)\b|\bthis\s+is\s+(?:a\s+)?(?:one[\s-]?time|one[\s-]?off|single|standalone)\s+(?:project|job|task|engagement|audit)\b/i
+
+// ── the closing audit offer on a running account (owner rule, 2026-09-29) ────
+// Made certain rather than re-asked of the model, like the audit sample above:
+// on a Google Ads posting that says its account is already running, a letter
+// with no audit offer anywhere gets Artem's standard one as its last paragraph,
+// right before the sign-off. Every sentence is his standing offer — by hand, no
+// automated tools, 1 working day (KB #402), a recent sample attached (#404) —
+// worded so the audit checks read it as complete (_MANUAL_AUDIT_CLAIM_RE, the
+// sample mention, _DRAFT_COMPLIMENTARY_RE). The $300 only when the posting asks
+// for pricing (owner rule, 2026-08-28); the fee credit only when it also signals
+// ongoing work. A letter that already offers an audit anywhere is left alone —
+// where it sits is auditOfferNotClosingCta's business, not a rewrite.
+export const RUNNING_ACCOUNT_AUDIT_CTA = {
+  plain: 'I can audit your Google Ads account entirely by hand, with no automated tools or templated reports, delivered within 1 working day.',
+  priced: 'I can audit your Google Ads account for $300 flat, entirely by hand with no automated tools or templated reports, delivered within 1 working day.',
+  credit: 'The audit fee is credited back if we move on to ongoing management.',
+}
+const _PPC_POSTING_RE = /\b(?:google\s+ads?|adwords|ppc|pmax|performance\s+max|google\s+shopping|paid\s+search)\b/i
+// An audit OFFER in the letter, any wording — each shape from a letter Artem sent
+// ("Account Audit: I will analyze…", "starting on a paid audit", "I run every audit
+// entirely by hand", "I'm attaching a sample Google Ads audit"). Not the plan's own
+// steps ("audit whether current conversion actions map…", "conversion-tracking
+// audit complete"). Any sample + audit mention counts (_SAMPLE_MENTION_RE).
+const _LETTER_OFFERS_AUDIT_RE = /\bi(?:\s+(?:can|could|would|will)|['’](?:d|ll))\s+(?:(?:start\s+with|run|do|deliver|begin\s+with|offer)\s+)?(?:a\s+|an\s+|the\s+|your\s+)?(?:(?:full|quick|manual|hands[\s-]on|complete|thorough|google\s+ads|ppc|account)\s+)*audit\b|\b(?:my|the|this|an?)\s+(?:(?:full|manual|hands[\s-]on|complete|google\s+ads|ppc|account)\s+)*audit\s+(?:is\s+done|takes|comes|covers|delivered|within|will)\b|\baudit\s+(?:delivered|within\s+1)\b|\baudit\b[^.\n]{0,60}\b(?:1|one)\s+working\s+day\b|\$300\s+flat\b|\bevery\s+audit\b|\b(?:start(?:ing)?|begin(?:ning)?)\s+(?:on|with)\s+(?:a|an|the)\s+(?:[\w-]+\s+){0,2}audit\b|^[ \t]*(?:(?:google\s+ads|ppc|account|full)\s+)*audit\s*:/im
+export function ensureRunningAccountAuditCta(text, { postingText = '', asksRate = false } = {}) {
+  const src = String(text || '')
+  const none = { text: src, inserted: null }
+  const post = String(postingText || '')
+  if (!src.trim() || !_PPC_POSTING_RE.test(post) || !postingHasRunningAccount(post)) return none
+  if (ALREADY_AUDITED_RE.test(post.toLowerCase()) || _LETTER_OFFERS_AUDIT_RE.test(src) || _SAMPLE_MENTION_RE.test(src)) return none
+  const ongoing = ONGOING_SIGNAL_RE.test(post) && !AUDIT_ONLY_NO_ONGOING_RE.test(post)
+  const para = asksRate
+    ? [RUNNING_ACCOUNT_AUDIT_CTA.priced, ongoing ? RUNNING_ACCOUNT_AUDIT_CTA.credit : '', AUDIT_SAMPLE_SENTENCES.ppc].filter(Boolean).join(' ')
+    : `${RUNNING_ACCOUNT_AUDIT_CTA.plain} ${AUDIT_SAMPLE_SENTENCES.ppc}`
+  const paras = src.replace(/\s+$/, '').split(/\n\s*\n/)
+  const last = paras.length - 1
+  if (/^artem\.?$/i.test(paras[last].trim())) paras.splice(last, 0, para)
+  else paras.push(para)
+  return { text: paras.join('\n\n'), inserted: asksRate ? (ongoing ? 'priced+credit' : 'priced') : 'plain' }
+}

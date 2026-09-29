@@ -1522,9 +1522,19 @@ Reported, not stripped — the pitch is usually the opener, and cutting it leave
 **A check that reads the letter must also read the posting (2026-09-29, job 16684).** Several checks were
 written for the deleted rewrite pass, which was supposed to tell "asked for" from "volunteered"; without
 it they flag answers. Now: `findUnsolicitedLogistics` skips a logistics group the posting asks about;
-`missingAuditPriceEntirely` stands down when `postingDeclinesAudit`; the grounding checker treats a figure
-the posting states as the client's, not a case metric (it had been deleting the sentence that named the
-case). Job-specific prompt notes, gated on posting detectors, carry what a posting needs beyond its
-bullet list: GOOGLE ADS + META (cover both, no Meta track record) and ACTION OVER AUDIT (the first block
-holds real changes). The flag list under the letter shows letter problems only — telemetry-only codes
+the grounding checker treats a figure the posting states as the client's, not a case metric (it had been
+deleting the sentence that named the case). Job-specific prompt notes, gated on posting detectors, carry
+what a posting needs beyond its bullet list: GOOGLE ADS + META (cover both, no Meta track record), RUNNING
+ACCOUNT (below) and ACTION OVER AUDIT (the first block holds real changes — it never removes the audit
+offer). The flag list under the letter shows letter problems only — telemetry-only codes
 (`_INFO_ONLY_CODES`) are recorded but not shown.
+
+**A running account always closes on the audit offer (owner rule, 2026-09-29).** "Where the job posting
+explicitly states that accounts are already running", the last paragraph before "Artem" is the Google Ads
+audit offer — by hand, 1 working day, a recent sample attached, $300 only when the posting asks for
+pricing — even when the posting wants action over "a general audit". `postingHasRunningAccount` (title +
+description) decides; it routes the `audit` KB scope and puts a RUNNING ACCOUNT note in the prompt, and
+`ensureRunningAccountAuditCta` makes the close certain: a running-account Google Ads letter with no audit
+offer anywhere gets Artem's standard paragraph, after every strip (`auditCtaAutoInserted`). A letter that
+already offers one is never touched. Negated launch wording ("we're not starting from scratch") is blanked
+before `jobScopes` routes the `launch` scope (KB #450), as the launch checks already did.
