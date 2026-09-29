@@ -1537,4 +1537,18 @@ description) decides; it routes the `audit` KB scope and puts a RUNNING ACCOUNT 
 `ensureRunningAccountAuditCta` makes the close certain: a running-account Google Ads letter with no audit
 offer anywhere gets Artem's standard paragraph, after every strip (`auditCtaAutoInserted`). A letter that
 already offers one is never touched. Negated launch wording ("we're not starting from scratch") is blanked
-before `jobScopes` routes the `launch` scope (KB #450), as the launch checks already did.
+before `jobScopes` routes the `launch` scope (KB #450), as the launch checks already did. The closing
+paragraph OPENS with the offer — "I can run a full audit of your Google Ads account within 1 working day" —
+and then describes it (owner, same day: "we need to say that we are ready to run audit in 1 working day
+and then describe what is it"); `ensureAuditOfferLeads` adds that lead when a letter describes the audit
+without offering it anywhere.
+
+**A case study is a paragraph, not a mention (2026-09-29).** `missingCaseStudy` requires a paragraph that
+names an approved case with its attachment note, or opens with it (`letterHasCaseStudy`) — a case named
+once inside the credentials line doesn't count.
+
+**Prompt assembly never fails silently (2026-09-29).** The KB block in `generate()` read a `const`
+declared later in the same function; the ReferenceError was swallowed by `catch {}` and the prompt went
+out without the case studies, the reference templates and the case-facts block for seven weeks. The catch
+now logs and flags `kbContextFailed`. Anything that feeds the prompt must fail loudly — a missing block
+changes every letter and no check notices the absence.

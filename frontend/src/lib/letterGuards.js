@@ -642,3 +642,66 @@ export function ensureRunningAccountAuditCta(text, { postingText = '', asksRate 
   else paras.push(para)
   return { text: paras.join('\n\n'), inserted: asksRate ? (ongoing ? 'priced+credit' : 'priced') : 'plain' }
 }
+
+// ── the audit paragraph opens with the offer (owner rule, 2026-09-29) ────────
+// Owner, job 16684: "last paragraph starts with 'Every audit I run is done
+// entirely by hand, no automated tools' - so we describing audit without even
+// offering it. We need to say that we are ready to run audit in 1 working day and
+// then describe what is it." 20 of the sent letters close the same way — "I'm
+// attaching a sample of a recent Google Ads audit…" alone, "Audit delivered
+// within 1 working day, flat $300." A letter with no offer SENTENCE anywhere gets
+// one at the start of its closing Google Ads audit paragraph, and that
+// paragraph's own turnaround clause goes, so the day isn't said twice. SEO audit
+// paragraphs are never touched (a technical SEO audit states no turnaround, KB
+// #416), nor a launch posting (nothing to audit, KB #450).
+export const AUDIT_OFFER_LEAD = 'I can run a full audit of your Google Ads account within 1 working day.'
+// An offer, as a sentence: "I can / I'd / I'll … audit", "I can deliver it in 1
+// working day" (the audit as "it"), "happy to run an audit", "starting on a paid
+// audit", "can have a full review of your account back to you", and a labelled
+// offer ("Google Ads audit (1 working day, $300 flat): …").
+const _AUDIT_OFFER_SENTENCE_RE = /\b(?:i\s+(?:can|could|will|would)|i['’](?:d|ll)|happy\s+to|ready\s+to|glad\s+to)\b[^.!?\n]{0,60}\b(?:audit|review\s+of\s+your\s+(?:google\s+ads\s+)?account)\b|\b(?:i\s+(?:can|could|will|would)|i['’](?:d|ll))\s+(?:do|deliver|complete|run|have|get|turn\s+around)\s+(?:it|this|that|one)\b|\b(?:starting|start)\s+(?:on|with)\s+(?:a|an|the)\s+(?:[\w-]+\s+){0,2}audit\b|\bcan\s+have\s+(?:a|an|the)\s+(?:[\w-]+\s+){0,2}(?:audit|review)\b|^[ \t]*(?:(?:google\s+ads|ppc|account|full)\s+)*audit\s*(?:\([^)\n]{0,60}\))?\s*:/im
+const _PPC_AUDIT_PARA_RE = /\$300\b|\bgoogle\s+ads\s+audit|\bppc\s+audit|\b1\s+working\s+day\b/i
+const _SEO_AUDIT_RE = /\b(?:seo|technical)\s+(?:site\s+)?audit/i
+export function ensureAuditOfferLeads(text, { postingText = '' } = {}) {
+  const src = String(text || '')
+  const none = { text: src, inserted: false }
+  if (!src.trim() || _AUDIT_OFFER_SENTENCE_RE.test(src)) return none
+  if (_LAUNCH_ONLY_RE.test(blankNegatedLaunch(String(postingText || '')))) return none
+  const paras = src.split(/\n\s*\n/)
+  let idx = -1
+  for (let i = paras.length - 1; i >= 0; i--) {
+    const p = paras[i].trim()
+    if (/^artem\.?$/i.test(p)) continue
+    if (/\baudit/i.test(p) && _PPC_AUDIT_PARA_RE.test(p) && !_SEO_AUDIT_RE.test(p)) { idx = i; break }
+  }
+  if (idx === -1) return none
+  // The lead goes right before the paragraph's first audit sentence (usually its
+  // first; not always — a credential line can open the paragraph).
+  const pieces = _sentencePieces(paras[idx].trim())
+  const at = Math.max(0, pieces.findIndex(p => /\baudit/i.test(p.text)))
+  const head = pieces.slice(0, at).map(p => p.text + p.sep).join('')
+  // Drop the audit sentences' own turnaround (the lead says it): "$300 flat,
+  // delivered within 1 working day, and …" → "$300 flat, and …"; "Audit delivered
+  // within 1 working day, flat $300." → "Flat $300."
+  let rest = pieces.slice(at).map(p => p.text + p.sep).join('').trim()
+    .replace(/,\s*(?:and\s+)?(?:it['’]?s\s+|it\s+is\s+)?(?:completed\s+and\s+)?delivered\s+(?:with)?in\s+1\s+working\s+day(?=[,.;]|\s+as\b)/i, '')
+    .replace(/^(?:the\s+)?(?:google\s+ads\s+)?audit\s+(?:is\s+|gets\s+)?(?:completed\s+and\s+)?delivered\s+(?:with)?in\s+1\s+working\s+day[,.]?\s*/i, '')
+  rest = rest.charAt(0).toUpperCase() + rest.slice(1)
+  paras[idx] = `${head}${AUDIT_OFFER_LEAD}${rest ? ` ${rest}` : ''}`
+  return { text: paras.join('\n\n'), inserted: true }
+}
+
+// ── is there a case study in the letter? (2026-09-29, job 16684) ─────────────
+// Owner: "where are case studies?" The letter named FridgeFix once, inside the
+// credentials line ("FridgeFix appliance repair went from chaos to -92% cost per
+// conversion…") — no paragraph of its own, no attachment note — and
+// missingCaseStudy stayed quiet. A case study is a paragraph that names an
+// approved case AND carries its attachment note, or opens with the case's name.
+const _ATTACHMENT_NOTE_RE = /\battached\s+(?:as\s+a?\s*pdf|in\s+(?:the\s+)?profile\s+highlights?)\b/i
+export function letterHasCaseStudy(text) {
+  return String(text || '').split(/\n\s*\n/).some(p => {
+    const t = p.trim()
+    if (!casesMentioned(t).length) return false
+    return _ATTACHMENT_NOTE_RE.test(t) || casesMentioned(t.slice(0, 40)).length > 0
+  })
+}

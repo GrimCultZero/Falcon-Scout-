@@ -172,3 +172,11 @@ neither Ukraine nor the US. KB #1's header "Real Estate Complex (USA)", the like
 letters that placed Atlant in the US, is now "Real Estate Complex". Golden State Trailers is in
 California, but letters say only "US". What a letter may say can be narrower than what's true — the
 ledger's `location` records the former.
+
+**Part of the cause, found 2026-09-29.** From 2026-08-10 until today the generator's prompt held no
+case-study portfolio at all — a use-before-declaration error in the block that assembles it, swallowed by
+a silent catch (WORKLOG, 2026-09-29). So the case-facts block ("timeframe: none on record — never state
+one"), shipped 2026-09-25, never reached the model either, and case details came from past sent letters
+and the case names in KB rules. That fits the drift above, today's invented Nectar Flowers timeframes
+("inside 90 days", "30 days") and the Skin Reboot $12k→$95k resurfacing. Re-measure the drift after
+some generations with the portfolio restored.

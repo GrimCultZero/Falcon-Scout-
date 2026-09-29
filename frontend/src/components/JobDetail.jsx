@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -6518,7 +6518,14 @@ function ProposalColumn({
             /case stud|portfolio|results|overview|client/i.test(e.title)
           )
           if (portfolioEntries.length > 0) {
-            const _jobTextForCaseFilter = `${job?.title || ''} ${fullDescription}`
+            // _earlyDesc, NOT fullDescription: fullDescription is declared further
+            // down this function, so reading it here threw "Cannot access
+            // 'fullDescription' before initialization" — and the silent catch below
+            // swallowed it. From 2026-08-10 (9a48f23) to 2026-09-29 every letter was
+            // written without the case-study portfolio, the reference templates and
+            // the case-facts block (missingCaseStudy last fired 17 minutes before
+            // that commit, then never again in 276 generations). Same text.
+            const _jobTextForCaseFilter = `${job?.title || ''} ${_earlyDesc}`
             // Owner rule (2026-09-25, job 16269): no web-dev cases on a Google Ads
             // posting that doesn't ask for a build — so the model is not even shown
             // the web-development portfolio for those postings. The deterministic
@@ -6547,7 +6554,13 @@ function ProposalColumn({
           cachedAt: Date.now(),
         }
         }  // end of `if (!cacheFresh)` block
-      } catch {}
+      } catch (kbErr) {
+        // Never silent again: a throw here drops everything after it from the
+        // prompt (see _jobTextForCaseFilter above — seven weeks unnoticed). The
+        // letter is still generated; the flag under it says what it lacked.
+        console.error('[Falcon] KB context assembly failed — this letter is written without whatever came after the failure (case studies, reference templates):', kbErr)
+        _recordViolations('generator', job?.id, ['kbContextFailed'])
+      }
 
       // Prefer the full description from the enricher; bot postings are often truncated.
       const fullDescription = (job.description_full || job.description_snippet || job.raw_message || '').trim()
@@ -6671,7 +6684,7 @@ function ProposalColumn({
       // review. Detectors: lib/letterGuards.js.
       const _postingTitleDesc = `${job.title || ''}\n${fullDescription}`
       const _dualChannelNote = postingNamesGoogleAndMeta(_postingTitleDesc)
-        ? `GOOGLE ADS + META JOB (mandatory): this posting has you running Google Ads AND Meta Ads. Cover BOTH in every plan, timeline or first-steps answer — name the Meta work next to the Google work (its campaigns, pixel / Conversions API and attribution, audiences, creative fatigue — only what fits this posting). A plan that only mentions Google reads as if you skipped half the brief. None of the approved case studies is a Meta case: describe the Meta work, never a Meta track record or result.`
+        ? `GOOGLE ADS + META JOB (mandatory): this posting has you running Google Ads AND Meta Ads. Cover BOTH in every plan, timeline or first-steps answer — name the Meta work next to the Google work (its campaigns, pixel / Conversions API and attribution, audiences, creative fatigue — only what fits this posting). A plan that only mentions Google reads as if you skipped half the brief. None of the approved case studies is a Meta case: describe the Meta work, never a Meta track record or result — and KEEP citing the relevant Google Ads case studies exactly as you would on any Google Ads job (each its own paragraph, with its attachment note); they are the proof for the Google side.`
         : ''
       // Owner, same day, same job: "I dont understand why generator stopped offering
       // audits as CTA in the end where the job posting explicitly states that
@@ -6681,7 +6694,7 @@ function ProposalColumn({
       // briefly said "Do not pitch an audit as the product" — wrong, reverted.)
       const _runningAccount = _casePpcSignal ? postingHasRunningAccount(_postingTitleDesc) : null
       const _runningAccountNote = _runningAccount
-        ? `RUNNING ACCOUNT — CLOSE WITH THE AUDIT OFFER (owner rule, mandatory): the posting says the account is already running ("${_runningAccount.phrase}"). The LAST paragraph before "Artem" is the Google Ads audit offer: done entirely by hand, no automated tools, delivered within 1 working day, recent audit samples attached — with the $300 price only if this posting asks for pricing (the NO PRICING / RATE rules decide the price, never whether to offer). Any plan, timeline or first-steps answer comes BEFORE it. This is not a banned closing CTA — it is the required close.`
+        ? `RUNNING ACCOUNT — CLOSE WITH THE AUDIT OFFER (owner rule, mandatory): the posting says the account is already running ("${_runningAccount.phrase}"). The LAST paragraph before "Artem" is the Google Ads audit offer, and it OPENS with the offer itself — "I can run a full audit of your Google Ads account within 1 working day" — then describes it: done entirely by hand, no automated tools, what it covers for THIS account, recent audit samples attached, with the $300 price only if this posting asks for pricing (the NO PRICING / RATE rules decide the price, never whether to offer). Never open it with how you run audits ("Every audit I run is done by hand…") — that describes an audit without offering one. Any plan, timeline, case study or first-steps answer comes BEFORE it. This is not a banned closing CTA — it is the required close.`
         : ''
       const _auditDeclinedAsk = postingDeclinesAudit(_postingTitleDesc)
       const _actionOverAuditNote = _auditDeclinedAsk
@@ -7119,7 +7132,8 @@ DELIVERY-TIMING TRUTH (never violate — these are the ONLY three delivery timef
 
 WHEN TO OFFER AN AUDIT (existing account):
 The client has a running Google Ads account with campaigns already live. Signals: "optimise", "fix", "our campaigns", "wasted spend", "not converting", "review my account", "audit", and any statement that the account exists: "existing account(s)", "take over our account", "current / active campaigns", "historical data", "currently spending", "monthly ad spend", "performance has dropped". In these cases:
-- The audit offer is the LAST paragraph of the letter, right before "Artem" — the close, every time. A plan, a timeline or answers to the posting's questions come before it, never after it. A posting that wants action rather than "a general audit" still gets the offer — frame the audit as step one of the work.
+- The audit offer is the LAST paragraph of the letter, right before "Artem" — the close, every time. A plan, a timeline, case studies or answers to the posting's questions come before it, never after it. A posting that wants action rather than "a general audit" still gets the offer — frame the audit as step one of the work.
+- That paragraph OPENS with the offer itself ("I can run a full audit of your Google Ads account within 1 working day"), THEN describes the audit (by hand, what it covers, the sample). Opening with a description ("Every audit I run is done entirely by hand…") offers nothing — the client reads about an audit nobody proposed.
 - ALWAYS state the timeline: "audit delivered within 1 working day."
 - ALWAYS quote the FIXED PRICE: the Google Ads / PPC account audit is a productised deliverable at a flat $300. State it plainly and confidently ("$300 flat, delivered within 1 working day") EVEN IF the posting never asked for a rate — this is the standard offer, not an unsolicited quote, and it is the whole pitch. This OVERRIDES "never quote a price upfront" and overrides the RATE ANCHOR (do NOT bid the posted hourly ceiling on an audit job — the deliverable is fixed-fee, so a low posted hourly range is irrelevant and must never be mirrored back as an hourly rate). Never write an hourly figure for the audit.
 - ALWAYS mention the audit sample, but WEAVE IT INTO THE LETTER — do NOT drop it as an isolated boilerplate sentence floating right before the signoff (that reads pasted-in and out of context, which is exactly how it currently fails). Connect it to what you just said — tie it to the specific issue you diagnosed or make it the natural next step. Example: instead of a lone trailing "I'm attaching a sample of a recent Google Ads audit so you can see the format and depth.", write something like "That wasted-spend question is the first thing my audit pins down — I've attached a recent Google Ads audit sample so you can see the format and depth." You MUST still (a) name the audit type explicitly ("Google Ads audit" / "technical SEO audit", never a bare "sample") and (b) keep it recognizable with "sample … audit … see the format and depth", but it has to connect to a sentence around it, not stand alone.
@@ -7506,6 +7520,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           text = _cta.text
           console.log(`[Falcon] Running account, no audit offer in the letter — added the closing audit paragraph (${_cta.inserted}).`)
           _recordViolations('generator', job?.id, ['auditCtaAutoInserted'])
+        }
+        // The closing audit paragraph opens with the offer (owner, job 16684: "we
+        // describing audit without even offering it. We need to say that we are
+        // ready to run audit in 1 working day and then describe what is it").
+        const _lead = ensureAuditOfferLeads(text, { postingText: _postingTitleDesc })
+        if (_lead.inserted) {
+          text = _lead.text
+          console.log('[Falcon] The audit paragraph described the audit without offering it — opened it with the offer.')
+          _recordViolations('generator', job?.id, ['auditOfferLeadAutoInserted'])
         }
       }
 
@@ -9028,26 +9051,18 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               /\b(?:live|launch(?:ed|ing)?|running|ready)\b[^.\n]{0,30}\b(?:within|in)\s+(?:1|one|a)\s*(?:working\s+|business\s+)?day\b[^.\n]{0,45}\bcampaign/i.test(text)
 
             // ── Case-study presence check (KB Rule 407) ──────────────────────
-            // Every proposal should include at least 1 case study reference.
-            // We don't match KB entry titles (those are internal names like
-            // "Artem PPC SEO Client Case Studies Results Overview" — never
-            // appropriate in a proposal). Instead we look for signal phrases
-            // that indicate a real result was cited: a client name from the
-            // portfolio content, or generic result language ("grew roas",
-            // "increased revenue", "reduced cpa", "case study", etc.).
-            // If portfolioText exists but none of these signals appear in the
-            // draft, fire the enforcer to add a specific example.
-            const RESULT_SIGNALS = [
-              /case\s+stud/i,
-              /grew\s+(?:their\s+)?(?:roas|revenue|traffic|conversions?|sales)/i,
-              /(?:reduced?|cut|lowered?)\s+(?:cpa|cost|spend|cpc)/i,
-              /increased?\s+(?:roas|revenue|traffic|conversions?|sales|leads?)/i,
-              /(?:derma\s+solution|skin\s+reboot)/i,
-            ]
-            const hasResultSignal = RESULT_SIGNALS.some(re => re.test(text))
+            // Every proposal should include at least 1 case study: its own
+            // paragraph naming an approved case, with its attachment note
+            // (lib/letterGuards.js letterHasCaseStudy). It used to look for result
+            // phrases ("grew revenue", "reduced CPA", "case study") — job 16684's
+            // only case was FridgeFix inside the credentials line with no note,
+            // "-92% cost per conversion" matched none of them, and the owner asked
+            // "where are case studies?". (It also could not fire at all from
+            // 2026-08-10 to 2026-09-29: portfolioText was always empty — see
+            // _jobTextForCaseFilter.)
             let missingCaseStudy = false
             if (portfolioText || referenceText) {
-              missingCaseStudy = !hasResultSignal
+              missingCaseStudy = !letterHasCaseStudy(text)
             }
 
             // ── Diagnosis-only case study, wrongly told as remediation ───────

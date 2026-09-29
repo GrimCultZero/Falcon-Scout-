@@ -8859,3 +8859,42 @@ carves out the deliverable offer; the no-pricing note says the offer stays. `job
 launch wording before routing `launch`.
 
 `tests/audit-cta.test.js` 42/42; `tests/posting-scope.test.js` updated (55/55); every suite passes.
+
+## 2026-09-29 — no case studies in any prompt since 10 Aug; the audit paragraph opens with the offer
+
+Owner, third 16684 regeneration: "audit is there, but where are case studies? Also last paragraph starts
+with 'Every audit I run is done entirely by hand, no automated tools' - so we descriobing audit without
+even offering it. We need to say that we are ready to run audit in 1 working day and then describe what
+is it". The draft named FridgeFix once, inside the credentials line ("…went from chaos to -92% cost per
+conversion…"), with no paragraph and no attachment note, and claimed "dozens of stores".
+
+**1. The case-study portfolio never reached the prompt — for seven weeks.** `generate()`'s KB block
+built `_jobTextForCaseFilter` from `fullDescription`, which is declared ~30 lines further down the same
+function: "Cannot access 'fullDescription' before initialization", swallowed by a bare `catch {}`.
+Everything the block does after that line never happened — the case-study portfolio (KB #1, #518), the
+reference templates (#396, #419, #6), the case-facts block (gated on the portfolio, so it has not
+reached the model once since it shipped on 09-25) and the 5-minute KB cache write. Rules, liked examples
+and past proposals are built earlier in the block, so the model wrote from past sent letters and the case
+names in KB rules. Introduced 2026-08-10 (9a48f23, "vertical-filter case-study portfolio KB blocks");
+`missingCaseStudy`, which needs the portfolio, last fired 17 minutes before that commit and never again
+in 276 generations. Fix: `_earlyDesc` (the same text, declared before the block); the catch now logs
+and records `kbContextFailed`. The prompt is ~25k characters longer again (~6-7k tokens, roughly $0.02
+per uncached generation). Likely part of the case-fact drift (CASES.md).
+
+**2. `missingCaseStudy` → `letterHasCaseStudy`:** a paragraph naming an approved case with its attachment
+note, or opening with it. The old result-phrase test missed "-92% cost per conversion". 51 of 256 sent
+letters have no case study by this definition. The GOOGLE ADS + META note now says to keep citing the
+Google Ads case studies (it said no approved case is a Meta case, which the model could read as "none").
+
+**3. The audit paragraph opens with the offer.** `ensureAuditOfferLeads`: when the letter has no offer
+sentence anywhere ("I can / I'd … audit", "I can deliver it in 1 working day", "starting on a paid
+audit", a labelled "Google Ads audit (…):"), the closing Google Ads audit paragraph gets "I can run a
+full audit of your Google Ads account within 1 working day." before its first audit sentence, and that
+paragraph's own "delivered within 1 working day" goes. Never an SEO audit paragraph (KB #416) or a launch
+posting (#450). On the sent letters it would fire on 18 — lone sample lines, "Audit delivered within 1
+working day, flat $300.", "Every audit I run…" — each read. The RUNNING ACCOUNT note and WHEN TO OFFER
+AN AUDIT now say: open with the offer, then describe it. Recorded `auditOfferLeadAutoInserted`.
+
+Not built: a check for "dozens of stores"-type volume claims (KB #459) — none in the 256 sent letters.
+
+`tests/case-studies-offer.test.js` 29/29; every other suite passes.
