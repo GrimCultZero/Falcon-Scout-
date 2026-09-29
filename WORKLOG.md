@@ -8712,3 +8712,55 @@ options offered):
 
 `tests/geo-fix-and-flags.test.js` 32/32; `tests/case-facts.test.js` updated for the new
 behaviour (52/52).
+
+## 2026-09-29 — job 16678: the white-label pitch only when the posting asks for it
+
+Owner, sharing job 16678: "its reoccuring bug - approaching job as an agency when there is no
+indication from the posting to do this. Also check yesterday's cover letters". A growth agency hires
+"an experienced Google Ads specialist to join us on an ongoing basis … Provide clear reporting and
+recommendations to our team"; the draft opened "I run IT Force, a small agency that's been delivering
+Google Ads behind other agencies' brands for years … while you stay front-facing … client-ready
+reporting you can present as your own, zero contact with your end clients."
+
+**Yesterday's letters.** #270 (job 16504, PPC & Meta Ads for two travel brands, sent 28 Sep) had the
+same pitch — "a boutique agency (IT Force), we've delivered white-label behind other agencies' brands
+… zero contact … your end clients" — to a client with brands of its own (the classifier said agency:
+wrong). #271 (job 16545) is clean.
+
+**Root cause: three pushes toward white-label, all keyed on "the buyer is an agency".**
+1. The CLIENT TYPE block: `isAgencyClient` (classifier `client_is_agency`) picked the agency block,
+   which mandates the IT Force / behind-other-agencies'-brands opener for every agency buyer.
+2. KB #406 ("When the job posting explicitly mentions they are an agency, state that you work with
+   digital marketing agencies as a white label partner …") and #408 — the only `scope:agency` rules,
+   and `jobScopes()` sets that scope on the bare word "agency".
+3. The system prompt's example of reading rules literally WAS that rule: "fires the moment the
+   posting calls itself an agency … Apply the white-label framing whenever the trigger word appears"
+   (there since the initial commit). And the screening-questions section described Artem's "genuine
+   model" as "IT Force delivers behind agencies' brands … no end-client contact" on every job.
+
+**Fix: white-label framing needs the posting to ask for it.** `postingAsksForWhiteLabel`
+(letterGuards.js, title + description): white-label / whitelabel, "under our brand", a
+behind-the-scenes partner, no client contact / "do not contact the client", a subcontractor, an
+SEO / PPC / media fulfilment or delivery partner. Not an ask: the word agency, "our clients",
+"Agency Partner" (16678's title), a brand "looking for an agency", reseller, white-label as the
+client's own product ("white-label payroll"), and negated sentences ("No agencies, account managers,
+or white-label providers"). `whiteLabelFraming = isAgencyClient && ask` now gates:
+- CLIENT TYPE, three branches: white-label (quotes the posting's ask) / **specialist hire** (agency
+  buyer, no ask — write as one specialist, no agency pitch, mirror the accounts and the reporting the
+  posting describes) / direct client;
+- the agency scope, dropped before rule routing unless there is an ask, so KB #406/#408 load only on
+  white-label postings (their text is unchanged);
+- the two white-label few-shot filters (they let white-label examples in for every agency buyer).
+The literal-reading example now uses KB #427's verification phrase and states the white-label
+exception; the screening-questions hand-off model is scoped to white-label jobs.
+
+**Check + live note.** `unrequestedWhiteLabel` and a "Fix before sending" line (`findWhiteLabelPitch`)
+flag white-label, "behind other agencies' brands", "under your brand", "zero contact with your end
+clients", "present as your own", "you stay front-facing", "I run … agency", "my/our agency" on a
+posting that didn't ask. "IT Force" / "my team" alone are not flagged (web-dev letters name the team
+on purpose, KB #478). Reported, not stripped: the pitch is usually the whole opener.
+
+**Validation.** 758 postings (the DB plus the earlier dump — the DB has since pruned 224): 12 ask,
+every one read by hand as a genuine white-label ask; 15 known traps come back null. 256 sent letters:
+17 pitch white-label — 5 to postings that asked, **12 to postings that never did** (ghosted 7,
+invited 2, viewed 1, replied 2). `tests/white-label.test.js` 54/54; every other suite passes.

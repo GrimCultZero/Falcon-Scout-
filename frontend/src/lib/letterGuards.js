@@ -365,3 +365,84 @@ export function ensureAuditSampleMention(text, { postingLower = '' } = {}) {
   paras[idx] = p + (/[.!?]$/.test(p) ? ' ' : '. ') + AUDIT_SAMPLE_SENTENCES[kind]
   return { text: paras.join('\n\n'), inserted: kind }
 }
+
+// ── agency / white-label framing (2026-09-29, jobs 16678 + 16504) ────────────
+// Artem pitches himself as a white-label agency ("I run IT Force", "behind other
+// agencies' brands", "zero contact with your end clients") ONLY when the posting
+// asks for that arrangement. The buyer BEING an agency is not an ask: job
+// 16678 ("a growth agency … looking for an experienced Google Ads
+// specialist to join us") got "I run IT Force, a small agency that's been
+// delivering Google Ads behind other agencies' brands for years", and job 16504
+// (two travel brands of the client's own) got "white-label behind other
+// agencies' brands … zero contact with your end clients".
+//
+// The ask, in the posting's own words. Deliberately NOT an ask: the word agency,
+// "our clients", "Agency Partner" (16678's title), "looking for an agency" (a
+// brand hiring an agency is a direct client — a white-label pitch is wrong there
+// too), "reseller" (the DB only has "no markup or reselling of ad spend" and
+// "our own resellers"), and white-label as the client's own PRODUCT
+// ("white-label payroll", "white-label merchant services brands"). A negated
+// sentence is the opposite signal: "No agencies, account managers, or
+// white-label providers", "Agencies and subcontracting arrangements are not a
+// good fit for this role".
+const _WL_PRODUCT = '(?:payroll|merchant|payments?|products?|brands?|apps?|software|platforms?|solutions?|goods|supplements?|skincare|cosmetics|cards?|banking|wallets?)'
+const _WL_PRODUCT_RE = new RegExp(`\\bwhite[\\s-]?label(?:ed)?[\\s-]+${_WL_PRODUCT}\\b`, 'i')
+const _WHITE_LABEL_ASK_RES = [
+  new RegExp(`\\bwhite[\\s-]?label(?:ed|ing)?\\b(?![\\s-]+${_WL_PRODUCT}\\b)`, 'i'),
+  /\bwhitelabel\b/i,
+  /\bunder\s+(?:our|my)\s+(?:own\s+)?(?:agency['’]?s?\s+)?(?:brand(?:ing)?|name|logo|banner|umbrella)\b/i,
+  /\bbehind[\s-]the[\s-]scenes\b/i,
+  // the client contact the posting rules out
+  /\b(?:no|zero|without)\s+(?:direct\s+)?(?:client|customer)[\s-]?(?:facing|contact)\b/i,
+  /\b(?:do\s+not|don['’]?t|never|won['’]?t|will\s+not|must\s+not|should\s+not|not\s+to)\s+(?:directly\s+)?(?:contact|communicate\s+with|talk\s+to|reach\s+out\s+to|speak\s+(?:to|with)|interact\s+with)\s+(?:(?:our|the|any|their)\s+(?:end[\s-]?)?|end[\s-]?)(?:clients?|customers?)\b/i,
+  /\b(?:clients?|customers?)\s+(?:won['’]?t|will\s+not|wouldn['’]?t|don['’]?t|do\s+not|never|shouldn['’]?t|should\s+not|must\s+not)\s+(?:know|see|interact|talk|communicate|deal|be\s+aware|hear)\b/i,
+  // "a dependable SEO subcontractor", "as a subcontractor"
+  /\b(?:an?|as|our)\s+(?:[\w-]+\s+){0,2}sub-?contractors?\b/i,
+  // "Paid Media Fulfillment Partner", "looking for a delivery partner"
+  /\b(?:seo|ppc|sem|ads?|advertising|media|marketing|digital|web|google\s+ads)\s+(?:fulfil(?:l)?ment|delivery|outsourcing|production|execution)\s+partners?\b/i,
+  /\b(?:looking\s+for|seeking|need|hire|hiring|want|searching\s+for)\s+(?:an?\s+|our\s+)?(?:[\w-]+\s+){0,3}?(?:fulfil(?:l)?ment|delivery|outsourcing|production)\s+partners?\b/i,
+]
+const _WHITE_LABEL_NEGATED_RE = /\b(?:no|not|never|nor)\s+(?:(?:an?|any|the)\s+)?(?:[\w-]+\s+){0,2}?(?:agenc|white[\s-]?label|sub-?contract|intermediar|middlem[ae]n)|\bnot\s+(?:a\s+)?(?:good\s+)?fit\b|\bwill\s+(?:be\s+)?(?:rejected|declined|ignored|disqualified|removed)\b|\bwon['’]?t\s+be\s+considered\b|\bdo\s+not\s+apply\b|\bdon['’]?t\s+apply\b|\b(?:individuals?|freelancers?)\s+only\b/i
+export function postingAsksForWhiteLabel(text) {
+  for (const line of String(text || '').split('\n')) {
+    for (const { text: s } of _sentencePieces(line)) {
+      if (_WHITE_LABEL_NEGATED_RE.test(s)) continue
+      for (const re of _WHITE_LABEL_ASK_RES) {
+        const m = s.match(re)
+        if (m) return { phrase: m[0], sentence: s.replace(/\s+/g, ' ').trim() }
+      }
+    }
+  }
+  return null
+}
+
+// The pitch, in a letter: the white-label arrangement, or Artem calling himself
+// an agency. Never "IT Force" or "my team" alone — web-dev letters name the
+// team on purpose (KB #478, build + SEO + analytics in one engagement). When
+// white-label is the client's own PRODUCT, a letter about their market says the
+// word without pitching anything (a sent letter to a payroll bureau: "an
+// accountancy firm evaluating white-label partners"), so the bare word is only
+// counted when the posting doesn't sell it.
+const _WHITE_LABEL_WORD_RES = [/\bwhite[\s-]?label(?:ed|ing)?\b/i, /\bwhitelabel\b/i]
+const _WHITE_LABEL_PITCH_RES = [
+  /\bbehind\s+(?:other\s+|partner\s+)?agenc(?:y|ies)['’]?s?\s+(?:own\s+)?brands?\b/i,
+  /\bbehind\s+your\s+(?:agency['’]?s?\s+)?(?:brand|name|logo)\b/i,
+  /\bunder\s+(?:your|their|other\s+agencies['’]?)\s+(?:agency['’]?s?\s+)?(?:own\s+)?(?:brand(?:ing)?|name|logo|banner)\b/i,
+  /\b(?:zero|no|without(?:\s+any)?)\s+(?:direct\s+)?contact\s+with\s+(?:your\s+|their\s+)?(?:end[\s-]?)?clients?\b/i,
+  /\bpresent\s+(?:(?:it|them|this|these|those)\s+|(?:the|my|our)\s+[\w-]+\s+)?as\s+your\s+own\b/i,
+  /\byou\s+(?:stay|remain)\s+(?:front|client)[\s-]?facing\b/i,
+  /\binvisible\s+(?:partner|to\s+your\s+clients)\b/i,
+  /\bI\s+run\s+(?:IT\s+Force,?\s+)?(?:a|an)\s+(?:[\w-]+\s+){0,2}agency\b/i,
+  /\bIT\s+Force,?\s+(?:is\s+)?(?:a|my|our)\s+(?:[\w-]+\s+){0,2}agency\b/i,
+  /\b(?:my|our)\s+(?:own\s+)?agency\b/i,
+]
+export function findWhiteLabelPitch(text, { postingText = '' } = {}) {
+  const t = String(text || '')
+  const out = []
+  const res = _WL_PRODUCT_RE.test(String(postingText || '')) ? _WHITE_LABEL_PITCH_RES : [..._WHITE_LABEL_WORD_RES, ..._WHITE_LABEL_PITCH_RES]
+  for (const re of res) {
+    const m = t.match(re)
+    if (m && !out.some(o => o.toLowerCase() === m[0].toLowerCase())) out.push(m[0])
+  }
+  return out
+}

@@ -1509,3 +1509,12 @@ case paragraph at generation. "rebuild" / "redesign" count as a build ask only w
 store, theme or page — "rebuild campaigns" is ad work. SEO postings are deliberately outside this rule at
 generation (GKit's hreflang / URL setup is genuine SEO proof and won a reply); the chat-rewrite strip keeps
 its wider PPC + SEO scope from job 12883.
+
+**White-label framing only when the posting asks for it (owner rule, 2026-09-29).** An agency buyer is not
+an ask: an agency hiring "a Google Ads specialist to join us" gets a specialist letter (job 16678).
+`postingAsksForWhiteLabel` (title + description, validated on 758 postings) decides, and
+`whiteLabelFraming = isAgencyClient && ask` gates three things: the CLIENT TYPE block (white-label /
+specialist hire / direct), the agency-scoped KB rules (#406, #408 — the scope is dropped before routing),
+and the white-label few-shot filters. `unrequestedWhiteLabel` and the live note flag a white-label or
+"I run … agency" pitch on a posting that didn't ask; "IT Force" / "my team" alone are fine (KB #478).
+Reported, not stripped — the pitch is usually the opener, and cutting it leaves no start.

@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -5895,10 +5895,16 @@ function ProposalColumn({
   //                16242: a chat rewrite swapped the example for Game-X, the
   //                web-dev-case strip removed it, and nothing noticed — the
   //                checks only run on generation, this reads the text as it is)
-  const _exampleAsk = proposal
-    ? findRequestedExample([job?.title, job?.description_full || job?.description_snippet || job?.raw_message].filter(Boolean).join('\n'))
-    : null
+  const _postingForNotes = proposal
+    ? [job?.title, job?.description_full || job?.description_snippet || job?.raw_message].filter(Boolean).join('\n')
+    : ''
+  const _exampleAsk = proposal ? findRequestedExample(_postingForNotes) : null
   const _liveMissingExample = !!(_exampleAsk && !letterGivesExample(proposal))
+  //   agency pitch a white-label / agency pitch on a posting that never asked for
+  //                that arrangement (jobs 16678, 16504)
+  const _liveWhiteLabelPitch = proposal && !postingAsksForWhiteLabel(_postingForNotes)
+    ? findWhiteLabelPitch(proposal, { postingText: _postingForNotes })
+    : []
   // preEnforcerDraft retired 2026-09-02 with the enforcer itself. It existed to
   // show a before/after in the share snapshot so a garbled sentence could be traced
   // to the first pass or the rewrite. There is no rewrite now — the letter Artem
@@ -6213,8 +6219,11 @@ function ProposalColumn({
       // NOTE: a _filterWhiteLabel() helper used to sit here. Removed 2026-09-03 —
       // it had ZERO call sites in the entire file and never filtered anything, while
       // reading like the white-label protection. The real filtering is the two
-      // _WHITELABEL_EXAMPLE_RE .filter() calls further down, which now gate on the
-      // classified isAgencyClient rather than the regex.
+      // _WHITELABEL_EXAMPLE_RE .filter() calls further down, which gate on
+      // whiteLabelFraming (below).
+      // Does the posting itself ask for a white-label arrangement? Title +
+      // description only — the skill tags are Upwork's, not the client's words.
+      const _whiteLabelAsk = postingAsksForWhiteLabel(`${job?.title || ''}\n${_earlyDesc}`)
 
       // ── Job-shape classification kickoff (pilot, 2026-08-26) ─────────────────
       // Started here so it runs CONCURRENTLY with the KB fetches below, not
@@ -6286,6 +6295,19 @@ function ProposalColumn({
         console.log(`[Falcon] client_is_agency: classifier says ${isAgencyClient}, regex said ${_isAgencyClientRegex} — using the classifier.`)
         _recordViolations('generator', job?.id, ['agencyClassificationOverrodeRegex'])
       }
+      // White-label framing needs the POSTING to ask for it; an agency buyer is not
+      // enough (owner, 2026-09-29: "approaching job as an agency when there is no
+      // indication from the posting to do this"). Job 16678: the client is "a growth
+      // agency" hiring "an experienced Google Ads specialist to join us", and the
+      // letter opened "I run IT Force, a small agency that's been delivering Google
+      // Ads behind other agencies' brands for years". Job 16504 got the same pitch
+      // on a client with two travel brands of its own (the classifier said agency).
+      // Gates the CLIENT TYPE block, the white-label few-shot filters and the
+      // agency-scoped KB rules (#406, #408).
+      const whiteLabelFraming = isAgencyClient && !!_whiteLabelAsk
+      if (isAgencyClient && !_whiteLabelAsk) {
+        console.log('[Falcon] Agency client, but the posting asks for no white-label arrangement — writing as a specialist.')
+      }
 
       // Fetch KB rules, liked-feedback examples, sent proposals, and portfolio in parallel
       let kbRulesText = ''
@@ -6343,6 +6365,11 @@ function ProposalColumn({
             job?.description_full || job?.description_snippet || job?.raw_message,
             job?.preferred_qualifications].filter(Boolean).join(' ')
           const genScopes = jobScopes(_scopeSrc)
+          // The agency scope carries only the white-label positioning rules (#406
+          // "state that you work with digital marketing agencies as a white label
+          // partner", #408), and jobScopes() sets it on the bare word "agency".
+          // Load them only when the posting asks for a white-label arrangement.
+          if (!whiteLabelFraming) genScopes.delete('agency')
           const kbRules = rulesForGenerator(allRules, genScopes)
           console.log(`[Falcon] Generator: ${kbRules.length}/${allRules.length} rules after scope routing. Scopes: [${[...genScopes].join(', ') || 'none'}]`)
           if (kbRules.length > 0) {
@@ -6351,10 +6378,11 @@ function ProposalColumn({
           }
         }
         if (examplesRes.ok) {
-          // On a direct-client job, drop white-label example letters so the model
-          // can't emulate their framing (the example is far stronger than a guard).
+          // Unless the posting asks for white-label, drop white-label example letters
+          // so the model can't emulate their framing (the example is far stronger
+          // than a guard).
           const examples = (await examplesRes.json())
-            .filter(e => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(e.content || ''))
+            .filter(e => whiteLabelFraming || !_WHITELABEL_EXAMPLE_RE.test(e.content || ''))
           if (examples.length > 0) {
             examplesText = '\n\nEXAMPLES OF PROPOSALS ARTEM LIKED — STYLE REFERENCE ONLY, NOT A FACT SOURCE. Study the voice, length, and structure. The client details, numbers, and case metrics inside these belong to OTHER jobs — do NOT copy phrases, do NOT reuse those specifics, and do NOT invent similar-looking specifics for the current job. Every specific in YOUR letter must come from CLIENT FACTS (the posting) or APPROVED PROOF (the case studies below), per the GROUNDING CONTRACT.\n' +
               examples.slice(0, 3).map((e, i) => `Example ${i+1}:\n${e.content}`).join('\n\n')
@@ -6407,11 +6435,11 @@ function ProposalColumn({
             //           no captured reply text (next best)
             //   tier 2: unmatched KB entries — sent but no similarity data
             //   tier 3: cold/ghosted similar entries — last resort
-            // On a direct-client job, exclude white-label past proposals — they're
-            // the strongest source of copied white-label framing (a REPLY-WINNER
-            // shown as "emulate most heavily" beats any prompt guard).
+            // Unless the posting asks for white-label, exclude white-label past
+            // proposals — they're the strongest source of copied white-label framing
+            // (a REPLY-WINNER shown as "emulate most heavily" beats any prompt guard).
             const ranked = [...sentProposals]
-              .filter(p => isAgencyClient || !_WHITELABEL_EXAMPLE_RE.test(`${p.title || ''}\n${p.content || ''}`))
+              .filter(p => whiteLabelFraming || !_WHITELABEL_EXAMPLE_RE.test(`${p.title || ''}\n${p.content || ''}`))
               .sort((a, b) => {
               const as = getSim(a), bs = getSim(b)
               const tier = (s) =>
@@ -6542,11 +6570,15 @@ function ProposalColumn({
       const _postingAsksRateRegex = /\b(?:your\s+(?:hourly\s+|desired\s+|expected\s+|proposed\s+)?rate|rate\s+expectation|expected\s+rate|what(?:'?s| is)\s+your\s+(?:rate|price|pricing|budget)|how\s+much\s+(?:do|would|will)\s+you\s+(?:charge|cost)|what\s+do\s+you\s+charge|(?:provide|share|include|state|send|give|quote|let\s+me\s+know)\s+(?:a\s+|an\s+|your\s+|us\s+|me\s+)?(?:rate|quote|pricing|price|estimate)|pricing\s+structure|monthly\s+(?:rate|retainer|fee)|management\s+fee|day\s+rate|project\s+(?:rate|price|quote))\b/i.test(`${job.title || ''} ${fullDescription}`)
       const _postingAsksRate = _jobClassification ? _jobClassification.asks_for_rate : _postingAsksRateRegex
 
-      // Client-type guard. `isAgencyClient` is computed once near the top of
-      // generate() (it also gates white-label few-shot filtering). The prompt
-      // line below stops the model inventing a white-label/subcontractor framing
-      // on a direct end-client job that merely says "we already have a developer"
-      // or "want an additional resource" (e.g. a school hiring ongoing WP help).
+      // Client-type guard. `isAgencyClient` and `whiteLabelFraming` are computed
+      // once near the top of generate() (they also gate white-label few-shot
+      // filtering and the agency-scoped KB rules). The CLIENT TYPE line below has
+      // three branches: white-label (an agency buyer whose posting asks for that
+      // arrangement), specialist hire (an agency buyer whose posting doesn't —
+      // job 16678), and direct client, which stops the model inventing a
+      // white-label/subcontractor framing on a job that merely says "we already
+      // have a developer" or "want an additional resource" (e.g. a school hiring
+      // ongoing WP help).
       // Rate anchor — computed so a quoted rate tracks the POSTED CEILING, not a fixed
       // default. The model kept quoting $30-35 even on high-ceiling premium clients.
       const _hMax = Number(job.hourly_rate_max) || 0
@@ -6640,15 +6672,21 @@ function ProposalColumn({
         _caseDomainNote,
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
-        isAgencyClient
-          ? `CLIENT TYPE: agency / white-label — the buyer is a FELLOW AGENCY OWNER hiring a delivery partner, NOT an end client with a broken account to diagnose. Their problem is capacity, not performance. Write agency-to-agency, peer to peer:
+        whiteLabelFraming
+          ? `CLIENT TYPE: agency / white-label — the buyer is a FELLOW AGENCY OWNER hiring a delivery partner, NOT an end client with a broken account to diagnose. The posting asks for this arrangement in its own words: "${_whiteLabelAsk.sentence.slice(0, 220)}". Their problem is capacity, not performance. Write agency-to-agency, peer to peer:
 - OPEN by showing Artem knows this business FROM THE INSIDE: he runs a small/boutique agency (IT Force) and has delivered white-label behind other agencies' brands for years. Lead with that shared context and what he takes off their plate. Do NOT open with a rhetorical question ("can you hand off X?"), and do NOT open by diagnosing their business — they didn't describe a broken account, they described being stretched.
 - Show the agency-side realities that prove he has actually done this: working under their brand, zero contact with their end clients, client-ready deliverables they can forward or present as their own, predictable capacity, easy to brief, no hand-holding.
 - Bring the EXPERIENCE he carries in: years in the agency world, the verticals and account types he's handled, so they can picture him on their accounts tomorrow.
 - PLACEMENT: the white-label / behind-your-brand positioning belongs EARLY (opener + positioning). NEVER tack it on as the closing line, and never end the letter on a bare operational blurb about handoffs — that lands cold.
 - FIRST PERSON throughout: "I run a small team", "my team at IT Force". Never switch to third-person "IT Force delivers …" mid-letter; it reads like pasted company boilerplate.
 - MATCH THE HANDOFF LANGUAGE TO THE DOMAIN (critical): for SEO / PPC / analytics / reporting work the handoff is client-ready audits, decks and commentary under their brand, plus a named point of contact. It is NOT "I work in staging and hand off for your QA" — that is BUILD-work language and reads as nonsense on an SEO or reporting retainer. Reserve staging/QA framing for actual web-development jobs.`
-          : `CLIENT TYPE: DIRECT end client. Address them as the business that will actually use the work. Do NOT frame yourself as a white-label provider, subcontractor, or someone "working behind another agency/developer," and do NOT describe this as a white-label engagement — EVEN IF the posting says they already have a developer/team or want an "additional person/resource." That just means you would join their team directly. White-label framing is ONLY correct when the posting explicitly says white-label / reseller / "for our clients."`,
+          : isAgencyClient
+          ? `CLIENT TYPE: SPECIALIST HIRE, NOT white-label — the buyer may run an agency, but this posting hires a specialist to work with their team. It does NOT ask for a white-label vendor, a subcontracting agency, or delivery under their brand, so do not approach it as an agency. Write as Artem, one senior specialist (owner rule 2026-09-29 — this overrides any KB rule, example or analyser note that says to position as a white-label partner whenever the client is an agency):
+- NO agency pitch: never "I run IT Force" / "a small agency" / "a boutique agency", never "white-label", "behind other agencies' brands", "under your brand", "while you stay front-facing", "present it as your own", "zero contact with your end clients". Nothing in the posting asks for that arrangement; claiming it reads as not having read the post.
+- Refer to the work exactly as the posting does: if the accounts belong to the buyer's clients ("our clients", "client accounts"), "your clients' accounts" is fine; if the posting names its own brands, name those brands. Never invent end clients, a client roster, or a hand-off model the posting doesn't describe.
+- Reporting goes where the posting says ("reporting and recommendations to our team" → to their team). Mirror that; never upgrade it into client-ready white-label deliverables.
+- Otherwise it is an ordinary specialist letter: answer the posting's questions in its order, prove the exact skill with the right case study.`
+          : `CLIENT TYPE: DIRECT end client. Address them as the business that will actually use the work. Do NOT frame yourself as a white-label provider, subcontractor, or someone "working behind another agency/developer," and do NOT describe this as a white-label engagement — EVEN IF the posting says they already have a developer/team or want an "additional person/resource." That just means you would join their team directly. White-label framing is ONLY correct when the posting explicitly asks for a white-label arrangement (white-label, under our brand, no contact with our clients, a subcontractor) — and this one does not.`,
         applicationChecklist ? applicationChecklist.promptBlock : '',
         (applicationChecklist || _PROOF_REQUEST_RE.test(fullDescription.replace(_CLIENT_OWN_PORTFOLIO_RE, '')))
           ? buildArtemFactsBlock(`${job.title || ''}\n${fullDescription}`)
@@ -6971,7 +7009,7 @@ Rules in the KB govern HOW you write the letter (what to include, what to leave 
 Example: Rule 4 ("never suggest monthly retainer arrangements unless asked") means: don't propose a retainer in your cover letter. It does NOT mean: skip jobs that sound retainer-shaped. Write a cover letter that focuses on the immediate engagement (audit, setup, first sprint) without naming a retainer structure.
 
 READING RULE TRIGGERS — LITERAL, NOT NARROWED:
-A rule that begins "When the job posting mentions X" applies whenever X appears in the posting. Do NOT invent extra qualifiers ("mentions X AND explicitly asks for Y", "mentions X AND is looking for Z"). If the trigger condition as literally written is true, the rule applies — apply the prescribed action in your draft. The instruction in the rule's body is the RESPONSE the rule tells you to give; it is NOT a precondition for whether the rule fires. Example: a rule saying "When the posting mentions they are an agency, position as a white-label partner" fires the moment the posting calls itself an agency — regardless of whether the agency uses the words 'white label' or asks for a partnership explicitly. Apply the white-label framing whenever the trigger word appears.
+A rule that begins "When the job posting mentions X" applies whenever X appears in the posting. Do NOT invent extra qualifiers ("mentions X AND explicitly asks for Y", "mentions X AND is looking for Z"). If the trigger condition as literally written is true, the rule applies — apply the prescribed action in your draft. The instruction in the rule's body is the RESPONSE the rule tells you to give; it is NOT a precondition for whether the rule fires. Example: a rule saying "If the job posting contains a custom greeting or verification phrase, include that exact phrase at the beginning of the proposal" fires whenever the posting asks for one ("Start your proposal with the word SCALE") — regardless of whether the posting calls it a verification phrase. The one deliberate exception is white-label positioning: whether it applies is decided by the CLIENT TYPE line in the job context, never by the word "agency" appearing in the posting.
 
 Voice rules:
 - Always write in first person as Artem; sign off with exactly "Artem" on its own final line (capital A)
@@ -7072,7 +7110,7 @@ When a posting's application questions explicitly demand examples, case studies,
 - Invent client examples, projects, platforms, or verticals that are not in the approved case studies. NO "bridal dress Webflow site", NO "luxury skincare Shopify store" — if it is not an approved case with that exact platform/vertical, it does not exist.
 - Invent a COUNT or DURATION of relationships ("currently deliver white-label for 3 agencies", "longest relationship running 18 months", "worked with X clients over Y years"). These are specific, checkable claims Artem has NOT given you — never state a number of agencies/clients or a tenure that is not a documented fact.
 - Relabel an approved case's platform or vertical to fit the question. The OpenCart builds (SMASH, Game-X, GKit) are OpenCart — never "Shopify" or "Webflow". Skin Reboot is medical-aesthetic ecommerce — never "Shopify". Casa Eleganza / Paramus are Shopify; ToTheBeauty / EnvieQ / Redwall Mural are WordPress.
-Instead: cite the REAL approved cases as the examples (SMASH, Game-X, GKit on OpenCart and Casa Eleganza on Shopify for web-dev builds; the Paramus/WordPress live sites; the SEO/PPC cases where relevant), and describe Artem's genuine model honestly — "Artem's team, IT Force, delivers behind agencies' brands: build in staging, hand off for your QA, no end-client contact." If the question asks for something the real cases don't cover, state what IS true and pivot to the closest real proof — do NOT manufacture a track record. Three real builds plus an honest hand-off model beats an invented white-label history that collapses on the client's first follow-up question.
+Instead: cite the REAL approved cases as the examples (SMASH, Game-X, GKit on OpenCart and Casa Eleganza on Shopify for web-dev builds; the Paramus/WordPress live sites; the SEO/PPC cases where relevant), and describe Artem's genuine model honestly — on a white-label job (CLIENT TYPE: agency / white-label) that is "Artem's team, IT Force, delivers behind agencies' brands: build in staging, hand off for your QA, no end-client contact."; on any other job it is Artem, the specialist doing the work himself. If the question asks for something the real cases don't cover, state what IS true and pivot to the closest real proof — do NOT manufacture a track record. Three real builds plus an honest hand-off model beats an invented white-label history that collapses on the client's first follow-up question.
 
 WHEN THE CLIENT ASKS FOR A SPECIFIC NUMBER TYPE A CASE DOESN'T HAVE (confirmed real fabrication, job 12068, 2026-08-18): a posting demanding "actual cost-per-lead numbers" pressured the model into inventing "$4.20 cost per lead" for Atlant and, in an earlier draft, "$142" / "$11 cost per conversion" for FridgeFix — neither figure exists anywhere in either case's real, approved metrics (Atlant has only +56.5% conversions / -31% CPC / +144% clicks; FridgeFix has only -92% cost per conversion / +1,405% conversions / $1.71 CPC). Case-study metrics are FIXED DATA, not something you estimate, translate, or back-calculate into whatever unit the client happened to ask for. If a client asks for "cost per lead" and the closest real case only has a percentage change or a cost-per-CLICK figure, do NOT convert or invent an absolute cost-per-lead dollar amount to match the ask — state the REAL metric, in its REAL unit, exactly as documented (e.g., "cost per conversion dropped 92%" is a real, honest answer to a "what's your cost per lead" question even though it isn't itself a dollar figure). A real percentage that doesn't exactly match the requested unit beats a fabricated dollar figure that does — the client can't disprove the real one, and the invented one collapses the moment they ask how it was calculated.
 
@@ -7797,6 +7835,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const _callOffersLeft = findCallOffers(text)
             const offersCall = _callOffersLeft.length > 0
             if (offersCall) console.warn('[Falcon] Call offer still in the letter — edit before sending:', _callOffersLeft.map(o => o.sentence))
+
+            // White-label / agency pitch the posting never asked for (jobs 16678,
+            // 16504). Reported, not stripped: the pitch is usually the whole opener,
+            // and cutting it leaves a letter with no start.
+            const _wlPitch = _whiteLabelAsk ? [] : findWhiteLabelPitch(text, { postingText: fullDescription })
+            const unrequestedWhiteLabel = _wlPitch.length > 0
+            if (unrequestedWhiteLabel) console.warn('[Falcon] White-label / agency pitch the posting never asked for — rewrite as a specialist:', _wlPitch)
 
             // Case location / timeframe. The flags come from the grounding checker
             // in the strip chain (caseGeoNotInLedger / caseTimeframeNotInLedger,
@@ -9016,6 +9061,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               && !overBudgetLengthCap
               && !offersCall
               && !seoPriceOffLedger
+              && !unrequestedWhiteLabel
 
             // Telemetry (Phase C): record every guard that fired this run.
             // Captured into a named list (not passed inline) because the enforcer's
@@ -9026,6 +9072,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               previewNotSpecific && 'previewNotSpecific',
               overBudgetLengthCap && 'overBudgetLengthCap',
               offersCall && 'offersCall',
+              unrequestedWhiteLabel && 'unrequestedWhiteLabel',
               hasExplainerOpener && 'hasExplainerOpener',
               hasForbiddenPhrase && 'hasForbiddenPhrase',
               missingAuditSampleMention && 'missingAuditSampleMention',
@@ -9345,7 +9392,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             </div>
           )}
 
-          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0 || _liveMissingExample) && (
+          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0 || _liveMissingExample || _liveWhiteLabelPitch.length > 0) && (
             <div style={{
               fontSize: 10, lineHeight: 1.55, padding: '7px 10px', borderRadius: 3,
               color: 'var(--text2)', background: 'rgba(239,68,68,0.08)',
@@ -9358,6 +9405,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
                 {_liveMissingExample && (
                   <li>No example: the posting asks for one (“{_exampleAsk.sentence}”) — the letter names no case study</li>
+                )}
+                {_liveWhiteLabelPitch.length > 0 && (
+                  <li>Agency pitch the posting never asked for: “{_liveWhiteLabelPitch.join('”, “')}” — write as a specialist, not a white-label agency</li>
                 )}
                 {_liveCaseFacts.geo.map((g, i) => (
                   <li key={`g${i}`}>{g.name} is placed in “{g.term}” — on record: {g.on_record}</li>
