@@ -8990,3 +8990,11 @@ Optional, owner's choice: Chrome's "Calculate window occlusion on Windows"
 render, so the background walk could read rooms too.
 
 `tests/inbox-scrape.test.js` 38/38; every suite passes.
+
+## 2026-09-30 — "Analysis response was truncated": the analyser's 2,000-token cap
+
+Owner shared job 16845 (Meta & Google Ads Strategist) with the error. token_usage: three analyses today
+returned exactly 2,000 output tokens — this job, and another twice in a row (so "hit Re-analyse" never
+helped). The model's JSON was cut off before its closing brace. Typical analyses are 700–1,500 tokens;
+long ones are postings with many screening questions and mandatory flags. Cap raised to 4,000 (only what
+is written is billed). The /claude proxy passes max_tokens through unchanged.

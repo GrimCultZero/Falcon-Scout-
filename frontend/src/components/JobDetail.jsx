@@ -4825,8 +4825,12 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
           model: 'claude-sonnet-4-5',
           // 600 was too tight — bumped to 1200 for normal jobs. 1200 still
           // truncates on very long job descriptions (120+ lines of scope).
-          // 2000 gives enough headroom for the largest jobs seen in practice.
-          max_tokens: 2000,
+          // 2000 held until 2026-09-30, when three analyses hit exactly 2000
+          // output tokens and failed as "truncated" — job 16845 (seven
+          // screening questions, unverified payment, Meta + Google) and another
+          // job twice in a row, so re-analysing never helped. Typical output is
+          // 700-1,500; the cap only bills what is written.
+          max_tokens: 4000,
           system: `You are analyzing Upwork jobs for Artem Yatsuk. Use this profile to calibrate every score.
 
 ARTEM'S UPWORK PROFILE (real, verified data — use this to assess fit):
