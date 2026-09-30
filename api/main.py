@@ -3713,6 +3713,36 @@ def _resolve_room_evidence(row, idx):
     return None, None, sorted(found)
 
 
+def _reply_seen_at(row: dict, now: datetime) -> datetime:
+    """When a reply found by the inbox sync should be dated: the conversation's
+    last activity, read from the inbox list by the extension (v5.2+), when it is
+    in the past — otherwise the sync time, as before.
+
+    Why: Outcomes sorts by status_updated_at, shown as "reply seen". A reply the
+    sync only discovers late was stamped with the sync time — on 2026-09-30 a July
+    Galactic Fed reply ("your profile really stood up…"), found when a mis-scrolled
+    sync read old conversations, jumped to the top of the list as if it were new.
+    """
+    raw = (row.get("last_activity_at") or "").strip() if isinstance(row, dict) else ""
+    if raw:
+        try:
+            t = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            if t <= now:
+                return t
+        except (ValueError, TypeError):
+            pass
+    return now
+
+
+def _as_utc(dt):
+    """Stored datetimes come back naive (UTC); make them comparable."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 @app.post("/messages-status-sync")
 def messages_status_sync(data: dict):
     """
@@ -3763,6 +3793,7 @@ def messages_status_sync(data: dict):
     # 'replied' is never re-ghosted (the timer only touches status == 'sent'),
     # so this cannot flip back on the next sweep.
     _RESURRECTABLE_TO_REPLIED = {"ghosted"}
+    redated = []   # replied proposals whose "reply seen" moved back to the conversation's date
     # Room-evidence paths are exact too: an id read from the room's own panel,
     # or a title from its header that is unique across every job we know.
     _EXACT_MATCH_PATHS = {"job_id", "exact_title_unique",
@@ -3887,18 +3918,31 @@ def messages_status_sync(data: dict):
                 not_matched.append({"job_title": job_title, "client_name": client_name})
                 continue
 
+            _now = datetime.now(timezone.utc)
             if proposal.status in _PROMOTABLE_TO_REPLIED:
                 proposal.status = "replied"
-                proposal.status_updated_at = datetime.now(timezone.utc)
+                proposal.status_updated_at = _reply_seen_at(row, _now)
                 updated += 1
                 newly_replied += 1
             elif proposal.status in _RESURRECTABLE_TO_REPLIED and match_via in _EXACT_MATCH_PATHS:
                 resurrected.append({"proposal_id": proposal.id, "from": proposal.status,
                                     "via": match_via, "client_name": client_name})
                 proposal.status = "replied"
-                proposal.status_updated_at = datetime.now(timezone.utc)
+                proposal.status_updated_at = _reply_seen_at(row, _now)
                 updated += 1
                 newly_replied += 1
+            elif proposal.status == "replied" and match_via in _EXACT_MATCH_PATHS:
+                # A reply stamped more than a day AFTER its conversation last moved
+                # was found late — date it by the conversation instead (the July
+                # reply stamped 2026-09-30 by the mis-scrolled sync). Only ever
+                # moves the stamp back, never forward.
+                _seen = _reply_seen_at(row, _now)
+                _cur = _as_utc(proposal.status_updated_at)
+                if _seen < _now and _cur is not None and _seen < _cur - timedelta(days=1):
+                    redated.append({"proposal_id": proposal.id, "from": _cur.isoformat(),
+                                    "to": _seen.isoformat(), "client_name": client_name[:60]})
+                    proposal.status_updated_at = _seen
+                    updated += 1
 
             # Store the inbox last-message preview as the card's reply text —
             # only when the client sent it last (not "You: …") and we don't
@@ -3922,6 +3966,8 @@ def messages_status_sync(data: dict):
             "not_matched_count": len(not_matched),
             # Ghosted proposals un-ghosted by a real reply this run (exact matches only).
             "resurrected_from_ghosted": resurrected,
+            # Replied proposals re-dated to when their conversation last moved.
+            "redated": redated,
             # Per-row outcome: which path matched (or none) — room walk v5.
             "match_log": match_log,
             # Rooms whose ids/titles pointed at MORE than one proposal: not matched.
@@ -3938,6 +3984,7 @@ def messages_status_sync(data: dict):
                     "has_unread": r.get("has_unread"),
                     "last_from_client": r.get("last_from_client"),
                     "last_message": (r.get("last_message") or "")[:120],
+                    "last_activity_at": r.get("last_activity_at"),
                     "room_proposal_ids": r.get("room_proposal_ids"),
                     "room_job_ids": r.get("room_job_ids"),
                     "room_titles": (r.get("room_titles") or [])[:4],

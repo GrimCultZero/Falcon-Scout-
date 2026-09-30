@@ -8898,3 +8898,38 @@ AN AUDIT now say: open with the offer, then describe it. Recorded `auditOfferLea
 Not built: a check for "dozens of stores"-type volume claims (KB #459) — none in the 256 sent letters.
 
 `tests/case-studies-offer.test.js` 29/29; every other suite passes.
+
+## 2026-09-30 — inbox sync read the wrong part of the inbox; late-found replies topped Outcomes
+
+Owner: "we had new reply - why it's not tracked by the sync", then "we got a response yesterday
+(sofia) - I dont see it in outcomes. And what is this one from June doing on the top of the list?"
+
+**Sofia Toro (proposal 238, Speedrack West).** Her decline ("We've selected another candidate", 29 Sep
+19:56 local) went unrecorded for three stacked reasons: (1) the inbox sync reads only each conversation's
+preview line + unread marker, and Artem replied a minute later, so by the 20:12 sync the preview was his
+"thank you for letting me know…"; (2) it never reads inside a conversation — a room is opened once, to
+link it to its proposal, then cached; (3) it can only promote to `replied`, and 238 was already there
+(since her three questions on 24 Sep, whose text was never saved either). Decline detection exists
+(`_DECLINE_SIGNALS`, "we've selected") but only behind the popup's manual Capture button. Set by hand
+via PUT /proposals/238: `declined`, with her message as the reply text.
+
+**The June one (proposal 80, "SEO Account Manager June", Galactic Fed).** Both 30 Sep morning syncs
+scraped 20 conversations from Jul 2026 back to 2025 instead of the newest 20: `waitForListContent`
+scrolled the virtualised list to the bottom before the one scrape, so only the bottom rows were in the
+DOM. The July Thomas Haugen thread was among them, matched (room_title, cached) to 80 — `invited`,
+though the client had replied in July ("your profile really stood up… written assessment") — and
+promoted to `replied` stamped with the sync time. Outcomes sorts by that stamp.
+
+Fix: the list is scraped top-down at every scroll step (`collectConversationRows`, newest first, list
+left at the top); each row carries `last_activity_at` from its time/date line ("7:57 PM", "Yesterday",
+a weekday, "9/22/26"; `_listWhen`); the backend dates a promotion by it (`_reply_seen_at`) and moves an
+already-`replied` stamp BACK to the conversation's date when it is more than a day later (exact matches
+only) — proposal 80 should drop to July on the next sync that sees its thread. Weekday / date lines are
+no longer read as job titles. Extension 5.1 → 5.2 (reload at chrome://extensions; `walk_info` in
+messages_sync_debug.json shows the running version).
+
+Still open (owner to decide): reading inside a conversation when its preview changes, so declines /
+interviews are recorded automatically. The existing capture parses with a Claude call per conversation;
+a free alternative reads the latest client message from the page and runs the existing phrase checks.
+
+`tests/inbox-scrape.test.js` 14/14, `tests/test_reply_dates.py` pass; every suite passes.

@@ -6,7 +6,8 @@
 //
 // When the sync flow opens this page in a tracked background tab:
 //   1. Wait for the sidebar conversation list to render
-//   2. Scroll to hydrate virtualised rows
+//   2. Scroll from the TOP down, scraping at every step (virtualised rows —
+//      see collectConversationRows)
 //   3. For each conversation row, extract:
 //        - room_id, room_url
 //        - job_title   (best-effort — usually shown as the subtitle)
@@ -51,36 +52,76 @@
     return null;
   }
 
+  // Only waits for the list to exist. The scrolling that used to live here is in
+  // collectConversationRows, which scrapes as it scrolls.
   async function waitForListContent(maxMs = 25000) {
     const start = Date.now();
-    let scrollAttempts = 0;
     while (Date.now() - start < maxMs) {
-      const anchors = document.querySelectorAll('a[href*="/messages/rooms/"]');
-      if (anchors.length > 0) {
-        // Found at least one — try to scroll the sidebar to hydrate any
-        // virtualised rows further down the list.
-        const sidebar = findSidebarContainer();
-        if (sidebar && scrollAttempts < 4) {
-          sidebar.scrollTop = sidebar.scrollHeight * (scrollAttempts + 1) / 4;
-          scrollAttempts++;
-          await new Promise(r => setTimeout(r, 600));
-          continue;
-        }
-        // If we couldn't find a sidebar, scroll the page instead
-        if (!sidebar && scrollAttempts < 3) {
-          window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
-          scrollAttempts++;
-          await new Promise(r => setTimeout(r, 500));
-          continue;
-        }
-        // Final settle
-        await new Promise(r => setTimeout(r, 700));
+      if (document.querySelectorAll('a[href*="/messages/rooms/"]').length > 0) {
+        await new Promise(r => setTimeout(r, 700));   // settle
         return true;
       }
       await new Promise(r => setTimeout(r, 500));
     }
     console.warn('[Cockpit Messages-List] No conversation rows found within', maxMs, 'ms');
     return false;
+  }
+
+  // Collect rows TOP-DOWN, scraping at every scroll step. The list is
+  // virtualised: only rows near the visible window exist in the DOM. The old
+  // flow scrolled to the BOTTOM and scraped once, so it saw the oldest loaded
+  // conversations and none of the newest — on 2026-09-30 both morning syncs read
+  // 20 conversations from Jul 2026 back to 2025. Sofia Toro's decline from the
+  // night before was not among them, and a July Galactic Fed thread was matched
+  // and promoted instead, landing on top of Outcomes. Start at the top, keep
+  // first-seen order (newest first), and leave the list back at the top.
+  async function collectConversationRows() {
+    const sidebar = findSidebarContainer();
+    const byRoom = new Map();
+    const add = () => { for (const r of scrapeConversationList()) if (!byRoom.has(r.room_id)) byRoom.set(r.room_id, r); };
+    if (sidebar) { sidebar.scrollTop = 0; await new Promise(r => setTimeout(r, 700)); }
+    add();
+    if (sidebar) {
+      for (let step = 1; step <= 4; step++) {
+        sidebar.scrollTop = Math.round(sidebar.scrollHeight * step / 4);
+        await new Promise(r => setTimeout(r, 600));
+        add();
+      }
+      sidebar.scrollTop = 0;
+    }
+    return [...byRoom.values()];
+  }
+
+  // The row's time/date line → ISO timestamp of the conversation's last activity.
+  // Upwork shows "7:57 PM" (today), "Yesterday", a weekday name (this week), or
+  // "9/22/26" (M/D/YY). A date with no time is taken at local noon. Null when the
+  // row has none — the backend then uses the sync time, as it always did.
+  const _WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  function _listWhen(lines, now = new Date()) {
+    for (const raw of lines.slice(0, 5)) {
+      const ln = String(raw || '').trim().toLowerCase();
+      let m = ln.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/);
+      if (m) {
+        let h = Number(m[1]) % 12; if (m[3] === 'pm') h += 12;
+        const d = new Date(now); d.setHours(h, Number(m[2]), 0, 0);
+        return d.toISOString();
+      }
+      if (ln === 'yesterday') { const d = new Date(now); d.setDate(d.getDate() - 1); d.setHours(12, 0, 0, 0); return d.toISOString(); }
+      const wd = _WEEKDAYS.indexOf(ln);
+      if (wd !== -1) {
+        const d = new Date(now); d.setHours(12, 0, 0, 0);
+        const back = ((d.getDay() - wd + 7) % 7) || 7;   // most recent past one, never today
+        d.setDate(d.getDate() - back);
+        return d.toISOString();
+      }
+      m = ln.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+      if (m) {
+        const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+        const d = new Date(y, Number(m[1]) - 1, Number(m[2]), 12, 0, 0, 0);
+        return isNaN(d) ? null : d.toISOString();
+      }
+    }
+    return null;
   }
 
   function scrapeConversationList() {
@@ -123,6 +164,9 @@
         const ln = lines[i];
         if (/^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(ln)) continue;     // timestamps
         if (/^(yesterday|today|\d+\s+(min|hour|day|week|month)s?\s+ago)$/i.test(ln)) continue;
+        // weekday / M/D/YY date lines ("Thursday", "3/26/26") were read as job titles
+        if (/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i.test(ln)) continue;
+        if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(ln)) continue;
         if (ln.length < 5 || ln.length > 200) continue;
         if (/^(typing|you:|delivered|read|sent)\b/i.test(ln)) continue;
         job_title = ln;
@@ -172,6 +216,9 @@
         has_unread,
         last_message,
         last_from_client,
+        // when the conversation last moved — the backend dates a late-found reply
+        // by this instead of by the sync (a July reply found today sorted as new)
+        last_activity_at: _listWhen(lines),
       });
     }
     return rows;
@@ -628,7 +675,7 @@
 
     const ok = await waitForListContent();
     if (!ok) { showBanner({ phase: 'done', error: 'inbox list did not render' }); _done({ scanned: 0, error: 'inbox list did not render' }); return; }
-    const rows = scrapeConversationList();
+    const rows = await collectConversationRows();
     console.log('[Cockpit Messages-List] Scraped', rows.length, 'conversation rows');
     if (!rows.length) { showBanner({ phase: 'done', scraped: 0, rows, error: 'no conversations scraped' }); _done({ scanned: 0, error: 'no conversations scraped' }); return; }
 
