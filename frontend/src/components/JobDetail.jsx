@@ -2088,6 +2088,28 @@ function _stripDuplicateCaseBlockLabel(text) {
 // opener (not just the immediate next one) for one that OPENS with the armed
 // case's own name — a genuine passing reference mid-sentence elsewhere is not
 // touched, only a paragraph functioning as that case's own block header.
+//
+// Digit Bomb armed → the past letters go into the prompt WITHOUT their
+// openings. Each past letter is shown as its first 600 characters, i.e. mostly
+// its opening, labelled "emulate … opening approach" — and those openings cite
+// other cases' numbers. Job 16872 (2026-09-30): armed Skin Reboot twice, and both
+// letters opened with a past letter's FridgeFix sentence copied near verbatim
+// ("-92% cost per conversion and +1,405% conversions - FridgeFix …", from job
+// 16684's letter, which job 16730's had copied too) — missingDigitBombFacts both
+// times. With a bomb armed the opening is decided, so an example opening can only
+// compete with it; the rest of each letter (structure, placement, close) stays.
+const _PAST_LETTER_OPENING_OMITTED = '[opening omitted: this letter opens with the armed Digit Bomb case]'
+function _dropPastLetterOpenings(text) {
+  if (!text) return text
+  return text.replace(/(Past cover letter \d+[^\n]*:\n)([\s\S]*?)(?=\n\nPast cover letter \d+|$)/g, (m, head, body) => {
+    const reply = body.match(/\n {2}↳ client replied: [^\n]*$/)
+    const letter = reply ? body.slice(0, reply.index) : body
+    const cut = letter.search(/\n\s*\n/)
+    const rest = cut === -1 ? '' : letter.slice(cut).replace(/^\s+/, '')
+    return `${head}${_PAST_LETTER_OPENING_OMITTED}${rest ? `\n${rest}` : ''}${reply ? reply[0] : ''}`
+  })
+}
+
 function _stripDigitBombDuplicateCase(text, digitBombCase) {
   if (!text || !digitBombCase) return text
   const paras = text.split(/\n\s*\n/)
@@ -7353,7 +7375,7 @@ PRECEDENCE — READ THIS BEFORE OBEYING ANY CREDENTIAL RULE: KB Rule 439 require
 
 After this opening, proceed with the rest of the letter NORMALLY per the rules above. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.
 ═══════════════════════════════════════════════════════════════════
-` : ''}${portfolioText}${portfolioText ? renderCaseFactsBlock() : ''}${referenceText}${pastProposalsText}${examplesText}${adjustments}
+` : ''}${portfolioText}${portfolioText ? renderCaseFactsBlock() : ''}${referenceText}${_digitBombCase ? _dropPastLetterOpenings(pastProposalsText) : pastProposalsText}${examplesText}${adjustments}
 ${kbRulesText ? `
 RULE COMPLIANCE GATE (silent, mandatory):
 Before you emit the cover letter, run this checklist *internally* (do NOT include it in your output):
@@ -7369,6 +7391,8 @@ Before you emit the cover letter, run this checklist *internally* (do NOT includ
 6. Case study duplication check: scan your draft for each case study name (Derma Solution, Skin Reboot, Nectar Flowers, FridgeFix, House Painting, Multilingual Site, GKit, etc.). If any name appears more than once, that is a duplication violation. Remove the SECOND occurrence — either delete it from the formal block (if the case was already used in the narrative), or collapse the narrative mention to a single word of the client name only. Each case study must appear exactly once.
 
 Then proceed to FINAL OUTPUT FORMAT.
+` : ''}${_digitBombCase ? `
+DIGIT BOMB — LAST CHECK (armed for this letter): the letter's first words are ${_digitBombCase.name}'s real numbers (${_digitBombCase.metrics.slice(0, 2).join(', ')}), then "${_digitBombCase.name}" with its attachment note, then the bridge to THIS client. No other case's numbers open this letter — the past letters above are shown without their openings for exactly this reason.
 ` : ''}
 FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preamble, no meta-commentary, no "Here's the cover letter:", no rule-check explanation, no skip recommendation.${droppedFiles.length > 0 ? `
 

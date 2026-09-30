@@ -9083,3 +9083,36 @@ a helper before its first use when the backend is live.
 
 `tests/client-panel-unknown.test.js` (new) runs extractData on fake pages — 14/14; all suites pass.
 Extension 5.6 → 5.7.
+
+## 2026-09-30 — Skin Reboot armed, FridgeFix fired: past letters' openings outvoted the Digit Bomb
+
+Owner, job 16872 (Google Ads Specialist Needed – Audit & Ongoing Management, UK e-commerce): Digit Bomb
+armed on Skin Reboot, letter opened with FridgeFix. rule_violations: run 1 (13:12) unarmed; runs 2
+(13:14:10) and 3 (13:14:45, the shared letter) both `digitBombArmedForThisRun` + `missingDigitBombFacts` —
+the bomb reached the generator both times and both letters missed it.
+
+Cause: the prompt's four past letters (8 most recent sent_proposal KB entries, similarity-ranked) were
+#720 (Skin Reboot opener, job 16845), #680, #712 and #716 — job 16684's letter, which opens "-92% cost
+per conversion and +1,405% conversions - FridgeFix (attached in profile highlights): California appliance
+repair, rebuilt GA4/GTM conversion tracking and Search + Local PMax structure around purchase-intent
+queries, pruned geo waste." The new letter's opening is that sentence near verbatim. Each past letter is
+shown as its first 600 characters — mostly its opening — under "Emulate … opening approach", and the
+block sits AFTER the DIGIT BOMB block (then the KB rules gate). Skin Reboot's own metrics are in the
+ledger, so grounding did not remove a Skin Reboot opener (run 3 has no metricNotInLedger).
+
+- Armed only: `_dropPastLetterOpenings` removes each past letter's first paragraph ("[opening omitted:
+  this letter opens with the armed Digit Bomb case]"); structure, case placement, close and reply lines
+  stay. Unarmed letters see past letters exactly as before.
+- Armed only: "DIGIT BOMB — LAST CHECK" right before FINAL OUTPUT FORMAT — the armed case's first two
+  metrics, its name, the bridge; no other case's numbers open the letter.
+
+Found, not changed (owner's call): the same FridgeFix opener has now run through three consecutive letters
+for similar e-commerce jobs — 16684 → 16730 → 16872 (#716 → proposal 275 → #721) — because every sent
+letter becomes a past-letter example for the next similar job and its opening is what gets copied.
+FridgeFix is local-service (appliance repair); on these e-commerce jobs `wrongVerticalCasePadding` /
+`localServiceCaseDisplacedByEcomHealth` fire. Option: show openings only for reply-winners/winners,
+never for plain sent/ghosted letters. Also: KB #718 (job 16730) saved Upwork's "3288 characters left"
+counter as its cover letter — the only such entry of 281; left as is (restoring it would add one more
+FridgeFix opener to the pool).
+
+`tests/digit-bomb-openings.test.js` (new) 10/10; all 18 JS suites and 3 Python suites pass.
