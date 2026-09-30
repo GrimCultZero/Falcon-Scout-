@@ -9116,3 +9116,35 @@ counter as its cover letter — the only such entry of 281; left as is (restorin
 FridgeFix opener to the pool).
 
 `tests/digit-bomb-openings.test.js` (new) 10/10; all 18 JS suites and 3 Python suites pass.
+
+## 2026-09-30 — "Offering kick off call - should never do it": woven call offers are now rewritten
+
+Owner, job 16869 (GA4 / GSC / SEO specialist, Webflow, B2B tech services; the posting asks for "a
+handover session"). The letter offered two calls: "…, deliver a content roadmap for post-launch
+execution, 60-minute handover call walking through dashboards and next steps." and, in the access list,
+"…, and a 20-minute kick-off call to confirm lead definitions (…)". `offersCall` fired — reported only.
+The prompt already forbids both in so many words (including "listing a call as something you NEED from
+the client", shipped on 16113) and says to redirect a requested handover to the written deliverable;
+KB #5 "Never initiate or offer a call", #400 no video walkthroughs, #3 no Loom/recordings.
+
+Why stripCallOffers let them through: the kick-off one was detected, but its clause rewrite only knew
+"a quick / 20-minute call", not "a 20-minute kick-off call"; the handover one was not detected at all
+(session nouns were kick-off / onboarding / intro only); and a call woven into a longer sentence was
+deliberately report-only ("cutting it safely needs judgment").
+
+- Detection: session nouns = kick-off, onboarding, intro, handover, hand-off, walkthrough, wrap-up,
+  alignment, planning, scoping, training, Q&A + call / meeting / session / zoom. Not discovery /
+  strategy: over 537 real letters (256 fixture + 281 KB) every such match was the client's conversion or
+  funnel ("booked discovery calls", "free strategy call" on a landing page); none of the listed kinds
+  appears except as an offer. Fixture replay: still the same 3 offers as the 2026-09-24 hand review.
+- The "…, plus/and a … call to <verb> X" clause takes a named call ("kick-off", "strategy", …) and
+  "session"; "confirm" → "a short written note to confirm …", as for 16113.
+- Woven sessions become their written counterpart in place (`_rewriteWovenSessions`): handover → "a
+  written handover", walkthrough → "a written walkthrough", training → guide, Q&A → written Q&A, the rest
+  → "a written brief"; article/determiner, plural and sentence-start capital handled; negated, client-owned
+  ("your onboarding call"), funnel and quoted text untouched. Verb-framed calls inside a longer sentence
+  ("…, then we can jump on a call") stay report-only.
+
+On 16869's letter: "…, a written handover walking through dashboards and next steps." and "…, and a
+short written note to confirm lead definitions (…)". `tests/letter-guards.test.js` 63/63 (the woven
+plan-line case now expects the rewrite); all 18 JS suites and 3 Python suites pass.

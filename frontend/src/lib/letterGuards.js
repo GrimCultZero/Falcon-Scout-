@@ -21,6 +21,8 @@ import { casesMentioned } from './caseLedger.js'
 // guys"). So every pattern needs an offer verb, an offer frame or a
 // session-only noun, never the word alone. `nounOnly` marks the patterns that
 // match just a noun phrase, where "your …" means the client's own meetings.
+const _SESSION_KINDS = 'kick-?off|onboarding|intro(?:ductory)?|handover|hand-?off|walk-?through|wrap-?up|alignment|planning|scoping|training|q&a'
+const _SESSION_NOUN_SRC = new RegExp(`\\b(?:${_SESSION_KINDS})\\s+(?:call|meeting|session|zoom)s?\\b`, 'i')
 const _CALL_OFFER_RES = [
   // "jump/hop/get on a (quick) call"
   { re: /\b(?:jump|hop|get)\s+on\s+(?:a\s+|the\s+)?(?:quick\s+|short\s+|brief\s+|\d+[- ]?min(?:ute)?s?\s+)?(?:phone\s+|video\s+|zoom\s+)?(?:call|zoom|meeting|chat)\b/i },
@@ -39,8 +41,13 @@ const _CALL_OFFER_RES = [
   // prompt bans alongside calls; not when the sentence is about the written
   // deliverable ("the report walks you through…" doesn't match at all).
   { re: /\bwalk\s+you\s+through\b/i, unlessWritten: true },
-  // sessions that only ever mean a meeting with Artem
-  { re: /\b(?:kick-?off|onboarding|intro(?:ductory)?)\s+(?:call|meeting|session)s?\b/i, nounOnly: true },
+  // sessions that only ever mean a meeting with Artem. Handover, walkthrough &
+  // co. added 2026-09-30 (job 16869: "…, 60-minute handover call walking through
+  // dashboards and next steps." went undetected — the posting asked for "a
+  // handover session"). Not discovery / strategy: in 537 real letters every one
+  // of those was the client's conversion ("booked discovery calls", "free
+  // strategy call" on a landing page); none of these was ever anything but an offer.
+  { re: _SESSION_NOUN_SRC, nounOnly: true },
   { re: /\bscreen[- ]?shar(?:e|es|ing)\b/i, nounOnly: true },
   { re: /\b(?:zoom|video|teams)\s+(?:call|meeting|session)s?\b/i, nounOnly: true },
 ]
@@ -79,6 +86,16 @@ function _sentencePieces(line) {
   return pieces
 }
 
+// Is a match preceded by `before` Artem's own offer? Not when negated, the
+// client's own meeting (noun-only patterns), their funnel, or quoted CTA copy.
+function _offerContextOk(before, nounOnly) {
+  if (_NEGATED_TAIL_RE.test(before)) return false
+  if (nounOnly && _CLIENT_OWNED_TAIL_RE.test(before)) return false
+  if (_FUNNEL_TAIL_RE.test(before)) return false
+  if (((before.match(/["“”]/g) || []).length % 2) === 1) return false   // inside quoted CTA copy
+  return true
+}
+
 // Earliest call offer in one sentence, or null.
 function _offerIn(sentence) {
   let best = null
@@ -86,17 +103,47 @@ function _offerIn(sentence) {
     const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
     let m
     while ((m = g.exec(sentence))) {
-      const before = sentence.slice(0, m.index)
-      if (_NEGATED_TAIL_RE.test(before)) continue
-      if (nounOnly && _CLIENT_OWNED_TAIL_RE.test(before)) continue
-      if (_FUNNEL_TAIL_RE.test(before)) continue
+      if (!_offerContextOk(sentence.slice(0, m.index), nounOnly)) continue
       if (unlessWritten && _WRITTEN_RE.test(sentence)) continue
-      if (((before.match(/["“”]/g) || []).length % 2) === 1) continue   // inside quoted CTA copy
       if (!best || m.index < best.index) best = { index: m.index, match: m[0] }
       break
     }
   }
   return best
+}
+
+// A session woven into a sentence — "…, 60-minute handover call walking through
+// dashboards and next steps." (job 16869, 2026-09-30), "Week 1: kick-off call to
+// align on goals, then the audit." Until 2026-09-30 these were only reported
+// ("cutting it safely needs judgment"); the owner: never. KB #5: never offer a
+// call; #400 bans video walkthroughs and #3 recordings — so the counterpart is
+// WRITTEN. It replaces the session in place and the sentence keeps its shape:
+// "…, a written handover walking through dashboards and next steps."
+const _WOVEN_SESSION_RE = new RegExp(
+  `(\\b(?:a|an|one)\\s+)?((?:(?:quick|short|brief|free|live|final|\\d+[- ]?min(?:ute)?s?|\\d+[- ]?hours?|one[- ]hour|half[- ]hour)\\s+){0,2})\\b(${_SESSION_KINDS})\\s+(?:call|meeting|session|zoom)(s?)\\b`, 'gi')
+// Already has a determiner ("the handover call", "our final kick-off call"):
+// the written counterpart takes no article of its own.
+const _DETERMINED_TAIL_RE = /\b(?:a|an|one|the|this|that|these|those|our|my|their|its|each|every|any|same)\s+(?:[\w-]+\s+){0,2}$/i
+function _writtenFor(kind, plural) {
+  const k = kind.toLowerCase().replace(/-/g, '')
+  const noun = /^(?:handover|handoff|wrapup)$/.test(k) ? 'handover'
+    : k === 'walkthrough' ? 'walkthrough'
+    : k === 'training' ? 'guide'
+    : k === 'q&a' ? 'Q&A'
+    : 'brief'   // kick-off, onboarding, intro, alignment, planning, scoping
+  return `written ${noun}${plural ? 's' : ''}`
+}
+function _rewriteWovenSessions(sentence) {
+  let changed = false
+  const out = sentence.replace(_WOVEN_SESSION_RE, (m, art, mods, kind, plural, offset, whole) => {
+    const before = whole.slice(0, offset)
+    if (!_offerContextOk(before, true)) return m
+    changed = true
+    const noun = _writtenFor(kind, !!plural)
+    const rep = plural || (!art && _DETERMINED_TAIL_RE.test(before)) ? noun : `a ${noun}`
+    return before.trim() ? rep : rep[0].toUpperCase() + rep.slice(1)
+  })
+  return changed ? out : null
 }
 
 // Every call offer left in a letter: [{ match, sentence }].
@@ -113,8 +160,10 @@ export function findCallOffers(text) {
 
 // "…, plus a quick call to confirm X." — the call is one item in a list of
 // things Artem needs. Rewritten to ask in writing when the verb is about
-// getting information; otherwise the clause goes.
-const _CALL_CLAUSE_RE = /(\s*,?\s+(?:plus|and|or|along\s+with|as\s+well\s+as)\s+)((?:a|one)\s+(?:quick\s+|short\s+|brief\s+|\d+[- ]?min(?:ute)?s?\s+)?(?:phone\s+|video\s+|zoom\s+)?(?:call|chat|meeting))\b(\s+to\s+([a-z]+))?([^.!?]*)([.!?]*)\s*$/i
+// getting information; otherwise the clause goes. The call may be named
+// ("…, and a 20-minute kick-off call to confirm lead definitions" — job 16869,
+// the same shape as 16113 with one word more, which this used to miss).
+const _CALL_CLAUSE_RE = /(\s*,?\s+(?:plus|and|or|along\s+with|as\s+well\s+as)\s+)((?:a|one)\s+(?:quick\s+|short\s+|brief\s+|\d+[- ]?min(?:ute)?s?\s+)?(?:(?:phone|video|zoom|strategy|discovery|kick-?off|onboarding|intro(?:ductory)?|handover|hand-?off|walk-?through|wrap-?up|alignment|planning|scoping)\s+)?(?:call|chat|meeting|session))\b(\s+to\s+([a-z]+))?([^.!?]*)([.!?]*)\s*$/i
 const _WRITTEN_OK_VERBS = new Set(['confirm', 'clarify', 'define', 'agree', 'align', 'pin', 'nail', 'specify', 'outline', 'lock', 'settle', 'verify', 'check', 'map', 'list', 'flag', 'note', 'share'])
 // A sentence whose whole point is the call: "Happy to hop on a quick call…",
 // "If it helps, I can also jump on a call…", "Would you be open to a call?",
@@ -151,6 +200,17 @@ export function stripCallOffers(text) {
           pieces.splice(i, 1)
           i--
           touched = true
+        } else {
+          // Woven into a plan line or a list: the session becomes its written
+          // counterpart in place. A verb-framed call woven into a longer
+          // sentence ("…, then we can jump on a call to review") is still only
+          // reported — offersCall surfaces it.
+          const woven = _rewriteWovenSessions(s)
+          if (woven) {
+            rewritten.push({ from: s.trim(), to: woven.trim() })
+            pieces[i] = { text: woven, sep: pieces[i].sep }
+            touched = true
+          }
         }
       }
       return touched ? pieces.map(p => p.text + p.sep).join('') : line

@@ -68,10 +68,40 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(sLast.text === 'The audit covers tracking and structure.', 'removing the LAST sentence leaves no trailing whitespace');
   const sPara = G.stripCallOffers('First paragraph.\n\nHappy to jump on a quick call to discuss.\n\nArtem');
   assert(sPara.text === 'First paragraph.\n\nArtem', 'a paragraph that was only a call offer disappears without leaving a blank run');
-  const residual = 'Week 1: kick-off call to align on goals, then the audit.';
-  const sResidual = G.stripCallOffers(residual);
-  assert(sResidual.text === residual && !sResidual.changed, 'a call woven into a plan line is left alone (needs judgment) …');
-  assert(offers(sResidual.text) === 1, '… and is still reported, so it reaches the UI note');
+  // 2026-09-30, job 16869 — owner: "offering kick off call - should never do it".
+  // A session woven into a plan line or a list is no longer left alone: it
+  // becomes its written counterpart in place (KB #5 no calls; #400/#3 no video
+  // or recordings), and the sentence keeps its shape.
+  const sResidual = G.stripCallOffers('Week 1: kick-off call to align on goals, then the audit.');
+  assert(sResidual.text === 'Week 1: a written brief to align on goals, then the audit.', `a kick-off call woven into a plan line becomes a written brief (${sResidual.text})`);
+  assert(offers(sResidual.text) === 0, '… and nothing is left to report');
+  const h16869 = 'Document tracking validation (before/after GA4 session data, GSC impressions/CTR baseline), deliver a content roadmap for post-launch execution, 60-minute handover call walking through dashboards and next steps.';
+  assert(offers(h16869) === 1, 'job 16869: "60-minute handover call" is detected (it was not — only kick-off / onboarding / intro were)');
+  assert(G.stripCallOffers(h16869).text === 'Document tracking validation (before/after GA4 session data, GSC impressions/CTR baseline), deliver a content roadmap for post-launch execution, a written handover walking through dashboards and next steps.',
+    '… and becomes "a written handover walking through dashboards and next steps" (the GA4 "session data" untouched)');
+  const k16869 = 'Admin access to GA4 property, GTM container, GSC property, Webflow account, any existing keyword rank tracker if you have one, and a 20-minute kick-off call to confirm lead definitions (what counts as a qualified demo request vs junk form fill) so conversion tracking measures what actually matters to your pipeline.';
+  assert(G.stripCallOffers(k16869).text === 'Admin access to GA4 property, GTM container, GSC property, Webflow account, any existing keyword rank tracker if you have one, and a short written note to confirm lead definitions (what counts as a qualified demo request vs junk form fill) so conversion tracking measures what actually matters to your pipeline.',
+    'job 16869: "…, and a 20-minute kick-off call to confirm X" asks in writing, like 16113\'s "plus a quick call to confirm X"');
+  const wovenCases = [
+    ['Phase 3 ends with a handover session.', 'Phase 3 ends with a written handover.', 'article kept once'],
+    ['The handover call covers every change.', 'The written handover covers every change.', 'a determiner already there takes no second article'],
+    ['Kick-off call first, then the audit.', 'A written brief first, then the audit.', 'sentence start is capitalised'],
+    ['I run weekly planning calls with the team.', 'I run weekly written briefs with the team.', 'plural stays plural, no article'],
+    ['We finish with a 30-minute walkthrough session of the dashboards.', 'We finish with a written walkthrough of the dashboards.', 'duration dropped with the call'],
+    ['Delivery includes a Q&A session at the end.', 'Delivery includes a written Q&A at the end.', 'Q&A'],
+  ];
+  for (const [from, to, why] of wovenCases) {
+    const r = G.stripCallOffers(from).text;
+    assert(r === to, `woven session → written (${why}): "${from}" → "${r}"`);
+  }
+  const leftAlone = [
+    'Your onboarding call with new hires stays as it is.',
+    'No kick-off call needed, everything is in writing.',
+    "You've built the Zapier automation that captures real booked discovery calls.",
+    'Landing pages built around the offer that converts (audit, free strategy call, case study download).',
+    'GA4 session data and session duration look inflated.',
+  ];
+  for (const s of leftAlone) assert(G.stripCallOffers(s).text === s, `not Artem's offer, left alone: "${s}"`);
   const plain = 'Line one.\nLine two, with "quotes".\n\nSecond para - dash.\n\nArtem';
   const sPlain = G.stripCallOffers(plain);
   assert(sPlain.text === plain && !sPlain.changed, 'a letter with no offer comes back byte-for-byte identical');
