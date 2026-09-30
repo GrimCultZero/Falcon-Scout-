@@ -43,6 +43,17 @@
     const availMatch = body.match(/Available Connects:\s*(\d+)/i);
     data.available_connects = availMatch ? parseInt(availMatch[1]) : null;
 
+    // Both sidebar panels hydrate after load, and in a background tab (the
+    // auto-enrich sweep) Upwork sometimes never renders them. A panel that is
+    // not on the page tells us nothing, so its rows go out as null (unknown —
+    // the backend keeps what it already has), never as a default 0 or "not
+    // verified". 30 Sep 2026: 41 of the 42 jobs stored as "payment not verified"
+    // had no "Member since" either — their client panel had not rendered — and
+    // on job 16845 that default overwrote the API feed's payment status two
+    // minutes after capture; the analysis then warned of non-payment risk.
+    const activityRead = /Proposals:|Interviewing:|Invites sent:|Last viewed by client/i.test(body);
+    const clientRead = /Member since\s+[A-Za-z]+\s+\d/i.test(body);
+
     // Allow any whitespace (including multiple newlines) between label and value
     const proposalsMatch = body.match(/Proposals:\s*[\n\r\s]*([^\n\r]{2,40})/i);
     data.proposals = proposalsMatch ? proposalsMatch[1].trim().replace(/\s*[ⓘⓘℹ].*$/, '').trim() : null;
@@ -51,23 +62,26 @@
     data.last_viewed = lastViewedMatch ? lastViewedMatch[1].trim() : null;
 
     const interviewMatch = body.match(/Interviewing:\s*\n?\s*(\d+)/i);
-    data.interviewing = interviewMatch ? parseInt(interviewMatch[1]) : 0;
+    data.interviewing = interviewMatch ? parseInt(interviewMatch[1]) : (activityRead ? 0 : null);
 
     const invitesMatch = body.match(/Invites sent:\s*\n?\s*(\d+)/i);
-    data.invites_sent = invitesMatch ? parseInt(invitesMatch[1]) : 0;
+    data.invites_sent = invitesMatch ? parseInt(invitesMatch[1]) : (activityRead ? 0 : null);
 
     const unansweredMatch = body.match(/Unanswered invites:\s*\n?\s*(\d+)/i);
-    data.unanswered_invites = unansweredMatch ? parseInt(unansweredMatch[1]) : 0;
+    data.unanswered_invites = unansweredMatch ? parseInt(unansweredMatch[1]) : (activityRead ? 0 : null);
 
     // "Already hired: N" — Upwork only renders this row when N > 0. Capture both
     // count and a 0 fallback so the analyser can distinguish "client filled the
-    // role" from "we don't know".
+    // role" from "we don't know" — the 0 only when the activity panel is there.
     const alreadyHiredMatch = body.match(/Already\s+hired:\s*\n?\s*(\d+)/i);
-    data.client_already_hired = alreadyHiredMatch ? parseInt(alreadyHiredMatch[1]) : 0;
+    data.client_already_hired = alreadyHiredMatch ? parseInt(alreadyHiredMatch[1]) : (activityRead ? 0 : null);
 
-    // Matches "Payment verified" (new UI) and "Payment method verified" (old UI)
-    data.payment_verified = /payment\s+(?:method\s+)?verified/i.test(body);
-    data.phone_verified = /phone\s+(?:number\s+)?verified/i.test(body);
+    // Verified: "Payment verified" (new UI) / "Payment method verified" (old UI).
+    // Not verified: Upwork's own "Payment method not verified", or no verified
+    // line in a client panel that did render. Otherwise unknown (null).
+    data.payment_verified = /payment\s+(?:method\s+)?verified/i.test(body) ? true
+      : (clientRead || /payment\s+(?:method\s+)?(?:not\s+verified|unverified)/i.test(body)) ? false : null;
+    data.phone_verified = /phone\s+(?:number\s+)?verified/i.test(body) ? true : (clientRead ? false : null);
 
     const ratingMatch = body.match(/([\d.]+)\s+of\s+(\d+)\s+reviews?/i);
     if (ratingMatch) {

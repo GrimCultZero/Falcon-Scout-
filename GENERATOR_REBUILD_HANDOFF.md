@@ -19,12 +19,15 @@ without asking.**
    Most are gitignored; `corrections/` and `tools/_letter_features.json` are merely untracked — careful.
 3. **The app is normally running:** backend `.\.venv\Scripts\uvicorn api.main:app --reload` on :8000
    (auto-reloads on save), frontend Vite on **:5180** (HMR). The Chrome extension lives in `upwork-enricher/`;
-   **any extension change needs a reload at `chrome://extensions`** — its version (now **5.6**) shows up in
+   **any extension change needs a reload at `chrome://extensions`** — its version (now **5.7**) shows up in
    `messages_sync_debug.json` → `walk_info.extension_version`, which is how you confirm he reloaded.
 4. **Read §7 (working agreements) before fixing anything.**
 5. **State when this was written:** the passive read **works** (5.5, first real read 30 Sep 15:27: Sofia
    Toro's room, matched to proposal 238 by its proposal id, 4 messages with the right senders). 5.6 cuts
    the client's card off the end of the thread. See §8.1 for what to watch.
+6. **Also 30 Sep (5.7):** the job-page reader no longer writes "payment not verified" or activity 0s for a
+   panel it could not see — those are null (unknown), the sweep re-reads jobs missing their client panel,
+   and prompts say "status unknown". WORKLOG 09-30 "an unread panel read as 'no'".
 
 ---
 
@@ -269,5 +272,5 @@ side validation union a fresh dump with older ones. Useful telemetry: `rule_viol
 
 > Read `GENERATOR_REBUILD_HANDOFF.md` in `C:\Users\syzov\upwork-cockpit` (branch `generator-rebuild`), then
 > the last few dated entries in `WORKLOG.md`. Start with §8.1: check `messages_passive_debug.json` from the
-> last conversation I opened (extension 5.6) and tell me whether the passive read parsed it cleanly.
+> last conversation I opened (extension 5.7) and tell me whether the passive read parsed it cleanly.
 > Don't commit `cli-bridge.js` or `frontend/src/App.jsx`.

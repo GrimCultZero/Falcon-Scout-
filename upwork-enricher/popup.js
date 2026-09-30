@@ -449,7 +449,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
           ['Connects',    d.connects_required ? d.connects_required + ' connects' : null],
           ['Applicants',  d.proposals],
           ['Hire rate',   d.hire_rate != null ? d.hire_rate + '%' : null],
-          ['Payment',     d.payment_verified ? '✓ Verified' : '✗ Not verified'],
+          ['Payment',     d.payment_verified ? '✓ Verified' : d.payment_verified === false ? '✗ Not verified' : null],   // null: client panel not read
           ['Jobs posted', d.client_jobs_posted],
           ['Total spent', d.client_total_spent_detail],
           ['Rating',      d.client_rating],

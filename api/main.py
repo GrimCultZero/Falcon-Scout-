@@ -1134,7 +1134,11 @@ def jobs_pending_enrich():
         stmt = (
             select(Job)
             .where(
-                Job.enriched_at.is_(None),
+                # Never read — or read without its client panel ("Member since" is
+                # on every client's panel). A hidden tab sometimes never renders
+                # that panel; before 2026-09-30 such a job was never read again,
+                # so its payment status stayed whatever that one read said.
+                or_(Job.enriched_at.is_(None), Job.client_member_since.is_(None)),
                 Job.url.isnot(None),
                 Job.url != "",
                 Job.hidden_at.is_(None),
@@ -1261,6 +1265,15 @@ def _archive_snapshot(text: str, kind: str, data: dict, ts: str) -> str | None:
     except Exception as e:
         print(f"[share] archive failed (share itself unaffected): {e}")
         return None
+
+
+def _payment_word(v) -> str:
+    """A job's payment status in words. None is UNKNOWN — the client panel was
+    never read — not "NOT verified" (job 16845, 2026-09-30: an unread panel became
+    "payment NOT verified" and the analysis warned of non-payment risk)."""
+    if v is None:
+        return "status unknown (client panel not read)"
+    return "verified" if v else "NOT verified"
 
 
 @app.post("/share-with-claude")
@@ -1433,7 +1446,7 @@ def share_with_claude(data: dict):
         f"{job.get('client_rating_score', 0)} rating · "
         f"{job.get('hire_rate', '?')}% hire rate · "
         f"spent {job.get('client_total_spent_detail') or 'unknown'} · "
-        f"payment {'verified' if job.get('payment_verified') else 'NOT verified'}"
+        f"payment {_payment_word(job.get('payment_verified'))}"
     )
     lines.append(
         f"- Activity: {job.get('proposals') or '?'} applicants · "
@@ -2656,7 +2669,7 @@ async def chat(request: dict):
                     f"**Client:** {j.client_review_count or 0} reviews, "
                     f"{j.client_rating_score or 0} rating, "
                     f"{j.hire_rate or '?'}% hire rate, "
-                    f"payment {'verified' if j.payment_verified else 'NOT verified'}",
+                    f"payment {_payment_word(j.payment_verified)}",
                     f"**Activity:** {j.proposals or '?'} proposals, "
                     f"{j.connects_required or '?'} connects",
                     f"**Description:**\n{(j.description_full or j.description_snippet or '')[:4000]}",

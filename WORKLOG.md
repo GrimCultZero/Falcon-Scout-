@@ -9046,3 +9046,40 @@ completed "Offer acceptance" or "Contract starts" would be a hire signal that ne
 does NOT show declines (Sofia's still says "Current step: Contract offer").
 
 `tests/inbox-scrape.test.js` 59/59 (the card layout, both header shapes, client last, names made up).
+
+## 2026-09-30 — "Payment not verified" on a client with $3.2K spent: an unread panel read as "no" (5.7)
+
+Owner, on job 16845 (Meta & Google Ads Strategist): how can payment be unverified with $3K spent and
+zero applicants? Timeline from the DB: posted 09:52:56 UTC; API feed capture 09:55:37 (payment status
+from `verificationStatus`, applicants 0 — true three minutes in); auto-enrich read 09:57:44 in a
+background tab; the analysis at 12:29:57 said "payment not verified … high non-payment risk … Do NOT start
+work without verified payment"; a read at 12:34 (page visible) found "Payment method verified", phone
+verified, 50+ proposals. The "0 applicants" was simply the capture-time count, 2.5 hours stale.
+
+Cause: content.js set `payment_verified = /payment (method )?verified/.test(page)` — false whenever the
+words were not on the page, including when Upwork had not rendered the client panel (a background tab
+sometimes never does). /enrich keeps a stored value only when the reading is null, so that false
+overwrote the feed's status. Same for the activity rows (interviewing / invites / already hired → 0).
+Across the DB: 42 jobs stored unverified; 41 had no "Member since" (on every client panel — all 445
+verified jobs have it); the 42nd (16730, $0 spent, member since 29 Sep) is a real unverified client.
+None of the 41 had an analysis or a proposal, so 16845 is the only one where it steered anything.
+
+- content.js: verified on "Payment (method) verified"; not verified on Upwork's "Payment method not
+  verified", or on no verified line in a client panel that rendered; otherwise null. Phone the same.
+  Activity rows default to 0 only when the activity panel is on the page.
+- /jobs/pending-enrich also returns jobs read without their client panel (`client_member_since` null),
+  within the existing 3-attempt cap and 20-min cooldown — before, one partial read was final.
+- Prompts (backend brief + chat via `_payment_word`, letter-page analyser) write unknown as "status
+  unknown (client panel not read)"; the PPC-audit override treats only a real `false` as a
+  disqualifier; the popup leaves an unknown row out.
+- Data: the 41 rows set to payment/phone unknown (NULL); backup of their prior values in the session
+  scratchpad (`payment_repair_backup_2026-09-30.json`). 16845 already reads verified; its stored
+  analysis still carries the wrong payment warning until it is re-analysed (a paid call — owner's call).
+
+Incident while making this: the chat endpoint (`chat`) was edited to call `_payment_word` a minute before
+the helper was added; uvicorn reloaded in between, and the owner's letter-chat message in that window
+got a 500 ("Unexpected token 'I', "Internal S"… is not valid JSON" — Starlette's plain-text error). Add
+a helper before its first use when the backend is live.
+
+`tests/client-panel-unknown.test.js` (new) runs extractData on fake pages — 14/14; all suites pass.
+Extension 5.6 → 5.7.

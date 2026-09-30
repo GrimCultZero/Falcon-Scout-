@@ -4807,7 +4807,7 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         `Category: ${job.category || 'unknown'}`,
         `Keywords: ${job.keywords || 'none'}`,
         `Description (full):\n${fullDescription}`,
-        `Client: ${job.client_review_count || 0} reviews, ${job.client_rating_score || 0} rating, ${job.hire_rate || '?'}% hire rate, ${job.client_total_spent_detail || 'unknown spend'}, payment ${job.payment_verified ? 'verified' : 'NOT verified'}`,
+        `Client: ${job.client_review_count || 0} reviews, ${job.client_rating_score || 0} rating, ${job.hire_rate || '?'}% hire rate, ${job.client_total_spent_detail || 'unknown spend'}, payment ${job.payment_verified ? 'verified' : job.payment_verified === false ? 'NOT verified' : 'status unknown (client panel not read)'}`,
         `Activity: ${job.proposals || '?'} applicants, ${job.interviewing || 0} interviewing, ${job.client_already_hired ?? 0} ALREADY HIRED, ${job.invites_sent || 0} invites sent (NOTE: "connects required" is deliberately omitted — it is an ignored flat entry cost, NOT a competition signal; judge competition from applicant count and boost bids only)`,
         _boostBids.length
           ? `Boost competition (captured from the apply page — rivals' boost bids in connects, this is the REAL competition signal; do NOT confuse with the flat "connects required" cost which is IGNORED): ${_boostBids.map(b => `#${b.rank}=${b.connects}c`).join(', ')}. Top bid ${_topBoost} connects = what Artem must outbid to lead the boosted field.`
@@ -5025,7 +5025,7 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
       if (_isPpcAuditJob) {
         const _hasRealDisqualifier =
           /\b(?:united states only|us only|usa only)\b/i.test(String(job.geo_restriction || '')) ||
-          (!job.payment_verified && (Number(job.client_review_count) || 0) < 5) ||
+          (job.payment_verified === false && (Number(job.client_review_count) || 0) < 5) ||   // unknown (panel not read) is not a disqualifier
           (Number(job.client_already_hired) || 0) >= 1
         if (!_hasRealDisqualifier && (parsed.verdict !== 'APPLY' || (Number(parsed.score) || 0) < 7)) {
           const _rateNoiseRe = /rate.?floor|budget.?tier|rate.?reject|rate.?pressure|historical avg rate|client'?s? avg(?:erage)? (?:hourly )?rate|avg rate \$?\d/i
