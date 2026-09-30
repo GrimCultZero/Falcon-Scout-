@@ -9021,3 +9021,28 @@ was in the extension, and 5.4 could not say where: it posted only on success.
 
 `tests/inbox-scrape.test.js` now runs the reader against a fake page (success, 2-minute re-read, no
 list, no parse, not rendered, Artem leaving mid-read, error, backend down, hidden, orphaned) — 54/54.
+
+## 2026-09-30 — The passive read's first real read; the thread ends at the client's card (5.6)
+
+Artem reloaded 5.5 and, without refreshing Upwork, opened Sofia Toro's conversation. 15:27:41,
+`messages_passive_debug.json`: extension 5.5, visible, rendered in 3.3s, matched to proposal 238 via
+`room_proposal_id` (exact), 4 messages attributed artem / client / client / artem. No status change —
+238 was already set declined by hand this morning — but fed her real thread, `_signal_from_client_messages`
+returns "declined": opening the conversation would now have recorded the decline by itself.
+
+One flaw, in the text sample's tail: the client's card to the right of the thread — "Attachments", her
+initials, name, company, "7:27 AM local time", "View proposal", the Activity timeline ("Contract offer",
+"Awaiting offer from client", "Offer acceptance", "Contract starts") and a menu — was read as part of the
+last message. It was Artem's this time; had the client written last, it would have been "her words" and
+her stored reply text. None of today's lines trips a hire/interview/decline phrase (checked), but another
+client's card may. 5.6: once the thread has begun, the card's clock line or one of those labels ends it,
+and the card's name lines just before it (the room header's own "Name, Company", each once, so a
+sign-off survives) are dropped; "Attachments" and "More call options" are UI lines. Run over the real
+sample, the thread now ends at Artem's "thank you for letting me know, Sofia, all the best!".
+
+Noticed, not built (owner's call): the Activity timeline is structured — "Completed step / Current step /
+Incomplete step" over Proposal submitted → Contract offer → Offer acceptance → Contract starts. A
+completed "Offer acceptance" or "Contract starts" would be a hire signal that needs no wording at all. It
+does NOT show declines (Sofia's still says "Current step: Contract offer").
+
+`tests/inbox-scrape.test.js` 59/59 (the card layout, both header shapes, client last, names made up).

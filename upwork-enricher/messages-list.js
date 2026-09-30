@@ -512,15 +512,33 @@
   // ("Sofia Toro  7:56 PM") — one line or two in innerText. Everything up to the
   // next header belongs to it. Artem is his own name or "You"; anyone else is the
   // client. Date dividers, file cards, "View proposal" and avatar initials drop.
+  //
+  // Where the thread ends (5.6). The panel also holds the client's card to the
+  // right of the thread. First real read, Sofia Toro's room on 30 Sep: after the
+  // last message came "Attachments", her initials, name and company, "7:27 AM
+  // local time", "View proposal", the "Activity timeline" ("Contract offer",
+  // "Awaiting offer from client", "Offer acceptance", "Contract starts") and a
+  // menu ("Search messages" … "Personal notepad") — all read as the last
+  // message. Had the client written last, that would have been "what the client
+  // said". So once the thread has begun, the card's clock line or one of those
+  // labels ends it, and the card's name lines just before it (the room header's
+  // own "Name, Company") are dropped.
   const _MSG_TIME_RE = /(\d{1,2}:\d{2}\s*(?:AM|PM))\s*$/i;
-  const _MSG_UI_LINE_RE = /^(?:view (?:proposal|contract|offer|details|job post)|\d+ files?|\d+(?:\.\d+)?\s*(?:KB|MB|GB)|\S+\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|zip|csv)|today|yesterday|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+[a-z]{3,9}\s+\d{1,2}(?:,\s*\d{4})?|send a message.*|\d{1,2}:\d{2}\s*(?:am|pm)\s+local time|edited|seen|delivered)$/i;
+  const _MSG_UI_LINE_RE = /^(?:view (?:proposal|contract|offer|details|job post)|\d+ files?|\d+(?:\.\d+)?\s*(?:KB|MB|GB)|\S+\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|zip|csv)|today|yesterday|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+[a-z]{3,9}\s+\d{1,2}(?:,\s*\d{4})?|send a message.*|\d{1,2}:\d{2}\s*(?:am|pm)\s+local time|edited|seen|delivered|attachments|more call options)$/i;
   const _SELF_NAME_RE = /^(?:artem(?:\s+yatsuk)?|you)$/i;
+  const _THREAD_END_RE = /^(?:\d{1,2}:\d{2}\s*(?:am|pm)\s+local time|activity timeline|search messages|meeting recaps|client profile|files and links|personal notepad)$/i;
   function _roomMessages(text) {
     const lines = String(text || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const headerNames = new Set(String(lines[0] || '').split(',').map(s => s.trim()).filter(Boolean));
     const groups = [];
     let cur = null;
     for (let i = 0; i < lines.length; i++) {
       const ln = lines[i];
+      if (cur && _THREAD_END_RE.test(ln)) {
+        // Each card name line once: a sign-off with the same name stays.
+        while (cur.lines.length && headerNames.delete(cur.lines[cur.lines.length - 1])) cur.lines.pop();
+        break;
+      }
       const m = ln.match(_MSG_TIME_RE);
       let name = null;
       if (m) {

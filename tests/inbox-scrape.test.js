@@ -68,7 +68,7 @@ assert(/const rows = await collectConversationRows\(\);/.test(syncFlow) && !/scr
 assert(/last_activity_at: _listWhen\(lines\),/.test(src), 'every row carries last_activity_at');
 assert(/if \(\/\^\(monday\|tuesday\|wednesday\|thursday\|friday\|saturday\|sunday\)\$\/i\.test\(ln\)\) continue;/.test(src), 'weekday lines are no longer read as a job title');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.5', `extension version 5.5 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+assert(manifest.version === '5.6', `extension version 5.6 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
 
 // ── 5.3: reading the messages of a room that moved ──────────────────────────
 // Sofia Toro's room, as its panel reads (from the owner's screenshot, 30 Sep):
@@ -99,6 +99,36 @@ for (const oneLine of [true, false]) {
   assert(!/View proposal|2 files|\.pdf|2 MB/.test(msgs[0].text), `${shape}: file cards and "View proposal" are dropped`);
   assert(!msgs.some(m => /Send a message|local time/.test(m.text)), `${shape}: the compose placeholder and the header clock are dropped`);
 }
+
+// 5.6: the thread ends where the client's card begins. The layout is the one the
+// first real read returned (Sofia Toro's room, 30 Sep, extension 5.5): room header
+// on top; after the last message "Attachments", the card (initials, name,
+// company, clock, "View proposal"), the activity timeline and a menu. Here the
+// CLIENT writes last — the case where the card would have been read as her words.
+// Names are made up.
+const carded = (oneLine, { card = true } = {}) => [
+  'Jane Roe, Acme Racking', '7:27 AM local time', 'Google Ads Attribution Audit', 'More call options', 'Tuesday, Sep 08',
+  ...(oneLine ? ['Artem Yatsuk 6:09 AM'] : ['Artem Yatsuk', '6:09 AM']),
+  '12 years running Google Ads. First thing I would check is the conversion import.', 'Artem', 'View proposal',
+  'Tuesday, Sep 29',
+  'JR', ...(oneLine ? ['Jane Roe 7:56 PM'] : ['Jane Roe', '7:56 PM']),
+  'Hi Artem', 'Could you do a short call on Thursday?', 'Jane Roe',
+  ...(card ? ['Attachments', 'JR', 'Jane Roe', 'Acme Racking', '7:27 AM local time', 'View proposal', 'Activity timeline',
+              'Completed step', 'Proposal submitted', 'Sep 8', 'Current step', 'Contract offer', 'Awaiting offer from client',
+              'Incomplete step', 'Offer acceptance', 'Incomplete step', 'Contract starts', 'Search messages', 'Meeting recaps',
+              'Client profile', 'People', 'Files and links', 'Personal notepad']
+           : ['Attachments']),
+].join('\n');
+for (const oneLine of [true, false]) {
+  const shape = oneLine ? 'one-line headers' : 'two-line headers';
+  const m = _roomMessages(carded(oneLine));
+  assert(m.map(x => x.from).join(',') === 'artem,client', `client's card: ${shape}: two messages, artem / client — the header's clock line does not end the thread before it starts (${m.map(x => x.from).join(',')})`);
+  const last = (m[1] || {}).text || '';
+  assert(last === 'Hi Artem\nCould you do a short call on Thursday?\nJane Roe',
+    `client's card: ${shape}: the client's last message is only what she wrote (her sign-off kept) — no "Attachments", card, activity timeline ("Contract offer", "Offer acceptance") or menu — got ${JSON.stringify(last.slice(0, 160))}`);
+}
+const noCard = _roomMessages(carded(true, { card: false }));
+assert(noCard.length === 2 && noCard[1].text === 'Hi Artem\nCould you do a short call on Thursday?\nJane Roe', 'no card on the page (narrow window): the thread still reads to its end, "Attachments" dropped');
 
 // which rooms are opened again, and which baselines move
 const cStart = src.indexOf('  function _previewSig(r)');
