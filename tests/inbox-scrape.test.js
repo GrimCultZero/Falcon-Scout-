@@ -68,7 +68,7 @@ assert(/const rows = await collectConversationRows\(\);/.test(syncFlow) && !/scr
 assert(/last_activity_at: _listWhen\(lines\),/.test(src), 'every row carries last_activity_at');
 assert(/if \(\/\^\(monday\|tuesday\|wednesday\|thursday\|friday\|saturday\|sunday\)\$\/i\.test\(ln\)\) continue;/.test(src), 'weekday lines are no longer read as a job title');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.4', `extension version 5.4 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+assert(manifest.version === '5.5', `extension version 5.5 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
 
 // ── 5.3: reading the messages of a room that moved ──────────────────────────
 // Sofia Toro's room, as its panel reads (from the owner's screenshot, 30 Sep):
@@ -124,5 +124,91 @@ assert(/\.\.\.reread\.map\(c => \(\{ room_id: c\.room_id, room_url: c\.room_url,
 assert(/const reread = changed\.slice\(0, REREAD_CAP\);/.test(src) && /WALK_CAP - reread\.length/.test(src), 'both within the per-sync page-load cap');
 assert(/recent_messages: fresh\.messages/.test(src) && /list_diag: q\.list_diag/.test(src) && /list_diag: LIST_DIAG/.test(src), 'rows carry recent_messages; walk_info carries the list diagnostic on both paths');
 
-console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
-process.exit(bad ? 1 : 0);
+// ── 5.5: the passive read, run against a fake page ─────────────────────────
+// 5.4 posted nothing when a read missed, so Artem's first test left no trace.
+// Now every miss says why; and the room is read only once the conversation list
+// is there (the list keeps other rooms' names and ids out of this room's reading).
+const pStart = src.indexOf('  const _PASSIVE_REREAD_MS');
+const pEnd = src.indexOf('  function startPassiveReader');
+function passiveHarness({ listRows = 5, probe, visible = true, orphan = false, postFails = false } = {}) {
+  const h = { posts: [], probes: 0, cleared: 0, now: Date.parse('2026-09-30T12:00:00Z') };
+  const location = { pathname: '/ab/messages/rooms/room_abc123', href: 'https://www.upwork.com/ab/messages/rooms/room_abc123?x=1' };
+  const listed = Array.from({ length: listRows }, (_, i) => ({ room_id: i === 0 ? 'abc123' : `other${i}`, client_name: i === 0 ? 'Sofia Toro' : `Client ${i}` }));
+  const env = {
+    location, document: { get visibilityState() { return visible ? 'visible' : 'hidden'; } },
+    chrome: { runtime: orphan ? {} : { id: 'ext' } },
+    scrapeConversationList: () => listed.slice(),
+    probeRoom: async (q, cur) => { h.probes++; return probe(location, q, cur); },
+    postDirect: async (rows, wi) => { if (postFails) throw new Error('backend down'); h.posts.push({ rows, wi }); return { scanned: rows.length }; },
+    PROBE_VERSION: 2, console: { log() {}, warn() {} }, clearInterval: () => { h.cleared++; },
+    Date: { now: () => h.now },
+  };
+  const names = Object.keys(env);
+  const { passiveReadCurrentRoom } = new Function(...names, `${src.slice(pStart, pEnd)}; return { passiveReadCurrentRoom }`)(...names.map(n => env[n]));
+  h.tick = () => passiveReadCurrentRoom();
+  return h;
+}
+const msgs2 = [{ from: 'artem', name: 'Artem Yatsuk', text: 'proposal' }, { from: 'client', name: 'Sofia Toro', text: "We've selected another candidate" }];
+const okProbe = () => ({ rendered: true, messages: msgs2, job_ids: [], proposal_ids: ['2031234567890'], titles: ['Audit'], diag: { n_msgs: 2 } });
+
+(async () => {
+  let h = passiveHarness({ probe: okProbe });
+  await h.tick();
+  const p = h.posts[0];
+  assert(h.posts.length === 1 && p.wi.passive === true && p.rows.length === 1 && p.rows[0].walk === 'passive'
+    && p.rows[0].room_id === 'abc123' && p.rows[0].client_name === 'Sofia Toro' && p.rows[0].recent_messages === msgs2
+    && p.rows[0].room_proposal_ids[0] === '2031234567890', 'fake page: the open conversation is read and posted once, flagged passive, with its list row, ids and messages');
+  h.now += 60 * 1000; await h.tick();
+  assert(h.posts.length === 1, '…not again within 2 minutes');
+  h.now += 90 * 1000; await h.tick();
+  assert(h.posts.length === 2, '…and read again after 2 minutes while it stays open (a reply can arrive live)');
+
+  h = passiveHarness({ listRows: 2, probe: okProbe });
+  for (let i = 0; i < 9; i++) await h.tick();
+  assert(h.probes === 0 && h.posts.length === 0, 'no conversation list yet: the room is not read (the list is what keeps other rooms out of its reading)');
+  await h.tick();
+  assert(h.posts.length === 1 && h.posts[0].rows.length === 0 && /conversation list did not render \(2 row\(s\) after 30s\)/.test(h.posts[0].wi.note),
+    '…after 30s without one, the miss is reported (no rows — nothing matched or changed)');
+  await h.tick();
+  assert(h.posts.length === 1 && h.probes === 0, '…once, then that room is left alone');
+
+  h = passiveHarness({ probe: () => ({ rendered: true, messages: [], job_ids: [], proposal_ids: [], titles: [], diag: { n_msgs: 0, text_sample: { head: ['x'] } } }) });
+  await h.tick(); await h.tick(); await h.tick();
+  assert(h.posts.length === 2 && h.posts.every(x => x.rows.length === 0 && x.wi.note === 'rendered, no messages parsed' && x.wi.rooms[0].text_sample),
+    'rendered but no messages parsed: reported with the text sample (so the parser can be fixed), twice, then left alone');
+
+  h = passiveHarness({ probe: () => ({ rendered: false, messages: [], job_ids: [], proposal_ids: [], titles: [], diag: { rendered: false } }) });
+  await h.tick();
+  assert(h.posts.length === 1 && h.posts[0].wi.note === 'room did not render', 'a room that did not render is reported as such');
+
+  h = passiveHarness({ probe: (loc) => { loc.pathname = '/ab/messages/rooms/room_zzz999'; return okProbe(); } });
+  await h.tick();
+  assert(h.posts.length === 0, 'Artem opened another conversation mid-read: nothing is saved against the one he left');
+
+  h = passiveHarness({ probe: () => { throw new Error('boom'); } });
+  await h.tick();
+  assert(h.posts.length === 1 && h.posts[0].wi.note === 'error: boom', 'an error inside the read is reported too');
+
+  h = passiveHarness({ probe: () => ({ rendered: true, messages: [], diag: {} }), postFails: true });
+  let threw = false; try { await h.tick(); } catch (_) { threw = true; }
+  assert(!threw, 'backend down: the report fails quietly (nothing thrown into the page)');
+
+  h = passiveHarness({ probe: okProbe, visible: false });
+  await h.tick();
+  assert(h.probes === 0 && h.posts.length === 0, 'a hidden page is not read');
+
+  h = passiveHarness({ probe: okProbe, orphan: true });
+  await h.tick();
+  assert(h.probes === 0 && h.posts.length === 0 && h.cleared === 1, 'an orphaned copy (extension reloaded under the page) stops its timer and reads nothing');
+
+  // After a reload the background puts the new copy into messages tabs already open.
+  const bg = fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'background.js'), 'utf8').replace(/\r\n/g, '\n');
+  const inj = bg.slice(bg.indexOf("chrome.runtime.onInstalled.addListener(async (details)"), bg.indexOf('// Failsafe: any sync tab'));
+  assert(/details\.reason !== 'update' && details\.reason !== 'install'/.test(inj) && /files: \['messages-list\.js'\]/.test(inj),
+    'extension reload: messages-list.js is injected into Upwork messages tabs already open (no refresh needed)');
+  assert(/sessionStorage\.getItem\('falcon_room_walk'\)/.test(inj) && /falconsync=1/.test(inj) && /probe\.result === false/.test(inj),
+    '…but never into a sync tab (its walk would run twice)');
+
+  console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
+  process.exit(bad ? 1 : 0);
+})();

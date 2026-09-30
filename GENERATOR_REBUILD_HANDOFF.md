@@ -19,11 +19,12 @@ without asking.**
    Most are gitignored; `corrections/` and `tools/_letter_features.json` are merely untracked — careful.
 3. **The app is normally running:** backend `.\.venv\Scripts\uvicorn api.main:app --reload` on :8000
    (auto-reloads on save), frontend Vite on **:5180** (HMR). The Chrome extension lives in `upwork-enricher/`;
-   **any extension change needs a reload at `chrome://extensions`** — its version (now **5.4**) shows up in
+   **any extension change needs a reload at `chrome://extensions`** — its version (now **5.5**) shows up in
    `messages_sync_debug.json` → `walk_info.extension_version`, which is how you confirm he reloaded.
 4. **Read §7 (working agreements) before fixing anything.**
-5. **In flight when this was written:** Artem was running a sync on extension 5.4 to test the new
-   *passive read* (§3). See §8.1 for exactly what to check.
+5. **In flight when this was written:** the first passive-read test (5.4) left no trace; 5.5 reports
+   every miss and re-injects itself into open tabs on reload. Artem is to reload and open a conversation
+   again. See §8.1 for exactly what to check.
 
 ---
 
@@ -92,7 +93,10 @@ detector — **rule of thumb: a detector that decides a check gets a lib functio
   (`walk_skipped:"hidden"`; moved rooms stay queued).
 - **5.4 passive read** — when Artem opens a conversation himself (visible page), `messages-list.js` reads it
   (read-only) and posts one row flagged `passive` → same matching and outcome reading → debug in
-  `messages_passive_debug.json`. Once per room, again after 2 min while open.
+  `messages_passive_debug.json`. Once per room, again after 2 min while open. **5.5:** a miss is posted
+  too (no rows; `walk_info.note` says why, `walk_info.rooms[0]` has the probe diag + `text_sample`); the
+  room is read only after the conversation list renders; on extension reload the background injects the
+  script into Upwork messages tabs already open (not sync tabs), and orphaned copies stop.
 - **Backend** (`api/main.py`, `messages_status_sync`): room-evidence matching (exact paths:
   `room_proposal_id`, `room_title`, `job_id`, …); promote to `replied` (never downgrade; ghosted → replied on
   exact evidence); `_reply_seen_at` dates a change by the conversation's last activity (`last_activity_at`
@@ -200,13 +204,17 @@ Owner rules added this month (all enforced in code, see §4):
 
 ## 8. What to do next
 
-### 8.1 Right now — check the 5.4 test
-After his sync and after he opens any client conversation on Upwork:
-- `messages_sync_debug.json`: `walk_info.extension_version == "5.4"`; `walk_info.list_diag.at_top.first_rows`
-  should start with his newest conversations; `walk_skipped: "hidden"` is expected.
-- `messages_passive_debug.json` (written when he opens a conversation): `rows[0].recent_messages` should hold
-  the thread with correct `from` (client / artem); `walk_info.rooms[0].text_sample` shows the raw panel lines
-  if the parse missed; `status_from_messages` lists any outcome it applied.
+### 8.1 Right now — check the 5.5 test
+The 5.4 sync (15:02, 30 Sep) was fine: `walk_skipped: "hidden"`, list read from the top. The passive
+read left no file at all (see WORKLOG 09-30 "left no trace"). After he reloads 5.5 and opens a client
+conversation:
+- **No `messages_passive_debug.json` at all** → the script is not running in his tab (or the backend is
+  down). Ask him to press F5 on the Upwork tab and open the conversation again. If that fixes it, Upwork
+  reached the page by in-app navigation from a non-messages page — content scripts only load with a page.
+- **File with `rows: []`** → a miss; `walk_info.note` says which (list did not render / room did not
+  render / rendered, no messages parsed / error) and `walk_info.rooms[0]` has the probe diag + `text_sample`.
+- **File with one row** → `rows[0].recent_messages` should hold the thread with correct `from` (client /
+  artem); `status_from_messages` lists any outcome it applied.
 - If `recent_messages` is empty or mis-attributed: fix `_roomMessages` (`_MSG_TIME_RE`, `_MSG_UI_LINE_RE`,
   `_SELF_NAME_RE` in `messages-list.js`) from `text_sample`, add the real shape to `tests/inbox-scrape.test.js`.
 
@@ -260,6 +268,6 @@ side validation union a fresh dump with older ones. Useful telemetry: `rule_viol
 ## Copy-paste kickoff for the next instance
 
 > Read `GENERATOR_REBUILD_HANDOFF.md` in `C:\Users\syzov\upwork-cockpit` (branch `generator-rebuild`), then
-> the last few dated entries in `WORKLOG.md`. Start with §8.1: check `messages_sync_debug.json` and
-> `messages_passive_debug.json` from my last sync on extension 5.4 and tell me whether the passive read parsed
-> the conversation I opened. Don't commit `cli-bridge.js` or `frontend/src/App.jsx`.
+> the last few dated entries in `WORKLOG.md`. Start with §8.1: check `messages_passive_debug.json` from the
+> conversation I opened on extension 5.5 and tell me whether the passive read parsed it.
+> Don't commit `cli-bridge.js` or `frontend/src/App.jsx`.

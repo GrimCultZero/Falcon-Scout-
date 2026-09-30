@@ -378,6 +378,41 @@ function _registerAlarms() {
 chrome.runtime.onInstalled.addListener(_registerAlarms);
 chrome.runtime.onStartup.addListener(_registerAlarms);
 
+// Content scripts load with a page. After the extension is reloaded, an Upwork
+// messages tab that was already open keeps the OLD copy of messages-list.js,
+// which can no longer reach the extension — so reading the conversation Artem
+// opens (the passive read) would not work there until he refreshed the tab.
+// Inject the new copy into those tabs now. Sync tabs are left alone: their
+// walk is stored in the tab and a second copy would resume it twice.
+chrome.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason !== 'update' && details.reason !== 'install') return;   // not 'chrome_update': tabs reload then anyway
+  try {
+    const tabs = await chrome.tabs.query({ url: [
+      'https://www.upwork.com/messages/*', 'https://www.upwork.com/nx/messages/*', 'https://www.upwork.com/ab/messages/*',
+    ] });
+    for (const t of tabs) {
+      try {
+        const [probe] = await chrome.scripting.executeScript({
+          target: { tabId: t.id },
+          func: () => {
+            try {
+              return !!sessionStorage.getItem('falcon_room_walk')
+                || sessionStorage.getItem('falcon_msg_sync') === '1'
+                || /[?&]falconsync=1/.test(location.search);
+            } catch (_) { return true; }
+          },
+        });
+        if (probe && probe.result === false) {
+          await chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['messages-list.js'] });
+          console.log('[Cockpit BG] messages-list.js re-injected into open tab', t.id);
+        }
+      } catch (e) {
+        console.warn('[Cockpit BG] could not re-inject messages-list.js into tab', t.id, e && e.message);
+      }
+    }
+  } catch (_) {}
+});
+
 // Failsafe: any sync tab still open N minutes after creation gets force-closed.
 // chrome.alarms survives MV3 service-worker death (a setTimeout wouldn't), so a
 // stuck walk / dead content script can never leave a zombie Upwork tab behind.

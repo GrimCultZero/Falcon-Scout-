@@ -848,20 +848,46 @@
   // as the walk would. Read-only: nothing on Upwork is clicked, typed or changed.
   // Re-read at most every 2 minutes while it stays open (a reply can arrive
   // live); a room that won't render is tried twice, then left alone.
+  //
+  // 5.5: a miss is reported too (no rows, just the probe's diagnostics and text
+  // sample — nothing is matched or changed), because 5.4 failed silently and left
+  // no trace. The room is probed only once the conversation list has rendered:
+  // the list is what keeps OTHER conversations' names and ids out of this room's
+  // reading, and without it the whole page — sidebar included — would count.
   const _PASSIVE_REREAD_MS = 2 * 60 * 1000;
-  const _passive = new Map();   // room_id -> { at, tries, busy }
+  const _PASSIVE_LIST_WAIT = 10;   // ticks (3s each) to wait for the list
+  const _passive = new Map();   // room_id -> { at, tries, busy, waits }
+  let _passiveTimer = null;
+  const _passiveMiss = (note, diag) => postDirect([], {
+    passive: true, probe_version: PROBE_VERSION, note, page: location.pathname,
+    ...(diag ? { rooms: [diag] } : {}),
+  }).catch(() => {});
   async function passiveReadCurrentRoom() {
+    // Orphaned copy (the extension was reloaded under this page): stop; the
+    // background injects a fresh copy into open messages tabs on reload.
+    if (!(chrome.runtime && chrome.runtime.id)) { clearInterval(_passiveTimer); return; }
     const m = location.pathname.match(/\/messages\/rooms\/(?:room[_~])?([A-Za-z0-9_~-]+)/i);
     if (!m || document.visibilityState !== 'visible') return;
     const room_id = m[1];
-    const st = _passive.get(room_id) || { at: 0, tries: 0, busy: false };
+    const st = _passive.get(room_id) || { at: 0, tries: 0, busy: false, waits: 0 };
     if (st.busy || st.tries >= 2 || Date.now() - st.at < _PASSIVE_REREAD_MS) return;
     st.busy = true; _passive.set(room_id, st);
     try {
       const rows = scrapeConversationList();
+      if (rows.filter(r => r.room_id !== room_id).length < 3) {
+        if (++st.waits === _PASSIVE_LIST_WAIT) {
+          st.tries = 2;
+          await _passiveMiss(`conversation list did not render (${rows.length} row(s) after ${_PASSIVE_LIST_WAIT * 3}s)`);
+        }
+        return;
+      }
       const res = await probeRoom({ rows }, { room_id, reread: true });
       if (!location.pathname.includes(room_id)) return;              // Artem moved on meanwhile
-      if (!res.rendered || !res.messages.length) { st.tries++; return; }
+      if (!res.rendered || !res.messages.length) {
+        st.tries++;
+        await _passiveMiss(res.rendered ? 'rendered, no messages parsed' : 'room did not render', res.diag);
+        return;
+      }
       const self = rows.find(r => r.room_id === room_id) || { room_id, room_url: location.href.split('?')[0] };
       const row = {
         ...self, walk: 'passive',
@@ -875,12 +901,13 @@
     } catch (e) {
       st.tries++;
       console.warn('[Cockpit Messages-List] passive read not saved:', e && e.message);
+      await _passiveMiss('error: ' + String(e && e.message || e).slice(0, 200));   // unless the backend itself is down
     } finally {
       st.busy = false;
     }
   }
   function startPassiveReader() {
-    setInterval(passiveReadCurrentRoom, 3000);
+    _passiveTimer = setInterval(passiveReadCurrentRoom, 3000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') passiveReadCurrentRoom(); });
     passiveReadCurrentRoom();
   }

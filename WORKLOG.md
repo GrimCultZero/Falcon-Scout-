@@ -8998,3 +8998,26 @@ returned exactly 2,000 output tokens — this job, and another twice in a row (s
 helped). The model's JSON was cut off before its closing brace. Typical analyses are 700–1,500 tokens;
 long ones are postings with many screening questions and mandatory flags. Cap raised to 4,000 (only what
 is written is billed). The /claude proxy passes max_tokens through unchanged.
+
+## 2026-09-30 — The first passive-read test left no trace (5.5)
+
+Artem's 15:02 sync ran on 5.4 (`walk_skipped: "hidden"`, as expected). He then opened a client
+conversation and waited — and no `messages_passive_debug.json` appeared. The backend path is fine (an
+empty passive report, posted by hand, lands in its own file and leaves the sync's untouched), so the miss
+was in the extension, and 5.4 could not say where: it posted only on success.
+
+- **Likeliest cause: the tab predated the reload.** Content scripts load with a page. Reloading the
+  extension leaves every open Upwork tab with the old, orphaned copy, and clicking between conversations
+  never reloads the page — so 5.4 never ran there. 5.5: on reload (`onInstalled`, reason update/install)
+  the background injects messages-list.js into the Upwork messages tabs already open, skipping sync tabs
+  (their walk lives in sessionStorage; a second copy would resume it twice). An orphaned copy stops its
+  timer.
+- **Every miss is now reported**: room did not render / rendered but no messages parsed / an error /
+  no conversation list — posted with no rows (nothing matched or changed), with the probe's diagnostics
+  and text sample, so a parser miss can be fixed from the real page text.
+- **The room is read only once the conversation list has rendered** (≥3 other rows; up to 30s, then
+  reported). The list is what keeps other conversations' names and ids out of this room's reading; the
+  first tick after a page load could run before it existed and read the whole page, sidebar included.
+
+`tests/inbox-scrape.test.js` now runs the reader against a fake page (success, 2-minute re-read, no
+list, no parse, not rendered, Artem leaving mid-read, error, backend down, hidden, orphaned) — 54/54.
