@@ -39,17 +39,44 @@
   // a scrollable container; we find it by looking up from a room anchor for
   // the closest ancestor with overflow-y set to auto/scroll.
   function findSidebarContainer() {
-    const anchors = document.querySelectorAll('a[href*="/messages/rooms/"]');
-    if (!anchors.length) return null;
-    let node = anchors[0];
-    for (let i = 0; i < 10 && node; i++) {
-      const style = window.getComputedStyle(node);
-      if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-        return node;
-      }
-      node = node.parentElement;
+    return _scrollablesUp(document.querySelector('a[href*="/messages/rooms/"]'))[0] || null;
+  }
+  // Every scrollable ancestor of a node, nearest first. The list can sit more
+  // than 10 levels above a row, and an outer panel can be scrolled too.
+  function _scrollablesUp(node) {
+    const out = [];
+    for (let el = node && node.parentElement, i = 0; el && el !== document.documentElement && i < 25; el = el.parentElement, i++) {
+      const s = window.getComputedStyle(el);
+      if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 4) out.push(el);
     }
-    return null;
+    return out;
+  }
+
+  // What the list looked like, for messages_sync_debug.json (walk_info.list_diag).
+  // Added 2026-09-30: a sync that reloaded to 5.2 still read 20 older, mostly
+  // contract conversations and none of the five newest — the page shape has to be
+  // seen to be fixed. Structure only, plus the first rows' own identity lines.
+  function _listDiag() {
+    const anchors = [...document.querySelectorAll('a[href*="/messages/rooms/"]')];
+    const groups = {};
+    for (const a of anchors) {
+      const sc = _scrollablesUp(a)[0];
+      const key = sc ? `${sc.tagName.toLowerCase()}.${String(sc.className || '').split(/\s+/).slice(0, 2).join('.')}`.slice(0, 70) : 'none';
+      groups[key] = (groups[key] || 0) + 1;
+    }
+    const sb = findSidebarContainer();
+    const pressed = [...document.querySelectorAll('[aria-pressed="true"],[aria-selected="true"],[aria-current="page"],[aria-current="true"]')]
+      .map(e => (e.innerText || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean).slice(0, 10);
+    const first = anchors.slice(0, 8).map(a => {
+      let c = a; for (let i = 0; i < 6 && c; i++) { if ((c.innerText || '').trim().split('\n').length >= 2) break; c = c.parentElement; }
+      return (c && c.innerText || '').trim().split('\n').map(s => s.trim()).filter(Boolean).slice(0, 3).join(' | ').slice(0, 90);
+    });
+    return {
+      url: location.pathname + location.search.slice(0, 60),
+      anchors: anchors.length, groups,
+      sidebar: sb ? { top: Math.round(sb.scrollTop), height: sb.scrollHeight, client: sb.clientHeight } : null,
+      pressed, first_rows: first,
+    };
   }
 
   // Only waits for the list to exist. The scrolling that used to live here is in
@@ -75,12 +102,20 @@
   // night before was not among them, and a July Galactic Fed thread was matched
   // and promoted instead, landing on top of Outcomes. Start at the top, keep
   // first-seen order (newest first), and leave the list back at the top.
+  // Returns the rows; the list's shape before and after lands in LIST_DIAG.
+  let LIST_DIAG = null;
   async function collectConversationRows() {
+    const before = _listDiag();
+    // Every scrollable layer above the list back to the top — Upwork restores a
+    // scroll position, and the nearest scroller is not always the one it moved.
+    const first = document.querySelector('a[href*="/messages/rooms/"]');
+    for (const el of _scrollablesUp(first)) el.scrollTop = 0;
+    await new Promise(r => setTimeout(r, 900));
     const sidebar = findSidebarContainer();
     const byRoom = new Map();
     const add = () => { for (const r of scrapeConversationList()) if (!byRoom.has(r.room_id)) byRoom.set(r.room_id, r); };
-    if (sidebar) { sidebar.scrollTop = 0; await new Promise(r => setTimeout(r, 700)); }
     add();
+    const atTop = _listDiag();
     if (sidebar) {
       for (let step = 1; step <= 4; step++) {
         sidebar.scrollTop = Math.round(sidebar.scrollHeight * step / 4);
@@ -89,6 +124,7 @@
       }
       sidebar.scrollTop = 0;
     }
+    LIST_DIAG = { before, at_top: atTop, rows_collected: byRoom.size };
     return [...byRoom.values()];
   }
 
@@ -408,6 +444,85 @@
     return true;
   }
 
+  // ── Re-reading conversations that moved (2026-09-30) ──────────────────────
+  // The walk above opens a room once, to link it to its proposal; after that the
+  // sync only ever saw the inbox preview line. So Sofia Toro's decline ("We've
+  // selected another candidate", 29 Sep) was never read: Artem replied a minute
+  // later, the preview became his, and the room stayed cached. Now a room whose
+  // preview or time changed since the last sync is opened again — never an unread
+  // one, opening marks it read — and its latest messages go to the backend, which
+  // reads the client's for a decline / interview / hire. Free: no AI call, only
+  // page loads, capped per sync. With no baseline yet (the first sync on 5.3),
+  // rooms active in the last 7 days are read once.
+  const PREVIEW_KEY = 'falcon_room_preview_v1';
+  const REREAD_CAP = 4;
+  const REREAD_BACKFILL_MS = 7 * 24 * 3600 * 1000;
+  function loadPreviews() {
+    return new Promise(resolve => {
+      try { chrome.storage.local.get(PREVIEW_KEY, (v) => { void chrome.runtime.lastError; resolve((v && v[PREVIEW_KEY]) || {}); }); }
+      catch (_) { resolve({}); }
+    });
+  }
+  function savePreviews(p) {
+    return new Promise(resolve => {
+      try { chrome.storage.local.set({ [PREVIEW_KEY]: p }, () => { void chrome.runtime.lastError; resolve(); }); }
+      catch (_) { resolve(); }
+    });
+  }
+  function _previewSig(r) { return `${r.last_message || ''}|${r.last_activity_at || ''}`; }
+  // Rooms to open again: already linked (the first-visit walk handles the rest),
+  // not unread, and moved since the last sync — or, with no baseline, recent.
+  function _rereadCandidates(rows, previews, isObserved, now = Date.now()) {
+    return rows.filter(r => {
+      if (r.has_unread || !isObserved(r.room_id)) return false;
+      const prev = previews[r.room_id];
+      if (prev) return prev.sig !== _previewSig(r);
+      const t = Date.parse(r.last_activity_at || '');
+      return Number.isFinite(t) && now - t < REREAD_BACKFILL_MS;
+    });
+  }
+  // New baselines: every row except one still waiting to be read — unread (read
+  // it first), or moved but not read this time (over the cap, or didn't render).
+  function _nextPreviews(previews, rows, pendingIds, now = Date.now()) {
+    const out = { ...previews };
+    for (const r of rows) {
+      if (r.has_unread || pendingIds.has(r.room_id)) continue;
+      out[r.room_id] = { sig: _previewSig(r), at: now };
+    }
+    return out;
+  }
+
+  // The open room's messages, oldest first: [{ from: 'client' | 'artem', name,
+  // text }]. Upwork puts each message group under a "<Name>  <time>" header
+  // ("Sofia Toro  7:56 PM") — one line or two in innerText. Everything up to the
+  // next header belongs to it. Artem is his own name or "You"; anyone else is the
+  // client. Date dividers, file cards, "View proposal" and avatar initials drop.
+  const _MSG_TIME_RE = /(\d{1,2}:\d{2}\s*(?:AM|PM))\s*$/i;
+  const _MSG_UI_LINE_RE = /^(?:view (?:proposal|contract|offer|details|job post)|\d+ files?|\d+(?:\.\d+)?\s*(?:KB|MB|GB)|\S+\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|zip|csv)|today|yesterday|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+[a-z]{3,9}\s+\d{1,2}(?:,\s*\d{4})?|send a message.*|\d{1,2}:\d{2}\s*(?:am|pm)\s+local time|edited|seen|delivered)$/i;
+  const _SELF_NAME_RE = /^(?:artem(?:\s+yatsuk)?|you)$/i;
+  function _roomMessages(text) {
+    const lines = String(text || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const groups = [];
+    let cur = null;
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i];
+      const m = ln.match(_MSG_TIME_RE);
+      let name = null;
+      if (m) {
+        const before = ln.slice(0, m.index).replace(/[\s·•|–—-]+$/, '').trim();
+        if (before && before.length <= 60 && !/[.!?,:;]$/.test(before)) name = before;
+        else if (!before && i > 0 && lines[i - 1].length <= 60 && !_MSG_UI_LINE_RE.test(lines[i - 1])) {
+          name = lines[i - 1];
+          if (cur && cur.lines[cur.lines.length - 1] === name) cur.lines.pop();
+        }
+      }
+      if (name) { cur = { from: _SELF_NAME_RE.test(name) ? 'artem' : 'client', name, lines: [] }; groups.push(cur); continue; }
+      if (!cur || _MSG_UI_LINE_RE.test(ln) || /^[A-Z]{2,3}$/.test(ln)) continue;
+      cur.lines.push(ln);
+    }
+    return groups.map(g => ({ from: g.from, name: g.name, text: g.lines.join('\n') })).filter(g => g.text);
+  }
+
   // Identity fragments (person / company names) from a list row, for telling
   // THIS room apart from the rest. When client_name is just the avatar initials
   // ("BL", "DM") the scraper has put the real name into job_title, so use that.
@@ -549,13 +664,44 @@
       && document.visibilityState === 'visible'
       && document.querySelectorAll('a[href*="/messages/rooms/"]').length >= 3;
 
+    // Messages: the probe stops as soon as an id turns up, which can be before the
+    // thread has finished rendering. For a re-read room — the messages are the
+    // point — wait until the panel text stops growing (max 5s).
+    let messages = [];
+    if (panel) {
+      if (cur.reread) {
+        let last = -1;
+        for (let t = Date.now(); Date.now() - t < 5000;) {
+          const len = (panel.innerText || '').length;
+          if (len === last) break;
+          last = len;
+          await new Promise(r => setTimeout(r, 800));
+        }
+      }
+      messages = _roomMessages(panel.innerText).slice(-8);
+    }
+    // One text sample per sync, from the first re-read room, so a parse miss can
+    // be seen and fixed (local debug file only).
+    let textSample = null;
+    if (panel && cur.reread && !q.sampled) {
+      const ls = (panel.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+      textSample = { head: ls.slice(0, 12).map(s => s.slice(0, 90)), tail: ls.slice(-24).map(s => s.slice(0, 90)) };
+      q.sampled = true;
+    }
+
     const doc = document.documentElement.outerHTML || '';
     const count = (re) => (doc.match(re) || []).length;
     return {
       rendered: renderedAt !== null,
       observed: renderedAt !== null || readonly,   // what caching keys on
       job_ids: got.job_ids, proposal_ids: got.proposal_ids, titles,
+      messages,
       diag: {
+        reread: !!cur.reread,
+        n_msgs: messages.length,
+        n_client_msgs: messages.filter(m => m.from === 'client').length,
+        last_client: (messages.filter(m => m.from === 'client').pop() || {}).text?.slice(0, 80) || null,
+        ...(textSample ? { text_sample: textSample } : {}),
         room: String(cur.room_id).slice(-10),
         vis: document.visibilityState,
         rendered: renderedAt !== null,
@@ -585,6 +731,8 @@
       room_proposal_ids: o.proposal_ids || [],
       room_titles: o.titles || [],
       walk: fresh ? 'visited' : 'cached',
+      // the latest messages, when this sync opened the room (first visit or re-read)
+      ...(fresh && fresh.messages && fresh.messages.length ? { recent_messages: fresh.messages } : {}),
     };
   }
 
@@ -624,6 +772,11 @@
     await saveRoomObs(obs);
     clearQueue();
     const rows = (q.rows || []).map(r => attachObs(r, byRoom[r.room_id], obs[r.room_id]));
+    // Preview baselines: a moved room that wasn't read (over the cap, or it never
+    // rendered) keeps its old one, so the next sync picks it up.
+    const readOk = new Set(Object.entries(byRoom).filter(([, res]) => res && res.observed).map(([id]) => id));
+    const pending = new Set((q.reread_all || []).filter(id => !readOk.has(id)));
+    await savePreviews(_nextPreviews(await loadPreviews(), q.rows || [], pending));
     const walked = Object.values(byRoom);
     const walkInfo = {
       probe_version: PROBE_VERSION,
@@ -631,9 +784,12 @@
       rooms_cached: rows.filter(r => r.walk === 'cached').length,
       links_found: walked.filter(x => x && (x.job_ids.length || x.proposal_ids.length)).length,
       rooms_with_titles: walked.filter(x => x && x.titles.length).length,
+      rooms_reread: (q.reread_ids || []).filter(id => readOk.has(id)).length,
+      reread_pending: pending.size,
       deferred_unread: q.deferred_unread || 0,
       attempts: q.attempts || 0,
       rooms: walked.map(x => x && x.diag).filter(Boolean),
+      list_diag: q.list_diag || null,
     };
     console.log('[Cockpit Messages-List] room walk done:', walkInfo);
     await postAndFinish(rows, walkInfo);
@@ -692,28 +848,41 @@
     // first sync after Artem opens them himself. The cost is small: a new reply
     // whose inbox row already shows its job title is matched without any walk.
     const obs = await loadRoomObs();
+    const previews = await loadPreviews();
     const unobserved = rows.filter(r => !obsUsable(obs[r.room_id]));
     const deferredUnread = unobserved.filter(r => r.has_unread).length;
-    const candidates = unobserved.filter(r => !r.has_unread).slice(0, WALK_CAP);
-    if (candidates.length) {
-      console.log('[Cockpit Messages-List] walking', candidates.length, 'room(s) not yet observed;',
-                  deferredUnread, 'unread room(s) deferred until read');
+    // Moved rooms first (a new client message may be waiting in one), then first
+    // visits, within the same per-sync page-load cap.
+    const changed = _rereadCandidates(rows, previews, (id) => obsUsable(obs[id]));
+    const reread = changed.slice(0, REREAD_CAP);
+    const firstVisits = unobserved.filter(r => !r.has_unread).slice(0, Math.max(0, WALK_CAP - reread.length));
+    const queue = [
+      ...reread.map(c => ({ room_id: c.room_id, room_url: c.room_url, reread: true })),
+      ...firstVisits.map(c => ({ room_id: c.room_id, room_url: c.room_url })),
+    ];
+    if (queue.length) {
+      console.log('[Cockpit Messages-List] walking', queue.length, 'room(s):', reread.length, 'moved since the last sync,',
+                  firstVisits.length, 'not yet observed;', deferredUnread, 'unread room(s) deferred until read');
       const q = {
-        state: 'walking', index: 0, attempts: 0,
-        queue: candidates.map(c => ({ room_id: c.room_id, room_url: c.room_url })),
+        state: 'walking', index: 0, attempts: 0, queue,
         rows, results: {}, deferred_unread: deferredUnread,
+        reread_ids: reread.map(r => r.room_id), reread_all: changed.map(r => r.room_id),
+        list_diag: LIST_DIAG,
       };
       saveQueue(q);
       window.location.href = q.queue[0].room_url;
       return;
     }
 
-    // Every room already observed — send the cached observations, no walk needed.
+    // Every room already observed and none moved — send the cached observations.
+    await savePreviews(_nextPreviews(previews, rows, new Set()));
     const enriched = rows.map(r => attachObs(r, null, obs[r.room_id]));
     await postAndFinish(enriched, {
       probe_version: PROBE_VERSION, rooms_visited: 0, links_found: 0, attempts: 0,
       rooms_cached: enriched.filter(r => r.walk === 'cached').length, rooms: [],
+      rooms_reread: 0, reread_pending: 0,
       deferred_unread: deferredUnread,
+      list_diag: LIST_DIAG,
     });
   })();
 })();

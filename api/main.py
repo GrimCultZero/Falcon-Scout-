@@ -3743,6 +3743,35 @@ def _as_utc(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+# Which status an outcome read from the client's own messages may replace. Never
+# a downgrade, never over a hire or a withdrawal.
+_OUTCOME_FROM = {
+    "hired":        {"draft", "sent", "viewed", "invited", "replied", "interviewing", "ghosted", "expired", "declined"},
+    "interviewing": {"draft", "sent", "viewed", "invited", "replied", "ghosted"},
+    "declined":     {"draft", "sent", "viewed", "invited", "replied", "interviewing", "ghosted", "expired"},
+}
+
+
+def _signal_from_client_messages(texts):
+    """The outcome in what the CLIENT wrote, read newest message first: hired,
+    interviewing or declined (the capture's own phrase lists), else None.
+
+    Newest first so a later message wins — an interview invite followed by
+    "we've selected another candidate" is a decline. Client-authored text only:
+    Artem's own letters mention calls and audits, and the page's UI cards are
+    not the client talking. Added 2026-09-30 for the free room re-read
+    (extension 5.3), after Sofia Toro's decline went unrecorded.
+    """
+    for t in reversed([x for x in (texts or []) if x and str(x).strip()]):
+        if any(rx.search(t) for rx in _HIRE_SIGNALS):
+            return "hired"
+        if any(rx.search(t) for rx in _INTERVIEW_SIGNALS):
+            return "interviewing"
+        if any(rx.search(t) for rx in _DECLINE_SIGNALS):
+            return "declined"
+    return None
+
+
 @app.post("/messages-status-sync")
 def messages_status_sync(data: dict):
     """
@@ -3794,6 +3823,7 @@ def messages_status_sync(data: dict):
     # so this cannot flip back on the next sweep.
     _RESURRECTABLE_TO_REPLIED = {"ghosted"}
     redated = []   # replied proposals whose "reply seen" moved back to the conversation's date
+    from_messages = []   # status changes read from the client's own messages (room re-read)
     # Room-evidence paths are exact too: an id read from the room's own panel,
     # or a title from its header that is unique across every job we know.
     _EXACT_MATCH_PATHS = {"job_id", "exact_title_unique",
@@ -3953,6 +3983,26 @@ def messages_status_sync(data: dict):
             if last_message and last_from_client and not (proposal.client_reply_text or "").strip():
                 proposal.client_reply_text = last_message[:1000]
 
+            # Messages read inside the room (extension 5.3: rooms that moved since
+            # the last sync are opened again). The client's latest message becomes
+            # the reply text, and what they wrote can move the status on — a
+            # decline, an interview, a hire. Exact matches only: a fuzzy match
+            # applying someone else's decline would be worse than missing one.
+            _msgs = row.get("recent_messages") if isinstance(row.get("recent_messages"), list) else []
+            _client_texts = [str(m.get("text") or "").strip() for m in _msgs
+                             if isinstance(m, dict) and m.get("from") == "client" and str(m.get("text") or "").strip()]
+            if _client_texts and match_via in _EXACT_MATCH_PATHS:
+                _latest = _client_texts[-1][:2000]
+                if _latest[:80] not in (proposal.client_reply_text or ""):
+                    proposal.client_reply_text = _latest
+                _sig = _signal_from_client_messages(_client_texts)
+                if _sig and proposal.status != _sig and proposal.status in _OUTCOME_FROM.get(_sig, set()):
+                    from_messages.append({"proposal_id": proposal.id, "from": proposal.status, "to": _sig,
+                                          "via": match_via, "client_name": client_name[:60]})
+                    proposal.status = _sig
+                    proposal.status_updated_at = _reply_seen_at(row, _now)
+                    updated += 1
+
         session.commit()
 
     # Debug capture — dump the raw scraped rows + match outcome to a file so we
@@ -3968,6 +4018,8 @@ def messages_status_sync(data: dict):
             "resurrected_from_ghosted": resurrected,
             # Replied proposals re-dated to when their conversation last moved.
             "redated": redated,
+            # Outcomes read from the client's own messages in re-read rooms.
+            "status_from_messages": from_messages,
             # Per-row outcome: which path matched (or none) — room walk v5.
             "match_log": match_log,
             # Rooms whose ids/titles pointed at MORE than one proposal: not matched.
@@ -3985,6 +4037,10 @@ def messages_status_sync(data: dict):
                     "last_from_client": r.get("last_from_client"),
                     "last_message": (r.get("last_message") or "")[:120],
                     "last_activity_at": r.get("last_activity_at"),
+                    "recent_messages": [
+                        {"from": m.get("from"), "text": str(m.get("text") or "")[:100]}
+                        for m in (r.get("recent_messages") or [])[-4:] if isinstance(m, dict)
+                    ] or None,
                     "room_proposal_ids": r.get("room_proposal_ids"),
                     "room_job_ids": r.get("room_job_ids"),
                     "room_titles": (r.get("room_titles") or [])[:4],

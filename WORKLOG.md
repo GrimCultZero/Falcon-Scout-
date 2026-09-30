@@ -8933,3 +8933,28 @@ interviews are recorded automatically. The existing capture parses with a Claude
 a free alternative reads the latest client message from the page and runs the existing phrase checks.
 
 `tests/inbox-scrape.test.js` 14/14, `tests/test_reply_dates.py` pass; every suite passes.
+
+## 2026-09-30 — free room re-read (extension 5.3); the list scrape still misses the newest rows
+
+Owner: "build the free one. And I reloaded extention and ran sync - sofia's is still not there". The
+5.2 sync did re-date proposal 80 (to 13 Jul — the June item left the top). Sofia's proposal (238) is under
+DECLINED since the manual fix, not REPLIED. But the 5.2 sync still read the wrong rows: 20 conversations
+starting at Balagan (22 Sep) — mostly contract threads — and none of the five newest (Sofia, Oresti,
+Mykola, Hajar, Goekhan) nor Byron, David Messum, HR HR. Not the scroll position alone: a different or
+filtered set of rows. Cause not visible from here, so 5.3 records the list's shape (walk_info.list_diag:
+url, anchor count per scroller, pressed filters/tabs, the first rows as read, scroller metrics, before
+and after the reset) and resets EVERY scrollable layer above the list to the top, not just the nearest.
+
+**The free re-read.** A room whose inbox preview or time changed since the last sync (baseline in
+chrome.storage `falcon_room_preview_v1`; with none yet, rooms active in the last 7 days) is opened again —
+never an unread one — first in the walk queue, max 4 per sync inside the 8-page cap. The room's panel is
+read into messages with their senders (`_roomMessages`: "Name  7:56 PM" headers, one line or two; date
+dividers, file cards, "View proposal", avatar initials dropped); the last 8 go to the backend as
+`recent_messages`. Backend: the client's latest message becomes the reply text, and
+`_signal_from_client_messages` (the capture's own hire / interview / decline phrases, client text only,
+newest message first) can move the status — `_OUTCOME_FROM` allows a decline over replied / interviewing
+/ ghosted…, never over a hire; exact matches only; dated by the conversation. No AI call. One panel text
+sample per sync goes to the debug file (rooms[].text_sample) so a parse miss can be fixed.
+
+`tests/inbox-scrape.test.js` 27/27 (Sofia's room in both header shapes), `tests/test_status_from_messages.py`
+pass; every suite passes. Needs a live sync on 5.3 to confirm.

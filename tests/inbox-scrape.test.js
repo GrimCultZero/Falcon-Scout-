@@ -42,13 +42,67 @@ assert(_listWhen(['TH', 'Thomas Haugen', 'SEO Account Manager June', 'Hi Artem']
 const wait = src.slice(src.indexOf('async function waitForListContent'), src.indexOf('async function collectConversationRows'));
 assert(!/scrollTop|scrollTo\(/.test(wait), 'waitForListContent no longer scrolls (it only waits for the list)');
 const collect = src.slice(src.indexOf('async function collectConversationRows'), src.indexOf('const _WEEKDAYS'));
-assert(/sidebar\.scrollTop = 0; await/.test(collect) && collect.indexOf('sidebar.scrollTop = 0') < collect.indexOf('add();'), 'collectConversationRows scrolls to the TOP before the first scrape');
+assert(/for \(const el of _scrollablesUp\(first\)\) el\.scrollTop = 0;/.test(collect) && collect.indexOf('el.scrollTop = 0') < collect.indexOf('add();'), 'collectConversationRows scrolls EVERY scrollable layer to the top before the first scrape');
 assert(/for \(let step = 1; step <= 4; step\+\+\) \{[\s\S]*?add\(\);[\s\S]*?\}/.test(collect), '…and scrapes again at every scroll step, keeping first-seen (newest-first) order');
 assert(/const rows = await collectConversationRows\(\);/.test(src) && !/const rows = scrapeConversationList\(\);/.test(src), 'the sync uses it');
 assert(/last_activity_at: _listWhen\(lines\),/.test(src), 'every row carries last_activity_at');
 assert(/if \(\/\^\(monday\|tuesday\|wednesday\|thursday\|friday\|saturday\|sunday\)\$\/i\.test\(ln\)\) continue;/.test(src), 'weekday lines are no longer read as a job title');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.2', `extension version bumped to 5.2 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+assert(manifest.version === '5.3', `extension version 5.3 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+
+// ── 5.3: reading the messages of a room that moved ──────────────────────────
+// Sofia Toro's room, as its panel reads (from the owner's screenshot, 30 Sep):
+// the proposal, her three questions, the decline, Artem's thank-you — in both
+// shapes innerText can give a header ("Name  7:56 PM" on one line, or two).
+const rStart = src.indexOf('  const _MSG_TIME_RE');
+const rEnd = src.indexOf('\n  }\n', src.indexOf('function _roomMessages')) + 4;
+const { _roomMessages } = new Function(`${src.slice(rStart, rEnd)}; return { _roomMessages }`)();
+const sofia = (oneLine) => [
+  'Sofia Toro, Speedrack West', '6:11 AM local time', 'Google Ads, GA4, GTM, HubSpot & CallRail Attribution Audit',
+  ...(oneLine ? ['Artem Yatsuk 8:03 PM'] : ['Artem Yatsuk', '8:03 PM']),
+  'Here are some relevant results:', 'Nectar Flowers (attached in profile highlights): ecommerce florist.', 'Artem', 'View proposal', '2 files', 'Google%20Ads%20Audit%20Example.pdf', '2 MB',
+  'ST', ...(oneLine ? ['Sofia Toro 6:09 AM'] : ['Sofia Toro', '6:09 AM']),
+  'Hi! Thank you for your proposal. Before selecting the finalists, could you please answer these three brief questions?',
+  'Tuesday, Sep 29',
+  'ST', ...(oneLine ? ['Sofia Toro 7:56 PM'] : ['Sofia Toro', '7:56 PM']),
+  'Hi Artem', "We've selected another candidate for this project, but we sincerely appreciate the time and effort you put into your application.", 'Best regards,',
+  ...(oneLine ? ['Artem Yatsuk 7:57 PM'] : ['Artem Yatsuk', '7:57 PM']),
+  'thank you for letting me know, Sofia, all the best!',
+  'Send a message...',
+].join('\n');
+for (const oneLine of [true, false]) {
+  const msgs = _roomMessages(sofia(oneLine));
+  const shape = oneLine ? 'one-line headers' : 'two-line headers';
+  assert(msgs.map(m => m.from).join(',') === 'artem,client,client,artem', `${shape}: four messages, attributed artem / client / client / artem (${msgs.map(m => m.from).join(',')})`);
+  const decline = msgs.filter(m => m.from === 'client').pop();
+  assert(decline && /We've selected another candidate/.test(decline.text) && decline.text.startsWith('Hi Artem') && !/Tuesday|ST$/.test(decline.text), `${shape}: the client's last message is the decline, without the date divider or avatar initials`);
+  assert(!/View proposal|2 files|\.pdf|2 MB/.test(msgs[0].text), `${shape}: file cards and "View proposal" are dropped`);
+  assert(!msgs.some(m => /Send a message|local time/.test(m.text)), `${shape}: the compose placeholder and the header clock are dropped`);
+}
+
+// which rooms are opened again, and which baselines move
+const cStart = src.indexOf('  function _previewSig(r)');
+const cEnd = src.indexOf('\n  }\n', src.indexOf('function _nextPreviews')) + 4;
+const { _rereadCandidates, _nextPreviews, _previewSig } = new Function(`const REREAD_BACKFILL_MS = 7 * 24 * 3600 * 1000;\n${src.slice(cStart, cEnd)}; return { _rereadCandidates, _nextPreviews, _previewSig }`)();
+const nowMs = Date.parse('2026-09-30T11:00:00Z');
+const row = (id, o) => ({ room_id: id, last_message: 'p', last_activity_at: '2026-09-29T16:57:00.000Z', has_unread: false, ...o });
+const rows = [
+  row('sofia', { last_message: 'thank you for letting me know, Sofia' }),                       // moved since the baseline
+  row('same'),                                                                                     // baseline identical
+  row('unread', { has_unread: true, last_message: 'new!' }),                                       // never opened by the sync
+  row('fresh'),                                                                                    // linked, no baseline, recent
+  row('old', { last_activity_at: '2026-07-13T09:00:00.000Z' }),                                    // linked, no baseline, old
+  row('unlinked', { last_message: 'x' }),                                                          // first visit handles it
+];
+const previews = { sofia: { sig: 'Hi Artem|2026-09-29T16:56:00.000Z' }, same: { sig: _previewSig(row('same')) }, unread: { sig: 'old|x' } };
+const observed = (id) => id !== 'unlinked';
+const picked = _rereadCandidates(rows, previews, observed, nowMs).map(r => r.room_id);
+assert(picked.join(',') === 'sofia,fresh', `re-read: the moved room and a recent one with no baseline — not unread, unchanged, old or unlinked ones (${picked.join(',')})`);
+const next = _nextPreviews(previews, rows, new Set(['fresh']), nowMs);
+assert(next.unread.sig === 'old|x' && !next.fresh && next.sofia.sig === _previewSig(rows[0]), 'baselines: an unread room and one still pending keep theirs; a read one moves');
+assert(/\.\.\.reread\.map\(c => \(\{ room_id: c\.room_id, room_url: c\.room_url, reread: true \}\)\),\n\s+\.\.\.firstVisits/.test(src), 'moved rooms are walked first, then first visits');
+assert(/const reread = changed\.slice\(0, REREAD_CAP\);/.test(src) && /WALK_CAP - reread\.length/.test(src), 'both within the per-sync page-load cap');
+assert(/recent_messages: fresh\.messages/.test(src) && /list_diag: q\.list_diag/.test(src) && /list_diag: LIST_DIAG/.test(src), 'rows carry recent_messages; walk_info carries the list diagnostic on both paths');
 
 console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
 process.exit(bad ? 1 : 0);
