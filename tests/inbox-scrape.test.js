@@ -42,13 +42,33 @@ assert(_listWhen(['TH', 'Thomas Haugen', 'SEO Account Manager June', 'Hi Artem']
 const wait = src.slice(src.indexOf('async function waitForListContent'), src.indexOf('async function collectConversationRows'));
 assert(!/scrollTop|scrollTo\(/.test(wait), 'waitForListContent no longer scrolls (it only waits for the list)');
 const collect = src.slice(src.indexOf('async function collectConversationRows'), src.indexOf('const _WEEKDAYS'));
-assert(/for \(const el of _scrollablesUp\(first\)\) el\.scrollTop = 0;/.test(collect) && collect.indexOf('el.scrollTop = 0') < collect.indexOf('add();'), 'collectConversationRows scrolls EVERY scrollable layer to the top before the first scrape');
+assert(/if \(sidebar\) for \(const el of \[sidebar, \.\.\._scrollablesUp\(sidebar\)\]\) el\.scrollTop = 0;/.test(collect) && collect.indexOf('el.scrollTop = 0') < collect.indexOf('add();'), 'collectConversationRows scrolls the list and every layer above it to the top before the first scrape');
+// 5.4: the list is the scroller shared by the most ROOM links (5.3's list_diag: the
+// first /messages/rooms/ link is the nav's "Messages" item, with no scroller)
+const finder = src.slice(src.indexOf('function findSidebarContainer'), src.indexOf('// Every scrollable ancestor of a node'));
+assert(/_ROOM_HREF_RE\.test\(a\.getAttribute\('href'\) \|\| ''\)/.test(finder) && /counts\.set\(sc, \(counts\.get\(sc\) \|\| 0\) \+ 1\)/.test(finder) && /if \(c > n\)/.test(finder), 'findSidebarContainer picks the scroller shared by the most room links, not the first link\'s');
+// 5.4: a hidden window renders no room — don't walk, and stop a walk that finds out
+assert(/if \(queue\.length && document\.visibilityState === 'hidden'\) \{[\s\S]*?walk_skipped: 'hidden'/.test(src), 'no walk in a hidden window (rooms stay queued, walk_skipped: "hidden")');
+assert(/if \(!q\.results\[cur\.room_id\]\.rendered && document\.visibilityState === 'hidden'\) \{\s*q\.stopped_hidden = true;\s*await finishWalk\(q\);/.test(src), 'a walk that hits an unrendered room in a hidden window stops there');
+assert(/_nextPreviews\(previews, rows, new Set\(changed\.map\(r => r\.room_id\)\)\)/.test(src), '…and the moved rooms keep their old baselines, so they are read later');
+// 5.4: the passive read — the conversation Artem opens is visible, so read it then
+const passive = src.slice(src.indexOf('async function passiveReadCurrentRoom'), src.indexOf('function startPassiveReader'));
+assert(/document\.visibilityState !== 'visible'\) return;/.test(passive), 'passive read: only a visible page');
+assert(/st\.busy \|\| st\.tries >= 2 \|\| Date\.now\(\) - st\.at < _PASSIVE_REREAD_MS/.test(passive), '…once per room, again after 2 minutes while it stays open, and a room that will not render is tried twice then left');
+assert(/if \(!location\.pathname\.includes\(room_id\)\) return;/.test(passive), '…never saved against a room Artem has already left');
+assert(/recent_messages: res\.messages,/.test(passive) && /postDirect\(\[row\], \{ passive: true,/.test(passive), '…and posts the room\'s messages, flagged passive');
+assert(!/\.click\(\)|dispatchEvent|\.value\s*=|execCommand/.test(passive), '…read-only: nothing on the page is clicked, typed or changed');
+assert(/if \(!requested\) \{ startPassiveReader\(\); return; \}/.test(src), 'it runs whenever the page is not a sync run (never inside the sync or its walk)');
+const main = fs.readFileSync(path.join(__dirname, '..', 'api', 'main.py'), 'utf8');
+assert(/_dbg_name = "messages_passive_debug\.json" if _wi\.get\("passive"\) else "messages_sync_debug\.json"/.test(main), 'backend: a passive read gets its own debug file, never overwriting the last full sync');
+assert(/^messages_passive_debug\.json\r?$/m.test(fs.readFileSync(path.join(__dirname, '..', '.gitignore'), 'utf8')), '…and that file (client message text) is gitignored');
 assert(/for \(let step = 1; step <= 4; step\+\+\) \{[\s\S]*?add\(\);[\s\S]*?\}/.test(collect), '…and scrapes again at every scroll step, keeping first-seen (newest-first) order');
-assert(/const rows = await collectConversationRows\(\);/.test(src) && !/const rows = scrapeConversationList\(\);/.test(src), 'the sync uses it');
+const syncFlow = src.slice(src.indexOf("if (!requested) { startPassiveReader(); return; }"));
+assert(/const rows = await collectConversationRows\(\);/.test(syncFlow) && !/scrapeConversationList\(\)/.test(syncFlow), 'the sync uses it (the passive reader reads the rows as they are, which is fine)');
 assert(/last_activity_at: _listWhen\(lines\),/.test(src), 'every row carries last_activity_at');
 assert(/if \(\/\^\(monday\|tuesday\|wednesday\|thursday\|friday\|saturday\|sunday\)\$\/i\.test\(ln\)\) continue;/.test(src), 'weekday lines are no longer read as a job title');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.3', `extension version 5.3 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+assert(manifest.version === '5.4', `extension version 5.4 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
 
 // ── 5.3: reading the messages of a room that moved ──────────────────────────
 // Sofia Toro's room, as its panel reads (from the owner's screenshot, 30 Sep):

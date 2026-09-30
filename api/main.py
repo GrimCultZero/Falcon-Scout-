@@ -4049,7 +4049,11 @@ def messages_status_sync(data: dict):
             ],
             "not_matched": not_matched,
         }
-        (ROOT / "messages_sync_debug.json").write_text(
+        # A passive read (extension 5.4: the conversation Artem has open) posts a
+        # single row; it gets its own file so it never overwrites the last full sync.
+        _wi = data.get("walk_info") if isinstance(data.get("walk_info"), dict) else {}
+        _dbg_name = "messages_passive_debug.json" if _wi.get("passive") else "messages_sync_debug.json"
+        (ROOT / _dbg_name).write_text(
             _json_mod.dumps(dbg, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception as _e:
         print(f"[messages-sync] debug dump failed: {_e}")

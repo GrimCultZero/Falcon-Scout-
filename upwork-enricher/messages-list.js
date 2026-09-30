@@ -38,8 +38,22 @@
   // Locate the LEFT SIDEBAR that holds the conversation list. The sidebar is
   // a scrollable container; we find it by looking up from a room anchor for
   // the closest ancestor with overflow-y set to auto/scroll.
+  // The conversation list = the scroller shared by the most ROOM links. Not "the
+  // first link's scroller": the first /messages/rooms/ link on the page is the
+  // left nav's "Messages" item, which has none (5.3's list_diag, 2026-09-30:
+  // groups {none: 1, div.rooms-panel-room-list.rooms-panel-items: 20}) — so the
+  // list was never scrolled at all.
+  const _ROOM_HREF_RE = /\/messages\/rooms\/(?:room[_~])?[A-Za-z0-9_~-]+/i;
   function findSidebarContainer() {
-    return _scrollablesUp(document.querySelector('a[href*="/messages/rooms/"]'))[0] || null;
+    const counts = new Map();
+    for (const a of document.querySelectorAll('a[href*="/messages/rooms/"]')) {
+      if (!_ROOM_HREF_RE.test(a.getAttribute('href') || '')) continue;
+      const sc = _scrollablesUp(a)[0];
+      if (sc) counts.set(sc, (counts.get(sc) || 0) + 1);
+    }
+    let best = null, n = 0;
+    for (const [el, c] of counts) if (c > n) { best = el; n = c; }
+    return best;
   }
   // Every scrollable ancestor of a node, nearest first. The list can sit more
   // than 10 levels above a row, and an outer panel can be scrolled too.
@@ -106,12 +120,13 @@
   let LIST_DIAG = null;
   async function collectConversationRows() {
     const before = _listDiag();
-    // Every scrollable layer above the list back to the top — Upwork restores a
-    // scroll position, and the nearest scroller is not always the one it moved.
-    const first = document.querySelector('a[href*="/messages/rooms/"]');
-    for (const el of _scrollablesUp(first)) el.scrollTop = 0;
-    await new Promise(r => setTimeout(r, 900));
+    // The list and every scrollable layer above it back to the top. The sync lands
+    // on the LAST ROOM opened — often an old one the walk just visited — and Upwork
+    // scrolls the list to show it, so without this the rows read are the ones
+    // around that room (the 30 Sep morning syncs read Jul 2026 back to 2025).
     const sidebar = findSidebarContainer();
+    if (sidebar) for (const el of [sidebar, ..._scrollablesUp(sidebar)]) el.scrollTop = 0;
+    await new Promise(r => setTimeout(r, 900));
     const byRoom = new Map();
     const add = () => { for (const r of scrapeConversationList()) if (!byRoom.has(r.room_id)) byRoom.set(r.room_id, r); };
     add();
@@ -786,6 +801,7 @@
       rooms_with_titles: walked.filter(x => x && x.titles.length).length,
       rooms_reread: (q.reread_ids || []).filter(id => readOk.has(id)).length,
       reread_pending: pending.size,
+      stopped_hidden: !!q.stopped_hidden,
       deferred_unread: q.deferred_unread || 0,
       attempts: q.attempts || 0,
       rooms: walked.map(x => x && x.diag).filter(Boolean),
@@ -806,12 +822,67 @@
     showBanner({ phase: 'walking', note: `Reading conversation ${q.index + 1} of ${q.queue.length}…` });
     q.results[cur.room_id] = await probeRoom(q, cur);
     q.index++;
+    // A room that never rendered in a HIDDEN window: the rest won't either (Upwork
+    // doesn't render a conversation in a hidden page — 5.3's four re-reads each
+    // timed out at 15s with vis "hidden"). Stop instead of spending 15s on each.
+    if (!q.results[cur.room_id].rendered && document.visibilityState === 'hidden') {
+      q.stopped_hidden = true;
+      await finishWalk(q);
+      return;
+    }
     if (q.index < q.queue.length) {
       saveQueue(q);
       window.location.href = q.queue[q.index].room_url;   // next room (reloads script; queue resumes)
       return;
     }
     await finishWalk(q);
+  }
+
+  // ── Passive read: the conversation Artem has open (2026-09-30) ────────────
+  // The sync's own window is hidden — moved off-screen, or covered by Falcon
+  // Scout, which Chrome on Windows reports the same way — and Upwork renders no
+  // conversation in a hidden page, so the walk cannot read rooms (5.3: four
+  // re-reads, 15s each, vis "hidden", nothing read). But Artem opens a
+  // conversation to read what a client wrote — Sofia Toro's decline included —
+  // and THAT page is visible. So read it then and send it to the backend exactly
+  // as the walk would. Read-only: nothing on Upwork is clicked, typed or changed.
+  // Re-read at most every 2 minutes while it stays open (a reply can arrive
+  // live); a room that won't render is tried twice, then left alone.
+  const _PASSIVE_REREAD_MS = 2 * 60 * 1000;
+  const _passive = new Map();   // room_id -> { at, tries, busy }
+  async function passiveReadCurrentRoom() {
+    const m = location.pathname.match(/\/messages\/rooms\/(?:room[_~])?([A-Za-z0-9_~-]+)/i);
+    if (!m || document.visibilityState !== 'visible') return;
+    const room_id = m[1];
+    const st = _passive.get(room_id) || { at: 0, tries: 0, busy: false };
+    if (st.busy || st.tries >= 2 || Date.now() - st.at < _PASSIVE_REREAD_MS) return;
+    st.busy = true; _passive.set(room_id, st);
+    try {
+      const rows = scrapeConversationList();
+      const res = await probeRoom({ rows }, { room_id, reread: true });
+      if (!location.pathname.includes(room_id)) return;              // Artem moved on meanwhile
+      if (!res.rendered || !res.messages.length) { st.tries++; return; }
+      const self = rows.find(r => r.room_id === room_id) || { room_id, room_url: location.href.split('?')[0] };
+      const row = {
+        ...self, walk: 'passive',
+        upwork_job_id: self.upwork_job_id || res.job_ids[0] || null,
+        room_job_ids: res.job_ids, room_proposal_ids: res.proposal_ids, room_titles: res.titles,
+        recent_messages: res.messages,
+      };
+      const result = await postDirect([row], { passive: true, probe_version: PROBE_VERSION, rooms: [res.diag] });
+      st.at = Date.now(); st.tries = 0;
+      console.log('[Cockpit Messages-List] passive read of the open conversation saved:', result);
+    } catch (e) {
+      st.tries++;
+      console.warn('[Cockpit Messages-List] passive read not saved:', e && e.message);
+    } finally {
+      st.busy = false;
+    }
+  }
+  function startPassiveReader() {
+    setInterval(passiveReadCurrentRoom, 3000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') passiveReadCurrentRoom(); });
+    passiveReadCurrentRoom();
   }
 
   (async () => {
@@ -825,7 +896,8 @@
 
     const requested = await falconSyncRequested();
     console.log('[Cockpit Messages-List] falconsync requested:', requested, 'path:', window.location.pathname + window.location.search);
-    if (!requested) return;
+    // Not a sync run: Artem browsing his messages — read what he opens.
+    if (!requested) { startPassiveReader(); return; }
     clearMarker();
     showBanner({ phase: 'scraping' });
 
@@ -860,6 +932,22 @@
       ...reread.map(c => ({ room_id: c.room_id, room_url: c.room_url, reread: true })),
       ...firstVisits.map(c => ({ room_id: c.room_id, room_url: c.room_url })),
     ];
+    // Hidden window (covered, or moved off-screen — Chrome's occlusion tracking
+    // marks both hidden): no room will render, so don't walk. The moved rooms keep
+    // their old baselines and are read by the first sync that can render them.
+    if (queue.length && document.visibilityState === 'hidden') {
+      console.log('[Cockpit Messages-List] window hidden — not walking', queue.length, 'room(s); they stay queued');
+      await savePreviews(_nextPreviews(previews, rows, new Set(changed.map(r => r.room_id))));
+      const enrichedH = rows.map(r => attachObs(r, null, obs[r.room_id]));
+      await postAndFinish(enrichedH, {
+        probe_version: PROBE_VERSION, rooms_visited: 0, links_found: 0, attempts: 0,
+        rooms_cached: enrichedH.filter(r => r.walk === 'cached').length, rooms: [],
+        rooms_reread: 0, reread_pending: changed.length, walk_skipped: 'hidden', walk_waiting: queue.length,
+        deferred_unread: deferredUnread,
+        list_diag: LIST_DIAG,
+      });
+      return;
+    }
     if (queue.length) {
       console.log('[Cockpit Messages-List] walking', queue.length, 'room(s):', reread.length, 'moved since the last sync,',
                   firstVisits.length, 'not yet observed;', deferredUnread, 'unread room(s) deferred until read');

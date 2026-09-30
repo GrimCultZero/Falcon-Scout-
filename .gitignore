@@ -19,6 +19,7 @@ upwork_jobs.db-shm
 # transient per-session snapshot, not project state
 share-with-claude.md
 messages_sync_debug.json
+messages_passive_debug.json
 
 # ── Python ───────────────────────────────────────────────────────────────
 __pycache__/

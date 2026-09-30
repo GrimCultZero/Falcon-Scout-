@@ -8958,3 +8958,35 @@ sample per sync goes to the debug file (rooms[].text_sample) so a parse miss can
 
 `tests/inbox-scrape.test.js` 27/27 (Sofia's room in both header shapes), `tests/test_status_from_messages.py`
 pass; every suite passes. Needs a live sync on 5.3 to confirm.
+
+## 2026-09-30 — 5.3 in the field: rooms don't render in the sync window; passive read (5.4)
+
+Owner synced on 5.3. The debug file answered both open questions:
+- **The list was right this time** — list_diag showed the 20 rows in `div.rooms-panel-room-list` starting
+  Oresti / Sofia / Mykola / Hajar / Goekhan — but only by luck: `findSidebarContainer` took the FIRST
+  /messages/rooms/ link, which is the left nav's "Messages" item (no scroller), so nothing was scrolled
+  at all. The earlier wrong rows came from where the sync LANDS: the last room opened (often an old one
+  the walk had just visited), and Upwork scrolls the list to show it. 5.4 takes the scroller shared by
+  the most room links and resets it (and every layer above) to the top before reading.
+- **The re-read read nothing**: four rooms visited, each `rendered: false`, `vis: "hidden"`, 15s, 0
+  chars. The sync window is moved off-screen (background.js `_openSyncWindow`), and Chrome on Windows
+  reports off-screen and covered windows as hidden — the same occlusion behaviour already measured for
+  the proposals leg. Upwork renders no conversation in a hidden page. 5.4: no walk when the window is
+  hidden (`walk_skipped: "hidden"`, moved rooms stay queued), and a walk that meets an unrendered room
+  in a hidden window stops instead of spending 15s on each.
+- Re-dating did its job: 80 → 13 Jul, and 234 / 223 / 202 / 213 (all stamped 24 Sep 17:17, the day the
+  reply detector caught up) moved to their conversations' dates.
+
+**Passive read (5.4).** Artem opens a conversation to read what a client wrote — and that page is
+visible. messages-list.js, when the page is not a sync run, reads the open room (probeRoom +
+`_roomMessages`) and posts it to /messages-status-sync as one row flagged `passive`: same matching,
+same outcome reading as the walk. Read-only; once per room, again after 2 minutes while it stays open;
+a room that won't render is tried twice. Its debug goes to messages_passive_debug.json (gitignored —
+client message text), never over the last full sync's. Sofia's decline would have been caught the
+moment Artem opened her thread to reply. Extension 5.4.
+
+Optional, owner's choice: Chrome's "Calculate window occlusion on Windows"
+(chrome://flags/#calculate-native-win-occlusion) set to Disabled would let the hidden sync window
+render, so the background walk could read rooms too.
+
+`tests/inbox-scrape.test.js` 38/38; every suite passes.
