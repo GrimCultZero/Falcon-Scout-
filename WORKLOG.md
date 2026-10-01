@@ -9172,3 +9172,62 @@ whole time (PID listening on 27184). §3 of the new file has the fix and the two
 profile and the endpoint the same way the bridge does. Also recorded there: why `cli-bridge.js` and
 `App.jsx` differ locally (port 27183 → 27184, the `baba-leada` collision) and that they must never be
 committed.
+
+## 2026-10-01 — Armed Skin Reboot, letter opened with Derma Solution: two mandatory rules both claimed slot 1
+
+Owner, job 16926: "Skin reboot was armed for digi bomb but it fired derma solution". `missingDigitBombFacts`
+fired, but checks only report, so it shipped. The giveaway is that the opener was **textbook** Digit Bomb —
+metrics first, case name + attachment, bridge to the client. The block worked perfectly and was applied to
+the wrong case; Skin Reboot wasn't dropped, it was demoted into the case block. Yesterday's `61f3ea7`
+(past-letter openings) was a real cause but not this one.
+
+**Cause 1 — rule collision.** The DIGIT BOMB block says it overrides "the PRIMARY WRITING DIRECTIVE's opener
+rules" and explicitly preserves "case study selection for the REST of the letter". But `LEAD WITH THE
+EXACT-VERTICAL CASE (mandatory)` says the on-vertical case "MUST be the FIRST case study cited" — and the
+opener *is* the first case citation. Two mandatory rules, same slot, no stated precedence. Derma Solution
+won on merit: same `ecom-health` vertical as Skin Reboot, `service: 'seo'` on an SEO posting (Skin Reboot is
+tagged `ppc`), and much bigger numbers. Job 16872 the day before fits the same shape — FridgeFix was that
+posting's on-vertical case. Fixed with a PRECEDENCE paragraph that scopes the exact-vertical rule to the
+case-study BLOCK and states the armed case takes position 1 "whatever the vertical, service tag or metric
+size says", plus a line in DIGIT BOMB — LAST CHECK telling it to put the armed case back if it opened with
+another one.
+
+**Cause 2 — the block's worked examples hardcoded the armed case.** Two of the three examples were Skin
+Reboot: the CORRECT one labelled *"this is a different case"* and the WRONG-order one showing a
+Skin-Reboot-led opener as the wrong answer. With Skin Reboot armed, the prompt simultaneously said to lead
+with it, called it a different case, and showed it as the mistake. Both reported misses had Skin Reboot
+armed. Now `_DIGIT_BOMB_EXAMPLE_SETS` holds two case-disjoint sets (Skin Reboot + Atlant; Derma Solution +
+FridgeFix) and `_digitBombExamples(armedId)` picks one that never names the armed case. Every figure in the
+new set is the ledger's own.
+
+**One detector instead of two.** `missingDigitBombFacts`'s inline logic moved to
+`letterGuards.digitBombOpenerMiss(letter, armedCase, allCases)` (ledger passed in, per the lifted-code rule),
+which also returns *which* case took the slot. The check and a new live "Fix before sending" note share it,
+so a miss now shows under the textarea in red — "Digit Bomb: **Skin Reboot** was armed but the letter opens
+with **Derma Solution**" — instead of only as a code in the amber strip among a dozen others. The note reads
+`lastDigitBombCase` (the case armed for the letter in the box), deliberately not `digitBombCaseId`, which
+keeps its dropdown value after the bomb disarms.
+
+`tests/digit-bomb-openings.test.js` 36/36, including the real 16926 letter asserted BOTH ways: a miss when
+Skin Reboot was armed, correct when Derma was — form was never the problem. All 18 JS and 3 Python suites
+pass; frontend builds clean.
+
+## 2026-10-01 — The chat's 1,500-token cap silently ate answers and the reworked letter
+
+Owner asked whether the generator's chat limits how many additional questions it answers. No count limit
+anywhere: the prompt says "one `<answer>` block per question, in the order asked" and the parser loops every
+match with no slice. The limit is `max_tokens: 1500` on `/chat` in `api/main.py`, and it covers the ENTIRE
+reply — `<remarks>` + every `<answer>` + the **whole reworked cover letter** in `<proposal>`. The letter
+alone is ~500–700 tokens, leaving roughly 600 words for all answers combined.
+
+Worse, it failed silently, two ways. Both parsers need paired tags (`<answer>…</answer>`,
+`<proposal>…</proposal>`), so a reply cut at the cap loses its last answer entirely — the regex just finds no
+match — and since the instructions put answers first and `<proposal>` last, the casualty is usually the
+letter rewrite: `proposalMatch` is null and the textarea is left untouched with no warning. There was no
+`stop_reason === 'max_tokens'` check in the chat path at all; the only one in the codebase is the analyser's,
+which is exactly the bug fixed on 09-30 by raising its cap (`4e66b39`) — the chat had the same bug, one cap
+lower.
+
+Raised `/chat` to 4,000 (output tokens bill only as used, so the ceiling costs nothing until needed) and
+added the `stop_reason` check, which now says the reply was cut off and names what is missing instead of
+handing back something that looks complete.

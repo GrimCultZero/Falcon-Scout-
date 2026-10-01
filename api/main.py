@@ -2777,8 +2777,17 @@ async def chat(request: dict):
                     **extra_headers,
                 },
                 json={
+                    # 1500 was not enough for Additional Questions mode: one reply
+                    # carries <remarks> + one <answer> per question + the WHOLE
+                    # reworked cover letter in <proposal>. The letter alone is
+                    # ~500-700 tokens, so five detailed questions ran past the cap
+                    # and the tail was cut — and because both parsers require a
+                    # closing tag, a truncated answer (or the proposal) silently
+                    # vanished instead of erroring. Output tokens bill only as
+                    # used, so a higher ceiling costs nothing until it is needed.
+                    # The frontend now also reports stop_reason == "max_tokens".
                     "model": "claude-sonnet-4-5",
-                    "max_tokens": 1500,
+                    "max_tokens": 4000,
                     "system": system,
                     "messages": messages,
                 },

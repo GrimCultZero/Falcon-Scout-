@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -2110,6 +2110,32 @@ function _dropPastLetterOpenings(text) {
   })
 }
 
+// The DIGIT BOMB block teaches the opener shape with worked examples, and those
+// examples name real cases. When the ARMED case is the example's case, the block
+// tells the model its own armed case is "a different case" and shows a letter led
+// by it as the WRONG answer — so it reaches for another case instead. Both
+// reported misses had Skin Reboot armed (job 16872 2026-09-30 → FridgeFix, job
+// 16926 2026-10-01 → Derma Solution), and Skin Reboot is named twice below.
+// Two case-disjoint sets: whichever of the four named cases is armed, the other
+// set is always clean. Every figure here is the ledger's own (caseLedger.js).
+const _DIGIT_BOMB_EXAMPLE_SETS = [
+  {
+    caseIds: ['skin-reboot', 'atlant'],
+    correct: 'Illustrative shape only (do not copy verbatim, this is a different case) — CORRECT, includes the bridge: "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you\'re dealing with on [client\'s actual product]."',
+    wrongOrder: 'WRONG order — do NOT do this (case name/descriptor before the numbers, a real miss that has shipped before): "Skin Reboot (attached as PDF) — a Korean medical-aesthetic ecommerce brand: grew revenue +693.8% at 17.51 ROAS..." — the case name must NEVER come before the first metric.',
+    wrongBridge: 'WRONG — missing bridge, do NOT do this (a real miss that has shipped before, job 12755): "+56.5% conversions, -31% CPC, +144% clicks - Atlant (attached in profile highlights): residential property developer lead gen via branded per-complex campaigns + PMax + DSA." — numbers are correctly first, but it stops there; nothing connects it to this client\'s actual business, so it reads out of context. It needed one more clause, e.g. "...same tire-kicker-vs-genuine-lead problem you\'ll be fighting across your five real estate markets."',
+  },
+  {
+    caseIds: ['derma-solution', 'fridgefix'],
+    correct: 'Illustrative shape only (do not copy verbatim, this is a different case) — CORRECT, includes the bridge: "+1,861% organic traffic and +14,342% conversions on a medical-aesthetics ecommerce site (Derma Solution, attached as PDF) — strict YMYL niche where robots, canonicals and schema had to be fixed before anything ranked, same indexation-before-growth problem you described on [client\'s actual site]."',
+    wrongOrder: 'WRONG order — do NOT do this (case name/descriptor before the numbers, a real miss that has shipped before): "Derma Solution (attached as PDF) — a YMYL medical-aesthetics ecommerce site: grew organic traffic +1,861% and conversions +14,342%..." — the case name must NEVER come before the first metric.',
+    wrongBridge: 'WRONG — missing bridge, do NOT do this (a real miss that has shipped before, job 12755): "-92% cost per conversion, +1,405% conversions, $1.71 CPC - FridgeFix (attached in profile highlights): local lead-gen for a California refrigerator-repair business, full GA4/GTM conversion tracking and Local PMax + Search." — numbers are correctly first, but it stops there; nothing connects it to this client\'s actual business, so it reads out of context. It needed one more clause, e.g. "...same wasted-spend-before-the-tracking-is-right problem you\'ll hit across your service areas."',
+  },
+]
+function _digitBombExamples(armedCaseId) {
+  return _DIGIT_BOMB_EXAMPLE_SETS.find(s => !s.caseIds.includes(armedCaseId)) || _DIGIT_BOMB_EXAMPLE_SETS[0]
+}
+
 function _stripDigitBombDuplicateCase(text, digitBombCase) {
   if (!text || !digitBombCase) return text
   const paras = text.split(/\n\s*\n/)
@@ -3827,6 +3853,16 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
       })
       const data = await res.json()
       if (!res.ok) throw new Error(_friendlyApiError(data.detail, res.status))
+      // Truncation must never be silent. Everything below parses with paired tags
+      // (<answer>…</answer>, <proposal>…</proposal>), so a reply cut off at the
+      // token cap loses its last answer — or the whole reworked letter — with no
+      // error at all: the regex simply finds no match. Additional Questions mode
+      // is the one that hits this, because a single reply carries every answer
+      // PLUS the full letter. Raised to 4000 in api/main.py; say so when it still
+      // runs out rather than handing back a short reply that looks complete.
+      if (data.stop_reason === 'max_tokens') {
+        throw new Error('The reply hit the length limit and was cut off — the last answer (or the reworked letter) is missing. Send fewer questions in one go, or ask again for just the ones that did not come back.')
+      }
       const reply = (data.content || []).map(b => b.text || '').join('')
 
       if (isProposalChat) {
@@ -5919,6 +5955,10 @@ function ProposalColumn({
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState(null) // 'liked' | 'disliked'
   const [flagged, setFlagged] = useState(false) // brief confirmation after manual violation flag
+  // The case armed for the letter now in the box. Deliberately NOT digitBombCaseId:
+  // the bomb disarms after one use while the dropdown keeps its selection, so the
+  // dropdown would still claim a case for a letter generated without one.
+  const [lastDigitBombCase, setLastDigitBombCase] = useState(null)
   // Checks that fired on the letter currently in the box. With the enforcer deleted
   // (2026-09-02) a firing check no longer triggers a rewrite — it reports. Surfacing
   // the list under the letter is what replaces the rewrite: Artem sees what the
@@ -5950,6 +5990,15 @@ function ProposalColumn({
   const _liveWhiteLabelPitch = proposal && !postingAsksForWhiteLabel(_postingForNotes)
     ? findWhiteLabelPitch(proposal, { postingText: _postingForNotes })
     : []
+  //   digit bomb   the armed case did not open the letter. missingDigitBombFacts
+  //                already reports this, but it lands in the amber "rule checks
+  //                fired" strip among a dozen codes and the letter went out anyway
+  //                (jobs 16872, 16926 — both opened with another case in otherwise
+  //                perfect form). lastDigitBombCase is the case armed for the
+  //                letter currently in the box, not the dropdown's current value.
+  const _liveDigitBombMiss = proposal && lastDigitBombCase
+    ? digitBombOpenerMiss(proposal, lastDigitBombCase, CASE_LEDGER)
+    : null
   // preEnforcerDraft retired 2026-09-02 with the enforcer itself. It existed to
   // show a before/after in the share snapshot so a garbled sentence could be traced
   // to the first pass or the rewrite. There is no rewrite now — the letter Artem
@@ -6202,6 +6251,11 @@ function ProposalColumn({
     // 2026-08-18: Rescan & Re-write originally didn't, so arming and clicking
     // it silently produced a normal letter with no explanation — fixed).
     const _digitBombCase = options.digitBombCaseId ? CASE_BY_ID[options.digitBombCaseId] : null
+    // Worked examples that never name the armed case (see _DIGIT_BOMB_EXAMPLE_SETS).
+    const _dbEx = _digitBombCase ? _digitBombExamples(_digitBombCase.id) : null
+    // Remember what was armed for THIS letter so the live note under the textarea
+    // can keep checking the opener as Artem edits.
+    setLastDigitBombCase(_digitBombCase)
     if (options.digitBombCaseId && digitBombArmed) setDigitBombArmed(false)
 
     setLoading(true)
@@ -7351,6 +7405,20 @@ OVERRIDES the PRIMARY WRITING DIRECTIVE's opener rules above — but ONLY for
 the opening. Everything else in this prompt (case study selection for the
 REST of the letter, rate rules, audit rules, closing, etc.) still applies.
 
+PRECEDENCE OVER CASE SELECTION — READ BEFORE OBEYING ANY CASE-RANKING RULE: the
+opener slot is NOT a case-selection decision, it is already decided. "LEAD WITH
+THE EXACT-VERTICAL CASE (mandatory)" above ranks the CASE-STUDY BLOCK; it does
+NOT rank the opening. If a DIFFERENT case is the exact-vertical match for this
+posting, ${_digitBombCase.name} STILL opens the letter and the exact-vertical case
+leads the case-study block that follows. Do NOT promote the exact-vertical case
+into the opener and demote ${_digitBombCase.name} into the block — that is the exact
+failure this paragraph exists to stop, and it has shipped twice: job 16926
+(2026-10-01, Skin Reboot armed, the letter opened with Derma Solution in perfect
+Digit Bomb form because Derma was the on-vertical SEO case) and job 16872
+(2026-09-30, Skin Reboot armed, opened with FridgeFix). Writing a flawless
+metrics-first opener for the WRONG case is still a failure. The armed case takes
+position 1 outright, whatever the vertical, service tag or metric size says.
+
 Artem has explicitly picked the case for this letter's cold open: ${_digitBombCase.name}.
 Do NOT diagnose the client's problem first and do NOT use any of the usual
 openers (no "reading your post", no credential lead-in, no rhetorical
@@ -7367,9 +7435,9 @@ HOW TO BUILD THE OPENING (1-2 sentences total):
 1. Lead with 1-2 of the metrics above, verbatim (exact numbers and units — never round, alter, or invent a different figure). The metric must be the LITERAL FIRST WORDS — not preceded by the case name, a descriptor, or anything else.
 2. Name the case and its attachment note right after the metrics (e.g. "${_digitBombCase.name}, ${_digitBombCase.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'}").
 3. MANDATORY, not optional — in the same sentence or the next one, bridge to THIS client's own situation using something REAL and SPECIFIC from their job posting (their actual product, vertical, market, or the exact problem they described — never invented). The numbers alone do not make the case relevant to THIS client; this bridge is what does. Do not stop the opener right after describing what the case was — a bare "[metrics] — Case Name (attached...): [generic description of the case]." with nothing connecting it to the client reads as an ordinary case citation with the numbers moved to the front, not a cold open that resonates with them. The thesis of the whole opener is "I have exactly this experience — here's a real result — and here's why it applies directly to your situation," and the bridge clause is where that last part actually gets said. This bridge clause is the ONLY place you write fresh prose; the numbers, case name, and case facts must not be altered.
-Illustrative shape only (do not copy verbatim, this is a different case) — CORRECT, includes the bridge: "17.51 ROAS and +693.8% revenue scaling a Korean medical-aesthetic ecommerce store (Skin Reboot, attached as PDF) — restricted YMYL niche, mixed catalog from $40 serums to $400 device bundles, same pricing-and-feed problem you're dealing with on [client's actual product]."
-WRONG order — do NOT do this (case name/descriptor before the numbers, a real miss that has shipped before): "Skin Reboot (attached as PDF) — a Korean medical-aesthetic ecommerce brand: grew revenue +693.8% at 17.51 ROAS..." — the case name must NEVER come before the first metric.
-WRONG — missing bridge, do NOT do this (a real miss that has shipped before, job 12755): "+56.5% conversions, -31% CPC, +144% clicks - Atlant (attached in profile highlights): residential property developer lead gen via branded per-complex campaigns + PMax + DSA." — numbers are correctly first, but it stops there; nothing connects it to this client's actual business, so it reads out of context. It needed one more clause, e.g. "...same tire-kicker-vs-genuine-lead problem you'll be fighting across your five real estate markets."
+${_dbEx.correct}
+${_dbEx.wrongOrder}
+${_dbEx.wrongBridge}
 
 PRECEDENCE — READ THIS BEFORE OBEYING ANY CREDENTIAL RULE: KB Rule 439 requires Artem's "12 years" credential baseline early, BEFORE case studies. For THIS letter only, the cold open above outranks it on ORDER — but the credential is NOT dropped, it MOVES. Correct sequence: (1) the metrics-led cold open + the bridge to this client, (2) THEN the "12 years" credential line, (3) then the rest of the letter. That satisfies Rule 439 (the baseline is still inside the first 2-3 sentences of the body) AND the cold open. Do NOT resolve this by leading with the credential and skipping the numbers — that is the exact failure this block exists to prevent, it has shipped before (job 15246, 2026-09-15: the letter opened "12 years running Google Ads, Google Premier Partner 2026." and the armed case never appeared at the top), and a credential opener also violates the banned-opener rule.
 
@@ -7392,7 +7460,7 @@ Before you emit the cover letter, run this checklist *internally* (do NOT includ
 
 Then proceed to FINAL OUTPUT FORMAT.
 ` : ''}${_digitBombCase ? `
-DIGIT BOMB — LAST CHECK (armed for this letter): the letter's first words are ${_digitBombCase.name}'s real numbers (${_digitBombCase.metrics.slice(0, 2).join(', ')}), then "${_digitBombCase.name}" with its attachment note, then the bridge to THIS client. No other case's numbers open this letter — the past letters above are shown without their openings for exactly this reason.
+DIGIT BOMB — LAST CHECK (armed for this letter): the letter's first words are ${_digitBombCase.name}'s real numbers (${_digitBombCase.metrics.slice(0, 2).join(', ')}), then "${_digitBombCase.name}" with its attachment note, then the bridge to THIS client. No other case's numbers open this letter — the past letters above are shown without their openings for exactly this reason. If you opened with a different case because it matched the posting's vertical or service better, or had bigger numbers, that is WRONG: put ${_digitBombCase.name} back in position 1 and move that case into the case-study block below.
 ` : ''}
 FINAL OUTPUT FORMAT: Return ONLY the cover-letter text, nothing else. No preamble, no meta-commentary, no "Here's the cover letter:", no rule-check explanation, no skip recommendation.${droppedFiles.length > 0 ? `
 
@@ -8955,19 +9023,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             if (_digitBombCase) {
               _recordViolations('generator', job?.id, ['digitBombArmedForThisRun'])
               console.log(`[Falcon] Digit Bomb armed for this generation: ${_digitBombCase.name}`)
-              const _dbOpening = text.slice(0, 400)
-              const _dbMetricNumbers = _digitBombCase.metrics
-                .map(m => (m.match(/[\d,]+\.?\d*/) || [])[0])
-                .filter(Boolean)
-              const _dbMetricPositions = _dbMetricNumbers
-                .map(n => _dbOpening.indexOf(n))
-                .filter(pos => pos !== -1)
-              const _dbEarliestMetricPos = _dbMetricPositions.length ? Math.min(..._dbMetricPositions) : -1
-              const _dbCaseNamePos = _dbOpening.indexOf(_digitBombCase.name)
-              const _dbHasCaseName = _dbCaseNamePos !== -1
-              const _dbMetricLeadsEarly = _dbEarliestMetricPos !== -1 && _dbEarliestMetricPos <= 80
-              const _dbMetricBeforeCaseName = _dbEarliestMetricPos !== -1 && _dbHasCaseName && _dbEarliestMetricPos < _dbCaseNamePos
-              missingDigitBombFacts = !(_dbHasCaseName && _dbMetricLeadsEarly && _dbMetricBeforeCaseName)
+              // Same rule as before, now in letterGuards so the live "Fix before
+              // sending" note under the textarea runs the identical check instead
+              // of a second copy that can drift.
+              const _dbMiss = digitBombOpenerMiss(text, _digitBombCase, CASE_LEDGER)
+              missingDigitBombFacts = !!_dbMiss
+              if (_dbMiss?.openedWith) {
+                console.log(`[Falcon] Digit Bomb armed (${_digitBombCase.name}) but the letter opens with ${_dbMiss.openedWith}.`)
+              }
             }
 
             // DIGIT BOMB — MISSING RESONANCE BRIDGE (owner feedback, 2026-08-23):
@@ -9500,7 +9563,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             </div>
           )}
 
-          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0 || _liveMissingExample || _liveWhiteLabelPitch.length > 0) && (
+          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0 || _liveMissingExample || _liveWhiteLabelPitch.length > 0 || _liveDigitBombMiss) && (
             <div style={{
               fontSize: 10, lineHeight: 1.55, padding: '7px 10px', borderRadius: 3,
               color: 'var(--text2)', background: 'rgba(239,68,68,0.08)',
@@ -9511,6 +9574,19 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               </span>
               <span style={{ color: 'var(--text3)' }}> — found in the letter as it reads now.</span>
               <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                {_liveDigitBombMiss && (
+                  <li>
+                    Digit Bomb: <b>{lastDigitBombCase.name}</b> was armed but {
+                      _liveDigitBombMiss.openedWith
+                        ? <>the letter opens with <b>{_liveDigitBombMiss.openedWith}</b></>
+                        : _liveDigitBombMiss.reason === 'absent'
+                          ? 'it does not appear in the opening'
+                          : _liveDigitBombMiss.reason === 'name-before-metric'
+                            ? 'its name comes before the first metric'
+                            : 'its metrics do not lead the letter'
+                    }
+                  </li>
+                )}
                 {_liveMissingExample && (
                   <li>No example: the posting asks for one (“{_exampleAsk.sentence}”) — the letter names no case study</li>
                 )}

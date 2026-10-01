@@ -765,3 +765,44 @@ export function letterHasCaseStudy(text) {
     return _ATTACHMENT_NOTE_RE.test(t) || casesMentioned(t.slice(0, 40)).length > 0
   })
 }
+
+// Did the armed Digit Bomb case actually open the letter? A correct opener puts
+// one of the case's own metrics in the first 80 characters, names the case inside
+// the first 400, and puts the metric BEFORE the name.
+//
+// Returns null when nothing is armed or the opener is right. Otherwise the reason
+// and — the useful part — which case took the slot instead: the misses that reach
+// Artem are not malformed openers but flawless ones written for the wrong case
+// (job 16926, 2026-10-01: Skin Reboot armed, Derma Solution opened in textbook
+// Digit Bomb form because it was the on-vertical SEO case; job 16872 the day
+// before, same armed case, opened with FridgeFix).
+//
+// `allCases` is a parameter rather than an import so a test can lift this function
+// without dragging the ledger in behind it.
+export function digitBombOpenerMiss(letter, armedCase, allCases = []) {
+  if (!letter || !armedCase) return null
+  const opening = String(letter).slice(0, 400)
+  const positions = (armedCase.metrics || [])
+    .map(m => (String(m).match(/[\d,]+\.?\d*/) || [])[0])
+    .filter(Boolean)
+    .map(n => opening.indexOf(n))
+    .filter(pos => pos !== -1)
+  const metricPos = positions.length ? Math.min(...positions) : -1
+  const namePos = opening.indexOf(armedCase.name)
+  const hasName = namePos !== -1
+  const metricLeads = metricPos !== -1 && metricPos <= 80
+  const metricFirst = metricPos !== -1 && hasName && metricPos < namePos
+  if (hasName && metricLeads && metricFirst) return null
+
+  const openedWith = (allCases || [])
+    .filter(c => c && c.name && c.id !== armedCase.id)
+    .map(c => ({ name: c.name, pos: opening.indexOf(c.name) }))
+    .filter(c => c.pos !== -1)
+    .sort((a, b) => a.pos - b.pos)[0] || null
+
+  const reason = !hasName
+    ? (openedWith ? 'other-case' : 'absent')
+    : !metricLeads ? 'metric-not-leading'
+    : 'name-before-metric'
+  return { reason, openedWith: openedWith ? openedWith.name : null }
+}
