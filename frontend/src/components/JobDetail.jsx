@@ -8655,17 +8655,29 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // a second platform name (these jobs are almost always phrased "X to Y
             // migration").
             const _WEBDEV_TASK_SCOPED_RE = /\b(?:build(?:ing)?|set\s*up|creat(?:e|ing|ion))\b[^,.\n]{0,25}\b(?:store|site|website|shop|page)\b|\b(?:store|site|website|shop|page)\b[^,.\n]{0,25}\b(?:build(?:ing)?|set\s*up|creat(?:e|ing|ion))\b|\bmigrat(?:e|ing|ion)\b[^.\n]{0,30}\b(?:shopify|woocommerce|opencart|magento|wordpress)\b|\b(?:shopify|woocommerce|opencart|magento|wordpress)\b[^.\n]{0,30}\bmigrat(?:e|ing|ion)\b/i
-            const _webdevExplicitMatch = _WEBDEV_EXPLICIT_RE.test(jobContextLower)
-            const _webdevPlatformMatch = _WEBDEV_PLATFORM_RE.test(jobContextLower)
-            const jobIsWebdev = WEBDEV_INTENT_REQUIRED
-              ? (_webdevExplicitMatch || (_webdevPlatformMatch && (_WEBDEV_TASK_SIGNAL_RE.test(jobContextLower) || _WEBDEV_TASK_SCOPED_RE.test(jobContextLower))))
-              : (_webdevExplicitMatch || _webdevPlatformMatch)
+            // Read from the POSTING, like jobIsPpc / jobIsSeo / jobIsPaidMedia
+            // (53840ec moved those three and missed this one). On the prompt blob,
+            // Falcon's own text classified jobs: the CLIENT TYPE line for direct
+            // clients says "developer" (a task signal) and the business-facts block
+            // says "Shopify sites we manage" (a platform) — together, web-dev. Job
+            // 16878 (2026-09-30, pure technical SEO) read as web-dev that way, which
+            // switched off _seoPricingContext, and "$8,500 fixed" for Priority 1
+            // shipped with no SEO price flag. Measured over 498 stored postings: 159
+            // flipped to web-dev by Falcon's text alone, 56 of them pure SEO.
+            const _isWebdevText = (t) => WEBDEV_INTENT_REQUIRED
+              ? (_WEBDEV_EXPLICIT_RE.test(t) || (_WEBDEV_PLATFORM_RE.test(t) && (_WEBDEV_TASK_SIGNAL_RE.test(t) || _WEBDEV_TASK_SCOPED_RE.test(t))))
+              : (_WEBDEV_EXPLICIT_RE.test(t) || _WEBDEV_PLATFORM_RE.test(t))
+            const jobIsWebdev = _isWebdevText(_postingOnlyLower)
+            if (jobIsWebdev !== _isWebdevText(jobContextLower)) {
+              console.warn(`[Falcon] jobIsWebdev: posting says ${jobIsWebdev}, the prompt blob said ${!jobIsWebdev} — Falcon's own text was reclassifying this job.`)
+              _recordViolations('generator', job?.id, ['jobTypeBlobContamination'])
+            }
             // Maintenance/changes web-dev job (existing store, not a from-scratch build).
             // On these the SEO/ranks-from-launch pitch is off-target — the client hired a
             // developer to make changes, not an SEO. Flag if the opener leads with SEO/rank.
             const _WEBDEV_MAINT_RE = /\b(chang(?:es?|ing)|adjust(?:ments?|ing|\s+existing)?|fix(?:es|ing|\s+(?:minor\s+)?issues?)?|updat(?:e|ing)\s+(?:sections?|the\s+(?:site|store|theme))|tweaks?|ongoing\s+(?:changes|work|help|support|maintenance)|maintenance|modif(?:y|ications?)|improve\s+(?:the\s+)?(?:store|site|ux|user\s+experience)|existing\s+(?:store|site|theme|functionality)|theme\s+customi[sz]ation)\b/i
             const _WEBDEV_NEWBUILD_RE = /\b(build\s+(?:a|an|our|my|the|from)|from\s+scratch|create\s+(?:a|an|our|my)\s+(?:new\s+)?(?:site|store|website)|develop\s+(?:a|an|our)\s+new|new\s+(?:site|store|website)|launch|redesign|rebuild)\b/i
-            const jobIsWebdevMaintenance = jobIsWebdev && _WEBDEV_MAINT_RE.test(jobContextLower) && !_WEBDEV_NEWBUILD_RE.test(jobContextLower)
+            const jobIsWebdevMaintenance = jobIsWebdev && _WEBDEV_MAINT_RE.test(_postingOnlyLower) && !_WEBDEV_NEWBUILD_RE.test(_postingOnlyLower)
             // Opener (first ~350 chars) leads with an SEO/ranking pitch?
             const _openerSeoPitch = /\b(rank(?:s|ing)?\s+(?:from\s+(?:day|launch)|higher|better|well)|so\s+the\s+site\s+ranks|technical\s+seo|seo\s+(?:architecture|team|person|contractor)|ranks\s+from\s+launch|six\s+months\s+(?:after|later)|hand\s+off\s+to\s+a\s+separate\s+seo)\b/i.test(text.slice(0, 350))
             // The "build + SEO wired in from day one" DIFFERENTIATOR anywhere in the body is

@@ -9231,3 +9231,35 @@ lower.
 Raised `/chat` to 4,000 (output tokens bill only as used, so the ceiling costs nothing until needed) and
 added the `stop_reason` check, which now says the reply was cut off and names what is missing instead of
 handing back something that looks complete.
+
+## 2026-10-01 — "Fixed price: $8,500" passed unflagged: jobIsWebdev still read the prompt blob
+
+Owner, job 16878 (technical / ecommerce SEO for a ~10K-product webshop on several category domains,
+fixed budget $400, "Your fixed-price proposal"): the letter quoted "Fixed price: $8,500 for Priority 1".
+KB Rule 426 has exactly two SEO prices ($700 flat technical audit, included in the $1,050/month retainer);
+`findOffLedgerSeoPrices` flags $8,500 on this letter — but `seoPriceOffLedger` never ran.
+
+Its gate is `_postingAsksRate && _seoPricingContext`, `_seoPricingContext = jobIsSeo && !jobIsPpc &&
+!jobIsWebdev`. The classification said `asks_for_rate: true`; jobIsSeo/jobIsPpc read the posting
+(53840ec). **jobIsWebdev did not**: 53840ec moved jobIsPaidMedia / jobIsPpc / jobIsSeo onto
+`_postingOnlyLower` and left jobIsWebdev on `jobContextLower` (the entry above that commit says "the four
+job-TYPE flags" — it was three). In the blob, Falcon's own text made the job web-dev: the direct-client
+CLIENT TYPE line says "developer" (a `_WEBDEV_TASK_SIGNAL_RE` word) and the business-facts block, added
+whenever the posting has a checklist, says "Shopify sites we manage" (a platform). Both since 06-24.
+
+Measured with the real functions over 498 stored postings: posting vs posting + those two blocks — **159
+flip to web-dev, 56 of them pure SEO** (SEO price, audit-price and SEO-only checks off), 103 of the 159
+with a proposal sent.
+
+- jobIsWebdev (and the maintenance / new-build reading) now come from `_postingOnlyLower`; a
+  disagreement with the blob records `jobTypeBlobContamination`, as for PPC. Every consumer is a
+  report-only check — nothing that edits a letter changes.
+
+Where $8,500 came from: no rule. The facts block's pricing line ("not fixed — give a specific, credible
+figure that fits THIS job's scope … retainer roughly $800–$2,500/mo") invites an estimate, and Rule 426
+has no fixed price for an implementation project. Not changed — owner's call (the open "other SEO
+prices" question). Sent letters on pure-SEO postings, scanned with `findOffLedgerSeoPrices`: 6 of 67 quote
+off the ledger — monthly $1,200–1,800 (#130), $950 (#233, #235), $900 (#249); $1,050 as a flat fee
+(#201); and #280, this job, sent at $2,100 flat (the owner's own edit of the $8,500).
+
+`tests/job-type-posting-only.test.js` (new) 14/14; all 19 JS suites and 3 Python suites pass.
