@@ -9148,3 +9148,27 @@ deliberately report-only ("cutting it safely needs judgment").
 On 16869's letter: "…, a written handover walking through dashboards and next steps." and "…, and a
 short written note to confirm lead definitions (…)". `tests/letter-guards.test.js` 63/63 (the woven
 plan-line case now expects the rewrite); all 18 JS suites and 3 Python suites pass.
+
+## 2026-10-01 — `SESSION_HANDOFF.md`: a pick-up-and-go entry point above the deep handoff
+
+Owner asked for a fresh-session handoff covering current state, uncommitted changes, open issues and next
+steps. `GENERATOR_REBUILD_HANDOFF.md` was refreshed 09-30 and is still accurate, but it is 276 lines of
+architecture and was two commits stale (`61f3ea7` Digit Bomb openings, `a41301d` woven call offers). Rather
+than fork a second deep doc, `SESSION_HANDOFF.md` is a short navigator: a doc map (which of the nine root
+`.md` files to trust, and that `THURSDAY.md` from May and `ANTIFAB_HANDOFF.md` are historical), verified
+state, the uncommitted picture, open issues carried forward, and next steps. It routes to the deep handoff
+for architecture instead of restating it.
+
+Verified before writing, not copied from the old doc: branch `generator-rebuild` @ `a41301d`, in sync with
+`origin`, 60 commits ahead of `main`; **all 18 JS and 3 Python suites pass**; working tree holds only the
+owner's two local edits and untracked client data.
+
+One thing recorded that lived in no repo doc — the **CLI bridge "not starting" diagnosis (2026-09-17)**: the
+bridge runs `claude -p` under an isolated `CLAUDE_CONFIG_DIR=~/.claude-artem` profile so calls bill to
+Artem's own subscription, and that profile needs its *own* `/login`. It had been recreated and never
+authenticated, so every call returned `{"error":"Not logged in - Please run /login"}` — which the UI shows as
+a generic *CLI bridge error* and reads exactly like the bridge failing to start. The bridge was running the
+whole time (PID listening on 27184). §3 of the new file has the fix and the two commands that test the
+profile and the endpoint the same way the bridge does. Also recorded there: why `cli-bridge.js` and
+`App.jsx` differ locally (port 27183 → 27184, the `baba-leada` collision) and that they must never be
+committed.
