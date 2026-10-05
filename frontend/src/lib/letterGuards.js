@@ -806,3 +806,61 @@ export function digitBombOpenerMiss(letter, armedCase, allCases = []) {
     : 'name-before-metric'
   return { reason, openedWith: openedWith ? openedWith.name : null }
 }
+
+// ── the posting's verification word (KB #427) (2026-10-05, job 17254) ────────
+// Clients test reading with "Start your proposal with the word "BUILD" so we know
+// you read the full post" — KB #427: open with exactly that phrase. The old check
+// (_REQUIRED_OPENER_RE in JobDetail.jsx) wanted "start your proposal|application
+// with" + a quote right after "with", so it missed 10 of the 13 real ones in the
+// sent corpus: "reply", "begin", "with the word …", "with the word: …", an
+// unquoted "begin your application with LUXURY ECOMMERCE to confirm…". These all
+// read here. Returns the phrase, or null.
+const _REQ_OPENER_LEAD_RE = /\b(?:start|begin|open)\s+(?:your\s+|the\s+)?(?:proposal|cover\s+letter|application|reply|response|message|bid|answer|pitch)\s+with\s+(?:(?:the|this)\s+(?:code\s*)?(?:word|words|phrase)\s*:?\s*)?/gi
+export function postingRequiredOpener(text) {
+  const t = String(text || '')
+  _REQ_OPENER_LEAD_RE.lastIndex = 0
+  let m
+  while ((m = _REQ_OPENER_LEAD_RE.exec(t))) {
+    const rest = t.slice(m.index + m[0].length)
+    // quoted — the closing quote is sometimes missing ("…with “SYDNEY COLIVING.")
+    let q = rest.match(/^["“”'‘’]([^"“”‘’\n]{2,60}?)(?:["“”‘’]|'(?=\s|[.,;:!?]|$)|(?=\s+(?:so|to|in|and|as)\b)|$)/)
+    if (q) return q[1].trim().replace(/[.,;:!?]+$/, '')
+    // unquoted, in capitals: "…begin your application with LUXURY ECOMMERCE to confirm"
+    q = rest.match(/^([A-Z][A-Z0-9&'-]+(?:\s+[A-Z][A-Z0-9&'-]+){0,3})(?![a-z])/)
+    if (q) return q[1].trim()
+  }
+  return null
+}
+
+// A lone capitalised word or phrase on the letter's first line. In a sent letter
+// it is always some posting's verification word — 13 of 13 in the corpus as of
+// 2026-10-05 — so with no such request in THIS posting it can only be copied:
+// job 17254 opened "SCALE" (from "scale profitably") after its strongest past-
+// letter example opened "BUILD", the word job 17063's client had asked for.
+// Acronyms that can genuinely start a letter are not code words.
+const _CODE_WORD_LINE_RE = /^[ \t]*["“]?([A-Z][A-Z0-9&'-]{2,}(?:[ \t]+[A-Z][A-Z0-9&'-]+){0,2})["”]?[.!:]?[ \t]*(?:\n|$)/
+const _NOT_A_CODE_WORD = new Set(['SEO', 'PPC', 'GA4', 'GTM', 'CPA', 'CPC', 'CPL', 'ROAS', 'PMAX', 'AED', 'USD', 'B2B', 'B2C', 'SAAS', 'YMYL', 'LSA', 'GBP', 'CRO', 'HVAC', 'DTC', 'D2C', 'SKU', 'API', 'CRM', 'ROI', 'KPI', 'GSC', 'NAP', 'AEO', 'CTR', 'CTA', 'FAQ', 'USA'])
+export function stripUnrequestedOpenerWord(text, requiredPhrase) {
+  const src = String(text || '')
+  if (requiredPhrase) return { text: src, removed: null }
+  const lead = src.match(/^\s*/)[0].length
+  const m = src.slice(lead).match(_CODE_WORD_LINE_RE)
+  if (!m || _NOT_A_CODE_WORD.has(m[1])) return { text: src, removed: null }
+  return { text: src.slice(0, lead) + src.slice(lead + m[0].length).replace(/^\s*\n/, ''), removed: m[1] }
+}
+
+// A past letter shown to the generator as an example starts with ITS client's
+// verification word ("BUILD", "STREETWEAR", "LOCAL Google …"). That word belongs to
+// another posting, so it comes off before the letter is shown: the phrase that
+// letter's own posting asked for (when the stored entry carries the posting), or
+// a lone capitalised first line.
+export function dropPastLetterCodeWord(letter, postingText = '') {
+  const src = String(letter || '')
+  const req = postingRequiredOpener(postingText)
+  if (req) {
+    const esc = req.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')
+    const m = src.match(new RegExp(`^\\s*["“]?${esc}["”]?[.!:,]?[ \\t]*\\n?`, 'i'))
+    if (m) return src.slice(m[0].length).replace(/^\s+/, '')
+  }
+  return stripUnrequestedOpenerWord(src, null).text.replace(/^\s+/, '')
+}

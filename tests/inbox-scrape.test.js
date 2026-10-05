@@ -68,7 +68,7 @@ assert(/const rows = await collectConversationRows\(\);/.test(syncFlow) && !/scr
 assert(/last_activity_at: _listWhen\(lines\),/.test(src), 'every row carries last_activity_at');
 assert(/if \(\/\^\(monday\|tuesday\|wednesday\|thursday\|friday\|saturday\|sunday\)\$\/i\.test\(ln\)\) continue;/.test(src), 'weekday lines are no longer read as a job title');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.7', `extension version 5.7 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+assert(manifest.version === '5.8', `extension version 5.8 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
 
 // ── 5.3: reading the messages of a room that moved ──────────────────────────
 // Sofia Toro's room, as its panel reads (from the owner's screenshot, 30 Sep):
@@ -129,6 +129,29 @@ for (const oneLine of [true, false]) {
 }
 const noCard = _roomMessages(carded(true, { card: false }));
 assert(noCard.length === 2 && noCard[1].text === 'Hi Artem\nCould you do a short call on Thursday?\nJane Roe', 'no card on the page (narrow window): the thread still reads to its end, "Attachments" dropped');
+
+// 5.8: the sidebar list inside the panel. 30 Sep 18:38 UTC a sync visit picked the
+// panel before the list existed (so: the whole page), read the messages after it
+// rendered, and stored the list — other clients' names and "You: …" previews — as
+// the client's reply on proposals 234 and 248. Names are made up.
+const sidebarAfter = [
+  ...carded(true, { card: false }).split('\n'),
+  'Acme Recycling, Acme Recycling Co',
+  'Google Ads PPC Specialist for a Recycling Company',
+  'You: Hi, checking in to ask if you had time to go over my audit findings?',
+  'Jane Doe, Doe Racking', 'Monday', 'PPC Specialist (Google Ads) – Part-Time',
+  'Jane: PPC https://meet.google.com/abc-defg-hij',
+].join('\n');
+const sb = _roomMessages(sidebarAfter);
+assert(Array.isArray(sb) && sb.length === 0,
+  `a "You: …" list preview means the panel took in the sidebar: no messages at all — reported as a miss, never saved half-wrong (${sb.length})`);
+assert(_roomMessages(carded(true)).length === 2, '…while a properly scoped room still reads (no "You:" line in a real thread)');
+const probe = src.slice(src.indexOf('async function probeRoom'), src.indexOf('// One text sample per sync'));
+assert(/panel = _roomMainPanel\(otherRowsFrags\) \|\| panel;/.test(probe) && /panelUnscoped = otherRowsFrags\.filter\(frags => frags\.some\(n => ptxt\.includes\(n\)\)\)\.length > 1;/.test(probe)
+  && /messages = panelUnscoped \? \[\] : _roomMessages\(ptxt\)/.test(probe),
+  'probeRoom re-scopes the panel right before reading, and reads no messages from a panel holding other conversations (diag.panel_unscoped)');
+assert(/_looks_like_inbox_list\(str\(m\.get\("text"\) or ""\)\)/.test(main) && /def _looks_like_inbox_list\(text\)/.test(main),
+  'backend: a "client message" that looks like the inbox list is never stored as the reply or read for an outcome');
 
 // which rooms are opened again, and which baselines move
 const cStart = src.indexOf('  function _previewSig(r)');

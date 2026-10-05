@@ -527,7 +527,13 @@
   const _MSG_UI_LINE_RE = /^(?:view (?:proposal|contract|offer|details|job post)|\d+ files?|\d+(?:\.\d+)?\s*(?:KB|MB|GB)|\S+\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|zip|csv)|today|yesterday|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+[a-z]{3,9}\s+\d{1,2}(?:,\s*\d{4})?|send a message.*|\d{1,2}:\d{2}\s*(?:am|pm)\s+local time|edited|seen|delivered|attachments|more call options)$/i;
   const _SELF_NAME_RE = /^(?:artem(?:\s+yatsuk)?|you)$/i;
   const _THREAD_END_RE = /^(?:\d{1,2}:\d{2}\s*(?:am|pm)\s+local time|activity timeline|search messages|meeting recaps|client profile|files and links|personal notepad)$/i;
+  // "You: …" is the conversation LIST's preview of Artem's last message — a thread
+  // never prefixes his messages that way. Seeing one means the panel took in the
+  // sidebar, and then nothing read from it can be trusted: no messages at all, so
+  // the room is reported as a miss instead of saved half-wrong (5.8).
+  const _INBOX_LIST_PREVIEW_RE = /^[ \t]*you:\s/im;
   function _roomMessages(text) {
+    if (_INBOX_LIST_PREVIEW_RE.test(String(text || ''))) return [];
     const lines = String(text || '').split('\n').map(s => s.trim()).filter(Boolean);
     const headerNames = new Set(String(lines[0] || '').split(',').map(s => s.trim()).filter(Boolean));
     const groups = [];
@@ -700,7 +706,16 @@
     // Messages: the probe stops as soon as an id turns up, which can be before the
     // thread has finished rendering. For a re-read room — the messages are the
     // point — wait until the panel text stops growing (max 5s).
+    //
+    // 5.8: the panel is re-scoped right before reading, and no messages are read
+    // from a panel that holds other conversations. On a sync visit the panel can
+    // be picked before the sidebar list exists — nothing to tell them apart yet —
+    // so it is the whole page; seconds later, when the messages are read, the list
+    // has rendered INSIDE it. 30 Sep 18:38 UTC that wrote the whole sidebar (other
+    // clients' names, previews, a Meet link) as the client's reply on proposals
+    // 234 and 248, and the generator then quoted it as "client replied: …".
     let messages = [];
+    let panelUnscoped = false;
     if (panel) {
       if (cur.reread) {
         let last = -1;
@@ -711,7 +726,10 @@
           await new Promise(r => setTimeout(r, 800));
         }
       }
-      messages = _roomMessages(panel.innerText).slice(-8);
+      panel = _roomMainPanel(otherRowsFrags) || panel;
+      const ptxt = panel.innerText || '';
+      panelUnscoped = otherRowsFrags.filter(frags => frags.some(n => ptxt.includes(n))).length > 1;
+      messages = panelUnscoped ? [] : _roomMessages(ptxt).slice(-8);
     }
     // One text sample per sync, from the first re-read room, so a parse miss can
     // be seen and fixed (local debug file only).
@@ -731,6 +749,7 @@
       messages,
       diag: {
         reread: !!cur.reread,
+        ...(panelUnscoped ? { panel_unscoped: true } : {}),
         n_msgs: messages.length,
         n_client_msgs: messages.filter(m => m.from === 'client').length,
         last_client: (messages.filter(m => m.from === 'client').pop() || {}).text?.slice(0, 80) || null,

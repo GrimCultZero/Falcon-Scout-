@@ -3774,6 +3774,23 @@ _OUTCOME_FROM = {
 }
 
 
+# A "message" that is really the inbox LIST — other conversations' previews read
+# as one message when the room panel took in the sidebar. 2026-09-30 18:38 UTC:
+# proposals 234 and 248 got the whole sidebar as the client's reply (names,
+# "You: …" previews, a Meet link), which the generator then quoted to the model
+# as "client replied: …". A thread never prefixes Artem's lines with "You:", and
+# bare weekday / M/D/YY lines are the list's row dates. Never stored as a reply,
+# never read for an outcome.
+_INBOX_LIST_LINE_RE = _re_mod.compile(r"(?m)^You:\s")
+_INBOX_LIST_DATE_RE = _re_mod.compile(
+    r"(?mi)^(?:\d{1,2}/\d{1,2}/\d{2,4}|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*$")
+
+
+def _looks_like_inbox_list(text) -> bool:
+    t = str(text or "")
+    return bool(_INBOX_LIST_LINE_RE.search(t)) or len(_INBOX_LIST_DATE_RE.findall(t)) >= 2
+
+
 def _signal_from_client_messages(texts):
     """The outcome in what the CLIENT wrote, read newest message first: hired,
     interviewing or declined (the capture's own phrase lists), else None.
@@ -4012,7 +4029,8 @@ def messages_status_sync(data: dict):
             # applying someone else's decline would be worse than missing one.
             _msgs = row.get("recent_messages") if isinstance(row.get("recent_messages"), list) else []
             _client_texts = [str(m.get("text") or "").strip() for m in _msgs
-                             if isinstance(m, dict) and m.get("from") == "client" and str(m.get("text") or "").strip()]
+                             if isinstance(m, dict) and m.get("from") == "client" and str(m.get("text") or "").strip()
+                             and not _looks_like_inbox_list(str(m.get("text") or ""))]
             if _client_texts and match_via in _EXACT_MATCH_PATHS:
                 _latest = _client_texts[-1][:2000]
                 if _latest[:80] not in (proposal.client_reply_text or ""):

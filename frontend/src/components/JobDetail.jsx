@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -3779,6 +3779,16 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
       //   • Ambiguous / discussion only → omit both, just <remarks>
       const isProposalChat = !!onProposalRewrite
       let effectiveSuffix = buildSuffix()
+      // KB #427, stated as a fact so the chat never guesses. Job 17254 (2026-10-05):
+      // asked "SCALE?", it called the word "a Upwork screening question", then "a
+      // verification phrase (Rule 20)" the client never asked for, then asked Artem
+      // whether the posting had one. Also the gate for the reworked letter below.
+      const _chatRequiredOpener = postingRequiredOpener(`${job?.description_full || job?.description_snippet || ''}`)
+      if (isProposalChat) {
+        effectiveSuffix += (effectiveSuffix ? '\n\n' : '') + (_chatRequiredOpener
+          ? `VERIFICATION PHRASE (KB #427): this posting asks the letter to start with "${_chatRequiredOpener}". Keep it as the very first words, exactly as written.`
+          : 'VERIFICATION PHRASE (KB #427): this posting asks for NONE. A letter that opens with a lone capitalised code word ("SCALE", "BUILD") is an error copied from another posting\'s request: remove it, and if Artem asks about it, say exactly that.')
+      }
       if (droppedFiles.length > 0) {
         effectiveSuffix += (effectiveSuffix ? '\n\n' : '') +
           `ATTACHED FILES (${droppedFiles.length}): ${droppedFiles.map(f => f.name).join(', ')}\n` +
@@ -3913,7 +3923,7 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
         const _chatJobContextLower = `${job?.title || ''} ${job?.description_full || job?.description_snippet || ''}`.toLowerCase()
-        const newProposal  = proposalMatch ? _humanizeCasing(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))), _chatJobContextLower))))))) : null
+        const newProposal  = proposalMatch ? stripUnrequestedOpenerWord(_humanizeCasing(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))), _chatJobContextLower))))))), _chatRequiredOpener).text : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // SAFETY NET: verify a chat-requested case actually landed in the
@@ -6558,9 +6568,15 @@ function ProposalColumn({
             const getSim = (entry) => {
               const k = (entry.title || '').toLowerCase().slice(0, 60).trim()
               if (similarityMap.has(k)) return similarityMap.get(k)
-              // Loose match: any map key that substantially overlaps
+              // Loose match: any map key that substantially overlaps — only between
+              // SPECIFIC titles. With 12 characters a generic title lent its outcome
+              // to every letter containing it: on job 17254 (2026-10-05) letter #733
+              // ("Google Ads Specialist – Local Lead Generation for US Construction…")
+              // took the reply of a different job titled just "Google Ads Specialist",
+              // ranked first as a [REPLY-WINNER] ("emulate most heavily"), and its
+              // opening — another client's "BUILD" — came back as "SCALE".
               for (const [mk, mv] of similarityMap) {
-                if (mk.length >= 12 && (k.includes(mk) || mk.includes(k))) return mv
+                if (Math.min(mk.length, k.length) >= 30 && (k.includes(mk) || mk.includes(k))) return mv
               }
               return null
             }
@@ -6604,7 +6620,11 @@ function ProposalColumn({
             const proposalSnippets = picked.map((e, i) => {
               const raw = e.content || ''
               const match = raw.match(/^## Job Posting\n[\s\S]*?\n\n## (?:Cover Letter|Proposal)\n([\s\S]*)$/)
-              const text = match ? match[1] : raw
+              // Its client's verification word ("BUILD", "STREETWEAR") comes off the
+              // top: it belongs to that posting, and shown as an opening it gets
+              // copied as a style (job 17254 opened "SCALE").
+              const _entryPosting = (raw.match(/^## Job Posting\n([\s\S]*?)\n\n## (?:Cover Letter|Proposal)\n/) || [])[1] || ''
+              const text = dropPastLetterCodeWord(match ? match[1] : raw, _entryPosting)
               const sim = getSim(e)
               // Reply-winners get the strongest label AND the actual client
               // reply excerpt so Claude can see what voice triggered a response.
@@ -6706,9 +6726,11 @@ function ProposalColumn({
       // it to "I KNOW Google Ads". Extract the exact phrase (any common quote
       // style — postings use straight or curly quotes) so its survival through
       // the enforcer pass can be checked below.
+      // postingRequiredOpener (lib/letterGuards.js) first: this regex alone missed
+      // 10 of the 13 real ones ("reply", "begin", "with the word …", unquoted).
       const _REQUIRED_OPENER_RE = /\bstart\s+(?:your\s+)?(?:proposal|cover\s+letter|application|response|it)\s+with\s*[:\-]?\s*["“”'‘’]([^"“”'‘’\n]{2,80})["“”'‘’]/i
       const _requiredOpenerMatch = fullDescription.match(_REQUIRED_OPENER_RE)
-      const _requiredOpenerPhrase = _requiredOpenerMatch ? _requiredOpenerMatch[1].trim() : null
+      const _requiredOpenerPhrase = postingRequiredOpener(fullDescription) || (_requiredOpenerMatch ? _requiredOpenerMatch[1].trim() : null)
 
       // Does the POSTING explicitly ask for a rate / budget / quote / pricing? If not,
       // a volunteered rate is stripped from the letter (Artem never quotes a price
@@ -7542,6 +7564,18 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       text = _stripLeadingSignoff(text)
       // Kill a redundant "Attachments: …" summary line (case studies self-label).
       text = _stripAttachmentsSummaryLine(text)
+      // A verification word THIS posting never asked for (KB #427 is for the
+      // posting's own phrase): job 17254 opened "SCALE" after its top past-letter
+      // example opened with another client's "BUILD". Never touches a phrase the
+      // posting requires (_requiredOpenerPhrase).
+      {
+        const _ow = stripUnrequestedOpenerWord(text, _requiredOpenerPhrase)
+        if (_ow.removed) {
+          console.log(`[Falcon] Removed "${_ow.removed}" from the top of the letter — the posting asks for no verification word (KB #427 is only for a phrase the posting gives).`)
+          _recordViolations('generator', job?.id, ['unrequestedOpenerWord'])
+          text = _ow.text
+        }
+      }
 
       // KB Rule 416: strip any day-count turnaround promised on a technical SEO
       // audit ("audit in 2 working days"). That turnaround is the SEO PLAN only;

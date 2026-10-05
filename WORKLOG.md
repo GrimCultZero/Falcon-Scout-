@@ -9293,3 +9293,55 @@ scoped rule — it does, in #402 — whatever it is attached to.
 
 On 17278: "…and competitor gap analysis, done entirely by hand. I'm attaching a sample technical SEO
 audit…". `tests/seo-audit-turnaround.test.js` 22/22; all 19 JS suites and 3 Python suites pass.
+
+## 2026-10-05 — "SCALE": an invented verification word; a sidebar stored as a client's reply (5.8)
+
+Owner, job 17254 (Google Ads for a UAE healthcare client; no verification phrase anywhere, no screening
+questions captured): the letter opened with a lone "SCALE" line. In the letter chat the generator first
+called it "a Upwork screening question", then "a verification phrase (Rule 20)" the client never asked
+for, then asked Artem whether the posting had one.
+
+Chain, rebuilt with the real ranking and data: the top past-letter example was #733 — job 17063's letter,
+which opened "BUILD" because that posting said 'Please start your proposal with the word "BUILD" so we
+know you read the full job post.' (KB #427, followed correctly). #733 ranked FIRST as a [REPLY-WINNER]:
+getSim's loose title match (any 12+ character key contained in the title) gave it the outcome of a
+different job titled just "Google Ads Specialist" (14207, replied). The model copied the shape with a
+word from this posting ("scale profitably"). And the generator's own detector, `_REQUIRED_OPENER_RE`,
+knew none of this — it wanted "start your proposal|application with" + a quote right after "with", and
+read 3 of the 13 real wordings in the sent corpus ("reply", "begin", "with the word …", unquoted missed).
+
+- `postingRequiredOpener` (letterGuards): all 13 wordings; `_requiredOpenerPhrase` uses it (old regex as
+  fallback), so `_restoreRequiredOpenerCasing` now also works on them (#257 went out "LOCAL Google" for a
+  requested "LOCAL GOOGLE").
+- `stripUnrequestedOpenerWord`: no phrase asked for + a lone capitalised first line (acronyms excepted)
+  → the line goes, recorded `unrequestedOpenerWord`. Generator, and the chat's reworked letter.
+- `dropPastLetterCodeWord`: past-letter examples lose their client's word (the phrase their own posting
+  asked for, or a lone capitalised first line) before they are shown.
+- getSim's loose match needs two 30+ character titles.
+- The letter chat is told, as a fact, whether this posting asks for a word.
+- 296 sent letters: 15 postings ask for a phrase, all 15 honoured at the very start; 12 open with a
+  code-word line, all requested; the backstop would remove 0.
+
+**Found on the way — the sidebar stored as a reply.** The "client replied" text shown under #733 was
+proposal 234's client_reply_text: the whole inbox sidebar (other clients' names, "You: …" previews, a
+Meet link). 234 and 248 both got it on 2026-09-30 18:38:13 UTC from the hourly sync's messages leg
+(proposals leg 18:37:43): the sync window was visible, rooms rendered, and probeRoom picked the panel
+before the sidebar list existed — nothing to tell them apart, so the whole page — then read the messages
+after the wait, by which time the list had rendered inside it. Since then the generator quoted it to the
+model as "client replied: …" wherever 14207 was a similar job. Statuses unchanged (234 replied since
+09-14, 248 since 09-16).
+
+- probeRoom re-scopes the panel right before reading; a panel holding more than one other conversation
+  yields no messages (`diag.panel_unscoped`).
+- `_roomMessages` returns nothing for text containing a "You: …" list preview (never in a real thread):
+  the room is reported as a miss, not saved half-wrong.
+- Backend `_looks_like_inbox_list` ("You: " lines, or 2+ bare weekday / M/D/YY lines): such a text is
+  never stored as the reply and never read for an outcome.
+- Data: 234 and 248 client_reply_text → NULL; backup of the dumps in the session scratchpad
+  (`sidebar_reply_backup_2026-10-05.json`). No other reply carried the pattern.
+
+Process slip, again: the backend edit used `_looks_like_inbox_list` one save before the helper existed
+(uvicorn reloaded in between; a sync arriving in those seconds would have got a 500). Define first.
+
+Extension 5.7 → 5.8. `tests/verification-word.test.js` (new) 31/31, `tests/test_inbox_list_guard.py`
+(new) 7/7, `tests/inbox-scrape.test.js` 63/63; all 20 JS and 4 Python suites pass.

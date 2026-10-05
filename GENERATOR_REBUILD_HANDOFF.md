@@ -19,7 +19,7 @@ without asking.**
    Most are gitignored; `corrections/` and `tools/_letter_features.json` are merely untracked — careful.
 3. **The app is normally running:** backend `.\.venv\Scripts\uvicorn api.main:app --reload` on :8000
    (auto-reloads on save), frontend Vite on **:5180** (HMR). The Chrome extension lives in `upwork-enricher/`;
-   **any extension change needs a reload at `chrome://extensions`** — its version (now **5.7**) shows up in
+   **any extension change needs a reload at `chrome://extensions`** — its version (now **5.8**) shows up in
    `messages_sync_debug.json` → `walk_info.extension_version`, which is how you confirm he reloaded.
 4. **Read §7 (working agreements) before fixing anything.**
 5. **State when this was written:** the passive read **works** (5.5, first real read 30 Sep 15:27: Sofia
@@ -272,5 +272,5 @@ side validation union a fresh dump with older ones. Useful telemetry: `rule_viol
 
 > Read `GENERATOR_REBUILD_HANDOFF.md` in `C:\Users\syzov\upwork-cockpit` (branch `generator-rebuild`), then
 > the last few dated entries in `WORKLOG.md`. Start with §8.1: check `messages_passive_debug.json` from the
-> last conversation I opened (extension 5.7) and tell me whether the passive read parsed it cleanly.
+> last conversation I opened (extension 5.8) and tell me whether the passive read parsed it cleanly.
 > Don't commit `cli-bridge.js` or `frontend/src/App.jsx`.
