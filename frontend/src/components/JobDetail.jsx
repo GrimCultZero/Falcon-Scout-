@@ -2176,6 +2176,15 @@ function _stripDigitBombDuplicateCase(text, digitBombCase) {
   if (leadInIdx >= 0 && paras[leadInIdx] !== undefined) {
     const leadIn = paras[leadInIdx].trim()
     if (leadIn.length <= 100 && /:$/.test(leadIn)) {
+      // Nothing left under the lead-in (job 17309, 2026-10-05: the armed case had
+      // been the block's ONLY entry, so "Here are some relevant results:" was
+      // followed straight by "Artem"): the lead-in goes too.
+      const next = (paras[leadInIdx + 1] || '').trim()
+      if (!CASE_LEDGER.some(c => next.slice(0, 80).includes(c.name))) {
+        console.log(`[Falcon] …and "${leadIn}" introduced nothing else — dropped it as well.`)
+        paras.splice(leadInIdx, 1)
+        return paras.join('\n\n').trim()
+      }
       const stripped = leadIn.replace(/^(?:\d+|one|two|three|four|five|six|both|a\s+couple\s+of|a\s+few|several|some)\s+/i, '')
       if (stripped !== leadIn) {
         paras[leadInIdx] = stripped.charAt(0).toUpperCase() + stripped.slice(1)
@@ -7500,7 +7509,15 @@ ${_dbEx.wrongBridge}
 
 PRECEDENCE — READ THIS BEFORE OBEYING ANY CREDENTIAL RULE: KB Rule 439 requires Artem's "12 years" credential baseline early, BEFORE case studies. For THIS letter only, the cold open above outranks it on ORDER — but the credential is NOT dropped, it MOVES. Correct sequence: (1) the metrics-led cold open + the bridge to this client, (2) THEN the "12 years" credential line, (3) then the rest of the letter. That satisfies Rule 439 (the baseline is still inside the first 2-3 sentences of the body) AND the cold open. Do NOT resolve this by leading with the credential and skipping the numbers — that is the exact failure this block exists to prevent, it has shipped before (job 15246, 2026-09-15: the letter opened "12 years running Google Ads, Google Premier Partner 2026." and the armed case never appeared at the top), and a credential opener also violates the banned-opener rule.
 
-After this opening, proceed with the rest of the letter NORMALLY per the rules above. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.
+After this opening, proceed with the rest of the letter NORMALLY per the rules above. Do NOT cite ${_digitBombCase.name} again later in the letter's case-study block — it was already used as the opener. ${(() => {
+  // Job 17309 (2026-10-05): the posting asked for "2–3 examples of websites", the
+  // model cited the armed case again as the only example, the duplicate strip
+  // dropped it, and "Here are some relevant results:" was left with nothing under it.
+  const _ask = findRequestedExample(fullDescription)
+  return _ask
+    ? `THIS POSTING ASKS FOR EXAMPLES ("${_ask.sentence.slice(0, 160)}"): the opener counts as one — the case-study block must still cite 1-2 OTHER relevant cases from the approved list (never ${_digitBombCase.name} again), per the normal CASE STUDY SELECTION RULE.`
+    : 'If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.'
+})()}
 ═══════════════════════════════════════════════════════════════════
 ` : ''}${portfolioText}${portfolioText ? renderCaseFactsBlock() : ''}${referenceText}${_digitBombCase ? _dropPastLetterOpenings(pastProposalsText) : pastProposalsText}${examplesText}${adjustments}
 ${kbRulesText ? `

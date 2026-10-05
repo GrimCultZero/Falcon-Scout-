@@ -134,6 +134,30 @@ assert(/lastDigitBombCase, setLastDigitBombCase/.test(src) && /setLastDigitBombC
   assert(miss('', 'skin-reboot') === null && G.digitBombOpenerMiss('anything', null, L.CASE_LEDGER) === null,
     'no letter, or nothing armed: nothing to report');
 
+  // ── job 17309 (2026-10-05): the armed case was the case block's ONLY entry ──
+  // Golden State Trailers armed and opening correctly; the model cited it again
+  // as the sole "relevant result", _stripDigitBombDuplicateCase dropped that
+  // repeat, and "Here are some relevant results:" was left with "Artem" under it —
+  // while the posting asked for "2–3 examples of websites".
+  const dsFrom = src.indexOf('function _stripDigitBombDuplicateCase');
+  const dsTo = src.indexOf('\n}\n', dsFrom) + 3;
+  const stripDup = new Function('CASE_LEDGER', '_recordViolations', 'console', `${src.slice(dsFrom, dsTo)}; return _stripDigitBombDuplicateCase`)(
+    L.CASE_LEDGER, () => {}, { log() {} });
+  const GST = L.CASE_LEDGER.find(c => c.id === 'golden-state-trailers');
+  const open17309 = '67 keywords in Top 3, 110 referring domains, +350% organic traffic - Golden State Trailers (attached in profile highlights): B2B manufacturer geo-expansion across 72 state/city landing pages, same local-intent work you need for your Texas land-buying pages.';
+  const body = '12 years in technical SEO.\n\nTools: Ahrefs, Screaming Frog, GSC, GA4, GTM, Semrush.';
+  const gstAgain = 'Golden State Trailers (attached in profile highlights): +350% organic traffic across 72 city pages.';
+  const r1 = stripDup(`${open17309}\n\n${body}\n\nHere are some relevant results:\n\n${gstAgain}\n\nArtem`, GST);
+  assert(r1 === `${open17309}\n\n${body}\n\nArtem`, 'job 17309: the repeat AND the lead-in it leaves empty both go; the opener and body stay');
+  const vape = 'Vape Shop (attached in profile highlights): restricted e-commerce, 7,000 monthly visitors.';
+  const r2 = stripDup(`${open17309}\n\n${body}\n\nHere are some relevant results:\n\n${gstAgain}\n\n${vape}\n\nArtem`, GST);
+  assert(r2 === `${open17309}\n\n${body}\n\nHere are some relevant results:\n\n${vape}\n\nArtem`, 'another case still under the lead-in: the lead-in stays');
+  const lp = '+79% visits, +143% revenue - Luxury Parfums (attached in profile highlights): ecommerce scents.';
+  const r3 = stripDup(`${open17309}\n\n${body}\n\nTwo campaigns I managed:\n\n${gstAgain}\n\n${lp}\n\nArtem`, GST);
+  assert(r3 === `${open17309}\n\n${body}\n\nCampaigns I managed:\n\n${lp}\n\nArtem`, '…even when that case opens with its numbers; a count lead-in still loses its count');
+  assert(/THIS POSTING ASKS FOR EXAMPLES \("\$\{_ask\.sentence\.slice\(0, 160\)\}"\): the opener counts as one/.test(src) && /const _ask = findRequestedExample\(fullDescription\)/.test(src),
+    'armed + the posting asks for examples: the prompt asks for 1-2 OTHER cases instead of "zero additional case studies is fine"');
+
   console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
   process.exit(bad ? 1 : 0);
 })();

@@ -9345,3 +9345,27 @@ Process slip, again: the backend edit used `_looks_like_inbox_list` one save bef
 
 Extension 5.7 → 5.8. `tests/verification-word.test.js` (new) 31/31, `tests/test_inbox_list_guard.py`
 (new) 7/7, `tests/inbox-scrape.test.js` 63/63; all 20 JS and 4 Python suites pass.
+
+## 2026-10-05 — "Digi bomb didn't fire" (job 17309): it did; the case block it emptied did not survive
+
+Owner, job 17309 (SEO for a Texas land-buying site; 8 screening questions, #6 "Please provide 2–3
+examples of websites where you personally improved organic search rankings"). rule_violations: 16:51
+UTC unarmed; 16:54 UTC `digitBombArmedForThisRun` + `digitBombDuplicateCase`, no `missingDigitBombFacts`.
+`digitBombDuplicateCase` is recorded only when the armed case's name is in the first two paragraphs and
+digitBombOpenerMiss returned null — so the armed case was Golden State Trailers and it opened correctly
+("67 keywords in Top 3, 110 referring domains, +350% organic traffic - Golden State Trailers (attached in
+profile highlights): …"). Asked the owner which case was armed, in case the dropdown said otherwise.
+
+What did break: the model cited GST again as the ONLY entry under "Here are some relevant results:",
+`_stripDigitBombDuplicateCase` dropped the repeat, and the lead-in was left with "Artem" under it — the
+posting's question 6 unanswered. The DIGIT BOMB block said "zero additional case studies is fine too",
+which a posting asking for examples contradicts.
+
+- `_stripDigitBombDuplicateCase`: a lead-in left with no case under it (no ledger case named in the next
+  paragraph's first 80 characters) goes with the repeat; with a case still under it, the existing
+  count fix ("Two campaigns I managed:" → "Campaigns I managed:") applies as before.
+- DIGIT BOMB block: when `findRequestedExample(fullDescription)` finds an ask, it says so, quotes it, and
+  asks for 1–2 OTHER cases in the case-study block (the opener counts as one) instead of "zero is fine".
+
+`tests/digit-bomb-openings.test.js` 40/40 (first test of `_stripDigitBombDuplicateCase`); all 20 JS and
+4 Python suites pass.
