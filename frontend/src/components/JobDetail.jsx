@@ -2806,17 +2806,54 @@ function _stripSeoAuditTurnaround(text) {
 // names Google Ads / PPC.
 const _BARE_AUDIT_TURNAROUND_SENTENCE_RE = /(^|[.!?][ \t]+|\n)((?:the\s+)?(?:full\s+|complete\s+)?audit\s+(?:is\s+|will\s+be\s+|gets\s+)?(?:delivered|ready|done|completed?|turned\s+around))(\s+(?:in|within)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b)([^.!?\n]*)([.!?]?)/gi
 const _PPC_NAMED_RE = /\b(?:google\s+ads|adwords|ppc|paid\s+(?:search|media|ads)|pmax|performance\s+max|shopping\s+ads?)\b/i
+
+// (E) The day-count rides on a DELIVERY clause after a long scope phrase (job
+// 17278, 2026-10-05): "I can run a full diagnostic of your site's Local SEO setup,
+// covering schema, GBP/NAP consistency, indexation, on-page structure for local
+// intent, and competitor gap analysis, delivered within 2 working days, done
+// entirely by hand." (A) and the diagnostic pattern want the day-count right after
+// the noun, so 150 characters of scope hid it; the timing pre-check passed it
+// because "2 working days" is in Rule 402 — as the SEO PLAN's turnaround. On an
+// SEO-only posting, a sentence that offers an audit / diagnostic and says
+// "delivered | ready | done … in|within N days" loses that clause (Rule 416: the
+// technical audit's timeline is omitted from the letter) — except the SEO
+// promotion plan's own sentence. A delivery word is required, so "rankings move
+// within 30 days of the audit fixes" is never touched.
+const _AUDIT_NOUN_RE = /\b(?:audit|diagnostic|health\s+check)\b/i
+const _SEO_PLAN_RE = /\b(?:seo\s+)?promotion\s+plan\b|\bseo\s+plan\b|\b\d+[- ]month\s+(?:seo\s+)?(?:promotion\s+)?plan\b/i
+// The trailing comma goes too when the clause sat between a subject and its verb
+// ("The audit, delivered within 2 working days, covers schema."); before another
+// adjunct ("…, done entirely by hand.") it stays.
+const _DELIVERY_DAYCOUNT_RE = /(\s*,\s*|\s+)(?:and\s+)?(?:delivered|ready|done|completed|turned\s+around|back\s+to\s+you)\s+(?:in|within)\s+\d+(?:\s*[-–]\s*\d+)?\s*(?:working\s+|business\s+)?days?\b(?:\s+(?:of|from|after)\s+(?:[\w/'-]+\s+){0,3}?(?:access|kick-?off|start|approval|onboarding))?(?:,(?=\s+(?:covers|includes|is|comes|maps|shows|gives|lists|will|has)\b))?/i
+function _stripAuditDeliveryDayCount(para) {
+  const sentences = para.match(/[^.!?]*[.!?]+\s*|[^.!?]+$/g) || [para]
+  let changed = false
+  const out = sentences.map(s => {
+    if (!_AUDIT_NOUN_RE.test(s) || _SEO_PLAN_RE.test(s)) return s
+    const r = s.replace(_DELIVERY_DAYCOUNT_RE, '')
+    if (r === s) return s
+    changed = true
+    // What's left was only a turnaround statement ("Timeline: audit.") — drop it.
+    return (r.match(/[A-Za-z][\w'-]*/g) || []).length < 4 ? '' : r
+  }).join('')
+  return changed ? out.replace(/[ \t]+$/, '') : para
+}
+
 function _stripBareSeoAuditTurnaround(text, seoOnlyPosting) {
   if (!text || !seoOnlyPosting) return text
   const paras = text.split(/\n\s*\n/)
   const kept = paras.map(p => {
     if (_PPC_NAMED_RE.test(p)) return p
+    // (D) first: a sentence that is ONLY "Audit delivered within N days." goes
+    // whole; (E) on it would leave a stray "Audit.".
     _BARE_AUDIT_TURNAROUND_SENTENCE_RE.lastIndex = 0
-    if (!_BARE_AUDIT_TURNAROUND_SENTENCE_RE.test(p)) return p
-    _BARE_AUDIT_TURNAROUND_SENTENCE_RE.lastIndex = 0
-    return p.replace(_BARE_AUDIT_TURNAROUND_SENTENCE_RE, (_m, lead, head, _timing, rest, punct) =>
-      rest.trim() ? `${lead}${head}${rest}${punct}` : lead.replace(/[ \t]+$/, ''))
-      .replace(/^[ \t]+/, '').replace(/\n[ \t]+/g, '\n').trimEnd()
+    if (_BARE_AUDIT_TURNAROUND_SENTENCE_RE.test(p)) {
+      _BARE_AUDIT_TURNAROUND_SENTENCE_RE.lastIndex = 0
+      p = p.replace(_BARE_AUDIT_TURNAROUND_SENTENCE_RE, (_m, lead, head, _timing, rest, punct) =>
+        rest.trim() ? `${lead}${head}${rest}${punct}` : lead.replace(/[ \t]+$/, ''))
+        .replace(/^[ \t]+/, '').replace(/\n[ \t]+/g, '\n').trimEnd()
+    }
+    return _stripAuditDeliveryDayCount(p)
   })
   const out = kept.filter(p => p.trim() !== '').join('\n\n')
   if (out === paras.join('\n\n')) return text

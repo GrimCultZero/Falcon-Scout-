@@ -56,6 +56,33 @@ assert(run('Audit delivered within 1 working day.', 'Google Ads and SEO support 
 const clean = 'I\'d map crawl and indexation first, then schema.\n\nArtem';
 assert(run(clean, SEO_POSTING) === clean, 'a letter with no turnaround comes back identical');
 
+// ── (E) job 17278, 2026-10-05: the day-count rides on a delivery clause after a
+// long scope phrase, so (A) and the diagnostic pattern (day-count right after the
+// noun) never saw it; the timing pre-check passed it because "2 working days" is
+// in Rule 402 — as the SEO PLAN's turnaround. Rule 416: no technical-audit
+// timeline in the letter.
+const p17278 = "I can run a full diagnostic of your site's Local SEO setup, covering schema, GBP/NAP consistency, indexation, on-page structure for local intent, and competitor gap analysis, delivered within 2 working days, done entirely by hand. I'm attaching a sample technical SEO audit so you can see the format and depth.\n\nArtem";
+const posting17278 = "Local SEO Expert for Business Growth. We are seeking a skilled Local SEO expert to enhance our business's online presence and drive more customers to our store. The ideal candidate will have experience in optimizing Google My Business listings, conducting SEO audits, and implementing effective local SEO strategies.";
+assert(seoOnly(posting17278), "job 17278's posting reads as SEO-only");
+assert(run(p17278, posting17278) === "I can run a full diagnostic of your site's Local SEO setup, covering schema, GBP/NAP consistency, indexation, on-page structure for local intent, and competitor gap analysis, done entirely by hand. I'm attaching a sample technical SEO audit so you can see the format and depth.\n\nArtem",
+  'job 17278: ", delivered within 2 working days," goes; the diagnostic offer, the sample line and the sign-off stay');
+assert(run('Full technical diagnostic of indexation and schema, ready within 3 business days.', SEO_POSTING) === 'Full technical diagnostic of indexation and schema.', '(E) at the end of the sentence: the clause and its comma go');
+assert(run("I'll audit all 72 city pages, delivered within 2 working days of GSC access, by hand.", SEO_POSTING) === "I'll audit all 72 city pages, by hand.", '(E) "… of GSC access" goes with the day-count');
+const plan = 'The 3-month SEO promotion plan, with a basic website audit and competitor analysis, is delivered within 2 working days.';
+assert(run(plan, SEO_POSTING) === plan, 'the SEO promotion plan keeps its 2 working days (Rule 402) even when it mentions the audit it includes (Rule 430)');
+const notDelivery = 'Rankings usually move within 30 days of the audit fixes going live.';
+assert(run(notDelivery, SEO_POSTING) === notDelivery, 'no delivery word, no strip: "move within 30 days of the audit fixes" stays');
+const ppcPara = 'The Google Ads audit covers search terms, bidding and tracking, delivered within 1 working day.';
+assert(run(ppcPara, SEO_POSTING) === ppcPara, 'a paragraph naming Google Ads keeps its required 1 working day');
+assert(run(p17278, PPC_POSTING) === p17278, 'on a PPC posting (E) never runs');
+assert(bare('Scope: crawl, indexation and schema. Diagnostic, delivered within 2 working days.', true) === 'Scope: crawl, indexation and schema.',
+  '(E) a sentence left with only its noun ("Diagnostic.") goes whole, no stub and no trailing space');
+assert(bare('Timeline: audit delivered within 10-14 working days.\n\nArtem', true) === 'Artem',
+  '(E) on its own, "Timeline: audit delivered within 10-14 working days." leaves no "Timeline: audit." stub (letter #47\'s shape)');
+const dotted = '.5% CTR gains came after the audit fixes. The audit, delivered within 2 working days, covers schema.';
+assert(bare(dotted, true) === '.5% CTR gains came after the audit fixes. The audit covers schema.',
+  '(E) between subject and verb both commas go ("The audit covers schema."), and splitting loses no characters (the sentence starting with "." survives)');
+
 // ── the corpus ────────────────────────────────────────────────────────────
 if (fs.existsSync(DATA)) {
   const rows = JSON.parse(fs.readFileSync(DATA, 'utf8'));

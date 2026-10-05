@@ -9263,3 +9263,33 @@ off the ledger — monthly $1,200–1,800 (#130), $950 (#233, #235), $900 (#249)
 (#201); and #280, this job, sent at $2,100 flat (the owner's own edit of the $8,500).
 
 `tests/job-type-posting-only.test.js` (new) 14/14; all 19 JS suites and 3 Python suites pass.
+
+## 2026-10-05 — "Rule violation": a technical SEO audit promised in 2 working days
+
+Owner, job 17278 (Local SEO, US, $20–40/hr). The closing offer: "I can run a full diagnostic of your
+site's Local SEO setup, covering schema, GBP/NAP consistency, indexation, on-page structure for local
+intent, and competitor gap analysis, delivered within 2 working days, done entirely by hand. I'm
+attaching a sample technical SEO audit…". KB #416: estimate the SEO technical audit at 2 weeks in the
+scope of work but omit the timeline from the cover letter. KB #402: "2 working days" is the SEO
+PROMOTION PLAN's turnaround (the Google Ads audit's is 1 working day). Only tooManyCaseStudies,
+attachmentUnbacked and previewNotSpecific fired.
+
+Why nothing caught it: every turnaround strip wants the day-count right after the noun — (A) "…SEO
+audit in/within N days" (≤60 chars, needs the word "audit"), the diagnostic pattern "diagnostic
+in/within N days", (D) "Audit delivered within N days." — and here "diagnostic" and "delivered within
+2 working days" are ~150 characters apart. groundingCheck's seoAuditTurnaround needs "audit" within 40
+characters. The timing pre-check (`timingCompliant`) only asks whether "2 working days" occurs in a
+scoped rule — it does, in #402 — whatever it is attached to.
+
+- (E) in `_stripBareSeoAuditTurnaround` (SEO-only postings, paragraphs not naming Google Ads / PPC):
+  a sentence that offers an audit / diagnostic / health check and carries "delivered | ready | done |
+  completed | turned around … in|within N (working|business) days [of … access]" loses that clause.
+  Not the SEO promotion plan's own sentence (#402; #430's plan includes "a basic website audit").
+  A delivery word is required ("rankings move within 30 days of the audit fixes" stays). A sentence
+  left with under four words goes whole (no "Timeline: audit." stub); between subject and verb both
+  commas go. Runs after (D).
+- Replayed on all 293 sent letters in pipeline order (A/B/C/diagnostic, then D, then E): (E) changes
+  none beyond what the pipeline already did — the shape is new.
+
+On 17278: "…and competitor gap analysis, done entirely by hand. I'm attaching a sample technical SEO
+audit…". `tests/seo-audit-turnaround.test.js` 22/22; all 19 JS suites and 3 Python suites pass.
