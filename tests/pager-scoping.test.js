@@ -1,6 +1,11 @@
 // Two paginated lists on one page — does the pager resolve inside "Submitted proposals"?
 // Functions are lifted from proposal.js so the test can't drift from shipped code.
 const fs = require('fs');
+// This file printed PASS/FAIL but always exited 0, so the suite runner could never
+// see a failure here (found 2026-10-06). Count FAIL lines and set the exit code.
+let _fails = 0;
+const _log = console.log;
+console.log = (...a) => { if (/^FAIL\b/.test(String(a[0]))) _fails++; _log(...a); };
 const src = fs.readFileSync(String.raw`C:\Users\syzov\upwork-cockpit\upwork-enricher\proposal.js`, 'utf8')
   .replace(/\r\n/g, '\n');
 const a = src.indexOf('function _submittedSectionRoot()');
@@ -220,3 +225,51 @@ function run(body) {
   const got = _findNextPageControl();
   console.log(`${got === realBtn ? 'PASS' : 'FAIL'}  nested: picks the inner <button>, not the role=button wrapper  -> got ${got ? got.tag : 'null'}`);
 }
+
+// ── case 8 — 2026-10-06: a proposal TITLE that contains "next". Page 2 of the
+// Submitted list began with job 16999's proposal, "Google Ads partner to take a
+// furniture & home ecommerce brand to the next level". With no "go to page 3"
+// control rendered, strategy 1 (any "next" in an aria-label) took the title link
+// for the pager: the sync tab left for /nx/proposals/2105638033129840641 and the
+// proposals leg never reported, three syncs running.
+function page2WithNextTitle({ titleAsButton = false, nextButton = false } = {}) {
+  ALL = [];
+  const body = E('body');
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals (60)' }));
+  const row = add(submitted, E('div'));
+  add(row, E('div', { text: 'Initiated Oct 1, 2026' }));
+  const title = 'Google Ads partner to take a furniture & home ecommerce brand to the next level';
+  const link = titleAsButton
+    ? add(row, E('button', { text: title, attrs: { 'aria-label': title + ' Boosted' } }))
+    : add(row, E('a', { text: title, attrs: { href: '/nx/proposals/2105638033129840641', 'aria-label': title + ' Boosted' } }));
+  const pager = add(submitted, E('div'));
+  add(pager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));         // icon-only prev
+  add(pager, E('button', { text: 'go to page\n 1' }));
+  add(pager, E('button', { text: 'Current page 2 of 6\n 2' }));
+  add(pager, E('button', { text: '…' }));                                              // no "go to page 3"
+  const next = nextButton ? add(pager, E('button', { attrs: { 'aria-label': 'Next page' } })) : null;
+  add(pager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));         // icon-only next
+  return { body, link, next };
+}
+{
+  const { body, link } = page2WithNextTitle();
+  const { _findNextPageControl } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got !== link ? 'PASS' : 'FAIL'}  "…to the next level": the proposal's title link is never taken for the pager  -> got ${got ? JSON.stringify(got.innerText.slice(0, 40)) : 'null'}`);
+}
+{
+  const { body, link } = page2WithNextTitle({ titleAsButton: true });
+  const { _findNextPageControl } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got !== link ? 'PASS' : 'FAIL'}  …nor a title rendered as a button: "next" inside a longer name is not a pager name`);
+}
+{
+  const { body, next } = page2WithNextTitle({ nextButton: true });
+  const { _findNextPageControl } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got === next ? 'PASS' : 'FAIL'}  a real control named exactly "Next page" is still used  -> got ${got ? (got.getAttribute('aria-label') || got.innerText) : 'null'}`);
+}
+
+_log(_fails ? `\n${_fails} FAILURES` : '\nall pass');
+process.exit(_fails ? 1 : 0);

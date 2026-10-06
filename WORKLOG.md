@@ -9415,3 +9415,28 @@ the gate (a decline would have been recorded) and then never posts. Two exits di
   stage `no-report` with that.
 
 Extension 5.9 → 5.10. `tests/inbox-scrape.test.js` 70/70; all 20 JS and 4 Python suites pass.
+
+### Found: a proposal titled "…to the next level" was the pager's "Next" (5.11)
+
+The 5.10 sync answered at once. Three proposals syncs (10:43, 10:48, 12:13 UTC), each `no-report`
+after 240s, each with the same tab state: `{"status":"complete","discarded":false,"frozen":false,
+"active":false,"url":"https://www.upwork.com/nx/proposals/2105638033129840641"}` — not frozen, not
+loading: the tab had LEFT the list for one proposal's detail page. 2105638033129840641 is proposal 287,
+job 16999 "Google Ads partner to take a furniture & home ecommerce brand to the next level".
+
+`_findNextPageControl` strategy 1 picked any control whose aria-label/title merely CONTAINED "next".
+The row title links carry aria-labels ("<title> Boosted"), so once 287 led page 2 of the Submitted list
+(the 10-05 proposals pushed it there) and page 2 rendered no "go to page 3" control, strategy 1 clicked
+its link and the sync tab navigated away mid-scrape — no rows, no report, three syncs running. The
+10-05 20:56 run had not reached page 2. Upwork's real arrows carry no name at all (per the strategy-0
+notes), so the loose match had only ever found titles.
+
+- Controls that link into a proposal or a job (`a[href]` /proposals/<id>, /jobs/~…) are rows, never
+  pager candidates (`probe.rowLinksSkipped` counts them).
+- Strategy 1 needs the WHOLE accessible name to be a pager word ("Next", "Next page", "Go to next
+  page").
+- `tests/pager-scoping.test.js` printed PASS/FAIL but always exited 0, so the suite runner could never
+  see it fail; it now counts FAIL lines and sets the exit code. Its new 16999 cases fail on 5.10's
+  proposal.js (it picks the title, 3 failures) and pass on 5.11. No other test file lacks an exit code.
+
+Extension 5.10 → 5.11. `tests/pager-scoping.test.js` 13/13; all 20 JS and 4 Python suites pass.

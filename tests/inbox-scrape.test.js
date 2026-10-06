@@ -68,7 +68,7 @@ assert(/const rows = await collectConversationRows\(\);/.test(syncFlow) && !/scr
 assert(/last_activity_at: _listWhen\(lines\),/.test(src), 'every row carries last_activity_at');
 assert(/if \(\/\^\(monday\|tuesday\|wednesday\|thursday\|friday\|saturday\|sunday\)\$\/i\.test\(ln\)\) continue;/.test(src), 'weekday lines are no longer read as a job title');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.10', `extension version 5.10 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+assert(manifest.version === '5.11', `extension version 5.11 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
 // 5.9 (2026-10-06): proposal 298's "Viewed by client" went unread — a sync's
 // messages leg landed at 10:17 UTC with no proposals-list row beside it, and the
 // one declined proposals row (10:15:55) could not be told apart from Artem's visit.

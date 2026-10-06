@@ -1107,15 +1107,25 @@
       return null;
     }
     probe.sectionFound = true;
-    const cands = [...root.querySelectorAll('button, a, [role="button"]')];
-    probe.candidates = cands.length;
+    const allControls = [...root.querySelectorAll('button, a, [role="button"]')];
+    // A row's own title link is never a pager control (5.11, 2026-10-06). Job
+    // 16999's proposal is titled "…ecommerce brand to the next level"; once it
+    // led page 2, strategy 1 below took its link for "Next", the sync tab left
+    // for /nx/proposals/2105638033129840641, and every sync from 10-06 lost its
+    // proposals leg — proposal 298's "Viewed by client" with it. Links into a
+    // proposal or a job are rows; pagination never navigates away.
+    const _isRowLink = (el) => (el.tagName || '').toLowerCase() === 'a'
+      && /\/(?:proposals|jobs?)\/[~\d]/.test(el.getAttribute('href') || '');
+    const cands = allControls.filter(el => !_isRowLink(el));
+    probe.candidates = allControls.length;
+    probe.rowLinksSkipped = allControls.length - cands.length;
     // Record what the section actually offers, so a miss is diagnosable from
     // the sync_runs row instead of requiring the tab's console.
     // Record EVERY control, icon-only ones included. The previous version
     // dropped anything with no text and no aria-label via .filter(Boolean) —
     // which is precisely the shape an icon-only pager arrow takes, so the one
     // control most worth seeing was the one guaranteed to be invisible here.
-    probe.labels = cands.slice(0, 30).map(el => {
+    probe.labels = allControls.slice(0, 30).map(el => {
       const txt = (el.innerText || '').trim();
       const aria = el.getAttribute('aria-label') || '';
       const cls = (typeof el.className === 'string' ? el.className : '').slice(0, 40);
@@ -1175,9 +1185,15 @@
     }
 
     // 1. Explicit accessible name — the most reliable when Upwork provides it.
+    //    The WHOLE name must be a pager word ("Next", "Next page", "Go to next
+    //    page"), not merely contain "next": "…brand to the next level" is a
+    //    proposal title (see _isRowLink above). Upwork's real arrows carry no
+    //    name at all, so the loose match only ever found titles.
+    const _PAGER_NEXT_NAME_RE = /^(?:go\s+to\s+(?:the\s+)?)?next(?:\s+page)?(?:\s*[›»>→])?$/i;
     for (const el of cands) {
-      const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.toLowerCase();
-      if (/\bnext\b/.test(label) && !/\bprevious\b/.test(label)) {
+      const names = [el.getAttribute('aria-label') || '', el.getAttribute('title') || '']
+        .map(t => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      if (names.some(t => _PAGER_NEXT_NAME_RE.test(t))) {
         if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return pick(el, 'aria-label');
       }
     }
