@@ -4045,6 +4045,30 @@ def messages_status_sync(data: dict):
 
         session.commit()
 
+    # The messages leg in sync_runs too (2026-10-06), so a sync whose proposals leg
+    # never reported stands out next to its messages leg. On 10-06 a sync's messages
+    # leg landed at 10:17 UTC and no proposals-list row came with it — proposal 298's
+    # "Viewed by client" went unread, and nothing showed the gap. Passive reads (one
+    # opened conversation) are not syncs and stay out. Its own session, after the
+    # status updates are committed, so a failed log row can never undo them.
+    _wi_run = data.get("walk_info") if isinstance(data.get("walk_info"), dict) else {}
+    if not _wi_run.get("passive"):
+        try:
+            with Session(engine) as _log_session:
+                _log_session.add(SyncRun(
+                    leg="messages-list",
+                    rows_scraped=scanned,
+                    matched=scanned - len(not_matched),
+                    not_matched=len(not_matched),
+                    newly_viewed=0,
+                    scroll_json=_json_mod.dumps({k: _wi_run.get(k) for k in (
+                        "extension_version", "walk_skipped", "rooms_visited", "rooms_reread", "reread_pending")}
+                        | {"newly_replied": newly_replied}),
+                ))
+                _log_session.commit()
+        except Exception as e:
+            print(f"[sync_runs] could not record messages run: {e}")
+
     # Debug capture — dump the raw scraped rows + match outcome to a file so we
     # can see EXACTLY what the inbox gave us (client_name / job_title per row)
     # and why matching failed, without reading the fast-closing on-page banner.

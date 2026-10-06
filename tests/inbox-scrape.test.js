@@ -68,7 +68,18 @@ assert(/const rows = await collectConversationRows\(\);/.test(syncFlow) && !/scr
 assert(/last_activity_at: _listWhen\(lines\),/.test(src), 'every row carries last_activity_at');
 assert(/if \(\/\^\(monday\|tuesday\|wednesday\|thursday\|friday\|saturday\|sunday\)\$\/i\.test\(ln\)\) continue;/.test(src), 'weekday lines are no longer read as a job title');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.8', `extension version 5.8 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+assert(manifest.version === '5.9', `extension version 5.9 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+// 5.9 (2026-10-06): proposal 298's "Viewed by client" went unread — a sync's
+// messages leg landed at 10:17 UTC with no proposals-list row beside it, and the
+// one declined proposals row (10:15:55) could not be told apart from Artem's visit.
+const bgSrc = fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'background.js'), 'utf8').replace(/\r\n/g, '\n');
+assert(/async function _startSync\(source\) \{\n\s+console\.log\([^\n]*\);\n\s+_markSyncStart\(\);/.test(bgSrc)
+  && /if \(message\.type === 'SYNC_PROPOSAL_STATUSES'\) \{\n[^\n]*\n\s+_markSyncStart\(\);/.test(bgSrc),
+  'every sync start (hourly and the dashboard button) is stamped');
+assert(/sendResponse\(\{ shouldSync, sinceSyncStartMs \}\)/.test(bgSrc),
+  '…and every ASK_AUTO_SYNC answer carries sinceSyncStartMs, so a declined proposals page records how recently a sync began');
+assert(/leg="messages-list"/.test(main) && /if not _wi_run\.get\("passive"\):/.test(main),
+  'backend: each messages sync gets its own sync_runs row (passive reads excluded), next to the proposals-list leg');
 
 // ── 5.3: reading the messages of a room that moved ──────────────────────────
 // Sofia Toro's room, as its panel reads (from the owner's screenshot, 30 Sep):

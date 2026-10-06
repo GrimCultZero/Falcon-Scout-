@@ -334,8 +334,25 @@ function _openMessagesSyncWindow(cb) {
 }
 
 
+// When the last sync started (storage.session: survives worker restarts). Sent
+// back with every ASK_AUTO_SYNC answer, so a proposals page that declines to sync
+// records how recently a sync began — a few seconds means the sync's own tab lost
+// its marker (a bug); hours means Artem opened the page himself (2026-10-06: a
+// declined run at 10:15:55 UTC could not be told apart from his visit).
+const _LAST_SYNC_START_KEY = 'falcon_last_sync_start';
+function _markSyncStart() {
+  try { chrome.storage.session.set({ [_LAST_SYNC_START_KEY]: Date.now() }); } catch (_) {}
+}
+async function _sinceSyncStartMs() {
+  try {
+    const v = (await chrome.storage.session.get(_LAST_SYNC_START_KEY))[_LAST_SYNC_START_KEY];
+    return typeof v === 'number' ? Date.now() - v : null;
+  } catch (_) { return null; }
+}
+
 async function _startSync(source) {
   console.log('[Cockpit BG] auto-sync triggered:', source);
+  _markSyncStart();
   // Proposals list: unchanged, stays a plain background tab in the current
   // window — never implicated in the tab-switch complaint, out of scope here.
   // Stays a plain background tab. An unfocused window was tried on 2026-09-16
@@ -913,6 +930,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // for tracked tabs only.
   if (message.type === 'SYNC_PROPOSAL_STATUSES') {
     console.log('[Cockpit BG] SYNC_PROPOSAL_STATUSES — opening proposals tab (sync v2: URL-marker + direct POST)');
+    _markSyncStart();
     // The ?falconsync=1 marker is the trigger — it lives in the URL, so it
     // survives MV3 worker death (no in-memory tab tracking, no ASK_AUTO_SYNC).
     // proposal.js/messages-list.js do the scrape, POST straight to the backend,
@@ -947,9 +965,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ASK_AUTO_SYNC') {
     const tabId = sender.tab && sender.tab.id;
     // Durable check — survives an MV3 worker restart between tab-open and ask.
-    _consumeSyncTab(tabId).then(shouldSync => {
-      console.log('[Cockpit BG] ASK_AUTO_SYNC from tab', tabId, '→ shouldSync:', shouldSync);
-      sendResponse({ shouldSync });
+    Promise.all([_consumeSyncTab(tabId), _sinceSyncStartMs()]).then(([shouldSync, sinceSyncStartMs]) => {
+      console.log('[Cockpit BG] ASK_AUTO_SYNC from tab', tabId, '→ shouldSync:', shouldSync, '| since last sync start (ms):', sinceSyncStartMs);
+      sendResponse({ shouldSync, sinceSyncStartMs });
     });
     return true; // async response
   }

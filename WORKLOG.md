@@ -9369,3 +9369,30 @@ which a posting asking for examples contradicts.
 
 `tests/digit-bomb-openings.test.js` 40/40 (first test of `_stripDigitBombDuplicateCase`); all 20 JS and
 4 Python suites pass.
+
+## 2026-10-06 — "Viewed by client" on the B2B proposal not caught: no proposals reading since last night (5.9)
+
+Owner: Upwork shows proposal 298 (job 17256 "Google Ads Specialist for B2B", sent 10-05 13:34 UTC) as
+"Viewed by client"; Outcomes still has it "sent". sync_runs: the last proposals-list run that read rows
+is 10-05 20:56 UTC (10 rows, matched 10, newly_viewed 0 — not viewed yet then, or not detected). Since
+then one row: 10-06 10:15:55, 0 rows, `gate-declined` ("urlParam=null sessionStash=null
+background={"shouldSync":false}"). A messages sync landed at 10:17:16 UTC (5.8, walk skipped hidden)
+with NO proposals-list row after it.
+
+Over the week: 61 ok runs, 14 gate-declined, 0 other failures. The declined ones come at odd times
+(first page load of a day; 6 minutes after an ok run) — the list page loaded with no marker, no stash and
+a tab the background did not open: Artem's own visits, which the gate correctly ignores. So 10:15:55 was
+most likely his visit for the screenshot, and the 10:15–10:17 sync's proposals tab never reported at all
+— or it was the sync's tab after losing its marker and its id. The records cannot tell which, and no
+background log reaches the backend.
+
+- background.js stamps every sync start (`_startSync`, `SYNC_PROPOSAL_STATUSES`) in storage.session and
+  answers ASK_AUTO_SYNC with `sinceSyncStartMs`; proposal.js already writes that answer into a
+  gate-declined row, so the next one says whether a sync had just started.
+- The backend records each messages sync as a `messages-list` sync_runs row (passive reads excluded;
+  its own session, after the status commit), so a sync whose proposals leg is missing is visible beside
+  its messages leg. The Ghost Timer and the sync-runs endpoint filter on leg — unaffected.
+
+Asked Artem to reload 5.9 and run one sync, to check the proposals leg reports and 298 turns viewed.
+
+`tests/inbox-scrape.test.js` 66/66; all 20 JS and 4 Python suites pass.
