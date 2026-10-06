@@ -68,7 +68,7 @@ assert(/const rows = await collectConversationRows\(\);/.test(syncFlow) && !/scr
 assert(/last_activity_at: _listWhen\(lines\),/.test(src), 'every row carries last_activity_at');
 assert(/if \(\/\^\(monday\|tuesday\|wednesday\|thursday\|friday\|saturday\|sunday\)\$\/i\.test\(ln\)\) continue;/.test(src), 'weekday lines are no longer read as a job title');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.9', `extension version 5.9 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
+assert(manifest.version === '5.10', `extension version 5.10 (the debug file's walk_info shows which one ran) — ${manifest.version}`);
 // 5.9 (2026-10-06): proposal 298's "Viewed by client" went unread — a sync's
 // messages leg landed at 10:17 UTC with no proposals-list row beside it, and the
 // one declined proposals row (10:15:55) could not be told apart from Artem's visit.
@@ -80,6 +80,19 @@ assert(/sendResponse\(\{ shouldSync, sinceSyncStartMs \}\)/.test(bgSrc),
   '…and every ASK_AUTO_SYNC answer carries sinceSyncStartMs, so a declined proposals page records how recently a sync began');
 assert(/leg="messages-list"/.test(main) && /if not _wi_run\.get\("passive"\):/.test(main),
   'backend: each messages sync gets its own sync_runs row (passive reads excluded), next to the proposals-list leg');
+// 5.10: the 5.9 test sync (10:26 UTC) again left messages rows and NO proposals
+// row — an empty scrape told only the background, and a frozen tab told no one.
+assert((bgSrc.match(/_persistSyncTab\(tab\.id\);\s*_trackProposalsSyncTab\(tab\.id\);/g) || []).length === 2,
+  'both places that open the proposals sync tab (hourly, dashboard button) track it until it reports');
+assert(/PROPOSALS_LIST_SCRAPE_DONE'\) \{\n[^\n]*\n[^\n]*\n\s+_untrackProposalsSyncTab\(tabId\);/.test(bgSrc),
+  '…a tab that reports is untracked');
+assert(/_reportSilentProposalsTab\(tabId\)\.catch\(\(\) => \{\}\)\.finally\(\(\) => \{[\s\S]{0,400}?chrome\.tabs\.remove\(tabId/.test(bgSrc)
+  && /stage: 'no-report'/.test(bgSrc) && /frozen: tab\.frozen === true/.test(bgSrc),
+  '…and the failsafe reports one that never did (stage no-report, with Chrome\'s frozen / discarded / status), reading its state before closing it');
+const propSrc = fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'proposal.js'), 'utf8').replace(/\r\n/g, '\n');
+assert(/await reportSyncFailure\('no-rows',[\s\S]{0,400}?_done\(\{ scanned: 0, error: 'no rows scraped' \}\)/.test(propSrc)
+  && /await reportSyncFailure\('post',/.test(propSrc),
+  'proposal.js: an empty scrape and a failed save are recorded in sync_runs, not only told to the background');
 
 // ── 5.3: reading the messages of a room that moved ──────────────────────────
 // Sofia Toro's room, as its panel reads (from the owner's screenshot, 30 Sep):

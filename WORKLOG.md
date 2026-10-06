@@ -9396,3 +9396,22 @@ background log reaches the backend.
 Asked Artem to reload 5.9 and run one sync, to check the proposals leg reports and 298 turns viewed.
 
 `tests/inbox-scrape.test.js` 66/66; all 20 JS and 4 Python suites pass.
+
+### The 5.9 test sync: still no proposals row — two silent exits closed (5.10)
+
+10:26:02 and 10:26:20 UTC: two `messages-list` rows (the first with extension_version null — a copy
+orphaned by the reload, so no room-observation cache: 6 matched vs 11), and again no proposals-list row
+of any kind: not ok, not gate-declined, not an error. 298 still "sent". So the proposals tab gets past
+the gate (a decline would have been recorded) and then never posts. Two exits did exactly that:
+
+- An EMPTY scrape (`rows.length === 0`, the list never rendered in the background tab) told only the
+  background (PROPOSALS_LIST_SCRAPE_DONE → a dashboard toast) and posted nothing. Now
+  `reportSyncFailure('no-rows', {hidden, visibility, header, perPage})` first; a failed save reports
+  `post` too.
+- A tab that never reaches any exit (frozen — Chrome's tab freezing / Energy Saver — or still loading)
+  was closed by the 4-minute failsafe in silence. background.js now tracks each proposals sync tab in
+  storage.session until PROPOSALS_LIST_SCRAPE_DONE; when the failsafe fires on one still tracked it
+  reads Chrome's view of the tab (status, discarded, frozen, active, url) BEFORE closing it and posts
+  stage `no-report` with that.
+
+Extension 5.9 → 5.10. `tests/inbox-scrape.test.js` 70/70; all 20 JS and 4 Python suites pass.

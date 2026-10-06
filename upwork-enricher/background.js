@@ -364,6 +364,7 @@ async function _startSync(source) {
   chrome.tabs.create({ url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false }, (tab) => {
     if (tab && tab.id) {
       _persistSyncTab(tab.id);
+      _trackProposalsSyncTab(tab.id);
       _scheduleTabCleanup(tab.id, 4);
       console.log('[Cockpit BG] auto-sync tab opened:', tab.id, 'proposals (background)');
     }
@@ -442,10 +443,54 @@ function _scheduleTabCleanup(tabId, minutes = 3) {
   }
 }
 
+// Proposals-list sync tabs that have not said PROPOSALS_LIST_SCRAPE_DONE yet
+// (5.10, 2026-10-06). Since 10-05 20:56 UTC every sync's proposals leg vanished:
+// a frozen or never-rendering background tab cannot report, and the failsafe
+// closed it in silence — no sync_runs row, so proposal 298's "Viewed by client"
+// went unread with nothing to say why. Now the failsafe reports such a tab
+// itself, with Chrome's own view of it (frozen / discarded / still loading).
+// storage.session, so a worker restart does not forget the tab.
+const _PROPOSALS_PENDING_KEY = 'falcon_proposals_sync_pending';
+async function _trackProposalsSyncTab(tabId) {
+  if (tabId == null) return;
+  try {
+    const cur = (await chrome.storage.session.get(_PROPOSALS_PENDING_KEY))[_PROPOSALS_PENDING_KEY] || {};
+    cur[tabId] = Date.now();
+    await chrome.storage.session.set({ [_PROPOSALS_PENDING_KEY]: cur });
+  } catch (_) {}
+}
+async function _untrackProposalsSyncTab(tabId) {
+  try {
+    const cur = (await chrome.storage.session.get(_PROPOSALS_PENDING_KEY))[_PROPOSALS_PENDING_KEY] || {};
+    const openedAt = cur[tabId] || null;
+    if (openedAt) { delete cur[tabId]; await chrome.storage.session.set({ [_PROPOSALS_PENDING_KEY]: cur }); }
+    return openedAt;
+  } catch (_) { return null; }
+}
+async function _reportSilentProposalsTab(tabId) {
+  const openedAt = await _untrackProposalsSyncTab(tabId);
+  if (!openedAt) return;   // it reported (or was never a proposals sync tab)
+  const tab = await new Promise(resolve => chrome.tabs.get(tabId, t => resolve(chrome.runtime.lastError ? null : t)));
+  const state = tab
+    ? { status: tab.status, discarded: !!tab.discarded, frozen: tab.frozen === true, active: !!tab.active, url: String(tab.url || '').slice(0, 200) }
+    : { gone: true };
+  const detail = `no report from the proposals tab after ${Math.round((Date.now() - openedAt) / 1000)}s; tab ${JSON.stringify(state)}`;
+  console.warn('[Cockpit BG] proposals sync tab never reported —', detail);
+  // Not awaited: the tab's state is already read, closing it need not wait on the POST.
+  fetch(`${API_BASE}/proposal-status-sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows: [], scroll: { failed: true, stage: 'no-report', detail, url: state.url || null } }),
+  }).catch(() => {});
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name.startsWith(_TAB_CLEANUP_PREFIX)) {
     const tabId = parseInt(alarm.name.slice(_TAB_CLEANUP_PREFIX.length), 10);
     if (!Number.isNaN(tabId)) {
+      // A proposals sync tab that never reported: say so, with Chrome's view of
+      // the tab read BEFORE it is closed. A no-op for every other tab.
+      _reportSilentProposalsTab(tabId).catch(() => {}).finally(() => {
       // If this was the messages-sync tab it lives in its own window (see
       // _openMessagesSyncWindow) — no focus was ever taken, so nothing to
       // restore here, just close it like any other stuck tab.
@@ -455,6 +500,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         } else {
           console.warn('[Cockpit BG] failsafe closed stuck sync tab', tabId);
         }
+      });
       });
       _syncTabs.delete(tabId);
       _bgTabs.delete(tabId);
@@ -950,7 +996,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.tabs.create(
         { url: 'https://www.upwork.com/nx/proposals/?falconsync=1', active: false },
         (tab) => {
-          if (tab && tab.id) { _persistSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 4); }
+          if (tab && tab.id) { _persistSyncTab(tab.id); _trackProposalsSyncTab(tab.id); openedTabIds.push(tab.id); _scheduleTabCleanup(tab.id, 4); }
           console.log('[Cockpit BG] sync proposals tab opened (bg):', tab && tab.id);
           sendResponse({ ok: true, tabIds: openedTabIds });
         }
@@ -1056,6 +1102,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'PROPOSALS_LIST_SCRAPE_DONE') {
     const tabId = sender.tab && sender.tab.id;
     console.log('[Cockpit BG] PROPOSALS_LIST_SCRAPE_DONE for tab', tabId, 'result:', message.result);
+    _untrackProposalsSyncTab(tabId);   // it reported — the failsafe has nothing to add
 
     // v2: the content script POSTs directly to the backend (result carries the
     // counts), so ALWAYS notify the dashboard here — this is what lights up the

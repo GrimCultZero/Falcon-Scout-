@@ -1932,6 +1932,15 @@
 
     if (!scraped) {
       showSyncBanner({ phase: 'done', scraped: 0, viewed: 0, debug, error: 'no rows scraped — is the “Submitted proposals” list visible?' });
+      // Recorded (5.10): an empty scrape used to tell only the background — no
+      // sync_runs row — so from 10-05 20:56 UTC the proposals leg vanished and
+      // proposal 298's "Viewed by client" went unread with nothing to say why.
+      await reportSyncFailure('no-rows', JSON.stringify({
+        hidden: typeof document.hidden === 'boolean' ? document.hidden : null,
+        visibility: document.visibilityState || null,
+        header: /submitted\s+proposals/i.test(document.body.innerText || ''),
+        perPage: (debug && debug.pagination && debug.pagination.perPage) || null,
+      }));
       _done({ scanned: 0, error: 'no rows scraped' });
       return;
     }
@@ -1944,6 +1953,7 @@
     } catch (err) {
       console.error('[Cockpit Proposal] direct POST failed:', err);
       showSyncBanner({ phase: 'done', scraped, viewed, debug, error: 'save failed: ' + (err && err.message || err) });
+      await reportSyncFailure('post', `${scraped} rows scraped, save failed: ${(err && err.message) || err}`);   // reaches the log unless the backend itself is down
       _done({ scanned: scraped, error: 'save failed: ' + (err && err.message || err) });
     }
   })();
