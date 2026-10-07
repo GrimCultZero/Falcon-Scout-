@@ -88,7 +88,9 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   const ctaAt = src.indexOf('const _cta = ensureRunningAccountAuditCta(text, { postingText: _postingTitleDesc, asksRate: _postingAsksRate })');
   assert(chainAt !== -1 && ctaAt > chainAt && ctaAt - chainAt < 1500, 'the insert runs right after the strip chain, so no strip can remove it');
   assert(/_recordViolations\('generator', job\?\.id, \['auditCtaAutoInserted'\]\)/.test(src), '…and is recorded as auditCtaAutoInserted');
-  assert(/_dualChannelNote,\n\s+_runningAccountNote,\n\s+_actionOverAuditNote,/.test(src) && /RUNNING ACCOUNT — CLOSE WITH THE AUDIT OFFER/.test(src), 'the RUNNING ACCOUNT note reaches the prompt');
+  // _newAccountNote (2026-10-07) sits between them: it is RUNNING ACCOUNT's mirror
+  // image for a from-scratch build, and the two are mutually exclusive by gate.
+  assert(/_dualChannelNote,\n\s+_runningAccountNote,\n\s+_newAccountNote,\n\s+_actionOverAuditNote,/.test(src) && /RUNNING ACCOUNT — CLOSE WITH THE AUDIT OFFER/.test(src), 'the RUNNING ACCOUNT note reaches the prompt');
   assert(/- The audit offer is the LAST paragraph of the letter, right before "Artem"/.test(src), 'WHEN TO OFFER AN AUDIT says where the offer goes');
   assert(/A NEGATED mention is the opposite signal and does NOT make a launch/.test(src), 'WHEN NOT TO OFFER AN AUDIT no longer reads "not starting from scratch" as a launch');
   assert(/The concrete deliverable offer is NOT one of these banned lines/.test(src), 'the "No CTA" ending rule carves out the audit offer');

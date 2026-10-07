@@ -107,7 +107,7 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   const info = src.match(/const _INFO_ONLY_CODES = new Set\(\[([\s\S]*?)\]\)/);
   assert(info && /'agencyClassificationOverrodeRegex'/.test(info[1]) && /'draftNotCompliant'/.test(info[1]) && /'digitBombArmedForThisRun'/.test(info[1]), 'telemetry-only codes are listed…');
   assert(/setRuleFlags\(_getRunViolations\(\)\.filter\(n => !_INFO_ONLY_CODES\.has\(n\)\)\)/.test(src), '…and kept out of the flag list under the letter');
-  assert(/_caseDomainNote,\n\s+_dualChannelNote,\n\s+_runningAccountNote,\n\s+_actionOverAuditNote,/.test(src), 'the job-specific notes reach the prompt, next to the case-domain note');
+  assert(/_caseDomainNote,\n\s+_dualChannelNote,\n\s+_runningAccountNote,\n\s+_newAccountNote,\n\s+_actionOverAuditNote,/.test(src), 'the job-specific notes reach the prompt, next to the case-domain note');
   assert(/const _dualChannelNote = postingNamesGoogleAndMeta\(_postingTitleDesc\)/.test(src) && /None of the approved case studies is a Meta case/.test(src), 'the Meta note is gated on the detector and forbids a Meta track record');
   assert(/const _actionOverAuditNote = _auditDeclinedAsk/.test(src) && /the EARLIEST block must contain real changes/.test(src), 'the action note is gated on the posting declining an audit');
   assert(!/ACTION OVER AUDIT \(mandatory\)[^`]*Do not pitch an audit/.test(src) && /The closing audit offer still stands/.test(src), '…and no longer suppresses the audit offer');

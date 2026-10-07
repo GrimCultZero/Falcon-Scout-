@@ -66,7 +66,38 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(!isLaunch('This is not a "build from scratch" job. We have a live account.'), '"not a \\"build from scratch\\" job" is not a launch');
   assert(isLaunch('We need to launch our first Google Ads account from scratch.'), 'a real from-scratch launch still is one');
   assert(isLaunch('Brand new store, zero pixel data, build and launch our campaigns.'), 'zero-pixel / build-and-launch still read as a launch');
+
+  // The noun-phrase order, job 17538 (2026-10-07). Every earlier pattern wanted
+  // "set up" BEFORE "google ads", so a posting titled "Google Ads setup" was not a
+  // launch, Rule 450 never applied, and the letter offered to audit an account
+  // that did not exist and to "check" things nobody had built. Owner: "there is
+  // nothing to check … there is nothing to audit".
+  assert(isLaunch('Google Ads setup'), 'job 17538: the title "Google Ads setup" alone reads as a launch');
+  assert(isLaunch("We're looking for Google Ads set up including tracking, conversion verification and analytics assurance."), 'job 17538: "Google Ads set up including tracking" reads as a launch');
+  assert(isLaunch('We are looking for Google Ads set up for our new service business.'), '"Google Ads set up" (spaced) reads as a launch');
+  // …but the SAME words with a possessive describe an account that already exists.
+  assert(!isLaunch('Please review our Google Ads setup and tell us what is wrong.'), '"review OUR Google Ads setup" is an existing account, not a launch');
+  assert(!isLaunch('We want you to improve the current Google Ads setup.'), '"the current Google Ads setup" is an existing account, not a launch');
+  // Job 16131, titled "Audit & Fix Existing Search Campaigns" — the one false
+  // positive the new pattern threw up across all 523 postings, now negated.
+  assert(!isLaunch('This is **not a basic Google Ads setup job**. I am already at an intermediate level with Google Ads.'), 'job 16131: "not a basic Google Ads setup job" is not a launch');
+  assert(isLaunch('We do not have conversion tracking setup yet, so build and launch the account from scratch.'), 'the negation needs the article — "do not have tracking setup" does not blank a real launch');
   assert(/LAUNCH_FROM_SCRATCH_RE\.some\(re => re\.test\(blankNegatedLaunch\(jobContextLower\)\)\)/.test(src) && /_PPC_LAUNCH_FROM_SCRATCH_RE\.test\(blankNegatedLaunch\(jobContextLower\)\)/.test(src), 'both launch detectors in JobDetail.jsx blank negated phrases first');
+
+  // ── 2b. the NEW ACCOUNT prompt note (job 17538) ──────────────────────────
+  // A running account gets a hard deterministic instruction; a from-scratch build
+  // got nothing but a static block the model ignored. This is the mirror image.
+  const note = src.slice(src.indexOf('const _newAccountNote'), src.indexOf('const _auditDeclinedAsk'));
+  assert(/_launchFromScratch = _casePpcSignal && !_runningAccount/.test(src), 'the NEW ACCOUNT note never fires on a running account (the two would contradict)');
+  assert(/LAUNCH_FROM_SCRATCH_RE\.some\(re => re\.test\(blankNegatedLaunch\(_postingTitleDesc\.toLowerCase\(\)\)\)\)/.test(src), 'the note reads the posting only, and blanks negated launches first');
+  assert(/_runningAccountNote,\n\s*_newAccountNote,/.test(src), 'the note is actually added to the job context');
+  assert(/NOTHING TO AUDIT, NOTHING TO CHECK/.test(note) && /Do NOT offer an audit/.test(note), 'the note forbids the audit offer outright');
+  assert(/first thing I'd check/.test(note) && /same mistake with a different noun/.test(note), 'it forbids the diagnostic framing too, not just the word "audit"');
+  assert(/5 working days/.test(note) && /never "1 working day"/.test(note), 'it names the Rule 450 CTA and rules out the audit turnaround');
+  assert(/zero to performing/.test(note) && /SAY WHAT YOU WILL ACTUALLY SET UP/.test(note), 'it asks for the track record and the concrete setup list');
+  // Owner chose (b), 2026-10-07: keep the service rule, bridge the B2B mechanic.
+  assert(/_postingWantsB2B/.test(src) && /do NOT cite them here/.test(note), 'on a B2B posting it still refuses the SEO-only B2B cases on a paid-media job');
+  assert(/do not claim a B2B vertical track record Artem does not have/.test(note), '…and it bridges the mechanic instead of inventing a B2B track record');
 
   // ── 3. "signal" ─────────────────────────────────────────────────────────
   const CIRC = liftArray('CIRCUMVENTION_RISK');

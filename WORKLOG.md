@@ -9440,3 +9440,52 @@ notes), so the loose match had only ever found titles.
   proposal.js (it picks the title, 3 failures) and pass on 5.11. No other test file lacks an exit code.
 
 Extension 5.10 → 5.11. `tests/pager-scoping.test.js` 13/13; all 20 JS and 4 Python suites pass.
+
+## 2026-10-07 — "Google Ads setup" was never a launch: the audit pitch for an account that doesn't exist
+
+Owner, job 17538: "complete disaster — it's a setup from scratch project where we need to emphasise on my
+experience in bringing accounts to success, add b2b case studies and say that campaigns will be live in 5
+days and what will I setup. Instead generator is talking about what it would check (there is nothing to
+check) and audit (there is nothing to audit)." The letter offered "a full audit of your setup within 1
+working day", attached a Google Ads audit sample, and opened three paragraphs with "First thing I'd
+check…" / "I'd verify…" / "I'd map what's firing now".
+
+**Why no guard objected.** `jobIsLaunchFromScratch` was **false**. Tested all 17 patterns against the real
+posting: zero matched. It says "Google Ads **setup**" (title), "Google Ads **set up** including tracking",
+"**Setting up** a few small campaigns" — but every pattern wants "set up" BEFORE "google ads"
+(`set up … google ads … campaign`) or the literal "campaign setup", and `\bset\s*up\b` does not match the
+gerund "setting up". So `wrongAuditOfferOnLaunch` and `launchJobMissingCTA` (both Rule 450) were inert, same
+failure mode as jobs 14256 and 13240 before it — the detector never matched, so the rule never ran.
+
+**The deeper asymmetry, and the actual fix.** A posting with a RUNNING account gets a hard deterministic
+instruction in the prompt (`RUNNING ACCOUNT — CLOSE WITH THE AUDIT OFFER`, mandatory, quoting the client's
+own phrase). A from-scratch build got **nothing** — only the static "WHEN NOT TO OFFER AN AUDIT" block,
+which the model plainly ignored, falling back to its audit habits. Added `_newAccountNote`
+(`NEW ACCOUNT — NOTHING TO AUDIT, NOTHING TO CHECK`) as its mirror image, gated on
+`_casePpcSignal && !_runningAccount` so the two can never contradict: no audit offer, no audit sample, no
+diagnostic framing ("swapping the word 'audit' for 'check' or 'review' is the same mistake with a different
+noun"), lead with the zero-to-performing track record, name what actually gets set up from the posting's own
+list, and close on the Rule 450 CTA — live and approved in **5 working days**, never the audit's 1 day.
+
+**Detector.** `LAUNCH_FROM_SCRATCH_RE` moved to module scope (the note is built long before the check block)
+and gained the noun-phrase order, with a lookbehind excluding "our/your/the current Google Ads setup" —
+that describes an account that already exists. Scanned over all 523 postings: 10 new hits — 8 genuine setup
+jobs, 1 half-built account (4494, "finishing our Google Ads setup", defensible), and 1 false positive,
+job 16131, titled "Audit & Fix Existing Search Campaigns": "This is **not a basic Google Ads setup job**".
+That negation is now handled by `NEGATED_LAUNCH_RE`, which gained "a (basic) (Google Ads) setup (job)" as a
+third negated target — the article is required, so an ordinary "we do not have conversion tracking setup"
+is left alone. Two further candidates were **rejected** on the same scan: "setting up … campaigns" matched
+"setting up AND MANAGING" boilerplate in ongoing-manager roles (957, 8813, 17424), and "set up of google
+ads" pulled in a tracking-only job (17407).
+
+**B2B — owner chose (b).** His only B2B cases, Golden State Trailers and Oxytec, are both SEO, and
+`caseStudyDomainMismatch` fires when a PPC-only job cites an SEO case. Rather than loosen that rule, the
+note tells the letter to lead with the closest PAID case and bridge the B2B *mechanic* explicitly (long
+consideration, smaller pool of high-value buyers, qualified pipeline over volume, decision-stage intent) —
+and says outright not to claim a B2B vertical track record Artem does not have.
+
+Two existing tests pinned the exact note adjacency in the job context and failed by design once
+`_newAccountNote` was inserted between RUNNING ACCOUNT and ACTION OVER AUDIT; both updated rather than
+moving the note, since the pair belongs together. `tests/geo-fix-and-flags.test.js` covers the new shapes
+(including the possessive and negation exclusions); all 20 JS and 4 Python suites pass, frontend builds
+clean.

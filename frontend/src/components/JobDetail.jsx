@@ -2098,6 +2098,61 @@ function _stripDuplicateCaseBlockLabel(text) {
 // 16684's letter, which job 16730's had copied too) — missingDigitBombFacts both
 // times. With a bomb armed the opening is decided, so an example opening can only
 // compete with it; the rest of each letter (structure, placement, close) stays.
+// A posting that wants an account BUILT, not reviewed. Module scope because two
+// places need it: the prompt's NEW ACCOUNT note (built before the letter) and
+// wrongAuditOfferOnLaunch / launchJobMissingCTA (checked after it). Always tested
+// through blankNegatedLaunch() — a negated mention is the opposite signal.
+const LAUNCH_FROM_SCRATCH_RE = [
+  /\bfrom\s+scratch\b/i,
+  /\bzero[-\s]?pixel\b/i,
+  /\bfrom\s+\$?0\b/i,
+  /\bfrom\s+zero\b/i,
+  /\$0\s+to\s+scale\b/i,
+  /\bzero\s+(?:pixel\s+)?data\b/i,
+  /\bbuild(?:,| and|\s+launch|\s+&)\b[^.]*\blaunch\b/i,
+  /\blaunch(?:,| and|\s+&|\s+optimize|\s+optimise)\b[^.]*\bscale\b/i,
+  /\bno\s+existing\s+(?:account|campaigns?|ad\s+account)\b/i,
+  /\bstarting\s+from\s+(?:zero|scratch)\b/i,
+  /\b(?:new|brand[-\s]?new)\s+(?:ad\s+)?account\b/i,
+  /\blaunch\s+(?:exclusively\s+)?(?:via|on|with)\s+google\s+(?:ads?|ppc)\b/i,
+  // Plain "set up a Google Ads campaign" / "campaign setup" / "build a
+  // Google Ads setup" is ALSO a from-scratch build (there is no
+  // existing account to audit). These were missed, so Rule 450 never
+  // fired and the model invented a bogus "campaign live in 1 day".
+  // "google ads?" widened to "google (ads?|ppc)" — confirmed real, job
+  // 14256, 2026-09-02: posting said "set up a Google PPC campaigns",
+  // and "PPC" isn't "ads", so the original pattern never matched.
+  // Verified against all 458 postings in the DB: this one gain only.
+  /\bset\s*up\s+[^.]{0,40}\bgoogle\s+(?:ads?|ppc)\b[^.]{0,25}\bcampaign/i,
+  /\bcampaign\s+set[-\s]?up\b/i,
+  /\bbuild\s+[^.]{0,30}\bgoogle\s+(?:ads?|ppc)\b[^.]{0,15}\b(?:setup|campaign|account)\b/i,
+  /\bset\s*up\s+and\s+launch\b/i,
+  // Confirmed on job 13240 (2026-08-26): "a brand new google ads
+  // account" wasn't caught by the (?:new|brand-new)(ad )?account
+  // alternative above — "google ads" sits between "new" and
+  // "account", and "ads" (plural) doesn't match "ad" (singular)
+  // there. wrongAuditOfferOnLaunch (Rule 450) already exists for
+  // exactly this shape and never fired, because this detector
+  // never matched the posting in the first place.
+  /\b(?:new|brand[-\s]?new)\s+google\s+(?:ads?|ppc)\s+account\b/i,
+  // THE NOUN-PHRASE ORDER — "Google Ads setup" / "Google Ads set up".
+  // Confirmed real, job 17538 (2026-10-07): title "Google Ads setup", body
+  // "looking for Google Ads set up including tracking" and "Setting up a few
+  // small campaigns". All 17 patterns above missed it, because each wants
+  // "set up" BEFORE "google ads" (or the literal "campaign setup"), so Rule
+  // 450 never applied and the letter offered to audit an account that does
+  // not exist yet and to "check" things that were never built.
+  // The lookbehind keeps OUT "our/your/the current Google Ads setup", which
+  // describes an EXISTING account. Scanned over every posting in the DB: 10
+  // new hits, 8 genuine setup jobs, 1 half-built account (4494, defensible),
+  // and 1 negation — job 16131's "not a basic Google Ads setup job" — now
+  // handled by NEGATED_LAUNCH_RE. Two other candidates were REJECTED on the
+  // same scan: "setting up … campaigns" matched "setting up AND MANAGING"
+  // boilerplate in ongoing-manager roles (957, 8813, 17424), and "set up of
+  // google ads" pulled in a tracking-only job (17407).
+  /(?<!\b(?:our|your|their|my|its|the|this|that|existing|current|clients?'?s?)\s+(?:current\s+|existing\s+|new\s+)?)\bgoogle\s+(?:ads?|ppc)\s+set\s*-?\s*up\b/i,
+]
+
 const _PAST_LETTER_OPENING_OMITTED = '[opening omitted: this letter opens with the armed Digit Bomb case]'
 function _dropPastLetterOpenings(text) {
   if (!text) return text
@@ -6844,6 +6899,24 @@ function ProposalColumn({
       const _runningAccountNote = _runningAccount
         ? `RUNNING ACCOUNT — CLOSE WITH THE AUDIT OFFER (owner rule, mandatory): the posting says the account is already running ("${_runningAccount.phrase}"). The LAST paragraph before "Artem" is the Google Ads audit offer, and it OPENS with the offer itself — "I can run a full audit of your Google Ads account within 1 working day" — then describes it: done entirely by hand, no automated tools, what it covers for THIS account, recent audit samples attached, with the $300 price only if this posting asks for pricing (the NO PRICING / RATE rules decide the price, never whether to offer). Never open it with how you run audits ("Every audit I run is done by hand…") — that describes an audit without offering one. Any plan, timeline, case study or first-steps answer comes BEFORE it. This is not a banned closing CTA — it is the required close.`
         : ''
+      // The mirror image of RUNNING ACCOUNT, and the gap that produced job 17538
+      // (2026-10-07, owner: "it's a setup from scratch project … Instead generator
+      // is talking about what it would check (there is nothing to check) and audit
+      // (there is nothing to audit)"). A running account got a hard, deterministic
+      // instruction; a from-scratch build got nothing but a static block the model
+      // ignored, so it fell back to its audit habits. Never both at once.
+      const _launchFromScratch = _casePpcSignal && !_runningAccount &&
+        LAUNCH_FROM_SCRATCH_RE.some(re => re.test(blankNegatedLaunch(_postingTitleDesc.toLowerCase())))
+      const _postingWantsB2B = /\bb\s*2\s*b\b|\bbusiness[-\s]to[-\s]business\b/i.test(_postingTitleDesc)
+      const _newAccountNote = _launchFromScratch
+        ? `NEW ACCOUNT — NOTHING TO AUDIT, NOTHING TO CHECK (owner rule, mandatory): this posting asks you to SET UP Google Ads, not to review an existing one. There is no account, no campaigns, no tracking and no data to look at yet. Therefore:
+- Do NOT offer an audit, do NOT attach an audit sample, and do NOT price one. An audit of an account that does not exist reads as if you did not read the posting.
+- Do NOT write "first thing I'd check…", "I'd map what's firing now", "where the conversion path breaks" or any diagnostic framing. There is nothing to diagnose. Swapping the word "audit" for "check" or "review" is the same mistake with a different noun.
+- LEAD with the track record of taking accounts from zero to performing — what Artem has built and the results it produced — not with a theory about what usually goes wrong.
+- SAY WHAT YOU WILL ACTUALLY SET UP, concretely and only what this posting names: the campaign types it lists, conversion tracking and conversion verification, GA4/GTM wiring, audiences and retargeting, negatives and structure. Specifics the client recognises from their own brief, never invented account facts.
+- CLOSE with the Rule 450 commitment: campaigns live and approved within 5 working days. That is the CTA for this job — not an audit offer, and never "1 working day" (that figure belongs to the audit only).${_postingWantsB2B ? `
+- THIS POSTING ASKS FOR B2B EXPERIENCE. Artem's B2B cases (Golden State Trailers, Oxytec) are SEO cases, and this is a paid-media job — do NOT cite them here. Instead lead with the closest PAID case and bridge the B2B mechanic explicitly: long consideration cycle, a smaller pool of high-value buyers, qualified pipeline rather than raw volume, decision-stage intent over tyre-kickers (Atlant is the per-complex lead-gen shape; ChronoCash is high-ticket considered purchase). Name the mechanic in the client's own terms — do not claim a B2B vertical track record Artem does not have.` : ''}`
+        : ''
       const _auditDeclinedAsk = postingDeclinesAudit(_postingTitleDesc)
       const _actionOverAuditNote = _auditDeclinedAsk
         ? `ACTION OVER AUDIT (mandatory): the posting wants the work done, not an audit on its own ("${_auditDeclinedAsk.phrase}"). In any timeline or first-steps answer, the EARLIEST block must contain real changes, not only analysis: say which changes you would make straight away and which genuinely need more data first — only what fits this posting, never invented account facts. If the posting asks when results should start to recover, give a realistic estimate.${_runningAccount ? ' The closing audit offer still stands (RUNNING ACCOUNT above) — present it as the first step of the work, with the changes starting straight after it.' : ''}`
@@ -6876,6 +6949,7 @@ function ProposalColumn({
         _caseDomainNote,
         _dualChannelNote,
         _runningAccountNote,
+        _newAccountNote,
         _actionOverAuditNote,
         `Country: ${job.client_country || 'unknown'}`,
         `Description (full):\n${fullDescription}`,
@@ -9162,40 +9236,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // "audit sample" signals Artem didn't read the brief. This is the
             // inverse of missingAuditSampleMention: there, an audit job is
             // missing the audit offer; here, a launch job WRONGLY includes one.
-            const LAUNCH_FROM_SCRATCH_RE = [
-              /\bfrom\s+scratch\b/i,
-              /\bzero[-\s]?pixel\b/i,
-              /\bfrom\s+\$?0\b/i,
-              /\bfrom\s+zero\b/i,
-              /\$0\s+to\s+scale\b/i,
-              /\bzero\s+(?:pixel\s+)?data\b/i,
-              /\bbuild(?:,| and|\s+launch|\s+&)\b[^.]*\blaunch\b/i,
-              /\blaunch(?:,| and|\s+&|\s+optimize|\s+optimise)\b[^.]*\bscale\b/i,
-              /\bno\s+existing\s+(?:account|campaigns?|ad\s+account)\b/i,
-              /\bstarting\s+from\s+(?:zero|scratch)\b/i,
-              /\b(?:new|brand[-\s]?new)\s+(?:ad\s+)?account\b/i,
-              /\blaunch\s+(?:exclusively\s+)?(?:via|on|with)\s+google\s+(?:ads?|ppc)\b/i,
-              // Plain "set up a Google Ads campaign" / "campaign setup" / "build a
-              // Google Ads setup" is ALSO a from-scratch build (there is no
-              // existing account to audit). These were missed, so Rule 450 never
-              // fired and the model invented a bogus "campaign live in 1 day".
-              // "google ads?" widened to "google (ads?|ppc)" — confirmed real, job
-              // 14256, 2026-09-02: posting said "set up a Google PPC campaigns",
-              // and "PPC" isn't "ads", so the original pattern never matched.
-              // Verified against all 458 postings in the DB: this one gain only.
-              /\bset\s*up\s+[^.]{0,40}\bgoogle\s+(?:ads?|ppc)\b[^.]{0,25}\bcampaign/i,
-              /\bcampaign\s+set[-\s]?up\b/i,
-              /\bbuild\s+[^.]{0,30}\bgoogle\s+(?:ads?|ppc)\b[^.]{0,15}\b(?:setup|campaign|account)\b/i,
-              /\bset\s*up\s+and\s+launch\b/i,
-              // Confirmed on job 13240 (2026-08-26): "a brand new google ads
-              // account" wasn't caught by the (?:new|brand-new)(ad )?account
-              // alternative above — "google ads" sits between "new" and
-              // "account", and "ads" (plural) doesn't match "ad" (singular)
-              // there. wrongAuditOfferOnLaunch (Rule 450) already exists for
-              // exactly this shape and never fired, because this detector
-              // never matched the posting in the first place.
-              /\b(?:new|brand[-\s]?new)\s+google\s+(?:ads?|ppc)\s+account\b/i,
-            ]
+            // LAUNCH_FROM_SCRATCH_RE now lives at module scope — the prompt's
+            // NEW ACCOUNT note (built long before this check block) needs it too.
             // A NEGATED mention is the opposite signal (job 16378, 2026-09-27: "improve
             // performance rather than simply starting over from scratch" — an existing
             // account — fired wrongAuditOfferOnLaunch on the correct audit offer and

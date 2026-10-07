@@ -325,7 +325,13 @@ export function letterGivesExample(text) {
 // existing account) read as a launch, so wrongAuditOfferOnLaunch flagged the
 // correct audit offer and launchJobMissingCTA asked for a launch CTA. Blank the
 // negated phrases before the launch patterns run.
-export const NEGATED_LAUNCH_RE = /\b(?:rather\s+than|instead\s+of|not|n['’]t|no\s+need\s+to|without|never|avoid(?:ing)?|(?:don['’]?t|do\s+not|does\s+not|doesn['’]?t)\s+(?:want|need)\s+to|isn['’]?t|is\s+not|are\s+not|aren['’]?t)\b[^.\n]{0,40}?\b(?:(?:start(?:ing)?|build(?:ing)?|rebuild(?:ing)?|begin(?:ning)?|launch(?:ing)?|redo(?:ing)?)\s+(?:(?:it|everything|the\s+account|over|again|all\s+over)\s+)*)?(?:from\s+(?:scratch|zero)|a\s+(?:brand[-\s]?)?new\s+(?:google\s+ads?\s+|ad\s+)?account)\b/gi
+// "a (basic) (Google Ads) setup job" is a THIRD negated target, added 2026-10-07:
+// job 16131 is titled "Audit & Fix Existing Search Campaigns" and says "This is
+// **not a basic Google Ads setup job**" — the only false positive thrown up by the
+// new noun-phrase launch pattern (LAUNCH_FROM_SCRATCH_RE in JobDetail.jsx). The
+// article is required ("a … setup"), so an ordinary "we do not have conversion
+// tracking setup" is left alone — that is not a claim about the job's type.
+export const NEGATED_LAUNCH_RE = /\b(?:rather\s+than|instead\s+of|not|n['’]t|no\s+need\s+to|without|never|avoid(?:ing)?|(?:don['’]?t|do\s+not|does\s+not|doesn['’]?t)\s+(?:want|need)\s+to|isn['’]?t|is\s+not|are\s+not|aren['’]?t)\b[^.\n]{0,40}?\b(?:(?:start(?:ing)?|build(?:ing)?|rebuild(?:ing)?|begin(?:ning)?|launch(?:ing)?|redo(?:ing)?)\s+(?:(?:it|everything|the\s+account|over|again|all\s+over)\s+)*)?(?:from\s+(?:scratch|zero)|a\s+(?:brand[-\s]?)?new\s+(?:google\s+ads?\s+|ad\s+)?account|a\s+(?:basic\s+|simple\s+)?(?:google\s+ads?\s+|ppc\s+)?set\s*-?\s*up(?:\s+(?:job|project))?)\b/gi
 export function blankNegatedLaunch(text) {
   return String(text || '').replace(NEGATED_LAUNCH_RE, ' ')
 }
