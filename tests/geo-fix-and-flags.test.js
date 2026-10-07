@@ -82,7 +82,14 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   // positive the new pattern threw up across all 523 postings, now negated.
   assert(!isLaunch('This is **not a basic Google Ads setup job**. I am already at an intermediate level with Google Ads.'), 'job 16131: "not a basic Google Ads setup job" is not a launch');
   assert(isLaunch('We do not have conversion tracking setup yet, so build and launch the account from scratch.'), 'the negation needs the article — "do not have tracking setup" does not blank a real launch');
-  assert(/LAUNCH_FROM_SCRATCH_RE\.some\(re => re\.test\(blankNegatedLaunch\(jobContextLower\)\)\)/.test(src) && /_PPC_LAUNCH_FROM_SCRATCH_RE\.test\(blankNegatedLaunch\(jobContextLower\)\)/.test(src), 'both launch detectors in JobDetail.jsx blank negated phrases first');
+  assert(/LAUNCH_FROM_SCRATCH_RE\.some\(re => re\.test\(blankNegatedLaunch\(jobContextLower\)\)\)/.test(src), 'the launch detector blanks negated phrases first');
+  // There used to be a SECOND, narrower launch regex (_PPC_LAUNCH_FROM_SCRATCH_RE)
+  // gating the PPC audit-price checks. The 2026-10-07 widening never reached it, so
+  // on job 17575 ("Google Ads Set Up") one detector said launch and the other did
+  // not, and missingAuditPriceEntirely demanded a $300 audit price on a build job.
+  assert(!/_PPC_LAUNCH_FROM_SCRATCH_RE/.test(src), 'there is only ONE launch detector now — the second one drifted and is gone');
+  assert(/_ppcPostingIsLaunch = LAUNCH_FROM_SCRATCH_RE\.some\(re => re\.test\(blankNegatedLaunch\(_postingOnlyLower\)\)\)/.test(src), 'the PPC audit gate reuses that one detector, on the posting only');
+  assert(/_PPC_AUDIT_STRONG_RE\.test\(_postingOnlyLower\)/.test(src) && !/_PPC_AUDIT_(?:STRONG|WEAK)_RE\.test\(jobContextLower\)/.test(src), 'the audit-ask detector reads the posting, not the assembled prompt (which always says "audit")');
 
   // ── 2b. the NEW ACCOUNT prompt note (job 17538) ──────────────────────────
   // A running account gets a hard deterministic instruction; a from-scratch build

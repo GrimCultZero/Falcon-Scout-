@@ -9595,3 +9595,40 @@ Still unfixed from this letter (reported, not patched): the same two cases (Nect
 appear twice, once under "Proof this approach works:" and again under "Relevant work:", with a mangled label
 on the first pass ("Nectar Flowers (attached in profile highlights): (ecommerce florist, Shopify):"). Five of
 the eleven fired checks are that one defect.
+
+## 2026-10-07 — One launch detector instead of two, and the duplicate case block that hid behind "Rate:"
+
+Both fixes the owner approved from the 17575 analysis.
+
+**1. The two launch detectors are now one.** `_PPC_LAUNCH_FROM_SCRATCH_RE` is deleted; the PPC audit gate
+reuses `LAUNCH_FROM_SCRATCH_RE`, and both it and the audit-ask detector now read `_postingOnlyLower` instead
+of `jobContextLower`. Two separate bugs were compounding: the second detector never received the 10-07
+widening (verified on 17575's posting — the fixed one true, the narrow one false), and the audit-ask regex
+was tested against the ASSEMBLED PROMPT, which always contains the word "audit", rather than the posting,
+which here never did.
+
+While validating, a third problem surfaced that the naive fix would have introduced. The old precedence is
+"any launch signal beats any audit signal", and widening the launch detector pushed 29 postings into the
+overlap — including several that literally ask for an audit ("Google Ads & Merchant Center **Audit** for
+Ecommerce Store", "Google Ads **Audit** – B2B Lead Generation", "account audit & setup / rebuild"), which
+would have lost their $300 price check. So the audit signal is now split: **strong** (`\baudits?\b` — a
+client asking you to audit an account has one) wins outright; **weak** (review / assessment / health check /
+analysis — words that turn up in build briefs too) only counts when nothing says the account is being built.
+Across the 281 PPC postings that classifies 148 as audit-existing vs 128 under launch-always-wins, and all 20
+differences are postings that say "audit" outright. 17575 itself stays correctly false — its posting contains
+no audit word at all.
+
+**2. `_stripRedundantTrailingCaseBlock` only ever looked at the END of the letter.** It skipped a short
+sign-off and walked back from there, so it found a duplicate case block only when the block ran to the very
+end. On 17575 a "Rate:" section sat after the duplicate block, so the whole thing was never examined and
+Nectar Flowers and Skin Reboot shipped twice. It now walks back to the last case paragraph wherever it sits;
+everything after the block is preserved untouched. The classic end-anchored shape still works.
+
+The function had **no test at all** despite being in the strip chain. `tests/duplicate-case-block.test.js`
+(new, 11 assertions) pins it with the real 17575 letter: both cases reduced to one citation each, the FIRST
+block kept and the later lead-in dropped with the entries it introduced, the "Rate:" / 5-working-days close
+preserved, the end-anchored shape still stripped, and a letter citing each case once returned byte-identical.
+
+21 JS and 4 Python suites pass; frontend builds clean. Still open from that letter and NOT touched: the
+`$700` quoted for a Google Ads setup is ungrounded (the KB defines $700 = SEO audit, $300 = Ads audit,
+$600/month = post-audit management, and no setup price at all) — an owner decision.

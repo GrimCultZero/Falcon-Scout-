@@ -2427,9 +2427,16 @@ function _stripRedundantTrailingCaseBlock(text) {
   if (!text) return text
   const paras = text.split(/\n\s*\n/)
   if (paras.length < 4) return text
+  // Walk back to the LAST case paragraph in the letter, wherever it sits. This
+  // used to skip only a short sign-off, so it found the block solely when it ran
+  // to the very end — and job 17575 (2026-10-07) put a "Rate:" section after the
+  // duplicate block, so the whole thing was never examined and the same two cases
+  // (Nectar Flowers, Skin Reboot) shipped twice, once under "Proof this approach
+  // works:" and again under "Relevant work:". Anything after the block is
+  // preserved untouched either way.
   let end = paras.length - 1
-  // Skip a short sign-off ("Artem") so the block can be found behind it.
-  if (end >= 0 && paras[end].trim().split(/\s+/).length <= 3 && !_ANY_CASE_NAME_RE.test(paras[end].trim())) end--
+  while (end >= 0 && !_ANY_CASE_NAME_RE.test(paras[end].trim())) end--
+  if (end < 0) return text
   let start = end
   while (start >= 0 && _ANY_CASE_NAME_RE.test(paras[start].trim())) start--
   const blockStart = start + 1
@@ -8717,11 +8724,34 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             //   - Posting is silent on this either way -> default to plain $300
             //     (no unprompted promise) — only add the credit offer when the
             //     posting actually signals ongoing potential.
-            const _PPC_AUDIT_EXISTING_RE = /\b(?:audit|review|assessment|health\s*check|analys[ei]s|analyse|analyze)\b/i
-            const _PPC_LAUNCH_FROM_SCRATCH_RE = /\b(?:launch|from\s+scratch|new\s+brand|starting\s+from\s+zero|no\s+existing\s+campaigns?|build\s+and\s+launch|zero[\s-]?pixel)\b/i
+            // An explicit "audit" ask is STRONG evidence of an existing account: a
+            // client asking you to audit one has one. "review / analysis / assessment"
+            // are WEAK — they turn up in build briefs too ("conversion tracking review"
+            // on a setup job), so they only count when nothing says the account is
+            // being built. Checked on the 281 PPC postings: explicit-audit-wins
+            // classifies 148 as audit-existing vs 128 for launch-always-wins, and all
+            // 20 differences are postings that literally say "audit" ("Google Ads &
+            // Merchant Center Audit for Ecommerce Store", "Google Ads Audit - B2B Lead
+            // Generation", "account audit & setup / rebuild").
+            const _PPC_AUDIT_STRONG_RE = /\baudits?\b/i
+            const _PPC_AUDIT_WEAK_RE = /\b(?:review|assessment|health\s*check|analys[ei]s|analyse|analyze)\b/i
+            // Two fixes here, both found on job 17575 (2026-10-07), a pure "Google Ads
+            // Set Up" posting that was classified as having an account to audit:
+            //   1. This used a SECOND, narrower launch regex that the 10-07 widening
+            //      never reached — two detectors for one concept, drifted apart (the
+            //      defect class the handoff calls the most common in this file).
+            //      Verified on 17575's posting: LAUNCH_FROM_SCRATCH_RE true, the old
+            //      narrow one false. There is now one detector.
+            //   2. It tested jobContextLower — the ASSEMBLED PROMPT, which always
+            //      contains the word "audit" — instead of the posting, which here did
+            //      not contain it at all. So missingAuditPriceEntirely demanded the
+            //      $300 audit price on a letter whose own NEW ACCOUNT note had just
+            //      said there is nothing to audit.
             // Negated mentions ("rather than simply starting over from scratch") are
             // blanked first — they describe an EXISTING account (job 16378, 2026-09-27).
-            const jobIsPpcAuditExisting = jobIsPpc && _PPC_AUDIT_EXISTING_RE.test(jobContextLower) && !_PPC_LAUNCH_FROM_SCRATCH_RE.test(blankNegatedLaunch(jobContextLower))
+            const _ppcPostingIsLaunch = LAUNCH_FROM_SCRATCH_RE.some(re => re.test(blankNegatedLaunch(_postingOnlyLower)))
+            const jobIsPpcAuditExisting = jobIsPpc &&
+              (_PPC_AUDIT_STRONG_RE.test(_postingOnlyLower) || (_PPC_AUDIT_WEAK_RE.test(_postingOnlyLower) && !_ppcPostingIsLaunch))
             // Shared with the closing-audit insert (lib/letterGuards.js), unchanged.
             const _AUDIT_ONLY_NO_ONGOING_RE = AUDIT_ONLY_NO_ONGOING_RE
             const _ONGOING_SIGNAL_PPC_RE = ONGOING_SIGNAL_RE
