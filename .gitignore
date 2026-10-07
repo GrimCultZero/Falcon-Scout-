@@ -47,3 +47,6 @@ Thumbs.db
 
 # Test fixture built from the local DB — contains real client postings
 tests/.letters.json
+
+# Generated letter analyses — real client letters. Never commit.
+tools/_*

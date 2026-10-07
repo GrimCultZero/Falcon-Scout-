@@ -9489,3 +9489,46 @@ Two existing tests pinned the exact note adjacency in the job context and failed
 moving the note, since the pair belongs together. `tests/geo-fix-and-flags.test.js` covers the new shapes
 (including the possessive and negation exclusions); all 20 JS and 4 Python suites pass, frontend builds
 clean.
+
+## 2026-10-07 — Why violations persist, and the first real look at the letter SHAPES (Step 5 input)
+
+Owner: "why do you think we are still getting rule violations and halucinations?" Telemetry first: **95% of
+generations fire at least one real violation** (166 `draftNotCompliant` of 175 in 30 days), ~6.6 fired
+checks per letter, 64 distinct checks. Per-letter violations rose 2.9 (W30) → 7.2 (W40) — but a large part
+of that is that we keep ADDING detectors, so the measurement instrument changes every time we fix something.
+**We currently cannot tell whether letters are improving.** Worth separating "a check fired" from "the
+letter was wrong" before trusting any trend.
+
+The diagnosis given (not new work, a summary of the month's bugs): mandatory rules are gated behind
+closed-set keyword detectors against open-ended client language (14256, 13240, 17538 launch; 14199
+"ongoing implementation"; 16926 vertical collision) — enumeration can't win that; the prompt is large
+enough that its own rules collide and the model picks a winner silently (§21-C still blocked); checks only
+report, and at 6-7 codes per letter the signal is buried; and some ground truth is itself wrong or
+incomplete, so `metricNotInLedger` fired 28 times in 30 days largely on GENUINE figures missing from the
+ledger while real inventions hide in that noise.
+
+**Step 5 started: `tools/extract_shapes.py`** (committed; its output `tools/_letter_shapes.md` is real
+client letters — `tools/_*` is now gitignored, which also finally covers `_letter_features.json`). It
+classifies all 307 sent letters deterministically, no LLM, as **opener move → proof style → offer move**,
+and prints marginals (one decision at a time) because 75 full combinations are not judgeable.
+
+Two self-inflicted classifier bugs found and fixed while building it, both worth remembering: the greeting
+stripper's optional name group ate the first word of ordinary sentences ("Hi. **The** challenge here
+isn't…"), and — much worse — `METRIC_START_RE` matched any leading digit, so every "**12 years** running
+Google Ads…" counted as a metric-led opener. That inflated metric-led to 54% of the corpus, which was an
+artifact of my own regex, not a fact about the letters. Corrected numbers below.
+
+What the corpus actually looks like (33 replies total, so read counts not rates):
+- **Openers:** credential-led 141 (46%, 13% reply) — the house opener is "12 years running Google Ads,
+  Google Premier Partner 2026". True metric-led/Digit-Bomb openers: only 35. `other` 54 at 18%.
+- **The one finding that survives scrutiny: approach-led 0/15 and diagnosis-led 0/13 — zero replies in 28
+  decided letters.** Those are exactly the "first thing I'd check…" openers the owner called a disaster on
+  job 17538 the same day. Independent corroboration of his instinct.
+- **Offers:** audit 210 of 307 (**68%** of everything he sends) at 14%; SEO plan 49 at 5% (2/40); launch
+  5-day 22 at 17%.
+- **Proof style separates nothing** (10–17% across 1 / 2-3 / 4+ cases).
+- `invite-reply` is 5/5 and must NOT be read as a winning opener — an invite means the client had already
+  picked him. Confounded by definition.
+
+The headline for Step 5 is less "which shape wins" than **how little variety there is to compare**: one
+opener in every two, one offer in every three letters. The generator is producing essentially one letter.
