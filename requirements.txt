@@ -5,3 +5,21 @@ fastapi==0.136.1
 uvicorn==0.46.0
 PyMuPDF==1.27.2.3
 tzdata==2026.2
+
+# Added 2026-10-08, found by installing from this file into a clean clone and
+# watching the backend fail. All three were present on the original machine but
+# never declared, so a fresh install was broken in three different ways:
+#   python-multipart — FastAPI needs it for any Form() route; without it the
+#                      backend does not start at all ("Form data requires
+#                      python-multipart to be installed").
+#   httpx            — imported INSIDE functions (bridge ping, /claude, /chat),
+#                      so it starts fine and then fails the moment anything
+#                      calls Claude.
+#   python-docx      — same lazy-import pattern, for reading .docx attachments.
+python-multipart==0.0.29
+httpx==0.28.1
+python-docx==1.2.0
+
+# Not required by the app — only by one-off scripts. Install if you need them:
+#   requests   (scripts/import_webdev.py)
+#   reportlab  (make_access_pdf.py)
