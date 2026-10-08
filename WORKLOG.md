@@ -9632,3 +9632,40 @@ preserved, the end-anchored shape still stripped, and a letter citing each case 
 21 JS and 4 Python suites pass; frontend builds clean. Still open from that letter and NOT touched: the
 `$700` quoted for a Google Ads setup is ungrounded (the KB defines $700 = SEO audit, $300 = Ads audit,
 $600/month = post-audit management, and no setup price at all) — an owner decision.
+
+## 2026-10-08 — The repo could not actually be installed by anyone; setup.bat, INSTALL.md, and a package
+
+Owner needs Falcon Scout on a second machine. Rather than read the repo and assume, cloned it into a clean
+directory, installed from `requirements.txt` and tried to start it. **It failed three separate ways** — so a
+fresh clone had never been installable, including by a future session.
+
+`requirements.txt` was missing three packages present on the original machine but never declared:
+- **`python-multipart`** — FastAPI needs it for any `Form()` route; without it the backend does not start at
+  all ("Form data requires python-multipart to be installed").
+- **`httpx`** — imported INSIDE functions (bridge ping, `/claude`, `/chat`), so the backend starts fine and
+  then fails the moment anything calls Claude. The nastiest of the three, because it looks healthy.
+- **`python-docx`** — same lazy-import pattern, for `.docx` attachments.
+
+`requests` and `reportlab` are also undeclared but are used only by one-off scripts
+(`scripts/import_webdev.py`, `make_access_pdf.py`), so they are noted as optional rather than installed.
+
+`.env.template` was missing **`ANTHROPIC_API_KEY`**, which every AI call reads — following the template
+exactly produced "ANTHROPIC_API_KEY not set in .env" on first use. `BOT_CHAT_ID` added as well.
+
+No file in the repo mentioned `pip install` or `npm install`. Now `INSTALL.md` (full setup guide, including
+the `.claude-artem` bridge-profile login and the venv/cp1252 warning) and `setup.bat` (checks Python and
+Node, builds `.venv`, installs both dependency sets, writes `.env`, reports what is left to do by hand).
+Both tested end to end in the clean clone — `setup.bat` needed one fix of its own: unescaped parentheses
+inside an `if/else` block crash cmd with ". was unexpected at this time" *after* the install has run.
+Verified after the fixes: backend starts clean and `/jobs` and `/dashboard-stats` both return 200.
+
+**Package:** `FalconScout-setup-20261008.zip` at the repo root, 229 MB, built from a clean clone (so it
+matches `origin` exactly), `.git` stripped, 276 entries, verified to contain no `.env`, no `*.session`, no
+`upwork_jobs.db`, no `ai_provider.json`. `FalconScout-setup-*.zip` is now gitignored. 239 MB of the 254 MB
+unpacked is `Web Development addon` case-study PDFs; the app itself is ~15 MB.
+
+**Finding worth acting on separately: 19 `corrections/` files are COMMITTED to the repo** — real client job
+postings, Artem's letters and chat transcripts, from 2026-09-02/03, before the gitignore rule caught up. The
+handoff says never to commit that directory. They are in git history, so `git rm --cached` removes them going
+forward but does not purge them; a real purge means rewriting history on a shared remote and needs the
+owner's explicit go-ahead. Flagged, not touched.

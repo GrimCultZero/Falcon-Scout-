@@ -50,3 +50,6 @@ tests/.letters.json
 
 # Generated letter analyses — real client letters. Never commit.
 tools/_*
+
+# Distributable setup archives — large build artifacts, never commit.
+FalconScout-setup-*.zip
