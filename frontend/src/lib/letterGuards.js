@@ -870,3 +870,41 @@ export function dropPastLetterCodeWord(letter, postingText = '') {
   }
   return stripUnrequestedOpenerWord(src, null).text.replace(/^\s+/, '')
 }
+
+// ── the ongoing Google Ads fee (2026-10-09, job 17799) ───────────────────────
+// After the $300 audit, ongoing Google Ads management is Artem's FIXED fee: $700
+// for the first month, then $600/month — never hourly (the generator prompt says
+// so and _forceFixOngoingFee enforces it on generated letters; SEO's $1,050/month
+// is KB Rule 426). The letter chat had neither, and on job 17799 wrote "I work at
+// $30/hr or $1,500/month flat retainer…". Returns the sentence and the figures that
+// are not the fixed fee, or null. Only on a Google Ads posting whose letter pitches
+// the $300 audit (an hourly bid on an hourly contract is a different, legitimate
+// shape); client budgets and ad spend ("$500/month budget", "budgets I've managed:
+// $1,500 - $15,000/month") are not fees. A note, not a rewrite — Artem may name a
+// different figure on purpose.
+const _ONGOING_FEE_CTX_RE = /\b(?:ongoing|management|manage|managing|retainer|after\s+the\s+audit|per\s+month|monthly)\b|\/\s*mo(?:nth)?\b/i
+// One figure, or a range read as one ("$1,500 - $15,000/month"): groups 1-2 the
+// low end, 3 set for a range, 4 an hourly unit, 5 a monthly unit.
+const _FEE_FIGURE_RE = /\$\s?(\d[\d,]*(?:\.\d+)?)\s*(k)?(\s*[-–]\s*\$?\s?\d[\d,]*(?:\.\d+)?\s*k?)?(?:(\s*\/\s*(?:hr|hour|h)\b|\s+per\s+hour\b|\s+an\s+hour\b|\s+hourly\b)|(\s*\/\s*mo(?:nth)?\b|\s+per\s+month\b|\s+a\s+month\b|\s+monthly\b))/gi
+const _BUDGET_AFTER_RE = /^[^.\n]{0,22}\b(?:budgets?|ad\s+spend|in\s+spend|spend|in\s+ads?)\b/i
+const _BUDGET_BEFORE_RE = /\b(?:budgets?|spend(?:ing)?|spent|managed|from|revenue)\b[^.\n$]{0,28}$/i
+export function findOffStandardOngoingFee(letter, { postingText = '' } = {}) {
+  const t = String(letter || '')
+  if (!/\b(?:google\s+ads|adwords|ppc|pmax|performance\s+max|search\s+campaigns?|shopping\s+(?:ads|campaigns?))\b/i.test(postingText)) return null
+  if (!/\$300\b/.test(t) || !/\baudit\b/i.test(t)) return null
+  for (const line of t.split('\n')) {
+    for (const { text: s } of _sentencePieces(line)) {
+      if (!_ONGOING_FEE_CTX_RE.test(s)) continue
+      const off = []
+      for (const m of s.matchAll(_FEE_FIGURE_RE)) {
+        const before = s.slice(0, m.index), after = s.slice(m.index + m[0].length)
+        if (_BUDGET_AFTER_RE.test(after) || _BUDGET_BEFORE_RE.test(before)) continue
+        const n = parseFloat(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)
+        // hourly: never; a range: never ("never a range"); otherwise the fixed figures
+        if (m[4] || m[3] || (n !== 600 && n !== 700 && n !== 1050)) off.push(m[0].trim())
+      }
+      if (off.length) return { sentence: s.trim(), figures: off }
+    }
+  }
+  return null
+}

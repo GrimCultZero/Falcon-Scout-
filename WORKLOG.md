@@ -9669,3 +9669,38 @@ postings, Artem's letters and chat transcripts, from 2026-09-02/03, before the g
 handoff says never to commit that directory. They are in git history, so `git rm --cached` removes them going
 forward but does not purge them; a real purge means rewriting history on a shared remote and needs the
 owner's explicit go-ahead. Flagged, not touched.
+
+## 2026-10-09 — The letter chat invented the ongoing fee and hedged on Artem's own request (job 17799)
+
+Owner shared job 17799 (branded-search audit for a US lingerie e-commerce brand; the posting asks for
+"your estimated pricing for an audit and optimization") with his chat: "add ongoing support fees" → the chat
+wrote "$30/hr"; "I meant fixed rates monthly" → "I work at $30/hr or $1,500/month flat retainer depending on
+ad spend and scope", citing "Rule 4" (KB #397, no retainers unless the client asks) both times.
+
+- The fee exists and the generator knows it: prompt line "FIXED TWO-TIER MONTHLY FEE — $700 for the first
+  (setup) month, $600/month after that — NEVER a scope-sized range and NEVER an hourly rate", enforced by
+  `_forceFixOngoingFee` (owner correction 2026-08-08). The chat's reworked letter goes through neither, and
+  the chat prompt never states the fee. The sent letters agree: 7 "$700 for the first month …, then
+  $600/month", 12 "$600/month"; the $1,500 figures in them are client budgets.
+- The facts block (proof / screening turns, also in chat) said "MONTHLY RETAINER: not fixed — roughly
+  $800–$2,500/mo" — contradicting the generator for Google Ads (and Rule 426 for SEO).
+- The chat's rules framing: "If anything you're about to say conflicts with a rule, change your answer to
+  comply with the rule" — nothing let Artem's own explicit request outrank a rule.
+
+Fixes:
+- `ARTEM_FIXED_FEES` (JobDetail): $300 audit credited back; ongoing $700 first month then $600/month,
+  never hourly or a range; SEO $700 within $1,050/month. Used by the facts block (its open-ended retainer
+  line now only for web dev / maintenance) and given to the letter chat on every turn ("Artem's own figure
+  in this chat wins").
+- Backend chat prompt: an explicit request from Artem outranks a rule for that letter — do it and say which
+  rule was set aside; account-safety rules (nothing off Upwork) still hold; a correction REPLACES the
+  previous change.
+- `findOffStandardOngoingFee` (letterGuards) + a "Fix before sending" note: on a Google Ads posting whose
+  letter pitches the $300 audit, a sentence about ongoing work that quotes an hourly rate, a range, or a
+  monthly figure other than 600 / 700 / 1,050 — budgets and ad spend excluded. A note, not a rewrite (a
+  figure Artem picked stays his). Over all 323 sent letters it flags 1: #290, a real "$30/hr for the
+  ongoing management work after the audit".
+- Not done: running `_forceFixOngoingFee` on chat output — it would overwrite a figure Artem names on
+  purpose; and its 60-character window misses this sentence (the fee sits ~120 characters after "ongoing").
+
+`tests/chat-fees.test.js` (new) 17/17; all 22 JS and 4 Python suites pass.

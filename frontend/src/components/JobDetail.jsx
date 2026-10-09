@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -236,6 +236,14 @@ const ARTEM_PORTFOLIO = {
   shopify: ['https://casaeleganza.com', 'https://paramusmegafurniture.com'],
   wordpress: ['https://tothebeauty.com', 'https://www.envieq.com', 'https://www.redwallmural.com'],
 }
+// Artem's FIXED fees, one statement for the facts block and the letter chat.
+// The generator's own prompt already has the ongoing Google Ads fee and
+// _forceFixOngoingFee enforces it ($700 / $600, owner correction 2026-08-08);
+// SEO is KB Rule 426. The chat had none of it — job 17799 (2026-10-09): asked to
+// "add ongoing support fees", it wrote "$30/hr", then "$30/hr or $1,500/month".
+// The sent letters agree: "$700 for the first month …, then $600/month" in 7,
+// "$600/month" in 12, nothing else quoted as Artem's own management fee.
+const ARTEM_FIXED_FEES = 'Google Ads audit: $300 flat, delivered within 1 working day, credited back if management follows. ONGOING Google Ads management after it: a FIXED monthly fee — $700 for the first month (implementing the audit\'s fixes), then $600/month — never an hourly rate, never a range. Technical SEO audit: $700, included in the $1,050/month SEO optimization retainer.'
 // Fires the facts block when a posting/question asks for proof, portfolio, team
 // size, turnaround, or pricing.
 const _PROOF_REQUEST_RE = /\b(portfolio|examples?\b|case\s+stud|\bproof\b|sites?\s+you(?:'?ve)?\s*(?:manage|run|built|worked|maintain)|websites?\s+you|links?\s+to|show\s+(?:us|me)|references?|team\s+size|how\s+many\s+(?:people|staff)|retainer|turn[-\s]?around|monthly\s+(?:budget|fee|rate|retainer))\b/i
@@ -274,7 +282,9 @@ function buildArtemFactsBlock(contextText) {
     ``,
     `• TEAM SIZE: 20 people. ⚠️ State this ONLY when the client EXPLICITLY asks about team size, company size, or headcount. NEVER volunteer it otherwise — most letters should not mention team size at all.`,
     ``,
-    `• LANDING-PAGE TURNAROUND and MONTHLY RETAINER: not fixed — give a specific, credible figure that fits THIS job's scope, positioned as a skilled non-US freelancer (fast delivery, strong value vs US agencies). Sensible anchors: a single landing page in ~2–4 business days; an ongoing retainer roughly $800–$2,500/mo depending on the number of sites and the workload described. Give a real number/range when asked — never a placeholder for these two.`,
+    `• FIXED FEES — exactly these when pricing is asked for: ${ARTEM_FIXED_FEES}`,
+    ``,
+    `• LANDING-PAGE TURNAROUND and any OTHER retainer (web dev / site maintenance — never Google Ads or SEO, whose fees are fixed above): not fixed — give a specific, credible figure that fits THIS job's scope, positioned as a skilled non-US freelancer (fast delivery, strong value vs US agencies). Sensible anchors: a single landing page in ~2–4 business days; a maintenance retainer roughly $800–$2,500/mo depending on the number of sites and the workload described. Give a real number/range when asked — never a placeholder for these two.`,
   ].join('\n')
 }
 
@@ -3856,7 +3866,13 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
       // whether the posting had one. Also the gate for the reworked letter below.
       const _chatRequiredOpener = postingRequiredOpener(`${job?.description_full || job?.description_snippet || ''}`)
       if (isProposalChat) {
-        effectiveSuffix += (effectiveSuffix ? '\n\n' : '') + (_chatRequiredOpener
+        // Artem's fixed fees (2026-10-09, job 17799: the chat invented "$30/hr", then
+        // "$30/hr or $1,500/month"). Exact figures whenever a price is written — by
+        // the client's ask or by Artem's — never another number, never hourly for
+        // ongoing Google Ads work. Artem's own explicit figure in this chat wins.
+        effectiveSuffix += (effectiveSuffix ? '\n\n' : '') +
+          `ARTEM'S FIXED FEES — use exactly these whenever a price goes into the letter (the client asks for pricing, or Artem asks you to add it); never invent another figure: ${ARTEM_FIXED_FEES} If Artem names a different figure in this chat, use his.`
+        effectiveSuffix += '\n\n' + (_chatRequiredOpener
           ? `VERIFICATION PHRASE (KB #427): this posting asks the letter to start with "${_chatRequiredOpener}". Keep it as the very first words, exactly as written.`
           : 'VERIFICATION PHRASE (KB #427): this posting asks for NONE. A letter that opens with a lone capitalised code word ("SCALE", "BUILD") is an error copied from another posting\'s request: remove it, and if Artem asks about it, say exactly that.')
       }
@@ -6117,6 +6133,11 @@ function ProposalColumn({
   const _liveDigitBombMiss = proposal && lastDigitBombCase
     ? digitBombOpenerMiss(proposal, lastDigitBombCase, CASE_LEDGER)
     : null
+  //   ongoing fee  the letter quotes an ongoing Google Ads fee that is not Artem's
+  //                fixed $700 first month / $600 a month (job 17799, 2026-10-09:
+  //                the chat wrote "$30/hr or $1,500/month"). A note, not a
+  //                rewrite — a figure Artem chose on purpose stays his.
+  const _liveOffStandardFee = proposal ? findOffStandardOngoingFee(proposal, { postingText: _postingForNotes }) : null
   // preEnforcerDraft retired 2026-09-02 with the enforcer itself. It existed to
   // show a before/after in the share snapshot so a garbled sentence could be traced
   // to the first pass or the rewrite. There is no rewrite now — the letter Artem
@@ -9735,7 +9756,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             </div>
           )}
 
-          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0 || _liveMissingExample || _liveWhiteLabelPitch.length > 0 || _liveDigitBombMiss) && (
+          {(_liveCaseFacts.geo.length > 0 || _liveCaseFacts.time.length > 0 || _liveCallOffers.length > 0 || _liveMissingExample || _liveWhiteLabelPitch.length > 0 || _liveDigitBombMiss || _liveOffStandardFee) && (
             <div style={{
               fontSize: 10, lineHeight: 1.55, padding: '7px 10px', borderRadius: 3,
               color: 'var(--text2)', background: 'rgba(239,68,68,0.08)',
@@ -9774,6 +9795,9 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
                 {_liveCallOffers.map((o, i) => (
                   <li key={`c${i}`}>Call offer: “{o.sentence}” — no calls; ask for it in writing instead</li>
                 ))}
+                {_liveOffStandardFee && (
+                  <li>Ongoing fee: {_liveOffStandardFee.figures.map(f => `“${f}”`).join(', ')} — your fixed fee after the audit is $700 for the first month, then $600/month (never hourly, never a range). Keep it only if you chose it on purpose.</li>
+                )}
               </ul>
             </div>
           )}
