@@ -3247,6 +3247,16 @@ function _recordViolations(surface, jobId, checks) {
 // bracket, caseDuplicated stays flag-only) run against the actual applied
 // file, not just a scratch copy.
 const GC_ENFORCE = true
+// The CHAT surface stays in SHADOW until CASE_LEDGER is complete, and that is a
+// correctness requirement, not caution. metricNotInLedger judges figures against
+// CASE_LEDGER, and the ledger is missing real ones: Skin Reboot's overall ROAS
+// 15.04, +55% spend and -33% CPA are documented in KB #506/#669/#682 but absent
+// from the ledger (GENERATOR_REBUILD_HANDOFF.md §5 item 4 flagged exactly this).
+// Enforcing on chat output would delete those sentences as fabrications — and
+// they are the owner's own best paid-side numbers, the ones the style he asked
+// for on 2026-10-11 is built on. Record first, enforce once the ledger is
+// trustworthy; flip this to true then.
+const GC_ENFORCE_CHAT = false
 // `surface` exists so chat rewrites are checked by the SAME function rather than
 // a second copy that drifts — the defect class this file suffers from most.
 //
@@ -3264,9 +3274,10 @@ function _gcShadow(finalText, jobObj, surface = 'generator') {
     const posting = jobObj
       ? [jobObj.title, jobObj.description_full || jobObj.description_snippet || jobObj.raw_message].filter(Boolean).join('\n')
       : ''
-    const gc = groundingCheck(finalText, { postingText: posting, enforce: GC_ENFORCE })
+    const _enforce = surface === 'chat' ? GC_ENFORCE_CHAT : GC_ENFORCE
+    const gc = groundingCheck(finalText, { postingText: posting, enforce: _enforce })
     if (gc.violations.length) _recordViolations(surface, jobObj && jobObj.id, gc.violations)
-    return GC_ENFORCE ? gc.text : finalText
+    return _enforce ? gc.text : finalText
   } catch (_) { return finalText }
 }
 
@@ -7119,6 +7130,41 @@ function ProposalColumn({
           max_tokens: 2000,
           system: `You write Upwork cover letters for Artem Yatsuk, a Google Ads/PPC/SEO and ecommerce web development specialist (12 years).
 ═══════════════════════════════════════════════════════════════════
+HOUSE STYLE — THE SHAPE THE OWNER WANTS (approved 2026-10-11, job 17985).
+He reviewed a draft written in this shape and said: "I like it a lot and I want
+falcon scout to use this style for future cover letters". Follow it whenever the
+posting asks explicit questions. It does not replace any rule below — the case
+facts, pricing, no-call and no-fabrication rules all still bind.
+
+a) OPEN WITH THE OFFER, THEN A DIFFERENTIAL DIAGNOSIS. One sentence taking the
+   job ("I can run this diagnostic audit for NuShape"), then what a symptom that
+   size USUALLY means, as a short list of NAMED candidate causes — "almost
+   always a structural or policy break, not a gradual decline: a Merchant Center
+   suspension, a mass product disapproval, a broken conversion tag that starved
+   Performance Max, or an aggressive bid-target change". Candidates, never
+   findings: you have not seen the account. This is the one shape that sounds
+   like a specialist rather than an applicant.
+b) CREDENTIAL SECOND, ONE LINE, THEN STOP. "12 years running Google Ads, Google
+   Premier Partner 2026" and move on. Never the opener.
+c) ANSWER THEIR QUESTIONS, IN THEIR ORDER, UNDER THEIR OWN WORDS. When the
+   posting lists questions, use a short label per answer taken from the client's
+   phrasing ("Specific beauty/wellness/DTC brands:", "Examples of account
+   turnarounds:", "Timeline:"). This is the ONE case where labelled sections are
+   right — the client asked for them, and the letter is being read as a reply.
+d) EVERY ANSWER LEADS WITH A NAMED CASE AND A REAL NUMBER from the case facts
+   block. No number you cannot point to in the ledger. Never another case's.
+e) STATE METHOD AS POLICY, NOT CAPABILITY. "I do not run blanket PMax campaigns.
+   I isolate high-margin products into dedicated structures so we bid for profit
+   dollars, not top-line revenue" reads senior; "I am experienced with PMax"
+   reads like everyone else.
+f) CONCRETE TIMELINE, AND SAY WHAT HAPPENS IN IT. Not "quickly" — name the
+   window and the first three things you will look at.
+g) CLOSE ON THE DELIVERABLE IN THE CLIENT'S OWN LANGUAGE ("a plain-English,
+   prioritised findings document your CEO and CFO can understand"), then the
+   attachment line. No "happy to discuss", no CTA. "Artem" ends it.
+h) PLAIN, DECLARATIVE SENTENCES. No hedging, no throat-clearing, no "I would
+   love to". Say what is wrong, what you will do, what they get.
+
 PRIMARY WRITING DIRECTIVE — HOW TO EARN A REPLY (this is the whole job):
 The client is skimming dozens of proposals in seconds. They reply to the ONE
 that makes them feel UNDERSTOOD — that names their specific problem and shows

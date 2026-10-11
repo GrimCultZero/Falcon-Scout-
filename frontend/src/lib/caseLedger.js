@@ -57,7 +57,16 @@ export const CASE_LEDGER = [
   {
     id: 'skin-reboot', name: 'Skin Reboot', vertical: 'ecom-health', service: 'ppc',
     attachment: 'pdf', is_real: true,
-    metrics: ['+693.8% revenue', '17.51 PMax ROAS', '+134.12% conversions', '+91.58% traffic'],
+    // The last four were REAL but missing here, so metricNotInLedger judged them
+    // fabrications (GENERATOR_REBUILD_HANDOFF.md §5 item 4). Sources, all the
+    // owner's own: KB #506 "overall ROAS 15.04, 50,036 clicks, 3.62% conv rate";
+    // KB #669 and #682 "scaled their spend by 55% while decreasing the cost per
+    // acquisition by 33%". Added 2026-10-11 — the paid-side turnaround numbers
+    // are the backbone of the letter style the owner asked to adopt, and without
+    // them here the checker would have deleted his best figures as inventions.
+    metrics: ['+693.8% revenue', '17.51 PMax ROAS', '+134.12% conversions', '+91.58% traffic',
+              '15.04 overall ROAS', '+55% spend scaled', '-33% cost per acquisition',
+              '50,036 clicks', '3.62% conversion rate'],
     one_liner: 'Scaled a Korean medical-aesthetic (restricted-niche) ecommerce brand with SEO + feed-based Performance Max — feed optimization, enhanced conversions, and wasted-spend pruning',
     geo: ['us', 'north-america', 'korea'],
     location: 'USA (the products are Korean medical-aesthetic skincare)',

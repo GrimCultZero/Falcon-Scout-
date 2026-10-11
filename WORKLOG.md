@@ -9891,3 +9891,52 @@ typographic apostrophes. 23 JS and 6 Python suites pass; build clean.
 record-only. Deliberate — it is not a new enforcement class but the same one, approved and live since
 August, finally covering the surface it always should have. Splitting the two settings would recreate the
 drift that caused this bug. If the owner wants it dialled back, `GC_ENFORCE` governs both.
+
+
+## 2026-10-11 — The Gemini draft adopted as house style, and the ledger gap it exposed
+
+Owner shared a Gemini-written draft for job 17985 and asked Falcon Scout to use that style from now on,
+keeping the existing rules. Checked every claim in it before encoding anything — adopting a style sight
+unseen is how a fabrication becomes a template.
+
+**The claims hold up, with one exception.** "+55% spend scaled, -33% CPA, 15.04 overall ROAS" for Skin
+Reboot are real: KB #669, #682, #719 and #506 all carry them. 1,861% / 14,342% for Derma Solution are real.
+The exception: *"I also recently restructured a large European e-commerce account, shifting them from a
+blended ROAS model to a margin-tiered structure"* — an UNNAMED client with no backing anywhere in the KB
+except the draft itself. That is the "fabricate facts about Artem's own client base" ban. It matters more
+than usual because the draft is already saved as **KB #767**, so it will be fed to future generations as a
+reference. Flagged to the owner, not edited (owner rule 15: KB edits are his).
+
+**The gap this exposed, and why the chat enforce decision was reversed within the hour.** Those real Skin
+Reboot figures — 15.04, +55%, -33% — were **not in CASE_LEDGER**. `metricNotInLedger` judges against the
+ledger, so it would have called the owner's own best paid numbers fabrications. Earlier today chat grounding
+was switched to ENFORCE on the argument that it was the same already-approved checker reaching a surface it
+had always been meant to cover. That argument was wrong in one specific way I did not know at the time: the
+generator rarely produces those figures, the chat does, and under enforce the chat would have DELETED them —
+destroying exactly the style the owner had just asked for. Advice reversed, with the evidence:
+- `GC_ENFORCE_CHAT = false` — chat grounding records, does not rewrite, until the ledger is trustworthy.
+  `GC_ENFORCE` (generator) is untouched and still true.
+- CASE_LEDGER's Skin Reboot entry gained the five missing real metrics (15.04 overall ROAS, +55% spend,
+  -33% CPA, 50,036 clicks, 3.62% conversion rate), sourced from KB #506/#669/#682. This is part of
+  GENERATOR_REBUILD_HANDOFF.md §5 item 4, now partly closed.
+Verified both directions against the real checker: the Gemini sentence carrying +55%/-33%/15.04 now passes
+enforce untouched with zero violations, while the invented Derma sentence (Poland, 8.33% CTR, 4.82 PMax
+ROAS) still trips `metricNotInLedger` and is corrected. That is the distinction the ledger was failing to
+make.
+
+**The style itself** is now a HOUSE STYLE block at the top of the generator prompt, ahead of the PRIMARY
+WRITING DIRECTIVE, quoting the owner's approval and dated. Eight points, the load-bearing ones being: open
+with the offer plus a differential diagnosis of NAMED candidate causes (candidates, never findings — the
+account has not been seen); credential second and one line only; answer the client's questions in their
+order under their own words; every answer leads with a named case and a real ledger number; state method as
+policy rather than capability ("I do not run blanket PMax campaigns") ; concrete timeline naming what
+happens in it; close on the deliverable in the client's own language, then the attachment, then "Artem".
+
+**Two tensions recorded rather than papered over.** (1) Point (c) tells the model to use labelled sections
+when the posting asks questions, and `hasListyOutline` fires on two or more label blocks — so this style
+will trip that check on exactly the jobs it suits. The check is report-only, so nothing breaks, but the flag
+will be noise there. (2) The 307-letter corpus put diagnosis-led openers at 0 replies in 13 decided; this
+style is offer-led-then-diagnosis, which is a different shape, but it is close enough that it is worth
+watching whether it actually outperforms rather than assuming it does.
+
+Build clean; 23 JS and 6 Python suites pass.
