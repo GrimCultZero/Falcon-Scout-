@@ -3247,7 +3247,17 @@ function _recordViolations(surface, jobId, checks) {
 // bracket, caseDuplicated stays flag-only) run against the actual applied
 // file, not just a scratch copy.
 const GC_ENFORCE = true
-function _gcShadow(finalText, jobObj) {
+// `surface` exists so chat rewrites are checked by the SAME function rather than
+// a second copy that drifts — the defect class this file suffers from most.
+//
+// The chat surface was added 2026-10-11 after job 17985, where the chat invented
+// a whole alternate Derma Solution: "Poland, 1-month 8.33% CTR, 4.82 PMax ROAS,
+// shopping feed rebuild". Derma is a USA SEO case; it has no PMax ROAS (17.51 is
+// Skin Reboot's) and no CTR on record. The grounding checker has enforced on
+// generate() since 2026-08-19 and had never once run on chat output — so every
+// anti-fabrication guard protected the letter the generator wrote and not the
+// letter Artem actually sends, after he has edited it in chat.
+function _gcShadow(finalText, jobObj, surface = 'generator') {
   try {
     // Title + description: both are the client's own words (a figure in the title,
     // "$2K/month budget", is as much theirs as one in the body).
@@ -3255,7 +3265,7 @@ function _gcShadow(finalText, jobObj) {
       ? [jobObj.title, jobObj.description_full || jobObj.description_snippet || jobObj.raw_message].filter(Boolean).join('\n')
       : ''
     const gc = groundingCheck(finalText, { postingText: posting, enforce: GC_ENFORCE })
-    if (gc.violations.length) _recordViolations('generator', jobObj && jobObj.id, gc.violations)
+    if (gc.violations.length) _recordViolations(surface, jobObj && jobObj.id, gc.violations)
     return GC_ENFORCE ? gc.text : finalText
   } catch (_) { return finalText }
 }
@@ -3949,6 +3959,8 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
             '- Keep <remarks> to ONE short sentence about the work, no tag names, no plan description.',
             '- NEVER reference internal tooling, databases, or knowledge bases in the answer text. Do NOT write "in the KB", "in my KB", "not in the KB right now", or any variant. The client has no idea what a KB is.',
             '- CASE-STUDY BUSINESS-MODEL INTEGRITY: never relabel a case study\'s real industry/business model to match the client\'s vertical. Skin Reboot is skincare ECOMMERCE (NOT SaaS/software); Nectar Flowers is an ecommerce florist; FridgeFix/House Painting are local services; Derma Solution is a medical clinic; Atlant is real estate. If the client asks "do you have experience with X" (e.g. SaaS) and there is NO case in that exact vertical, do NOT fake it by calling an ecommerce case "a SaaS case". Instead answer honestly: cite the closest case by its REAL model and bridge the transferable mechanic ("same trial-vs-paid ROAS tracking challenge, different business model"), or say the experience is adjacent and lean on the method. A relabeled case is a lie the client catches instantly.',
+            "- A CASE HAS ONLY THE NUMBERS IT HAS. Every figure you cite for a case study must already exist in the case facts you were given. Do NOT invent a metric, and do NOT borrow one case’s figure for another. Confirmed real failure (job 17985, 2026-10-11): asked to detail the Derma case on a Google Ads job, the reply claimed Derma Solution was “Poland, 1-month 8.33% CTR, 4.82 PMax ROAS, shopping feed rebuild”. Derma Solution is a USA SEO case: it has no CTR and no PMax ROAS on record (17.51 PMax ROAS is Skin Reboot’s), and it is not in Poland. Every one of those figures was manufactured to fit the job.",
+            "- WHEN THE CASE HAS NO NUMBERS FOR THIS JOB’S CHANNEL, SAY SO. The rule to cite the PAID result on a Google Ads job, and the organic result on an SEO job, is a rule about which real figure to pick — it is NOT permission to produce one. If Artem asks you to detail a case that has no metrics for this job’s channel, say that plainly in <remarks> and offer the real alternatives: cite the case’s actual other-channel result and bridge why it is relevant, or use a different case that does have the right kind of number. “Derma Solution is an SEO case, it has no paid metrics — I can cite its organic result, or use Skin Reboot’s 17.51 PMax ROAS instead” is a GOOD answer. Inventing a plausible-looking ROAS is the worst thing you can do in this entire system.",
             '',
             'WHEN A SCREENING QUESTION ASKS FOR PROOF, CAMPAIGNS, OR COMPANY NAMES:',
             '',
@@ -4010,7 +4022,11 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         // the generator uses (markdown + CJK strip, then casing) so a chat
         // rewrite can't reintroduce lowercase "i" / foreign-char glitches.
         const _chatJobContextLower = `${job?.title || ''} ${job?.description_full || job?.description_snippet || ''}`.toLowerCase()
-        const newProposal  = proposalMatch ? stripUnrequestedOpenerWord(_humanizeCasing(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))), _chatJobContextLower))))))), _chatRequiredOpener).text : null
+        // Grounding runs LAST, on the text Artem will actually send. It had
+        // never run here at all: every anti-fabrication guard protected the
+        // generator's letter and not the chat-edited one (job 17985 — an
+        // invented Derma Solution in Poland with Skin Reboot's PMax ROAS).
+        const newProposal  = proposalMatch ? _gcShadow(stripUnrequestedOpenerWord(_humanizeCasing(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripLeadingNarration(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(_stripProtocolTags(proposalMatch[1]))))))), _chatJobContextLower))))))), _chatRequiredOpener).text, job, 'chat') : null
         const chatReplyText = chatReplyMatch ? chatReplyMatch[1].trim() : null
 
         // SAFETY NET: verify a chat-requested case actually landed in the
@@ -4052,8 +4068,42 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
               const altAlts = (words.length > 1 && words[0].length >= 4 && !_GENERIC_CASE_WORD.has(words[0].toLowerCase()))
                 ? `${_esc(c.name)}|${_esc(words[0])}` : _esc(c.name)
               const lenientRe = new RegExp(`\\b(?:${altAlts})\\b`, 'i')
-              if (lenientRe.test(text) && !strictRe.test(_baseText)) {
+              if (!lenientRe.test(text)) continue
+              // The case may be PRESENT but bare. Job 17985 (2026-10-11): asked
+              // twice to detail Derma Solution, the chat's remarks claimed it had
+              // added "Poland, 1-month 8.33% CTR, 4.82 PMax ROAS, shopping feed
+              // rebuild" and the letter kept the one-line mention with no figures
+              // at all. The name was there, so this net passed it. Worse, every
+              // claimed figure was invented — Derma is a USA SEO case with no
+              // PMax ROAS (17.51 is Skin Reboot's) and no CTR on record — so the
+              // only reason fabricated numbers did not reach the client is that
+              // the chat also failed to apply its own edit.
+              //
+              // So when the message asks for DETAIL and the case carries none of
+              // its real metrics, replace the bare mention with the ledger's own
+              // rendering. The figures then come from CASE_LEDGER, never from the
+              // model, which is the only way this can be safe.
+              const _wantsDetail = /\b(detail|details|metrics?|numbers?|figures?|results?|stats|specifics)\b/i.test(text)
+              const _present = strictRe.test(_baseText)
+              const _hasRealMetric = (c.metrics || []).some(mt => {
+                const num = (String(mt).match(/[\d,]+\.?\d*/) || [])[0]
+                return num && _baseText.includes(num)
+              })
+              if (_present && !(_wantsDetail && !_hasRealMetric)) continue
+              {
                 const line = renderCaseLine(c.id)
+                if (line && _present) {
+                  // Swap the bare mention for the full, ledger-sourced entry.
+                  const paras = _baseText.split(/\n\s*\n/)
+                  const idx = paras.findIndex(pp => strictRe.test(pp))
+                  if (idx !== -1) {
+                    paras[idx] = line
+                    _finalNewProposal = paras.join('\n\n').trim()
+                    console.warn(`[Falcon] Chat claimed it detailed "${c.name}" but the letter carried no real metric for it — replaced the bare mention with the ledger entry.`)
+                    _recordViolations('chat', job?.id, ['chatClaimedCaseDetailButMissing'])
+                  }
+                  break
+                }
                 if (line) {
                   _finalNewProposal = `${_baseText.trim()}\n\n${line}`
                   console.warn(`[Falcon] Chat claimed "${c.name}" was added/present but it wasn't actually in the letter — appended it deterministically.`)

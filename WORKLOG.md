@@ -9832,3 +9832,62 @@ invite rule, and the creation gate. `upwork_jobs.db.bak-*` added to .gitignore �
 **Left for later, deliberately:** the "Active proposals" scrape itself. The messages path covers every
 invite that has a conversation, which is all of them in practice. A proposal submitted on Upwork with no
 messages at all would still be invisible, and that is the remaining hole.
+
+## 2026-10-11 — The chat had NONE of the anti-fabrication guards. Two months of them, generator only.
+
+Owner: "struggling with generator - check chat and outcome" (job 17985, NuShape, Google Ads audit). Two
+failures stacked, and the second is the serious one.
+
+**1. The chat claimed an edit it never made.** Asked twice to detail Derma Solution. Its `<remarks>` said it
+had added "Poland, 1-month 8.33% CTR, 4.82 PMax ROAS, shopping feed rebuild + campaign architecture". The
+letter carried `Derma Solution (attached as PDF): YMYL medical-aesthetics ecommerce, SPA-exclusive
+professional dermaceuticals.` — no figures at all. Same class as job 12556. The existing safety net only
+checked the case NAME was present; it was, so it passed.
+
+**2. Every claimed figure was invented.** Against KB #506, the owner's own authoritative recap: *DERMA
+SOLUTION (USA) — SEO, YMYL medical aesthetics, organic +1,861%, conversions +14,342%, 155 referring
+domains.* So: not Poland (USA); no CTR on record anywhere; no PMax ROAS — **17.51 PMax ROAS is Skin
+Reboot's**, and the only "4.82" in the entire KB is a client star rating on an unrelated posting. An SEO
+case was dressed up as a Shopping/PMax case with manufactured numbers.
+
+**Failure 1 is the only reason failure 2 never reached the client.** The bug protected him.
+
+**Why it invented them, which is the part worth keeping.** KB #407 says: on a Google Ads job cite the PAID
+result, not a case's SEO/organic metrics. Derma Solution has no paid metrics. So "add details of the Derma
+case" on a PPC job is a request that cannot be answered honestly — and rather than say so, the model
+produced numbers shaped like the ones the rule asked for. A rule about *which real figure to pick* was read
+as permission to *produce one*.
+
+**The structural finding.** The chat's `<proposal>` chain had 14 functions and not one piece of the
+anti-fabrication machinery: `_gcShadow`/`groundingCheck` ABSENT, `metricNotInLedger` ABSENT,
+`fixCaseGeoClaims` ABSENT (it would have deleted "Poland"), `findCaseFactConflicts` ABSENT. The grounding
+checker has enforced on `generate()` since 2026-08-19 and **had never once run on chat output**. Every guard
+built over two months protected the letter the generator writes — not the letter Artem actually sends,
+after he has edited it in chat, which is nearly every letter. That is a large part of the answer to
+"why are we still getting hallucinations".
+
+All four fixes shipped:
+1. `_gcShadow` gained a `surface` parameter (default `'generator'`) and now wraps the chat chain as
+   `_gcShadow(..., job, 'chat')` — one shared function, deliberately NOT a second copy, since drifting
+   duplicates are this file's worst defect class. Chat violations land in telemetry under surface `chat`,
+   so the two surfaces are finally separable. Geo auto-fix comes along with it (it lives inside
+   `groundingCheck`), so an invented place is now removed from chat output exactly as from generated output.
+2. Wrapping was done by script, not by counting parentheses (methodology #1); the test asserts balance.
+3. The safety net now distinguishes *named* from *detailed*: on a message asking for detail/metrics/numbers,
+   if none of the case's real ledger metrics appear in the letter, the bare mention is REPLACED by
+   `renderCaseLine()` — the figures come from `CASE_LEDGER`, never from the model, which is the only way the
+   repair can be safe. Recorded as `chatClaimedCaseDetailButMissing`.
+4. Two chat-prompt rules: one forbidding invented or borrowed figures (citing 17985 verbatim), one saying
+   what to do instead — name the gap in `<remarks>` and offer the real alternatives ("Derma is an SEO case,
+   it has no paid metrics — I can cite its organic result, or use Skin Reboot's 17.51 PMax ROAS").
+
+`tests/chat-grounding.test.js` (new, 20 assertions) covers the wiring, the net, the prompt, and asserts the
+ledger facts themselves — that Derma has no ROAS, that 17.51 is Skin Reboot's, and that the ledger rendering
+cannot reintroduce "Poland". One build failure on the way: apostrophes in the new prompt rules did not
+survive escaping through the edit, breaking the JS string; rewritten with double-quoted strings and
+typographic apostrophes. 23 JS and 6 Python suites pass; build clean.
+
+**Note for the next session:** chat grounding runs in ENFORCE mode, matching the generator, rather than
+record-only. Deliberate — it is not a new enforcement class but the same one, approved and live since
+August, finally covering the surface it always should have. Splitting the two settings would recreate the
+drift that caused this bug. If the owner wants it dialled back, `GC_ENFORCE` governs both.
