@@ -765,11 +765,16 @@ def _compute_dashboard_stats():
                     continue
                 subs += 1
                 # 'viewed' = reached viewed or anything beyond it (see above).
-                # 'invited' = its own current-status count.
+                # 'invited' = the durable FLAG, not a status. As a status it lost
+                # every race (ranked below 'replied', and promotion never
+                # downgrades), so an invited client answering erased the invite:
+                # on 2026-10-11 this read 0 across all 324 proposals while an
+                # invite sat in the inbox. Orthogonal to the funnel — an invited
+                # proposal is also counted in viewed/positive if it got there.
                 # 'positive' (replies) = replied/interviewing/hired only.
                 if p.status in _REACHED_VIEWED:
                     viewed_c += 1
-                if p.status == "invited":
+                if getattr(p, "is_invited", False):
                     invited_c += 1
                 if p.status in _POS:
                     pos += 1
@@ -3723,6 +3728,118 @@ def _build_room_index(pairs, title_job_counts):
             "title_job_counts": title_job_counts}
 
 
+# Chrome the room header prints alongside the real job title. Observed verbatim
+# in room_titles: ['Notifications', 'Opportunities', 'More options', 'AEO Expert
+# for Backlink Building'] — three nav labels and the one thing we want.
+_ROOM_CHROME_TITLES = {
+    "notifications", "opportunities", "more options", "more call options",
+    "messages", "artem yatsuk", "settings", "help", "search",
+}
+
+
+def _room_job_title(row, fallback=""):
+    """The real job title from a room header, or '' if none is identifiable.
+
+    Prefers room_titles (read inside the room) over the list row's job_title,
+    which for some rooms is the CLIENT name rather than the job — the Sinking
+    Birdies row carried job_title "Sinking Birdies".
+    """
+    for t in (row.get("room_titles") or []):
+        t = (t or "").strip()
+        if len(t) < 8 or len(t) > 200:
+            continue
+        if t.lower() in _ROOM_CHROME_TITLES:
+            continue
+        if _MSG_NONTITLE_RE.match(t):          # dates: "Wednesday, Sep 23"
+            continue
+        return t
+    fb = (fallback or "").strip()
+    return fb if len(fb) >= 8 and not _MSG_NONTITLE_RE.match(fb) else ""
+
+
+# "I'd like to invite you to review the job I've posted" (Idan Tohami, 8 Oct).
+# Matched only against the EARLIEST message, and only when the client spoke
+# first — the two together are what distinguish an invite from Artem's own
+# application. A client writing "thanks for applying, I'd like to invite you to
+# interview" later in a thread is not an invite to apply.
+_INVITE_PHRASE_RE = re.compile(
+    r"\b(?:invite|inviting|invitation)\b[^.!?]{0,60}\b(?:you|apply|applying|proposal|review|submit)\b"
+    r"|\b(?:you|you'?re|youve|you have been)\s+(?:are\s+)?invited\b"
+    r"|\bsent\s+you\s+an?\s+invit", re.I)
+
+
+def _looks_like_invite(row):
+    """Did the CLIENT open this conversation by inviting Artem?"""
+    msgs = row.get("recent_messages") or []
+    if not msgs:
+        return False
+    first = msgs[0] or {}
+    if (first.get("from") or "").lower() != "client":
+        return False                      # Artem spoke first: his own application
+    return bool(_INVITE_PHRASE_RE.search(first.get("text") or ""))
+
+
+def _auto_capture_from_room(session, row, job_title, client_name):
+    """Create Job + Proposal for a room carrying an Upwork proposal id we don't have.
+
+    Returns a summary dict, or None when the row does not qualify. Requires an
+    exact Upwork proposal id — see the call site for why nothing fuzzier is
+    allowed to create rows.
+    """
+    ids = [str(x).strip() for x in (row.get("room_proposal_ids") or []) if str(x).strip()]
+    if len(ids) != 1:
+        return None                       # none, or contradictory evidence
+    upw_id = ids[0]
+    if session.query(Proposal).filter_by(upwork_proposal_id=upw_id).first() is not None:
+        return None                       # already known under this id
+
+    title = _room_job_title(row, job_title)
+    if not title:
+        return None                       # nothing identifiable to file it under
+
+    job = session.query(Job).filter(Job.title.ilike(title)).first()
+    created_job = False
+    if job is None:
+        # jobs.raw_message is NOT NULL and normally holds the Telegram post this
+        # job arrived in. An invite never came through the feed, so there is no
+        # original message — say exactly that rather than leave a blank row
+        # someone later mistakes for a capture failure.
+        job = Job(
+            title=title,
+            raw_message=(f"[auto-captured from the Upwork messages room on "
+                         f"{datetime.now(timezone.utc):%Y-%m-%d}] "
+                         f"client: {client_name or 'unknown'}. This job never came "
+                         f"through the job feed - the conversation is the only record."),
+            captured_at=datetime.now(timezone.utc),
+        )
+        session.add(job)
+        session.flush()                   # need job.id
+        created_job = True
+
+    invited = _looks_like_invite(row)
+    last_from_client = bool(row.get("last_from_client"))
+    now = datetime.now(timezone.utc)
+    proposal = Proposal(
+        job_id=job.id,
+        # No letter of ours exists — it was sent on Upwork, not generated here.
+        sent_text="",
+        status="replied" if last_from_client else "sent",
+        sent_at=now,
+        status_updated_at=_reply_seen_at(row, now) if last_from_client else now,
+        upwork_proposal_id=upw_id,
+        is_invited=invited,
+        auto_captured=True,
+    )
+    session.add(proposal)
+    session.flush()
+    print(f"[messages-sync] auto-captured proposal {proposal.id} "
+          f"(upwork {upw_id}, job {job.id} {'new' if created_job else 'existing'}, "
+          f"invited={invited}): {title[:60]}")
+    return {"proposal_id": proposal.id, "job_id": job.id, "job_title": title[:80],
+            "upwork_proposal_id": upw_id, "invited": invited,
+            "created_job": created_job, "status": proposal.status}
+
+
 def _resolve_room_evidence(row, idx):
     """Resolve a room's observations to exactly one proposal, or none.
 
@@ -3923,6 +4040,7 @@ def messages_status_sync(data: dict):
             _title_counts,
         )
         room_ambiguous = []
+        auto_captured = []
         match_log = []
 
         for row in rows:
@@ -4007,6 +4125,29 @@ def messages_status_sync(data: dict):
             match_log.append({"client_name": client_name[:60], "walk": row.get("walk"),
                               "via": match_via, "proposal_id": proposal.id if proposal else None})
             if proposal is None:
+                # AUTO-CAPTURE (2026-10-11). An invite never reaches the job
+                # feed: the client invites Artem directly, so no Job row is ever
+                # created here and no Proposal with it — the engagement is
+                # invisible to every count. The proposals-list scrape cannot see
+                # it either; it reads only "Submitted proposals", while an invite
+                # under discussion sits in "Active proposals".
+                #
+                # But the room walk already carries what is needed. Idan Tohami's
+                # room produced room_proposal_ids ['2107843103927426592'] and the
+                # title "AEO Expert for Backlink Building" while the dashboard
+                # read 0 invited. So when a room hands us an Upwork proposal id
+                # that matches nothing local, the row is not a failure to match —
+                # it is a real proposal we have never seen. Create it.
+                #
+                # Deliberately narrow: an Upwork proposal id is required. It is
+                # exact, it comes from the room's own panel, and demanding it
+                # keeps every fuzzy path (titles, greeting names) out of row
+                # creation, where a wrong guess would mean a junk proposal rather
+                # than a missed update.
+                _new = _auto_capture_from_room(session, row, job_title, client_name)
+                if _new is not None:
+                    auto_captured.append(_new)
+                    continue
                 not_matched.append({"job_title": job_title, "client_name": client_name})
                 continue
 
@@ -4111,6 +4252,9 @@ def messages_status_sync(data: dict):
             "match_log": match_log,
             # Rooms whose ids/titles pointed at MORE than one proposal: not matched.
             "room_ambiguous": room_ambiguous,
+            # Proposals the sync CREATED: a room carried an Upwork proposal id we
+            # had never seen (an invite, or one submitted directly on Upwork).
+            "auto_captured": auto_captured,
             # Self-diagnosis: running extension version + what the room walk did.
             # If this is missing entirely, the extension predates v3.7.
             "walk_info": data.get("walk_info"),
@@ -4153,6 +4297,8 @@ def messages_status_sync(data: dict):
         "not_matched_sample": not_matched[:10],
         "matched_by_room": sum(1 for m in match_log if (m.get("via") or "").startswith("room_")),
         "room_ambiguous": len(room_ambiguous),
+        "auto_captured": len(auto_captured),
+        "auto_captured_invited": sum(1 for a in auto_captured if a.get("invited")),
     }
 
 

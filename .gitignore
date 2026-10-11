@@ -53,3 +53,6 @@ tools/_*
 
 # Distributable setup archives — large build artifacts, never commit.
 FalconScout-setup-*.zip
+
+# Database backups taken before migrations - full client data, never commit.
+upwork_jobs.db.bak-*

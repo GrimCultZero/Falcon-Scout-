@@ -9774,3 +9774,61 @@ it passes. Worth noting because the first draft of that test contained `'re.sear
 which is always truthy and could never have failed — a vacuous assertion is worse than no assertion.
 
 All 22 JS and 5 Python suites pass.
+
+## 2026-10-11 — "0 invited" with an invite in the inbox: a flag, and the sync creating rows
+
+Owner, pointing at the dashboard: "it also says 0 invited - which is not true - Idan invited me." Asked for
+the full automatic fix, not the cheap one.
+
+**Three compounding causes, all real:**
+1. **The job never entered the system.** An invite does not reach the job feed — the client invites Artem
+   directly — so no Job row is created here and no Proposal with it. The engagement is invisible to every
+   count. Idan's "AEO Expert for Backlink Building" was simply not in `jobs`.
+2. **The proposals-list scrape cannot see it either.** The page carries two sections; the scraper anchors on
+   `headText: "Submitted proposals (75)"` and deliberately stops before the Active list, while an invite
+   under discussion sits in **"Active proposals (6)"** — "proposals that you are discussing with a client".
+3. **Even captured, `invited` would be erased.** It was a value of `status`, and `_STATUS_RANK` ranks invited
+   (3) BELOW replied (2) with promotion never downgrading — so the moment an invited client answered, the
+   invite was overwritten. The DB confirmed it: `invited` was 1 a few days earlier and **0 across all 324
+   proposals** by the time he asked.
+
+Cause 3 is a category error rather than a counting rule, and that framing drove the fix: being invited is
+not a funnel stage at all. It is how the engagement BEGAN — orthogonal to sent/viewed/replied/hired, and
+true forever once true. It now lives in `proposals.is_invited` (plus `auto_captured`), added by
+`add_invited_columns.py` (idempotent, backfills from any surviving `status='invited'`, and says plainly that
+invites which already progressed are NOT recoverable — the status was overwritten with no history). The
+dashboard counts the flag, so an invited proposal is also counted in viewed/positive if it got there.
+
+**The part that avoided a blind DOM rewrite.** The obvious reading of cause 2 is "teach the scraper to read
+the Active section" — writing a scraper against a page I cannot see, which is how this project has burned
+time before (the pager that turned out not to exist; "two paginated lists" recorded as an inference never
+observed). Checked the data first, and the room walk already had everything: Idan's room carried
+`room_proposal_ids ['2107843103927426592']` and the title "AEO Expert for Backlink Building", cached, while
+the dashboard read 0. So the sync now CREATES a Job + Proposal when a room hands it an Upwork proposal id
+matching nothing local (`_auto_capture_from_room`). No new scraping, no new DOM assumptions.
+
+Deliberately narrow: creation requires **exactly one** Upwork proposal id. That is exact and comes from the
+room's own panel, and demanding it keeps every fuzzy path (titles, greeting names) out of row creation,
+where a wrong guess means a junk proposal rather than a missed update. Titles come from `room_titles` with
+the nav chrome filtered (`['Notifications', 'Opportunities', 'More options', 'AEO Expert for Backlink
+Building']` — three labels and the one real title), falling back to the row's `job_title`, which for some
+rooms is the CLIENT name ("Sinking Birdies").
+
+Invite detection needs two things together: the **client spoke first** AND the opening message carries
+invite wording. Either alone is wrong — Artem's own letters often say "thanks for the invite", and clients
+say "I'd like to invite you to interview" mid-thread after an ordinary application.
+
+Verified end to end by replaying Idan's real room against a live backend: created proposal 325 / job 17986,
+`is_invited=1`, `auto_captured=1`, status `replied` (he had answered), dashboard `invited` 0 → 1. Re-running
+the same room returns `auto_captured: 0, matched_by_room: 1` — it matches rather than duplicating. One bug
+found and fixed on the way: `Job` has no `client_name` column and `raw_message` is NOT NULL, so the created
+Job now records in `raw_message` that it never came through the feed, rather than leaving a blank row
+someone later reads as a capture failure.
+
+`tests/test_auto_capture_invites.py` (new, 19 assertions) pins the title extraction, both halves of the
+invite rule, and the creation gate. `upwork_jobs.db.bak-*` added to .gitignore — a pre-migration backup is
+46 MB of client data and was sitting untracked. All 22 JS and 6 Python suites pass.
+
+**Left for later, deliberately:** the "Active proposals" scrape itself. The messages path covers every
+invite that has a conversation, which is all of them in practice. A proposal submitted on Upwork with no
+messages at all would still be invisible, and that is the remaining hole.

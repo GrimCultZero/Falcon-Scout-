@@ -223,6 +223,22 @@ class Proposal(Base):
     # fallback (see WORKLOG.md, job 12755). Nullable: older proposals and any
     # submit where Upwork redirected to the bare list instead won't have it.
     upwork_proposal_id = Column(String, nullable=True, index=True)
+    # Did this engagement START with the client inviting Artem?
+    #
+    # A FLAG, not a status, and that distinction is the whole point. "invited"
+    # used to be a value of `status`, where it lost every race: _STATUS_RANK
+    # ranks invited (3) BELOW replied (2), and promotion never downgrades, so
+    # the moment an invited client answered, the fact that they had invited him
+    # was overwritten and gone. On 2026-10-11 the dashboard read "0 invited"
+    # across all 324 proposals while Artem was looking at an invite in his
+    # inbox. Being invited is not a funnel stage at all — it is how the
+    # engagement began, orthogonal to sent/viewed/replied/hired, and true
+    # forever once true. Stored separately so nothing can erase it.
+    is_invited         = Column(Boolean, nullable=False, default=False, index=True)
+    # Created by the sync rather than by Artem generating a letter here — an
+    # invite or a proposal submitted directly on Upwork. Those have no sent_text
+    # of ours, so outcome stats can count them while letter analysis skips them.
+    auto_captured      = Column(Boolean, nullable=False, default=False)
     # When proposal was submitted on Upwork (captured from submit button detection)
     submitted_at       = Column(DateTime, nullable=True, index=True)
     # Point-in-time snapshot of the analyser's verdict at proposal creation.
