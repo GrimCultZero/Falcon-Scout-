@@ -9704,3 +9704,41 @@ Fixes:
   purpose; and its 60-character window misses this sentence (the fee sits ~120 characters after "ongoing").
 
 `tests/chat-fees.test.js` (new) 17/17; all 22 JS and 4 Python suites pass.
+
+## 2026-10-11 — A missed reply (Sinking Birdies): the hidden-window limit at its worst case, new rooms
+
+Owner: "got new reply - sync didnt catch it again." Mark at Sinking Birdies replied 10 Oct 21:26 on job
+17766 ("Google Ads Shopping Campaign Fix", proposal 318); the sync still had it as `viewed` on 11 Oct.
+
+Not a new bug — the documented hidden-window limit (§3), but hitting the case where it costs the most.
+The row from run 305 said everything: `walk: "skipped"`, `recent_messages: null`, `room_proposal_ids:
+null`, `room_job_ids: null`, `last_message: ""`, `last_from_client: false`. Meanwhile **17 of the other 20
+rooms showed `walk=cached` and carried room evidence.**
+
+That contrast is the real lesson worth recording. **A room is linked to a proposal on its FIRST visit.**
+An established room survives a skipped walk because its ids are already cached in `falcon_room_obs_v1`; a
+room that has never been walked has nothing to match on, and no amount of list-level scraping will link it
+(this room's `job_title` is "Sinking Birdies", the CLIENT name, so title matching could not work either).
+So the walk being skipped whenever the sync window is hidden costs nothing on old rooms and costs the
+entire outcome on new ones — and a new room is precisely what a first reply creates. Every unlinked room
+is a reply that cannot be seen.
+
+Compounding it: the passive read, which exists exactly to cover this, had not run since 9 Oct 16:08. The
+backend was up (`/jobs` 200), so it was the documented cause — the content script was not live in the tab,
+because Upwork had been reached by in-app navigation and content scripts only inject on a real page load.
+
+Fix was the documented one: F5 the Upwork tab, reopen the conversation. The passive read then fired
+(`walk=passive`), linked the room by exact proposal id (`room_proposal_ids:
+['2108492772994072577']` = proposal 318), captured 3 messages with correct `from` attribution and no
+trailing client-card junk (5.6 holding), and promoted 318 to `replied`.
+
+**New gap found while verifying: captured messages carry only `from` and `text`, no timestamps.** So
+`_reply_seen_at` can only date a reply by the list row's `last_activity_at` — which here was Artem's OWN
+11 Oct 12:24 reply, not Mark's 10 Oct 21:26 message. The reply is recorded ~15 hours late. Upwork renders
+the per-message time in the UI, so it is scrapeable. This matters for the Outcomes "sort by when the reply
+was seen" and for any reply-latency measure built on this data. Not fixed — flagged to the owner.
+
+Still the root cause, still an owner decision (§5 item 5): Chrome's "Calculate window occlusion on
+Windows" flag set to Disabled would let the hidden sync window render so the background walk could reach
+new rooms unaided. Until then, every first reply depends on Artem opening that conversation with the
+extension live.
