@@ -9742,3 +9742,35 @@ Still the root cause, still an owner decision (§5 item 5): Chrome's "Calculate 
 Windows" flag set to Disabled would let the hidden sync window render so the background walk could reach
 new rooms unaided. Until then, every first reply depends on Artem opening that conversation with the
 extension live.
+
+## 2026-10-11 — A reply stopped deducting a view on the dashboard
+
+Immediately after proposal 318 was promoted, the owner spotted the side effect on the Dashboard: week 41
+showed VIEWED 12 and REPLIES 1, where it had been 13 and 0. "let's not do that - leave views as they are
+and just add a reply."
+
+He is right, and the inconsistency was already half-fixed in the same function. In `_period()`
+(`api/main.py`, the week/month cards), `positive` counts `_POS = {replied, interviewing, hired}` — i.e.
+everything that REACHED a reply — while `viewed` counted `p.status == "viewed"` only, the current status.
+So progressing a proposal cannibalised the earlier stage: a proposal that was read and then answered
+stopped counting as read. Now `_REACHED_VIEWED = _POS | {"viewed"}`. Verified against the real data: week
+41 goes 33 submitted / **13** viewed / 1 reply, reply rate unchanged at 3% (it is replies/submitted and
+never touched views).
+
+**Two sibling counters deliberately NOT changed**, which is the part to remember before "fixing" them:
+- the **weekly trend chart** (`weekly = defaultdict(...)`) is a STACKED chart whose segments must sum to
+  the total, so there a reply genuinely does have to move out of 'viewed'. Its exclusivity is documented in
+  place and the new test asserts it stays exclusive.
+- the **`funnel` dict** is a current-status census, not a progression; making stages cumulative there would
+  make it sum to more than the number of proposals.
+
+Also left out of views on purpose: `declined` (the client did read it, but it is excluded from `_POS` as a
+negative outcome, so counting it as a view only would read oddly) and `ghosted` (the status overwrote any
+earlier view and no transition history is stored, so it is not recoverable).
+
+`tests/test_dashboard_stages.py` (new, 16 assertions) pins the rule against the real source, not a copy.
+Checked that it can actually fail: reverting the expression in `api/main.py` produces 2 failures, restoring
+it passes. Worth noting because the first draft of that test contained `'re.search' or '...' in trend`,
+which is always truthy and could never have failed — a vacuous assertion is worse than no assertion.
+
+All 22 JS and 5 Python suites pass.

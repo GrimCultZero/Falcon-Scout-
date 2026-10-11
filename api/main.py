@@ -734,6 +734,17 @@ def _compute_dashboard_stats():
         # 'invited' is tracked as its OWN metric (not folded into replies) so the
         # period panels and the all-time cards tell the same story.
         _POS = {"replied", "interviewing", "hired"}
+        # A proposal that was replied to was still VIEWED — the client read it
+        # before answering. Counting only the current status made a reply silently
+        # deduct a view: owner, 2026-10-11, proposal 318 flipped viewed -> replied
+        # and week 41's VIEWED went 13 -> 12 while REPLIES went 0 -> 1. Each stage
+        # now counts everything that REACHED it, which is already how 'positive'
+        # works (_POS counts interviewing and hired, not just replied).
+        # Deliberately NOT included: 'declined' (the client did read it, but it is
+        # excluded from _POS as a negative outcome, so adding it to views only
+        # would read oddly) and 'ghosted' (status overwrote any earlier view and
+        # no transition history is stored, so it cannot be recovered).
+        _REACHED_VIEWED = _POS | {"viewed"}
         now = datetime.now(timezone.utc)
 
         def _ref(p):
@@ -753,9 +764,10 @@ def _compute_dashboard_stats():
                 if end is not None and (t is None or t >= end):
                     continue
                 subs += 1
-                # 'viewed' / 'invited' = their own current-status counts.
+                # 'viewed' = reached viewed or anything beyond it (see above).
+                # 'invited' = its own current-status count.
                 # 'positive' (replies) = replied/interviewing/hired only.
-                if p.status == "viewed":
+                if p.status in _REACHED_VIEWED:
                     viewed_c += 1
                 if p.status == "invited":
                     invited_c += 1
