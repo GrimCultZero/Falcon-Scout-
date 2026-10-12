@@ -9992,3 +9992,46 @@ contain zero 0x08 bytes. Build clean; 24 JS and 6 Python suites pass.
 **Still open for the owner:** job 18023 should be a SKIP on the merits — GoHighLevel is a core deliverable
 he has no experience with, which is exactly the job class where the generator fabricated GoHighLevel
 fluency on 2026-09-02 (`fabricatedToolClaim` exists because of it).
+
+## 2026-10-12 — "EST meetings (9:00 - 14:00) work for me" — accepting a call was never detected
+
+Owner on job 18075 (Senior SEO / AEO Strategist): "Inspect this: EST meetings (9:00 - 14:00) work for me."
+The letter closed by confirming availability for live meetings, which KB #5 bans outright — and **no check
+fired**. The four that did were tooManyCaseStudies, attachmentUnbacked, unrequestedWhiteLabel and
+localServiceCaseDisplacedByEcomHealth; nothing about calls.
+
+The detector only ever looked for OFFER shapes. Verified against the live module: "Happy to jump on a
+kick-off call" is caught, while all four of these were missed —
+"EST meetings (9:00 - 14:00) work for me", "I am available for meetings between 9:00 and 14:00 EST",
+"Meetings in your window work for me", "I can make 9-14 EST for calls". Two separate causes:
+- the existing `open|available|free to/for a call` rule required the SINGULAR noun, so "meetings" slipped;
+- there was no pattern at all for the acceptance shape, where the client proposes and the letter agrees.
+
+KB #5 is explicit that this counts — "do NOT confirm availability for a call" — and prescribes redirecting
+to the written deliverable rather than agreeing or refusing. The prompt rule existed and was ignored,
+because the posting listed "Available for meetings between 9:00 and 14:00 EST" as a hard REQUIREMENT and
+the model answered the requirement. That is the recurring lesson: a prompt rule loses to an explicit client
+demand, so the guard has to be deterministic.
+
+`_acceptIn` added to `letterGuards.js`, wired into `findCallOffers` so it reaches the checks AND the live
+"Fix before sending" box under the textarea. The hazard here is specific: "call" in these letters nearly
+always means a CONVERSION ("call tracking", "booked calls"), so an acceptance only counts when a SCHEDULING
+signal appears in the same sentence — a clock time, timezone, window, slot or weekday. Validated to the
+module's own standard: all five acceptance shapes caught, seven conversion-sense decoys clear ("Call
+tracking works for me", "booked calls are the metric that works for me", "I can make your calls convert",
+"call volume by time of day"), and **zero hits across all 326 sent letters**. The written redirect itself is
+never flagged, so the correct answer stays correct.
+
+Deliberately NOT auto-rewritten, pending the owner: `stripCallOffers` rewrites offers in place (a woven
+session becomes its written counterpart), but an acceptance is different — the client asked a direct
+availability question, so deleting the line ignores a stated requirement and the right replacement is the
+KB's written-deliverable redirect, which is context-dependent prose. Per owner rule 14 a new enforcement
+class ships record-only until he approves it, so for now it surfaces in the red box and he decides.
+
+Third escape corruption of the day while editing, same as the two this morning: `` and `
+` written
+through a heredoc into a regex collapsed, breaking the module. Reverted and redone the way the handoff's
+methodology §6 prescribes — the JS written to a file with the Write tool, then spliced in by a script that
+touches no escapes. That is now three for three; the heredoc route should simply not be used for regex.
+
+`tests/call-acceptance.test.js` (new, 15 assertions). 25 JS and 6 Python suites pass; build clean.

@@ -11,7 +11,7 @@
 // spirit as _ensureManualAuditClaim / _stripUnaskedRate in JobDetail.jsx. Pure
 // functions: JobDetail.jsx wraps them to record telemetry.
 
-import { casesMentioned } from './caseLedger.js'
+import { casesMentioned, CASE_BY_ID } from './caseLedger.js'
 
 // ── call offers ──────────────────────────────────────────────────────────────
 // Offer shapes only. A bare "call" is nearly always a phone-call CONVERSION in
@@ -30,8 +30,11 @@ const _CALL_OFFER_RES = [
   { re: /\b(?:a|one)\s+(?:quick|short|brief|free|\d+[- ]?min(?:ute)?s?)\s+(?:intro(?:ductory)?\s+|discovery\s+|kick-?off\s+|strategy\s+|phone\s+|video\s+|zoom\s+)?(?:call|chat|meeting|zoom)\b/i },
   // "let's / I can / happy to … schedule / book / set up / have a call"
   { re: /\b(?:let'?s|let\s+us|we\s+(?:can|could|should)|i\s+(?:can|could|would|will)|i'?d\s+(?:love|like|be\s+(?:happy|glad|keen))\s+to|happy\s+to|glad\s+to|keen\s+to|feel\s+free\s+to)\s+(?:\w+\s+){0,2}?(?:schedule|book|set\s+up|arrange|have|do|grab|organi[sz]e)\s+(?:a|an)\s+(?:\w+\s+){0,2}?(?:call|meeting|zoom|chat)\b/i },
-  // "open / available / free to (a) call", "available for a call"
-  { re: /\b(?:open|available|free)\s+(?:to|for)\s+(?:a\s+)?(?:quick\s+|short\s+|brief\s+)?(?:phone\s+|video\s+|zoom\s+)?(?:call|chat|meeting|zoom)\b/i },
+  // "open / available / free to (a) call", "available for a call(s)"
+  // Plural added 2026-10-12: the posting on job 18075 required "Available for
+  // meetings between 9:00 and 14:00 EST" and the letter answered in kind, so
+  // "meetings" never matched the singular noun.
+  { re: /\b(?:open|available|free)\s+(?:to|for)\s+(?:a\s+)?(?:quick\s+|short\s+|brief\s+)?(?:phone\s+|video\s+|zoom\s+)?(?:call|chat|meeting|zoom)s?\b/i },
   // "a call with me / us"
   { re: /\b(?:call|meeting|zoom|chat)\s+with\s+(?:me|us)\b/i },
   // "on / over a call", "over Zoom", "via Google Meet"
@@ -88,6 +91,36 @@ function _sentencePieces(line) {
 
 // Is a match preceded by `before` Artem's own offer? Not when negated, the
 // client's own meeting (noun-only patterns), their funnel, or quoted CTA copy.
+// ACCEPTING a call is as forbidden as offering one, and until 2026-10-12 only
+// offering was detected. Job 18075 closed with "EST meetings (9:00 - 14:00) work
+// for me." and nothing fired: the posting listed "Available for meetings between
+// 9:00 and 14:00 EST" as a hard requirement, so the letter simply agreed. KB #5
+// is explicit that confirming counts ("do NOT confirm availability for a call"),
+// and the prescribed answer is to redirect to the written deliverable rather
+// than agree or refuse.
+//
+// "call" in these letters nearly always means a CONVERSION ("call tracking",
+// "booked calls"), so a scheduling signal must appear in the same sentence — a
+// clock time, a timezone, a window, a weekday. Checked against all 326 sent
+// letters: zero matches, while "Call tracking works for me", "booked calls are
+// the metric that works for me" and "I can make your calls convert" stay clear.
+const _SCHEDULING_SIGNAL_RE = /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s*[-–]\s*\d{1,2}\b|\b(?:est|edt|cst|cdt|pst|pdt|gmt|utc|cet|cest|eest|eet)\b|\btimes?\b|\btime\s*zone\b|\bwindow\b|\bslots?\b|\bschedul\w*|\bmornings?\b|\bafternoons?\b|\b(?:mon|tues|wednes|thurs|fri)day\b|\bavailabilit\w*/i
+const _CALL_ACCEPT_RES = [
+  // "EST meetings (9:00 - 14:00) work for me", "those meeting times work for me"
+  /\b(?:calls?|meetings?|zooms?|chats?|sessions?)\b[^.\n]{0,45}\bworks?\s+for\s+me\b/i,
+  // "I can make 9-14 EST for calls"
+  /\bi\s+(?:can|could)\s+(?:make|do|manage)\b[^.\n]{0,35}\b(?:calls?|meetings?|zooms?)\b/i,
+]
+function _acceptIn(sentence) {
+  if (!_SCHEDULING_SIGNAL_RE.test(sentence)) return null
+  if (_WRITTEN_RE.test(sentence)) return null
+  for (const re of _CALL_ACCEPT_RES) {
+    const m = sentence.match(re)
+    if (m) return { index: m.index, match: m[0] }
+  }
+  return null
+}
+
 function _offerContextOk(before, nounOnly) {
   if (_NEGATED_TAIL_RE.test(before)) return false
   if (nounOnly && _CLIENT_OWNED_TAIL_RE.test(before)) return false
@@ -151,7 +184,7 @@ export function findCallOffers(text) {
   const out = []
   for (const line of String(text || '').split('\n')) {
     for (const p of _sentencePieces(line)) {
-      const o = _offerIn(p.text)
+      const o = _offerIn(p.text) || _acceptIn(p.text)
       if (o) out.push({ match: o.match, sentence: p.text.trim() })
     }
   }
@@ -907,4 +940,81 @@ export function findOffStandardOngoingFee(letter, { postingText = '' } = {}) {
     }
   }
   return null
+}
+
+// ── an ad-platform restriction claimed for the client (2026-10-09, job 17799) ─
+// "For a branded-search campaign on a restricted-niche lingerie brand (Facebook
+// Ads won't approve it), …" — nothing in the posting, the KB or the prompt says
+// any of that; the model assumed it of a lingerie brand and told the client as
+// fact. A sentence about a CASE may say "restricted niche" (Skin Reboot, Vape
+// Shop really are); a sentence about the client may say it only when the posting
+// does. strip… removes such a claim when it is an aside — a parenthetical, or the
+// "restricted-niche" adjective — and find… reports what is left.
+const _RESTRICTION_CLAIM_RE = /\b(?:facebook|meta|instagram|tiktok|google|youtube|amazon)(?:\s+ads?)?\b[^.()\n]{0,40}\b(?:won'?t|will\s+not|doesn'?t|does\s+not|refuses?\s+to|can'?t|cannot|never)\s+(?:approve|allow|run|accept|permit)\b|\b(?:banned|disapproved|rejected|blocked|restricted|suspended)\s+(?:on|by|from)\s+(?:facebook|meta|instagram|tiktok|google|youtube|amazon)\b|\brestricted[- ]niche\b|\b(?:your|their)\s+(?:ads?|advertising|products?|category|niche)\s+(?:are|is|get|gets|being)\s+(?:banned|blocked|restricted|disapproved|rejected)\b/i
+const _POSTING_RESTRICTION_RE = /\brestrict|\bbann?ed?\b|\bban\b|disapprov|\breject|\bpolic(?:y|ies)\b|suspen|\bapproval|not\s+allowed|prohibit|complian|regulated|\bcbd\b|\bvap(?:e|ing)\b|cannabis|\bhemp\b|nicotine|supplement|peptide|kratom|\byMYL\b|medical|pharma|gambling|casino|crypto|firearm|adult/i
+export function stripUnfoundedRestrictionAsides(letter, { postingText = '' } = {}) {
+  const src = String(letter || '')
+  if (_POSTING_RESTRICTION_RE.test(postingText)) return { text: src, removed: [] }
+  const removed = []
+  const out = src.split('\n').map(line => _sentencePieces(line).map(({ text: s, sep }) => {
+    if (casesMentioned(s).length) return s + sep
+    let t = s.replace(/\s*\(([^()]{0,120})\)/g, (m, inner) => {
+      if (!_RESTRICTION_CLAIM_RE.test(inner)) return m
+      removed.push(m.trim()); return ''
+    })
+    t = t.replace(/\b(an?\s+)?restricted[- ]niche\s+/gi, (m, art) => {
+      removed.push(m.trim()); return art ? 'a ' : ''
+    })
+    return t + sep
+  }).join('')).join('\n')
+  return { text: out, removed }
+}
+export function findUnfoundedRestrictionClaims(letter, { postingText = '' } = {}) {
+  if (_POSTING_RESTRICTION_RE.test(postingText)) return []
+  const out = []
+  for (const line of String(letter || '').split('\n')) {
+    for (const { text: s } of _sentencePieces(line)) {
+      if (casesMentioned(s).length) continue
+      const m = s.match(_RESTRICTION_CLAIM_RE)
+      if (m) out.push({ phrase: m[0], sentence: s.trim() })
+    }
+  }
+  return out
+}
+
+// ── work credited to a case its record does not show (2026-10-09, job 17799) ──
+// The posting asked for "examples of branded search campaigns you've optimized";
+// the letter answered "the Skin Reboot rebuild segmented branded queries by intent
+// … and fed offline conversions back into the algorithm" — neither is in Skin
+// Reboot's record (feed-based PMax, enhanced conversions, wasted-spend pruning).
+// The case that HAS branded campaigns is Atlant ("per-complex branded campaigns").
+// A sentence naming exactly one case, that credits it with one of these kinds of
+// work, is reported when that case's record (one-liner + metrics) never mentions
+// it. A note, not a rewrite.
+const _CASE_WORK_KINDS = [
+  { label: 'branded search', claim: /\bbrand(?:ed)?\s+(?:search|campaigns?|quer(?:y|ies)|terms?|keywords?|traffic)\b|\bbranded\b/i, record: /\bbrand(?:ed)?\b/i },
+  { label: 'offline conversions', claim: /\boffline\s+conversions?\b/i, record: /\boffline\b/i },
+  { label: 'call tracking', claim: /\bcall\s+tracking\b/i, record: /\bcall/i },
+  { label: 'Local Services Ads', claim: /\blocal\s+services\s+ads?\b|\bLSA\b/, record: /\blocal\s+services|\bLSA\b/i },
+  { label: 'Dynamic Search Ads', claim: /\bdynamic\s+search\s+ads?\b|\bDSA\b/, record: /\bDSA\b|dynamic\s+search/i },
+  { label: 'server-side tracking', claim: /\bserver[- ]side\b/i, record: /\bserver[- ]side\b/i },
+  { label: 'Demand Gen', claim: /\bdemand\s+gen\b/i, record: /\bdemand\s+gen\b/i },
+  { label: 'YouTube / video', claim: /\byoutube\b|\bvideo\s+(?:ads?|campaigns?)\b/i, record: /\byoutube\b|\bvideo\b/i },
+  { label: 'remarketing', claim: /\bremarketing\b|\bretargeting\b/i, record: /\bremarketing\b|\bretargeting\b/i },
+]
+export function findUnbackedCaseWork(letter) {
+  const out = []
+  for (const line of String(letter || '').split('\n')) {
+    for (const { text: s } of _sentencePieces(line)) {
+      const ids = casesMentioned(s)
+      if (ids.length !== 1) continue
+      const c = CASE_BY_ID[ids[0]]
+      if (!c) continue
+      const record = `${c.one_liner || ''} ${(c.metrics || []).join(' ')}`
+      for (const k of _CASE_WORK_KINDS) {
+        if (k.claim.test(s) && !k.record.test(record)) out.push({ case: c.name, kind: k.label, sentence: s.trim() })
+      }
+    }
+  }
+  return out
 }
