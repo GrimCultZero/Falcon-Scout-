@@ -9940,3 +9940,55 @@ style is offer-led-then-diagnosis, which is a different shape, but it is close e
 watching whether it actually outperforms rather than assuming it does.
 
 Build clean; 23 JS and 6 Python suites pass.
+
+## 2026-10-12 — The audit-job override fired on a word no human wrote (job 18023)
+
+Owner: "do you agree with analyser?" on job 18023, "Lead Generation Specialist | Google Ads, Meta Ads,
+Local SEO & GoHighLevel". No — and neither did the analyser. Its own summary said *"this is NOT a Google
+Ads audit job - the audit flag fired incorrectly"* and *"Artem has zero GoHighLevel experience and cannot
+credibly answer this question"*, and the final verdict was APPLY 7/10.
+
+The analyser reasoned its way to SKIP. A deterministic override flipped it, on a false premise.
+
+**Where the word "audit" came from: nowhere in the posting.** The classifier is tested against
+`title + category + keywords + description` joined with SPACES. Upwork's auto-assigned keyword tag ends
+"...Search Engine Optimization, Marketing Audit"; the description begins "Summary# Lead Generation
+Specialist | Google Ads". `_PPC_AUDIT_JOB_RE` matched **"Audit Summary# Lead Generation Specialist | Google
+Ads"** — a phrase spanning the seam between two fields, written by no one. The client never uses the word
+"audit" at all. This is the `jobTypeBlobContamination` class, on the one detector where a false positive is
+expensive: when it says yes, the override FORCES verdict APPLY and score >= 7 and discards the analyser's
+reasoning. 50+ applicants, GoHighLevel as screening question 3, client average $5.64/hr.
+
+The guard built for exactly this (`_ONGOING_MGMT_NOT_AUDIT_RE`, added after job 10312, same symptom) missed:
+it needed "manage campaigns" ADJACENT and the posting says "manage **Google Ads and Meta Ads** campaigns".
+
+**Three fixes, and two of them only exist because the first attempt was measured before shipping.**
+1. **Join the fields with a newline.** The regex gap is `[^.
+]{0,80}` — it already excludes newlines, so a
+   newline join makes a cross-field match impossible with no regex change at all.
+2. **Widen the PPC vocabulary** (`google shopping`, `shopping ads`, `google search (and shopping) ads`).
+   Needed because the first attempt — strict per-field testing — would have DROPPED two genuine audit jobs,
+   "Comprehensive Audit for Google Search and Shopping Ads" and "Google Shopping Feed Expert Needed for Feed
+   Audit", whose titles do not contain the literal token "google ads" and which had only ever matched via
+   the seam. Merchant Center and PMax were tried in this list and **rejected**: they pulled in five
+   scaling/setup jobs that are not audits.
+3. **An audit in the TITLE outranks ongoing-management wording in the body**, plus the guard tightened to a
+   VERB form of manage. Without the precedence rule the widened guard suppressed "Google Ads Account Audit"
+   and "Google Ads Audit + Ongoing Management" — Artem's flagship product read as management. Without the
+   verb form, "Management, Campaign" in a skills list suppressed a real audit (job 9241).
+
+Measured over all 570 postings: classified as a PPC audit job **79 → 71**. The 15 removed are all ongoing
+specialist roles ("Google Ads Specialist", "Google Ads and Meta Ads Specialist", job 18023). The 7 added
+**all have "Audit" in the title**, including job 17985 — yesterday's NuShape audit, which the old guard had
+been suppressing.
+
+`tests/audit-job-classify.test.js` (new, 15 assertions) pins both directions, including that the space-join
+DID match and the newline-join does not. Two escape corruptions hit while editing, both documented in the
+handoff's methodology §6: `
+` in a comment became a real newline and split it into code, and `` became a
+literal backspace (0x08) inside the regex. Rebuilt those lines with `chr(92)`; the file is verified to
+contain zero 0x08 bytes. Build clean; 24 JS and 6 Python suites pass.
+
+**Still open for the owner:** job 18023 should be a SKIP on the merits — GoHighLevel is a core deliverable
+he has no experience with, which is exactly the job class where the generator fabricated GoHighLevel
+fluency on 2026-09-02 (`fabricatedToolClaim` exists because of it).

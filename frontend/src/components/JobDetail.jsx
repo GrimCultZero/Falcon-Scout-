@@ -4931,7 +4931,13 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       // a low posted ceiling or low client avg must NOT count against the job, and
       // "short-term / part-time / one-off" is the NATURE of an audit, not a risk.
       // (Owner instruction 2026-07-22: always apply to these, don't care about the rate.)
-      const _PPC_AUDIT_JOB_RE = /\b(?:google\s*ads?|adwords|ppc|paid\s+search|\bsem\b)\b[^.\n]{0,80}\b(?:audit|review|assessment|health\s*check|analys[ei]s|analyse|analyze)\b|\b(?:audit|review|assessment|health\s*check)\b[^.\n]{0,80}\b(?:google\s*ads?|adwords|ppc|paid\s+search|\bsem\b)\b/i
+      // "google shopping" / "shopping ads" / "google search (and shopping) ads" added
+      // 2026-10-12: real audit postings title themselves that way ("Comprehensive
+      // Audit for Google Search and Shopping Ads", "Google Shopping Feed Expert
+      // Needed for Feed Audit") and matched ONLY by reaching across the glued
+      // fields. Merchant Center and PMax were tried here too and REJECTED — they
+      // pulled in five scaling/setup jobs that are not audits.
+      const _PPC_AUDIT_JOB_RE = /\b(?:google\s*ads?|adwords|ppc|paid\s+search|\bsem\b|google\s+shopping|shopping\s+ads?|google\s+search\s+(?:and\s+shopping\s+)?ads?)\b[^.\n]{0,80}\b(?:audit|review|assessment|health\s*check|analys[ei]s|analyse|analyze)\b|\b(?:audit|review|assessment|health\s*check)\b[^.\n]{0,80}\b(?:google\s*ads?|adwords|ppc|paid\s+search|\bsem\b|google\s+shopping|shopping\s+ads?|google\s+search\s+(?:and\s+shopping\s+)?ads?)\b/i
       // Exclusion: the regex above matches ANYWHERE in the posting, so an
       // ongoing MANAGEMENT job that merely lists "audit" as one bullet among
       // many initial deliverables (e.g. "Audit of Google Ads, GA4..." inside
@@ -4945,9 +4951,29 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       // real rate/scope concerns. The premise the audit override rests on —
       // "fixed-fee, not an hourly engagement" — simply doesn't hold when the
       // posting itself says otherwise.
-      const _ONGOING_MGMT_NOT_AUDIT_RE = /\b(?:ongoing\s+(?:hours|management|campaigns?)|plan,?\s+launch\s+and\s+manage|manage\s+campaigns?|scale\s+(?:successful\s+)?campaigns?|monthly\s+report|hourly\s+freelance\s+engagement|not\s+looking\s+for\s+a\s+fixed\s+monthly|defined\s+setup\s+and\s+testing\s+phase)\b/i
-      const _isPpcAuditJob = _PPC_AUDIT_JOB_RE.test(`${job.title || ''} ${job.category || ''} ${job.keywords || ''} ${fullDescription}`)
-        && !_ONGOING_MGMT_NOT_AUDIT_RE.test(fullDescription)
+      // "manage campaigns" needed to be ADJACENT, so "manage Google Ads and Meta Ads
+      // campaigns" (job 18023) slipped through. Now allows words between, but only
+      // for a VERB form — "Management, Campaign" in a skills list is not a claim
+      // that the engagement is ongoing. "ongoing opportunity/basis/support/work"
+      // added for the same reason.
+      const _ONGOING_MGMT_NOT_AUDIT_RE = /\b(?:ongoing\s+(?:hours|management|campaigns?|opportunit\w*|basis|support|work|role)|plan,?\s+launch\s+and\s+manage|manag(?:e|es|ing)\b[^.\n]{0,45}\bcampaigns?|scale\s+(?:successful\s+)?campaigns?|monthly\s+report|hourly\s+freelance\s+engagement|not\s+looking\s+for\s+a\s+fixed\s+monthly|defined\s+setup\s+and\s+testing\s+phase)\b/i
+      // Fields joined by NEWLINE, not a space. The regex gap excludes newlines,
+      // so a cross-field match becomes impossible - which is the whole bug on
+      // job 18023 (2026-10-12): Upwork's auto-assigned keyword tag ends "...
+      // Marketing Audit" and the description begins "Summary# Lead Generation
+      // Specialist | Google Ads", and the classifier matched the phantom phrase
+      // "Audit Summary# Lead Generation Specialist | Google Ads" across the seam.
+      // The posting never contains the word "audit" at all. A lead-gen role with
+      // 50+ applicants and GoHighLevel as screening question 3 was force-verdicted
+      // APPLY on a word no human wrote.
+      //
+      // An explicit "audit" in the TITLE outranks an ongoing-management phrase in
+      // the body: a client titling the post "Google Ads Account Audit" is buying
+      // one, whatever else the description mentions. Without this, the widened
+      // guard suppressed "Google Ads Account Audit" and "Google Ads Audit +
+      // Ongoing Management" — Artem's flagship product, misread as management.
+      const _isPpcAuditJob = _PPC_AUDIT_JOB_RE.test([job.title || '', job.category || '', job.keywords || '', fullDescription].join('\n'))
+        && !(_ONGOING_MGMT_NOT_AUDIT_RE.test(fullDescription) && !/\baudit\b/i.test(job.title || ''))
       const mandatoryFlags = []
       if (_isPpcAuditJob) {
         mandatoryFlags.push(`PPC / GOOGLE ADS ACCOUNT AUDIT — this is Artem's STANDARD productised deliverable: FIXED $300, delivered in 1 working day, with his Google Ads audit samples attached. Because it is a FIXED-FEE deliverable and NOT an hourly engagement, the hourly rate floor DOES NOT APPLY: do NOT deduct points for a low posted hourly ceiling or a low client historical avg rate, and do NOT raise any rate-floor-risk flag. "Short-term", "part-time", "small project" and "one-off" describe the NATURE of an audit — treat them as EXPECTED and NEUTRAL, never as negatives or scope-creep risk. This job type is always worth applying to: verdict APPLY and score 7-9 unless one of the four HARD disqualifiers genuinely applies.`)
