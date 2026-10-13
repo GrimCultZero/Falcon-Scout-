@@ -941,6 +941,20 @@
     return { viewedTitles, phraseCount };
   }
 
+  // Does the HTML title-scan say THIS row was viewed? Exact title key only.
+  // There used to be a fuzzy fallback (one title containing the other), and a
+  // short viewed title smeared onto every longer one: once the job titled just
+  // "Google ads" was viewed, "Google Ads Specialist for Brand Search", "Google
+  // Ads Audit and Optimization Expert", "Senior Google Ads Specialist for
+  // Shopify..." - every title containing "google ads" on the page - were
+  // promoted to viewed (owner, 2026-10-13: Upwork showed 0 viewed this week,
+  // the dashboard 5). A missed view is recoverable on the next sync; a false
+  // one is not, because promotion never downgrades.
+  function _titleScanSaysViewed(jobTitle, viewedTitleSet) {
+    if (!jobTitle || !viewedTitleSet || viewedTitleSet.size === 0) return false;
+    return viewedTitleSet.has(jobTitle.toLowerCase().slice(0, 60).trim());
+  }
+
   // ── Load the ENTIRE proposals list before scraping ───────────────────────
   // Owner audit, 2026-08-31: across 221 proposals spanning four months, a
   // "viewed by client" flag has NEVER ONCE been detected on a proposal sitting
@@ -1520,22 +1534,9 @@
       const upwork_proposal_id = proposalIdMatch ? proposalIdMatch[1] : null;
 
       // Layer 0 cross-check: title-scan matched viewed titles from the HTML.
-      if (!viewed && job_title && viewedTitleSet.size > 0) {
-        const titleKey = job_title.toLowerCase().slice(0, 60).trim();
-        // Exact prefix match first
-        if (viewedTitleSet.has(titleKey)) {
-          viewed = true;
-          console.log('[Cockpit Proposal] Layer 0 (title-scan exact) flagged viewed:', job_title);
-        } else {
-          // Fuzzy: any viewed-title that substantially overlaps this row's title
-          for (const vt of viewedTitleSet) {
-            if (vt.length >= 10 && (titleKey.includes(vt) || vt.includes(titleKey.slice(0, Math.min(titleKey.length, vt.length))))) {
-              viewed = true;
-              console.log('[Cockpit Proposal] Layer 0 (title-scan fuzzy) flagged viewed:', job_title, '~', vt);
-              break;
-            }
-          }
-        }
+      if (!viewed && _titleScanSaysViewed(job_title, viewedTitleSet)) {
+        viewed = true;
+        console.log('[Cockpit Proposal] Layer 0 (title-scan exact) flagged viewed:', job_title);
       }
 
       // Push only if we have SOMETHING to match on (title or id).

@@ -3779,6 +3779,24 @@ def _looks_like_invite(row):
     return bool(_INVITE_PHRASE_RE.search(first.get("text") or ""))
 
 
+# Upwork proposal ids are Twitter-style snowflakes: (id >> 22) is milliseconds
+# since 2010-11-04T01:42:54.657Z. Checked 2026-10-13 against all 109 proposals
+# with both an id and a recorded submit time: every one within seconds.
+_UPWORK_ID_EPOCH_MS = 1288834974657
+
+
+def _upwork_id_time(upwork_proposal_id):
+    """When Upwork created this proposal, from its id; None when not decodable."""
+    try:
+        n = int(str(upwork_proposal_id).strip())
+    except (TypeError, ValueError):
+        return None
+    t = datetime.fromtimestamp(((n >> 22) + _UPWORK_ID_EPOCH_MS) / 1000, timezone.utc)
+    if t.year < 2015 or t > datetime.now(timezone.utc) + timedelta(days=1):
+        return None                       # not a snowflake after all
+    return t
+
+
 def _auto_capture_from_room(session, row, job_title, client_name):
     """Create Job + Proposal for a room carrying an Upwork proposal id we don't have.
 
@@ -3825,6 +3843,11 @@ def _auto_capture_from_room(session, row, job_title, client_name):
         sent_text="",
         status="replied" if last_from_client else "sent",
         sent_at=now,
+        # The dashboard files a proposal under submitted_at (else sent_at). A
+        # room found today can hold a proposal from last December: without this
+        # three old threads found on 2026-10-12 counted as that week's
+        # submissions, views and replies (Week 42: 4 "replies", none real).
+        submitted_at=_upwork_id_time(upw_id),
         status_updated_at=_reply_seen_at(row, now) if last_from_client else now,
         upwork_proposal_id=upw_id,
         is_invited=invited,

@@ -10035,3 +10035,45 @@ methodology §6 prescribes — the JS written to a file with the Write tool, the
 touches no escapes. That is now three for three; the heredoc route should simply not be used for regex.
 
 `tests/call-acceptance.test.js` (new, 15 assertions). 25 JS and 6 Python suites pass; build clean.
+
+## 2026-10-13 — Week 42 read 7 submitted / 5 viewed / 4 replies; Upwork showed 3 / 0 / 0
+
+Owner: "where are 4 replies coming from this week?", then "I also see 0 viewed this week, and dashboard says
+5" (Upwork's Submitted proposals list: three proposals this week, no eye icon on any). Two separate bugs,
+both real, and neither was in the dashboard arithmetic.
+
+**1. Old inbox threads filed under the day they were found.** All four "replies" were rows the messages sync
+auto-captured on 2026-10-12 (6b9ffdb): #329 (the Nave Maimon thread, interviewing), #330, #331, #332. An
+auto-captured row had no `submitted_at`, so the dashboard's `submitted_at or sent_at` fell back to the capture
+time. Being replied/interviewing they also counted as viewed (bdae5a2: reaching a stage counts as reaching the
+ones before it), which made 4 of the 5 "viewed" too.
+
+Upwork proposal ids are Twitter-style snowflakes: `(id >> 22) + 1288834974657` is the UTC creation time in ms.
+Checked against all 109 proposals that have both an id and a recorded submit time: every one within seconds.
+So the four were from 2026-05-11, 2026-01-04, 2025-12-24 and 2026-09-11. `_upwork_id_time()` added to
+`api/main.py` and `_auto_capture_from_room` now sets `submitted_at` from it. Today's 12:33 sync had already
+captured eight more old rooms (#336-#343, March to August) that would have landed in Week 42 the same way.
+
+**2. The title-scan smeared one view across every similar title.** The fifth "viewed", #333 (Senior Google Ads
+Specialist for Shopify), was false, set by the proposals-list sync at 16:23 on 10-12. `proposal.js`'s Layer 0
+title-scan had a fuzzy fallback (one title containing the other, key >= 10 chars). Job #322 is titled just
+"Google ads" and really was viewed, so from 2026-10-09 every title containing "google ads" on the same page was
+promoted: #317, #319, #323, #326, #327, #333, #335. The owner's screenshot shows #323, #326, #327 and #333
+unviewed on Upwork. The fallback is gone (`_titleScanSaysViewed`, exact 60-char key only). A missed view comes
+back on the next sync; a false one never did, because promotion never downgrades. Extension 5.12.
+
+**DB repair** (backup `upwork_jobs.db.bak-20261013-week42`): `submitted_at` set from the id on the 13
+auto-captured rows that lacked it (#325, #329-#332, #336-#343); #317, #319, #323, #326, #327, #333, #335 set back
+to `sent`. All seven are on pages 1-2, which every sync re-reads, so any that really were viewed come back on
+the next sync. Not touched: #297 "Google Ads Specialist for Healthcare" (viewed 10-08 in the same run as #303
+"Google Ads Specialist", so possibly the same smear) is on page 3, which the sync does not reach, so a revert
+could not be corrected. It stays viewed, flagged here as uncertain.
+
+Result, read from `/dashboard-stats`: Week 42 = 3 submitted, 0 viewed, 0 replies, which matches Upwork.
+
+Also seen, not fixed: #329's job title is the client's name ("Nave Maimon, Akison Digital Services"), so the
+room header gave a name, not a job title. The proposals pager stops at page 2 ("no 'go to page 3' control
+among 21").
+
+Tests: `tests/test_proposal_id_dates.py` (new, 14), `tests/viewed-title-scan.test.js` (new, 10); inbox-scrape
+asserts 5.12. All 26 JS and 7 Python suites pass. Owner: reload the extension (5.12) at chrome://extensions.
