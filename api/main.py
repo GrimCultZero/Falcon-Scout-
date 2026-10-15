@@ -1025,6 +1025,7 @@ def latest_captured():
         job = (
             session.query(Job.captured_at)
             .filter(Job.hidden_at.is_(None))
+            .filter(or_(Job.source.is_(None), Job.source != "room"))   # not postings: see list_jobs
             .order_by(Job.captured_at.desc())
             .first()
         )
@@ -1071,6 +1072,15 @@ def list_jobs(
 ):
     with Session(engine) as session:
         stmt = select(Job).order_by(Job.captured_at.desc())
+
+        # A 'room' job is not a posting: the messages sync creates one to file
+        # an old conversation's proposal under (_auto_capture_from_room), with
+        # captured_at = the day it was FOUND. In the feed they read as fresh
+        # jobs - owner, 2026-10-15, "why I see this in the feed": eight threads
+        # from March-August, each labelled 1d and REPLIED, hidden by hand one by
+        # one. Their proposals stay in the tracker and the dashboard.
+        if source != "room":
+            stmt = stmt.where(or_(Job.source.is_(None), Job.source != "room"))
 
         # Feed-source toggle (Bot / API / All). 'bot' includes legacy NULL rows.
         if source == "bot":

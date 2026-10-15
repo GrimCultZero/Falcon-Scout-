@@ -10147,3 +10147,25 @@ Owner decisions this session: title-only stop words; build the real catch-up
 rather than just raising `per_keyword_limit`; retention 2000; stay on PPC/SEO
 rather than widening into generic web dev (the only bot postings the API still
 cannot reach are web-dev jobs Artem applied to none of).
+
+
+## 2026-10-15 — Old inbox conversations showed in the job feed as fresh jobs
+
+Owner: "why I see this in the feed" (screenshot of the HIDDEN filter: six jobs, each "REPLIED", "1d").
+
+Not new postings. Since 6b9ffdb the messages sync files every conversation it has no proposal for under a new
+Job (`_auto_capture_from_room`, `source='room'` since e582e6d), and that Job's `captured_at` is the day the room
+was found. The feed sorts and labels by `captured_at`, so threads from March-August 2026 showed up as 1-day-old
+jobs. 16 such jobs exist. The owner had hidden eight of them by hand on 10-13 at 13:06, two seconds apart, which
+is why the HIDDEN filter showed them; the other seven (#18051, #18069-#18071, #18233-#18235) were still in the
+main feed.
+
+`list_jobs` now drops `source='room'` jobs before the hidden split, so neither the feed nor the Hidden tab lists
+them, unless `source=room` is asked for explicitly (nothing in the UI does). `/jobs/latest-captured` ("Feed is
+live") ignores them too, so a found conversation no longer counts as a new job arriving. Nothing else changes:
+their proposals stay in the tracker and on the dashboard, and `/jobs/{id}` still opens them. No DB change; the
+eight hidden flags are left as they were.
+
+Verified on the live server: main feed 852 jobs, 0 room; Hidden tab 2 jobs (the owner's own), 0 room.
+`tests/test_feed_excludes_rooms.py` (new, 6). All 26 JS and 9 Python suites pass. Backend reloads on save;
+nothing for the owner to do but refresh the page.
