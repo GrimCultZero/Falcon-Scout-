@@ -27,11 +27,22 @@ class Job(Base):
     captured_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     avg_rate = Column(String, nullable=True)
     fixed_budget = Column(String, nullable=True)
-    # Capture source: "bot" (Telegram @OffersHunterBot, default) or "api"
+    # Capture source: "api" (Upwork API feed — the only live feed since
+    # @OffersHunterBot shut down on 2026-10-15), "bot" (the Telegram listener,
+    # historical), "room" (auto-captured from an Upwork message thread),
+    # "proposal" (auto-created from a proposal capture) or "extension" (browsed
+    # directly and enriched).
+    #
+    # NO DEFAULT, deliberately. It used to default to "bot", which silently
+    # filed every room/proposal/extension row as a Telegram capture — 16 of the
+    # 73 "bot" jobs Artem had applied to were really his own invites, which
+    # skewed the comparison that decided whether the bot was worth paying for.
+    # Each creation site now says what it is; save_job() stamps the listener
+    # path, and the feed filter still treats NULL as "not the API feed".
     # (Upwork GraphQL marketplace search). Lets the feed toggle between them and
     # the two be compared side by side. Dedup is still on upwork_job_id, so a job
     # seen by both keeps a single row (whichever inserted first owns `source`).
-    source = Column(String, nullable=True, default="bot", index=True)
+    source = Column(String, nullable=True, index=True)
 
     # ── Enrichment: job details ───────────────────────────────────────────
     experience_level = Column(String, nullable=True)
@@ -368,6 +379,10 @@ def save_job(engine, job_data: dict) -> bool:
             exists = session.query(Job).filter_by(upwork_job_id=upwork_id).first()
             if exists:
                 return False
+        # The Telegram listener is the only caller that doesn't name a source,
+        # so stamp it here rather than on the column, where it would also have
+        # labelled every other creation path "bot".
+        job_data.setdefault("source", "bot")
         job = Job(**job_data)
         session.add(job)
         session.commit()

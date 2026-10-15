@@ -122,5 +122,22 @@ assert_('if getattr(p, "is_invited", False):' in SRC,
 assert_(re.search(r'if p\.status == "invited":\s*\n\s*invited_c \+= 1', SRC) is None,
         "…and the old status-based invited count is gone")
 
+# ── provenance: a room capture is not a feed capture ─────────────────────────
+# Job.source used to default to "bot", so every row created here was filed as
+# a Telegram capture. That is how 16 of the 73 "bot" jobs Artem had applied to
+# turned out to be his own invites — which skewed the comparison that decided
+# whether @OffersHunterBot was worth paying for. Each creation site now says
+# what it is, and the column carries no default to fall back on.
+DB_SRC = (ROOT / "db.py").read_text(encoding="utf-8")
+assert_(re.search(r'source = Column\(String, nullable=True, index=True\)', DB_SRC) is not None,
+        "Job.source has no default — a row must declare where it came from")
+assert_('job_data.setdefault("source", "bot")' in DB_SRC,
+        "save_job() stamps the Telegram listener path, the one caller that omits it")
+assert_(re.search(r'through the job feed - the conversation is the only record\."\),\s*\n'
+                  r'\s*captured_at=datetime\.now\(timezone\.utc\),\s*\n\s*source="room",', SRC) is not None,
+        "a room auto-capture is labelled source='room', never 'bot'")
+assert_('source="proposal",' in SRC, "a proposal capture is labelled source='proposal'")
+assert_('source="extension",' in SRC, "an extension-browsed job is labelled source='extension'")
+
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)

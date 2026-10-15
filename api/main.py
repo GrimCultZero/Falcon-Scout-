@@ -1787,6 +1787,7 @@ def enrich_job(data: dict):
                 url=url_raw.split('?')[0] if url_raw else None,
                 raw_message=f"[enriched by extension] {page_title_for_create}",
                 captured_at=datetime.now(timezone.utc),
+                source="extension",
             )
             session.add(job)
             session.flush()  # assign ID before updating fields below
@@ -3870,6 +3871,7 @@ def _auto_capture_from_room(session, row, job_title, client_name):
                          f"client: {client_name or 'unknown'}. This job never came "
                          f"through the job feed - the conversation is the only record."),
             captured_at=datetime.now(timezone.utc),
+            source="room",
         )
         session.add(job)
         session.flush()                   # need job.id
@@ -5074,6 +5076,7 @@ async def capture_standalone_proposal(data: dict):
                 raw_message=f"[auto-created from proposal capture] {job_title}\n\n{job_desc or ''}".strip(),
                 captured_at=now,
                 enriched_at=now,
+                source="proposal",
                 # Client + competition data from the scrape
                 payment_verified=proposal.get("payment_verified"),
                 phone_verified=proposal.get("phone_verified"),
