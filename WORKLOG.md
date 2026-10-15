@@ -10077,3 +10077,73 @@ among 21").
 
 Tests: `tests/test_proposal_id_dates.py` (new, 14), `tests/viewed-title-scan.test.js` (new, 10); inbox-scrape
 asserts 5.12. All 26 JS and 7 Python suites pass. Owner: reload the extension (5.12) at chrome://extensions.
+
+## 2026-10-15 — @OffersHunterBot shut down; the API feed becomes the only feed
+
+The bot's operator announced its hosting provider lost the backups, cancelled
+all subscriptions and asked customers to claim refunds for the unused portion.
+Falcon Scout's Telegram capture path is therefore dead, not degraded.
+
+**Was it worth keeping?** Measured first, before changing anything. `jobs.source`
+records only who INSERTED FIRST, and the bot pushed live while the API polls
+every 3 minutes, so the bot won that race on everything both could see — the
+honest question is whether the API's own pipeline could REACH each job. Against
+every bot-sourced job Artem applied to since 2026-08-01: 51 the API keywords
+would also have found, 5 killed by his own stop words (he applied anyway), and
+exactly **1** genuinely bot-only. So no, the bot was carrying one unique job per
+quarter, and that one was a hole in our own config.
+
+**Two measurement traps found on the way, both worth remembering:**
+- `Job.source` defaults to `"bot"`, so every row `_auto_capture_from_room`
+  creates is filed as bot-sourced. That inflated the bot's apparent contribution
+  by 16 applied jobs (73 → 57) and 11 postings in a 3-day window. Any future
+  source comparison must exclude `raw_message LIKE '[auto-captured%'`.
+- `_JOB_RETAIN_RECENT = 200` with ~100 postings/day meant a **two-day** history
+  window. Bot counts for Oct 11-12 shrank between two queries during the
+  analysis itself. Raised to 2000 (~3 weeks). Jobs with proposals were never
+  pruned at any setting, which is the only reason the applied-job history above
+  survived at all.
+
+**The bot's config was recoverable from its own output.** 226 bot postings still
+on disk, each carrying the `🔑 Keywords:` line that triggered it. Extracted:
+`seo` (109 hits), `google ad` (118), `google search` (39), `google ads expert`
+(17), `ecommerce website` (6) — all missing from `feed_config.json`. `seo` was
+the expensive one: the feed had `seo audit`/`seo strategy`/`local seo`/
+`technical seo`, so `require_keyword_in_text` binned every plainly-worded SEO
+job the search did return. `no-keyword-in-text` was the single largest drop
+reason in a live fetch, larger than any stop word.
+
+**Stop words now match the TITLE only, on whole words.** Matching title+
+description meant one passing mention killed work in the lane — `facebook`
+alone dropped 28 postings in one fetch, nearly all Google Ads roles whose client
+also runs Meta. And substring matching read `bing` inside "PlumBING", which is
+the actual reason "Google Ads Expert for Plumbing Campaign" was filtered as a
+Bing job. Two of the five "stop word blocked a job Artem applied to" cases were
+never about Bing at all.
+
+Title-only has a failure mode: it let Meta-only jobs through, because the stop
+list had `facebook` but never `meta`. Added `meta ads`/`instagram`/
+`social media`/`bookkeeper`, and with them a **lane rescue** — a stop word in
+the title only disqualifies a title that offers nothing from Artem's lane
+(`_LANE_RE`). Without it those terms would bin every mixed Google+Meta posting,
+of which one live fetch held three ("Google & Meta Ads Specialist…" contains
+neither "google ads" nor "google ad" as a contiguous phrase, hence a looser
+word list than the feed keywords). Pinned in `tests/test_feed_filter.py`.
+
+**The real loss from the bot was backfill, not reach.** `catchup_missed_jobs()`
+replayed everything missed however long the listener was offline; the API feed
+only ever saw the newest 20 per keyword, so a night with the machine off was
+gone for good. Added `fetch_and_filter_deep()` — the search is RECENCY-sorted,
+so it pages back per keyword until the last row on a page predates the feed's
+own 72h cutoff. The background loop runs it by itself whenever `_feed_gap_hours()`
+exceeds 1h (at most twice an hour, it costs ~200 calls and ~3 minutes), and
+`POST /api-fetch/catchup` is the manual handle.
+
+First run drained **287 jobs** that were simply lost: Oct 14 went from 57
+postings on record to 213. That is the size of the hole the feed had been
+running with, undetected, the whole time.
+
+Owner decisions this session: title-only stop words; build the real catch-up
+rather than just raising `per_keyword_limit`; retention 2000; stay on PPC/SEO
+rather than widening into generic web dev (the only bot postings the API still
+cannot reach are web-dev jobs Artem applied to none of).

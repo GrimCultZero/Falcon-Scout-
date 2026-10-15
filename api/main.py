@@ -467,7 +467,11 @@ _auto_ghost_proposals()
 #
 # NOTE: this does NOT affect app responsiveness — that's already handled by the
 # 200-row feed cap + composite index. Pruning only keeps the .db file small.
-_JOB_RETAIN_RECENT = 200
+# Raised 200 → 2000 on 2026-10-15. At 200 the API feed's ~100 postings/day gave
+# a two-day history window, which silently ate the evidence needed to compare
+# feed sources (bot counts for Oct 11-12 shrank overnight mid-analysis). 2000 is
+# roughly three weeks. Jobs with a proposal are never pruned at any setting.
+_JOB_RETAIN_RECENT = 2000
 
 def _prune_jobs(keep_recent: int = _JOB_RETAIN_RECENT) -> int:
     """Delete old job postings, preserving recent + responded/hired/starred.
@@ -554,12 +558,37 @@ def _upsert_api_jobs(rows):
 # Reads `auto_fetch_minutes` from feed_config each cycle (so toggling it in the
 # Feed Settings panel takes effect without a restart). The fetch + DB write run
 # in a threadpool so the blocking HTTP/SQLite calls never stall the event loop.
+def _feed_gap_hours() -> float:
+    """Hours since the newest captured posting — how big a hole the feed has."""
+    try:
+        with Session(engine) as session:
+            row = (session.query(Job.captured_at)
+                   .order_by(Job.captured_at.desc())
+                   .first())
+        if not row or not row.captured_at:
+            return 999.0
+        # captured_at round-trips from SQLite as naive UTC.
+        return (datetime.now(timezone.utc).replace(tzinfo=None)
+                - row.captured_at).total_seconds() / 3600
+    except Exception:
+        return 0.0
+
+
+# A catch-up pages back through every keyword, so it is far heavier than a
+# normal cycle. Only run one when the feed actually has a hole, and never more
+# than twice an hour.
+_CATCHUP_GAP_HOURS = 1.0
+_CATCHUP_MIN_INTERVAL_SEC = 30 * 60
+
+
 async def _api_feed_loop():
     import asyncio
+    import time as _time
     import upwork_api
     loop = asyncio.get_event_loop()
     # Small initial delay so startup isn't blocked by a first fetch.
     await asyncio.sleep(20)
+    last_catchup = 0.0
     while True:
         try:
             cfg = upwork_api.load_feed_config()
@@ -570,9 +599,21 @@ async def _api_feed_loop():
             if not upwork_api.is_connected():
                 await asyncio.sleep(min(mins, 5) * 60)  # not authed — wait, retry
                 continue
-            rows, stats = await loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg)
+            # Startup, or waking from a sleep/shutdown, leaves a gap the normal
+            # single-page fetch can never recover: by the time we look, what was
+            # posted overnight has been pushed past the first page. Page back
+            # instead. (The Telegram bot used to cover this with its own
+            # catch-up; it shut down 2026-10-15.)
+            gap = await loop.run_in_executor(None, _feed_gap_hours)
+            deep = gap >= _CATCHUP_GAP_HOURS and (_time.time() - last_catchup) >= _CATCHUP_MIN_INTERVAL_SEC
+            if deep:
+                print(f"[api-feed/catchup] {gap:.1f}h gap — paging back through every keyword")
+                rows, stats = await loop.run_in_executor(None, upwork_api.fetch_and_filter_deep, cfg)
+                last_catchup = _time.time()
+            else:
+                rows, stats = await loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg)
             ins, skip = await loop.run_in_executor(None, _upsert_api_jobs, rows)
-            print(f"[api-feed/auto] {stats} inserted={ins} skipped={skip}")
+            print(f"[api-feed/{'catchup' if deep else 'auto'}] {stats} inserted={ins} skipped={skip}")
             await asyncio.sleep(mins * 60)
         except asyncio.CancelledError:
             break
@@ -5457,6 +5498,27 @@ def api_fetch():
 
     inserted, skipped = _upsert_api_jobs(rows)
     print(f"[api-fetch] {stats} inserted={inserted} skipped={skipped}")
+    return {"ok": True, "inserted": inserted, "skipped_existing": skipped, **stats}
+
+
+@app.post("/api-fetch/catchup")
+def api_fetch_catchup():
+    """Deep fetch: page back through every keyword instead of taking only the
+    newest page, and insert everything missed. The background loop runs this by
+    itself after a gap; this is the manual handle for draining a known backlog
+    (e.g. the first run after @OffersHunterBot shut down on 2026-10-15).
+
+    Slow by design — roughly 200 API calls and a few minutes."""
+    import upwork_api
+    try:
+        rows, stats = upwork_api.fetch_and_filter_deep()
+    except upwork_api.UpworkError as e:
+        raise HTTPException(status_code=400, detail=str(e))  # usually: not connected
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    inserted, skipped = _upsert_api_jobs(rows)
+    print(f"[api-fetch/catchup] {stats} inserted={inserted} skipped={skipped}")
     return {"ok": True, "inserted": inserted, "skipped_existing": skipped, **stats}
 
 

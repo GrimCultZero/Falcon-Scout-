@@ -16,6 +16,7 @@ Nothing here writes to Upwork.
 """
 
 import os
+import re
 import time
 import json
 from datetime import datetime, timezone
@@ -442,16 +443,69 @@ def save_feed_config(cfg: dict) -> dict:
     return merged
 
 
+# Single words that mean the title is offering work Artem actually does. Used
+# only to rescue a title that also tripped a stop word — deliberately looser
+# than the feed keywords, because "Google & Meta Ads Specialist" contains
+# neither "google ads" nor "google ad" as a contiguous phrase, yet is plainly
+# a Google Ads job.
+_LANE_RE = re.compile(
+    r"(?<!\w)(?:google|adwords|ppc|sem|seo|aeo|geo|shopping|pmax|"
+    r"performance\s+max|merchant\s+center|shopify|woocommerce|wordpress|"
+    r"opencart|magento|ecommerce|e-commerce)(?!\w)",
+    re.I,
+)
+
+_STOP_RE_CACHE: dict[str, "re.Pattern"] = {}
+
+
+def _stop_word_hit(text: str, stop_words) -> "str | None":
+    """First stop word present in `text` as a WHOLE word, else None.
+
+    Plain substring matching was dropping real work: "bing" matched
+    "PlumBING", which is how "Google Ads Expert for Plumbing Campaign" and
+    "...Grow Our Plumbing Business" came to be filtered as Bing jobs. Artem
+    applied to both anyway. Lookarounds rather than \\b so multi-word entries
+    ("cold caller", "tik tok") and ones ending in punctuation still behave.
+    """
+    low = (text or "").lower()
+    if not low:
+        return None
+    for s in stop_words:
+        s = (s or "").lower().strip()
+        if not s:
+            continue
+        rx = _STOP_RE_CACHE.get(s)
+        if rx is None:
+            rx = re.compile(r"(?<!\w)" + re.escape(s) + r"(?!\w)")
+            _STOP_RE_CACHE[s] = rx
+        if rx.search(low):
+            return s
+    return None
+
+
 def _row_passes(row: dict, cfg: dict) -> "str | None":
     """Return a drop-reason string if the row should be filtered out, else None."""
     title = (row.get("title") or "").lower()
     desc = (row.get("description_full") or "").lower()
     blob = title + " " + desc
 
-    stops = [s.lower() for s in (cfg.get("stop_words") or [])]
-    for s in stops:
-        if s and s in blob:
-            return f"stopword:{s}"
+    # Stop words match the TITLE ONLY, on whole words (2026-10-15).
+    # Matching the whole blob meant one passing mention killed a job that was
+    # squarely in the lane: "facebook" alone dropped 28 postings in a single
+    # fetch, nearly all Google Ads roles that happen to say the client also
+    # runs Meta. Measured against the real corpus, the old behaviour blocked 5
+    # jobs Artem applied to anyway since 2026-08-01 (3 on "bing", 1 "hubspot",
+    # 1 "editor") — two of which got replies. A job genuinely ABOUT the wrong
+    # platform says so in its title, so the title is the honest signal.
+    hit = _stop_word_hit(title, cfg.get("stop_words") or [])
+    if hit and not _LANE_RE.search(title):
+        # A stop word in the title only disqualifies a job when the title
+        # offers nothing from Artem's own lane. "Meta Ads Specialist for a
+        # Bali Villa" is off-lane and goes; "Google & Meta Ads Specialist"
+        # names the work he does and stays. Without this, adding the platform
+        # terms below would throw away every mixed Google+Meta posting, of
+        # which a single live fetch held three.
+        return f"stopword:{hit}"
 
     if cfg.get("require_keyword_in_text"):
         kws = [k.lower() for k in (cfg.get("keywords") or [])]
@@ -496,6 +550,29 @@ def _row_passes(row: dict, cfg: dict) -> "str | None":
     return None
 
 
+def _apply_filter(seen: dict, cfg: dict, fetched: int, extra: dict | None = None):
+    """Shared tail of both fetch paths: post-filter the merged rows and build
+    the stats block."""
+    kept, drops = [], {}
+    for r in seen.values():
+        reason = _row_passes(r, cfg)
+        if reason:
+            drops[reason] = drops.get(reason, 0) + 1
+        else:
+            kept.append(r)
+
+    stats = {
+        "keywords": len(cfg.get("keywords") or []),
+        "fetched_raw": fetched,
+        "unique": len(seen),
+        "kept": len(kept),
+        "dropped": len(seen) - len(kept),
+        "drop_reasons": drops,
+    }
+    stats.update(extra or {})
+    return kept, stats
+
+
 def fetch_and_filter(cfg: dict | None = None):
     """Run per-keyword searches, merge+dedup, then post-filter. Returns
     (kept_rows, stats) where stats explains what was fetched and dropped."""
@@ -517,23 +594,68 @@ def fetch_and_filter(cfg: dict | None = None):
             if uid and uid not in seen:
                 seen[uid] = r
 
-    kept, drops = [], {}
-    for r in seen.values():
-        reason = _row_passes(r, cfg)
-        if reason:
-            drops[reason] = drops.get(reason, 0) + 1
-        else:
-            kept.append(r)
+    return _apply_filter(seen, cfg, fetched)
 
-    stats = {
-        "keywords": len(keywords),
-        "fetched_raw": fetched,
-        "unique": len(seen),
-        "kept": len(kept),
-        "dropped": len(seen) - len(kept),
-        "drop_reasons": drops,
-    }
-    return kept, stats
+
+def _posted_dt(row: dict) -> "datetime | None":
+    """Parse a row's Upwork posted timestamp, or None if absent/unparseable."""
+    posted = row.get("posted_date")
+    if not posted:
+        return None
+    try:
+        normalized = posted if (posted.endswith("Z") or "+" in posted) else posted + "Z"
+        return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def fetch_and_filter_deep(cfg: dict | None = None, max_pages: int = 8):
+    """Catch-up fetch for when the feed has a hole in it.
+
+    The normal fetch takes only the newest page per keyword, which is right at
+    a 3-minute cadence but loses everything posted while the machine was off —
+    the Telegram bot used to cover that with catchup_missed_jobs(), and since
+    it shut down on 2026-10-15 nothing did.
+
+    The search is RECENCY-sorted, so paging walks straight back in time: keep
+    turning pages per keyword until the last row on a page is older than the
+    feed's own age cutoff (nothing past that would survive _row_passes anyway),
+    or until max_pages, which bounds the API calls. Dedup and filtering are
+    identical to the normal path, and _upsert_api_jobs skips what we already
+    have — so a catch-up that overlaps costs requests, never duplicates.
+    """
+    cfg = cfg or load_feed_config()
+    per_kw = int(cfg.get("per_keyword_limit") or 20)
+    keywords = cfg.get("keywords") or ["google ads"]
+    max_age_h = int(cfg.get("max_posting_age_hours") or 0) or 72
+    cutoff = datetime.now(timezone.utc).timestamp() - max_age_h * 3600
+
+    seen = {}
+    fetched = pages = 0
+    for kw in keywords:
+        offset = 0
+        for _ in range(max_pages):
+            try:
+                rows, _total = search_jobs(kw, per_kw, str(offset))
+            except Exception as e:
+                print(f"[feed/catchup] keyword {kw!r} page {offset} failed: {e}")
+                break
+            pages += 1
+            if not rows:
+                break
+            for r in rows:
+                fetched += 1
+                uid = r.get("upwork_job_id")
+                if uid and uid not in seen:
+                    seen[uid] = r
+            # Recency order means once the oldest row on this page predates the
+            # cutoff, every later page is older still.
+            last_dt = _posted_dt(rows[-1])
+            if last_dt is not None and last_dt.timestamp() < cutoff:
+                break
+            offset += per_kw
+
+    return _apply_filter(seen, cfg, fetched, {"deep": True, "pages": pages})
 
 
 def probe() -> dict:
