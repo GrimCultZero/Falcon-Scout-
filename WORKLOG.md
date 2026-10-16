@@ -10279,3 +10279,54 @@ are hours apart and the arrival clock is right. But the pager fix will refresh
 68 proposals that have not been looked at in weeks, and every status change
 discovered in that first pass will be stamped with that moment — so expect a
 one-off bump in whichever week it lands. It is a backfill, not a good week.
+
+### Same day — what "a reply" actually means
+
+Owner, after seeing five: "we count a reply ONLY the 1st message from a NEW
+client in the messages section. If e.g. someone replied to my cover letter a
+week ago and the conversation continues this current week (I write to him, he
+responds) — this shouldn't count as a new reply. Also, we only count new replies
+received this current week, there can't be anything from May, unless they
+replied this week."
+
+The arrival clock shipped earlier the same day was closer than the send date but
+still wrong, because `status_updated_at` is the LATEST transition. Every new
+message in an old thread re-dated its reply. Proposal 318's first reply landed
+**Oct 11** (week 41, recorded by the owner himself in
+tests/test_dashboard_stages.py's header) and its stamp read Oct 14 — the audit
+follow-up — which moved it into week 42. Proposal 329, sent 11 May, was read for
+the first time in October and counted as an October reply.
+
+**`proposals.first_reply_at`**, written ONCE and never overwritten. A
+`before_flush` hook on Session stamps it on whichever of the ten status-setting
+paths happens to be first; doing it by hand at each would have been forgotten
+within a month. Weekly REPLIES now count it, and — the part that matters —
+**unknown is not "this week"**: a proposal whose first-reply date we cannot
+establish counts in all-time and in no weekly card. Guessing is what put May in
+week 42.
+
+**The extension was discarding the timestamps all along.** Upwork writes a day
+divider between message groups ("Wednesday, Oct 14") and the time on each group
+header ("Sinking Birdies 12:02 PM"). `_MSG_UI_LINE_RE` dropped the dividers as
+UI noise and `_MSG_TIME_RE` was used only to find where the name ended. Together
+they date every message. 5.14 attaches `at` to each group;
+`_first_client_message_at()` takes the earliest CLIENT one, and it may only move
+a stored date EARLIER — reading a thread late must never push a first reply
+forward into the week we happened to read it. So history self-corrects as rooms
+are walked (which still needs the Chrome occlusion flag).
+
+Backfill, 54 positives: the recorded transition is a real Upwork activity date
+for most rows — the auto-captured ones were stamped from the conversation's
+last-activity, not from discovery, so provenance was the wrong discriminator and
+the GAP is the right one. 51 dated from the transition stamp (gap ≤ 30d), 318
+set to Oct 11 from the owner's own note, and 3 left UNKNOWN because their
+threads span months (18, 329, 338).
+
+Week 42 went 5 → **3** (296 Oct 12, 328 Oct 13, 361 Oct 16); 318 moved back to
+week 41; 329 left the weekly cards entirely.
+
+Still unresolved and worth a decision: proposal 328's whole reply is "then we
+are not a fit" — an outright rejection counted as a positive, because
+`_DECLINE_SIGNALS` has no pattern for it. Fixing it drops week 42 to 2 replies
+and the rate to 13%. Not touched: a loose "not a fit" over-fires on hedging
+("let me know if it's not a fit"), which needs the owner's call.

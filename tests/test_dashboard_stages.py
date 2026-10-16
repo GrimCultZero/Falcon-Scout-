@@ -53,15 +53,56 @@ assert_(
     "replies still count replied/interviewing/hired",
 )
 
+# ── a reply is the client's FIRST message (owner, 2026-10-16) ───────────────
+# "We count a reply ONLY the 1st message from a NEW client. If someone replied
+# to my cover letter a week ago and the conversation continues this week, this
+# shouldn't count as a new reply. Also, we only count new replies received this
+# current week, there can't be anything from May, unless they replied this week."
+assert_(
+    re.search(r"t = p\.first_reply_at", SRC) is not None,
+    "replies are counted by first_reply_at, not by the latest transition",
+)
+assert_(
+    re.search(r"first_reply_at\s*=\s*Column\(DateTime",
+              (ROOT / "db.py").read_text(encoding="utf-8")) is not None,
+    "…and the column exists to hold it",
+)
+assert_(
+    re.search(r'@event\.listens_for\(Session, "before_flush"\)', SRC) is not None
+    and re.search(r"obj\.first_reply_at is not None:\s*\n\s*continue", SRC) is not None,
+    "every status path stamps it, and a non-NULL value is never overwritten",
+)
+# Unknown must not mean "this week" — guessing put a proposal sent in May into
+# week 42.
+assert_(
+    re.search(r"if start is None and end is None:\s*\n\s*return True", SRC) is not None
+    and re.search(r"if t is None:\s*\n\s*return False", SRC) is not None,
+    "an unknown first-reply date counts in all-time and in NO weekly card",
+)
+assert_(
+    "_first_client_message_at" in SRC
+    and re.search(r'm\.get\("from"\) != "client"', SRC) is not None,
+    "the thread's own timestamps are preferred, and only the CLIENT's messages count",
+)
+assert_(
+    re.search(r"_first_at < proposal\.first_reply_at", SRC) is not None,
+    "…and reading a thread later can only move a first reply EARLIER, never forward",
+)
+
 # ── two clocks: cohort stages vs event stages (owner, 2026-10-16) ────────────
 # Week 42 read "0 REPLIES, 0 HIRED" on its 5th day while the Upwork inbox held
 # four answers and a hire, because every stage was bucketed by the proposal's
 # SEND date — one reply was filed under the week of May 11. Replies and hires
 # now count when they ARRIVE; submitted/viewed/invited stay on the send date.
 assert_(
-    re.search(r"def _event_ts\(p\):", SRC) is not None
-    and re.search(r"t = p\.status_updated_at", SRC) is not None,
-    "an arrival clock exists, read from status_updated_at",
+    re.search(r"def _event_ts\(p\):", SRC) is not None,
+    "an arrival clock exists, separate from the send date",
+)
+# It must NOT read status_updated_at any more: that is the latest transition,
+# so a continuing conversation re-dated its own first reply.
+assert_(
+    re.search(r"def _event_ts\(p\):(?:.|\n)*?t = p\.status_updated_at\b", SRC) is None,
+    "…and it no longer reads the LATEST transition, which continuations keep moving",
 )
 assert_(
     re.search(r"if in_event and p\.status == \"hired\":\s*\n\s*hired_c \+= 1", SRC) is not None,

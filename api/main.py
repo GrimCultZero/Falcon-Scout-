@@ -25,7 +25,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, or_, select, text
+from sqlalchemy import create_engine, event, or_, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
@@ -121,12 +121,51 @@ def _ensure_job_columns():
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_submitted_at ON proposals(submitted_at)")
         if "analysis_json" not in proposals_cols:
             conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN analysis_json TEXT")
+        if "first_reply_at" not in proposals_cols:
+            # When the client FIRST wrote back in this thread. Owner, 2026-10-16:
+            # "we count a reply ONLY the 1st message from a NEW client … if someone
+            # replied a week ago and the conversation continues this week, this
+            # shouldn't count as a new reply." status_updated_at is the LATEST
+            # transition, so it re-dates an old reply every time the thread moves —
+            # proposal 318's first reply was Oct 11 but its stamp said Oct 14.
+            # Written ONCE and never overwritten.
+            conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN first_reply_at DATETIME")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_first_reply_at ON proposals(first_reply_at)")
         if "upwork_proposal_id" not in proposals_cols:
             # Added 2026-08-26 directly against the live DB (see WORKLOG.md); added
             # here retroactively so a fresh clone / restored backup self-heals too.
             conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN upwork_proposal_id TEXT")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_upwork_proposal_id ON proposals(upwork_proposal_id)")
 _ensure_job_columns()
+
+
+# ── "a reply" means the client's FIRST message in a thread ────────────────────
+# Owner, 2026-10-16: "we count a reply ONLY the 1st message from a NEW client.
+# If someone replied to my cover letter a week ago and the conversation
+# continues this week, this shouldn't count as a new reply."
+#
+# Ten different call sites move a proposal's status, and any of them can be the
+# one that first sees a reply, so stamping first_reply_at by hand at each would
+# be forgotten within a month. A before_flush hook catches every path instead:
+# whatever route set the status, if it is now a reply and we have never recorded
+# one, the transition's own timestamp becomes the first-reply date.
+#
+# It only ever fills a NULL, so nothing can move a first reply forward — which
+# is exactly what reading status_updated_at did every time a thread continued.
+_REPLY_STATUSES = frozenset({"replied", "interviewing", "hired"})
+
+
+@event.listens_for(Session, "before_flush")
+def _stamp_first_reply(session, flush_context, instances):
+    for obj in list(session.dirty) + list(session.new):
+        if not isinstance(obj, Proposal):
+            continue
+        if obj.status not in _REPLY_STATUSES or obj.first_reply_at is not None:
+            continue
+        # status_updated_at is already the best timestamp each call site could
+        # produce — _reply_seen_at() prefers the conversation's own last-activity
+        # time over the moment the sync happened to run.
+        obj.first_reply_at = obj.status_updated_at or datetime.now(timezone.utc)
 
 
 # ── AI provider (API vs CLI bridge) ─────────────────────────────────────────
@@ -795,19 +834,27 @@ def _compute_dashboard_stats():
             return t
 
         def _event_ts(p):
-            """When the outcome actually landed, for the stages counted by
-            arrival rather than by send date. Falls back to the send ts for
-            rows that never moved."""
-            t = p.status_updated_at
+            """When the client FIRST wrote back — the only thing that counts as
+            a reply (owner, 2026-10-16).
+
+            Returns None when we do not know. That is NOT the same as "this
+            week": an unknown first reply counts in all-time and in no weekly
+            card, because claiming it happened this week is a guess, and the
+            guess was wrong in the one case the owner checked (a proposal sent
+            in May, read for the first time in October).
+            """
+            t = p.first_reply_at
             if t is None:
-                return _ref(p)
+                return None
             if t.tzinfo is None:
                 t = t.replace(tzinfo=timezone.utc)
             return t
 
         def _in(t, start, end):
+            if start is None and end is None:
+                return True      # all-time: an unknown date is still a reply
             if t is None:
-                return False
+                return False     # a bounded window cannot claim an unknown date
             if start is not None and t < start:
                 return False
             if end is not None and t >= end:
@@ -830,14 +877,18 @@ def _compute_dashboard_stats():
               and moving VIEWED to the transition stamp would make a past
               week's view count DROP whenever an old proposal replies — the
               exact smearing the owner rejected on 2026-10-11.
-            * REPLIES / HIRED count on ARRIVAL (status_updated_at). An answer
-              is an event; it belongs to the week it happened, and counting it
-              there is also stabler — it adds to the current week instead of
-              retroactively editing an old one.
+            * REPLIES / HIRED count on the client's FIRST message
+              (first_reply_at). "We count a reply ONLY the 1st message from a
+              NEW client — if someone replied a week ago and the conversation
+              continues this week, this shouldn't count as a new reply."
+              status_updated_at cannot express that: it holds the LATEST
+              transition, so every new message in an old thread re-dated the
+              reply. Proposal 318's first reply landed Oct 11 (week 41) and
+              its stamp read Oct 14, which moved it into week 42.
 
-            Known imprecision: only the LATEST transition timestamp is stored,
-            so a proposal that went viewed→replied carries one stamp. That is
-            exactly why VIEWED is not counted this way.
+            A proposal whose first_reply_at is unknown counts in all-time and
+            in NO weekly card. Unknown is not "this week" — guessing put a
+            proposal sent in May into week 42.
             """
             subs, viewed_c, invited_c, pos, hired_c = 0, 0, 0, 0, 0
             cohort_pos = 0
@@ -4008,6 +4059,36 @@ def _resolve_room_evidence(row, idx):
     return None, None, sorted(found)
 
 
+def _first_client_message_at(msgs) -> "datetime | None":
+    """The earliest timestamp among the CLIENT's messages in a scraped thread,
+    or None when the extension gave us none.
+
+    Extension 5.14 attaches `at` to each message group, built from Upwork's day
+    divider ("Wednesday, Oct 14") and the "7:56 PM" on the group header — both
+    of which the parser used to discard as UI noise. That is what makes it
+    possible to say when a client FIRST wrote, rather than when a sync noticed.
+
+    Artem's own messages are skipped: a thread he opened does not become a reply
+    because he wrote in it.
+    """
+    best = None
+    for m in msgs or []:
+        if not isinstance(m, dict) or m.get("from") != "client":
+            continue
+        raw = str(m.get("at") or "").strip()
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw)
+        except (ValueError, TypeError):
+            continue
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        if best is None or dt < best:
+            best = dt
+    return best
+
+
 def _reply_seen_at(row: dict, now: datetime) -> datetime:
     """When a reply found by the inbox sync should be dated: the conversation's
     last activity, read from the inbox list by the extension (v5.2+), when it is
@@ -4331,6 +4412,14 @@ def messages_status_sync(data: dict):
             _client_texts = [str(m.get("text") or "").strip() for m in _msgs
                              if isinstance(m, dict) and m.get("from") == "client" and str(m.get("text") or "").strip()
                              and not _looks_like_inbox_list(str(m.get("text") or ""))]
+            # The thread itself dates the reply better than anything else we
+            # have: extension 5.14 reads the day divider plus each group's
+            # "7:56 PM" into `at`. Only fills a NULL, and only moves the date
+            # EARLIER — a thread read later must never push a first reply
+            # forward into the week we happened to read it.
+            _first_at = _first_client_message_at(_msgs)
+            if _first_at and (proposal.first_reply_at is None or _first_at < proposal.first_reply_at):
+                proposal.first_reply_at = _first_at
             if _client_texts and match_via in _EXACT_MATCH_PATHS:
                 _latest = _client_texts[-1][:2000]
                 if _latest[:80] not in (proposal.client_reply_text or ""):

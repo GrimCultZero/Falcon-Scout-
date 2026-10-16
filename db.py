@@ -252,6 +252,22 @@ class Proposal(Base):
     auto_captured      = Column(Boolean, nullable=False, default=False)
     # When proposal was submitted on Upwork (captured from submit button detection)
     submitted_at       = Column(DateTime, nullable=True, index=True)
+    # When the client FIRST wrote back in this thread — the moment that counts
+    # as "a reply". Owner, 2026-10-16: "we count a reply ONLY the 1st message
+    # from a NEW client … if someone replied a week ago and the conversation
+    # continues this week, this shouldn't count as a new reply."
+    #
+    # status_updated_at cannot answer that: it holds the LATEST transition, so
+    # every new message in an old thread re-dates the reply. Proposal 318's
+    # first reply landed on Oct 11 (week 41) and its stamp read Oct 14, which
+    # moved it into week 42. Preferably the client's own message timestamp read
+    # off the thread; the detection time only when the thread was never read.
+    #
+    # WRITTEN ONCE. Nothing may overwrite a non-NULL value — that is the whole
+    # point. NULL means "we do not know when they first replied", which is NOT
+    # the same as "they replied this week": such a proposal counts in all-time
+    # totals and in no weekly card.
+    first_reply_at     = Column(DateTime, nullable=True, index=True)
     # Point-in-time snapshot of the analyser's verdict at proposal creation.
     # Immutable once set — never overwrite on update. Schema mirrors the
     # Analyser JSON response plus model/ran_at metadata:

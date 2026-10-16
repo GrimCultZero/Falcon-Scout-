@@ -532,14 +532,56 @@
   // sidebar, and then nothing read from it can be trusted: no messages at all, so
   // the room is reported as a miss instead of saved half-wrong (5.8).
   const _INBOX_LIST_PREVIEW_RE = /^[ \t]*you:\s/im;
+  // Date dividers Upwork puts between day groups. These were being discarded as
+  // UI noise, which is why a message could only ever be dated by when the sync
+  // happened to notice it (2026-10-16). Combined with the "7:56 PM" on each
+  // group header they give a real timestamp — the thing needed to say WHEN the
+  // client first replied, as opposed to when we found out.
+  const _MSG_DATE_DIVIDER_RE =
+    /^(today|yesterday|(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s+([a-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?)$/i;
+  const _MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+  // "Wednesday, Oct 14" + "7:56 PM" -> a local ISO string. Upwork omits the
+  // year on recent dates, so an undated divider that would land in the future
+  // belongs to last year.
+  function _msgStamp(divider, time) {
+    if (!divider) return null;
+    const now = new Date();
+    let d;
+    const m = String(divider).match(_MSG_DATE_DIVIDER_RE);
+    if (!m) return null;
+    if (/^today$/i.test(m[1])) {
+      d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (/^yesterday$/i.test(m[1])) {
+      d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    } else {
+      const mi = _MONTHS.indexOf(String(m[2] || '').slice(0, 3).toLowerCase());
+      if (mi < 0) return null;
+      const day = parseInt(m[3], 10);
+      const year = m[4] ? parseInt(m[4], 10) : now.getFullYear();
+      d = new Date(year, mi, day);
+      if (!m[4] && d.getTime() > now.getTime() + 24 * 3600 * 1000) d.setFullYear(year - 1);
+    }
+    const t = String(time || '').match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (t) {
+      let h = parseInt(t[1], 10) % 12;
+      if (/pm/i.test(t[3])) h += 12;
+      d.setHours(h, parseInt(t[2], 10), 0, 0);
+    }
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
+  }
+
   function _roomMessages(text) {
     if (_INBOX_LIST_PREVIEW_RE.test(String(text || ''))) return [];
     const lines = String(text || '').split('\n').map(s => s.trim()).filter(Boolean);
     const headerNames = new Set(String(lines[0] || '').split(',').map(s => s.trim()).filter(Boolean));
     const groups = [];
     let cur = null;
+    let curDate = null;          // the day divider currently in force
     for (let i = 0; i < lines.length; i++) {
       const ln = lines[i];
+      if (_MSG_DATE_DIVIDER_RE.test(ln)) { curDate = ln; continue; }
       if (cur && _THREAD_END_RE.test(ln)) {
         // Each card name line once: a sign-off with the same name stays.
         while (cur.lines.length && headerNames.delete(cur.lines[cur.lines.length - 1])) cur.lines.pop();
@@ -555,11 +597,20 @@
           if (cur && cur.lines[cur.lines.length - 1] === name) cur.lines.pop();
         }
       }
-      if (name) { cur = { from: _SELF_NAME_RE.test(name) ? 'artem' : 'client', name, lines: [] }; groups.push(cur); continue; }
+      if (name) {
+        cur = {
+          from: _SELF_NAME_RE.test(name) ? 'artem' : 'client', name, lines: [],
+          at: _msgStamp(curDate, m && m[1]),
+        };
+        groups.push(cur);
+        continue;
+      }
       if (!cur || _MSG_UI_LINE_RE.test(ln) || /^[A-Z]{2,3}$/.test(ln)) continue;
       cur.lines.push(ln);
     }
-    return groups.map(g => ({ from: g.from, name: g.name, text: g.lines.join('\n') })).filter(g => g.text);
+    return groups
+      .map(g => ({ from: g.from, name: g.name, text: g.lines.join('\n'), ...(g.at ? { at: g.at } : {}) }))
+      .filter(g => g.text);
   }
 
   // Identity fragments (person / company names) from a list row, for telling
