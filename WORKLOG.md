@@ -10169,3 +10169,71 @@ eight hidden flags are left as they were.
 Verified on the live server: main feed 852 jobs, 0 room; Hidden tab 2 jobs (the owner's own), 0 room.
 `tests/test_feed_excludes_rooms.py` (new, 6). All 26 JS and 9 Python suites pass. Backend reloads on save;
 nothing for the owner to do but refresh the page.
+
+## 2026-10-16 — "0 replies" on a week that had four, and the two capture bugs behind it
+
+Owner looked at the Week 42 card on its 5th day: SUBMITTED 14, VIEWED 4,
+REPLIES 0, HIRED 0, reply rate 0%, every delta red. His Upwork inbox at the
+same moment held four answers and a hire. Three independent causes.
+
+**1. Every stage was bucketed by the proposal's SEND date.** `_period()` filtered
+on `submitted_at or sent_at`, so an answer counted in the week the proposal went
+out, not the week it arrived:
+
+| proposal | outcome | arrived | was counted in week of |
+|---|---|---|---|
+| 296 | replied | Oct 12 | Oct 5 |
+| 329 | interviewing | Oct 12 | **May 11** |
+| 328 | replied | Oct 13 | Oct 11 |
+| 318 | **hired** | Oct 14 | Oct 9 |
+
+Tuesday's hire was sitting in week 41's HIRED box. And it is structural, not a
+one-off: replies lag sending by days, so the *current* week always reads
+near-zero and only fills in retroactively.
+
+REPLIES and HIRED now count on **arrival** (`status_updated_at`, populated on
+all 360 proposals). Week 42 went 0 → 4 replies, 0 → 1 hire; All time is
+unchanged at 53, which is the check that both clocks agree over an open window.
+
+SUBMITTED / VIEWED / INVITED deliberately stay on the send date. Moving VIEWED
+to the transition stamp would make a past week's view count DROP the moment an
+old proposal replies — only the latest transition is stored — and that is the
+exact smearing the owner rejected on 2026-10-11. Two clocks on one card is the
+honest answer here, not an oversight.
+
+`reply_rate_pct` is now arrivals ÷ sends, so the card's own two numbers explain
+it; the genuine conversion rate ships alongside as `cohort_reply_rate_pct`
+(of what was SENT this window, how much has since replied). They answer
+different questions and both are published.
+
+**2. The proposals scrape was reading 17 of 85.** From the same sync row:
+`currentPage: 2, totalPages: 9, air3Miss: 'no "go to page 3" control among 16',
+stopReason: 'no next-page control found'`. Upwork renders "go to page N" only
+for the pages around the current one — on page 2 of 9 it offered "go to page 1",
+"Current page 2 of 9", and nothing else but icon-only
+`<button class="…air3-pagination">` arrows with no text and no aria-label, which
+every strategy in `_findNextPageControl` was blind to. So two-thirds of the
+submitted proposals never got a status refresh, and a reply on any of them could
+not reach the dashboard however the weeks were counted.
+
+Added the icon-arrow fallback, positioned **after** the named-control
+strategies (an explicit "Next page" is a safer click than a positional guess —
+putting it first broke that existing case). Only arrows AFTER the current-page
+control can move forward, and of those the first is "next" while the second is
+"last", which would skip pages 3-8. Four cases in `tests/pager-scoping.test.js`,
+including the real page-2-of-9 DOM and a page-9-of-9 stop. Extension 5.12 → 5.13.
+
+**3. Six inbox threads match no proposal at all**, William Ma's among them —
+`rows_scraped: 20, matched: 14, not_matched: 6`, with `walk_skipped: "hidden"`
+and `rooms_visited: 0`. The room walk never ran, so auto-capture had no evidence
+to create the rows. This is the Chrome occlusion problem: a *covered* window is
+reported hidden, Upwork renders no conversation in a hidden page, and the walk
+correctly refuses rather than burning 15s per room. Left as-is in code — the fix
+is `chrome://flags/#calculate-native-window-occlusion` → Disabled, which is the
+owner's to toggle. Verify afterwards by checking `rooms_visited > 0` in the next
+`sync_runs` row. Deliberately NOT auto-draining the queue on visibilitychange:
+the walk navigates the tab, and doing that to a window Artem just brought
+forward would hijack a tab he is reading.
+
+Note for future feed/outcome analysis: "Active proposals (7)" is still never
+scraped, so an invite under discussion remains invisible.

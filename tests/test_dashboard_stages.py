@@ -49,8 +49,35 @@ assert_(
     "…and the old current-status-only count is gone",
 )
 assert_(
-    re.search(r"if p\.status in _POS:\s*\n\s*pos \+= 1", SRC) is not None,
+    re.search(r"if in_event and p\.status in _POS:\s*\n\s*pos \+= 1", SRC) is not None,
     "replies still count replied/interviewing/hired",
+)
+
+# ── two clocks: cohort stages vs event stages (owner, 2026-10-16) ────────────
+# Week 42 read "0 REPLIES, 0 HIRED" on its 5th day while the Upwork inbox held
+# four answers and a hire, because every stage was bucketed by the proposal's
+# SEND date — one reply was filed under the week of May 11. Replies and hires
+# now count when they ARRIVE; submitted/viewed/invited stay on the send date.
+assert_(
+    re.search(r"def _event_ts\(p\):", SRC) is not None
+    and re.search(r"t = p\.status_updated_at", SRC) is not None,
+    "an arrival clock exists, read from status_updated_at",
+)
+assert_(
+    re.search(r"if in_event and p\.status == \"hired\":\s*\n\s*hired_c \+= 1", SRC) is not None,
+    "a hire counts in the week it landed, not the week the proposal went out",
+)
+# VIEWED must NOT move to the transition stamp. Only the latest transition is
+# stored, so counting views that way would make a past week's view count DROP
+# the moment an old proposal replies — the smearing the owner rejected on
+# 2026-10-11, which is the whole reason _REACHED_VIEWED exists.
+assert_(
+    re.search(r"if in_event and p\.status in _REACHED_VIEWED", SRC) is None,
+    "views stay on the SEND date, so a late reply cannot retroactively empty an old week",
+)
+assert_(
+    re.search(r'"cohort_reply_rate_pct":', SRC) is not None,
+    "the true conversion rate is still published alongside the card's throughput ratio",
 )
 
 # The stacked trend chart is DELIBERATELY exclusive — its segments must sum to

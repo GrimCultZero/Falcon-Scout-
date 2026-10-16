@@ -794,17 +794,67 @@ def _compute_dashboard_stats():
                 t = t.replace(tzinfo=timezone.utc)
             return t
 
+        def _event_ts(p):
+            """When the outcome actually landed, for the stages counted by
+            arrival rather than by send date. Falls back to the send ts for
+            rows that never moved."""
+            t = p.status_updated_at
+            if t is None:
+                return _ref(p)
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            return t
+
+        def _in(t, start, end):
+            if t is None:
+                return False
+            if start is not None and t < start:
+                return False
+            if end is not None and t >= end:
+                return False
+            return True
+
         def _period(start, end):
-            """Metrics for proposals whose ref-ts is in [start, end). end=None → all-time."""
+            """Metrics for one window. end=None → open-ended.
+
+            Two clocks, deliberately (2026-10-16). Owner looked at week 42 on
+            its 5th day and saw "0 REPLIES, 0 HIRED" while his Upwork inbox
+            held four answers and a hire. Everything used to be bucketed by
+            the proposal's SEND date, so a reply landing on Oct 13 was filed
+            under the week the proposal went out — one of them under the week
+            of May 11. The current week therefore reads near-zero by
+            construction, because replies lag sending by days.
+
+            * SUBMITTED / VIEWED / INVITED stay on the SEND date. These are
+              cohort questions ("of what I sent this week, how much landed"),
+              and moving VIEWED to the transition stamp would make a past
+              week's view count DROP whenever an old proposal replies — the
+              exact smearing the owner rejected on 2026-10-11.
+            * REPLIES / HIRED count on ARRIVAL (status_updated_at). An answer
+              is an event; it belongs to the week it happened, and counting it
+              there is also stabler — it adds to the current week instead of
+              retroactively editing an old one.
+
+            Known imprecision: only the LATEST transition timestamp is stored,
+            so a proposal that went viewed→replied carries one stamp. That is
+            exactly why VIEWED is not counted this way.
+            """
             subs, viewed_c, invited_c, pos, hired_c = 0, 0, 0, 0, 0
+            cohort_pos = 0
             bid_total, bid_count = 0.0, 0
             for p in all_proposals:
+                in_event = _in(_event_ts(p), start, end)
+                if in_event and p.status in _POS:
+                    pos += 1
+                if in_event and p.status == "hired":
+                    hired_c += 1
+
                 t = _ref(p)
-                if start is not None and (t is None or t < start):
-                    continue
-                if end is not None and (t is None or t >= end):
+                if not _in(t, start, end):
                     continue
                 subs += 1
+                if p.status in _POS:
+                    cohort_pos += 1
                 # 'viewed' = reached viewed or anything beyond it (see above).
                 # 'invited' = the durable FLAG, not a status. As a status it lost
                 # every race (ranked below 'replied', and promotion never
@@ -817,10 +867,6 @@ def _compute_dashboard_stats():
                     viewed_c += 1
                 if getattr(p, "is_invited", False):
                     invited_c += 1
-                if p.status in _POS:
-                    pos += 1
-                if p.status == "hired":
-                    hired_c += 1
                 if p.bid_amount:
                     try:
                         bid_total += float(p.bid_amount); bid_count += 1
@@ -831,7 +877,18 @@ def _compute_dashboard_stats():
                 "viewed": viewed_c,
                 "invited": invited_c,
                 "positive": pos,
+                # The rate the card shows, so its own two numbers explain it:
+                # answers that arrived this week over proposals sent this week.
+                # It is a throughput ratio, not a conversion rate — numerator
+                # and denominator are different cohorts.
                 "reply_rate_pct": round(100 * pos / subs) if subs else None,
+                # The conversion rate: of what was SENT in this window, how
+                # much has since replied. Stable, comparable across weeks, and
+                # the number to judge the letters by — but it reads near-zero
+                # for a week still in progress, which is why it is not the one
+                # on the card.
+                "cohort_positive": cohort_pos,
+                "cohort_reply_rate_pct": round(100 * cohort_pos / subs) if subs else None,
                 "hired": hired_c,
                 "bid_total": round(bid_total),
                 "bid_count": bid_count,

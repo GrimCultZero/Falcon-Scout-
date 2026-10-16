@@ -1166,12 +1166,20 @@
     //    button inside it — and then clicks a element that does nothing.
     const strs = (el) => [el.innerText || '', el.getAttribute('aria-label') || '']
       .map(t => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    let curEl = null;
+    let iconNextArrows = [];
+    let iconNextWant = null;
     for (const el of cands) {
       // The visible digit follows the accessible prefix, so the normalised text
       // is "Current page 1 of 7 1" — allow that trailing repeat, but keep the
       // anchors so a container holding several controls still cannot match.
       const m = strs(el).map(t => t.match(/^current\s+page\s+(\d+)\s+of\s+(\d+)(?:\s+\d+)?$/i)).find(Boolean);
-      if (m) { probe.currentPage = parseInt(m[1], 10); probe.totalPages = parseInt(m[2], 10); break; }
+      if (m) {
+        probe.currentPage = parseInt(m[1], 10);
+        probe.totalPages = parseInt(m[2], 10);
+        curEl = el;
+        break;
+      }
     }
     if (probe.currentPage && probe.totalPages) {
       if (probe.currentPage >= probe.totalPages) {
@@ -1196,6 +1204,32 @@
       probe.hitCount = hits.length;
       if (inner.length) return pick(inner[inner.length - 1], 'air3 go-to-page ' + want);
       probe.air3Miss = 'no "go to page ' + want + '" control among ' + cands.length;
+
+      // Upwork renders "go to page N" only for the handful of pages around the
+      // current one, so on page 2 of 9 there was simply nothing for page 3 —
+      // just "go to page 1", "Current page 2 of 9", and icon-only
+      // <button class="…air3-pagination"> arrows carrying no text and no
+      // aria-label. Collect those arrows now, while we know where the current
+      // page sits, but do not use them yet: a control with a real accessible
+      // name is always the safer click (strategies 1-2 below).
+      //
+      // Only the arrows AFTER the current-page control can move forward, and
+      // of those the FIRST is "next" while the one behind it is "last" — which
+      // would jump straight to page 9 and skip 3-8. Position is the whole
+      // signal here, so never just take the final arrow.
+      if (curEl) {
+        const idx = cands.indexOf(curEl);
+        const isIconPager = (el) => {
+          const cls = typeof el.className === 'string' ? el.className : '';
+          if (!/air3-pagination/.test(cls)) return false;
+          if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+          // Icon-only: anything labelled is handled by name below.
+          return strs(el).length === 0;
+        };
+        iconNextArrows = idx >= 0 ? cands.slice(idx + 1).filter(isIconPager) : [];
+        iconNextWant = want;
+        probe.iconArrowsAfterCurrent = iconNextArrows.length;
+      }
     }
 
     // 1. Explicit accessible name — the most reliable when Upwork provides it.
@@ -1218,6 +1252,17 @@
         if (!el.disabled && el.getAttribute('aria-disabled') !== 'true') return pick(el, 'chevron');
       }
     }
+    // 2b. The icon-only air3 arrow, collected above. Last resort among the
+    //     forward controls, because it is identified by POSITION rather than
+    //     by name — but without it the walk simply stops the moment Upwork
+    //     drops the numbered button for the next page. That is what capped the
+    //     2026-10-16 sync at page 2 of 9: 17 of 85 submitted proposals
+    //     scraped, the other 68 never refreshed, so a reply on any of them
+    //     never reached the dashboard.
+    if (iconNextArrows.length) {
+      return pick(iconNextArrows[0], 'air3 icon next-arrow (page ' + iconNextWant + ')');
+    }
+
     // 3. Numbered pagination: find the current page, then the element whose
     //    text is exactly current+1. Re-read each pass — the DOM is rebuilt.
     const nums = cands.filter(el => /^\d{1,3}$/.test((el.innerText || '').trim()));

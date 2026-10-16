@@ -271,5 +271,55 @@ function page2WithNextTitle({ titleAsButton = false, nextButton = false } = {}) 
   console.log(`${got === next ? 'PASS' : 'FAIL'}  a real control named exactly "Next page" is still used  -> got ${got ? (got.getAttribute('aria-label') || got.innerText) : 'null'}`);
 }
 
+// ── the numbered buttons run out (2026-10-16) ────────────────────────────────
+// Real DOM from the sync of 2026-10-16: page 2 of 9 offered "go to page 1" and
+// "Current page 2 of 9" and NOTHING for page 3 — Upwork only renders numbers
+// around the current page. The rest were icon-only <button .air3-pagination>
+// with no text and no aria-label, invisible to every strategy, so the walk
+// stopped at page 2: 17 of 85 submitted proposals scraped, the other 68 never
+// refreshed, and a reply on any of them never reached the dashboard.
+{
+  ALL = [];
+  const body = E('body');
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals  (85)' }));
+  const srow = add(submitted, E('div'));
+  add(srow, E('div', { text: 'Initiated Oct 12, 2026' }));
+
+  const spager = add(submitted, E('div'));
+  // first | prev | 1 | [2] | next | last  — exactly the live shape.
+  const first = add(spager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  const prev  = add(spager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  add(spager, E('button', { text: 'go to page\n1' }));
+  add(spager, E('button', { text: 'Current page 2 of 9\n2' }));
+  const next  = add(spager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  const last  = add(spager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+
+  const { _findNextPageControl } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got === next ? 'PASS' : 'FAIL'}  page 2 of 9 with no "go to page 3" -> falls back to the icon NEXT arrow`);
+  console.log(`${got !== last ? 'PASS' : 'FAIL'}  …and not the LAST-page arrow, which would skip pages 3-8`);
+  console.log(`${got !== first && got !== prev ? 'PASS' : 'FAIL'}  …and not an arrow BEFORE the current page`);
+}
+
+// The last page must still stop rather than click an arrow forever.
+{
+  ALL = [];
+  const body = E('body');
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals  (85)' }));
+  const srow = add(submitted, E('div'));
+  add(srow, E('div', { text: 'Initiated Oct 12, 2026' }));
+  const spager = add(submitted, E('div'));
+  add(spager, E('button', { cls: 'air3-btn air3-pagination' }));
+  add(spager, E('button', { text: 'go to page\n8' }));
+  add(spager, E('button', { text: 'Current page 9 of 9\n9' }));
+  add(spager, E('button', { cls: 'air3-btn air3-pagination' }));
+
+  const { _findNextPageControl } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got === null ? 'PASS' : 'FAIL'}  page 9 of 9 -> stops, even with icon arrows still rendered`);
+}
+
 _log(_fails ? `\n${_fails} FAILURES` : '\nall pass');
 process.exit(_fails ? 1 : 0);
