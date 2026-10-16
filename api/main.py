@@ -4075,7 +4075,10 @@ def _signal_from_client_messages(texts):
     (extension 5.3), after Sofia Toro's decline went unrecorded.
     """
     for t in reversed([x for x in (texts or []) if x and str(x).strip()]):
-        if any(rx.search(t) for rx in _HIRE_SIGNALS):
+        # Contract artifacts only — see the note on _HIRE_CONTRACT_SIGNALS.
+        # This path reads what the CLIENT TYPED, which is the one place a hire
+        # must never be inferred from wording.
+        if any(rx.search(t) for rx in _HIRE_CONTRACT_SIGNALS):
             return "hired"
         if any(rx.search(t) for rx in _INTERVIEW_SIGNALS):
             return "interviewing"
@@ -4448,15 +4451,15 @@ _STATUS_RANK = {
 # blob fed in is the contract_status + cover letter + messages text from the
 # capture, lower-cased once before matching.
 import re as _re_mod
-_HIRE_SIGNALS = [
-    # An "Active contract" badge / "View contract" link in the sidebar is the
-    # strongest signal — only shows when a contract is currently running.
+# A hire is a CONTRACT event, and Upwork renders a contract as an artifact —
+# an "Active contract" badge, a "View contract" link, an offer card. These are
+# page furniture, not something a client types, which is what makes them safe
+# to trust on their own.
+_HIRE_CONTRACT_SIGNALS = [
     _re_mod.compile(r"\bactive\s+contract\b", _re_mod.I),
     _re_mod.compile(r"\bview\s+contract\b",   _re_mod.I),
     _re_mod.compile(r"\bcontract\s+(?:has\s+)?started\b", _re_mod.I),
     _re_mod.compile(r"\bcontract\s+(?:is\s+)?active\b",   _re_mod.I),
-    _re_mod.compile(r"\bhired\s+you\b",       _re_mod.I),
-    _re_mod.compile(r"\byou(?:'re|\s+were)\s+hired\b", _re_mod.I),
     # Agency rate-card / hourly offer pattern (Rate: $X/hr + Limit: N hrs/week)
     # almost always means the client has set up a paying contract.
     _re_mod.compile(r"rate:\s*\$\d[\d,]*(?:\.\d+)?\s*/?\s*hr", _re_mod.I),
@@ -4465,6 +4468,26 @@ _HIRE_SIGNALS = [
     # offers that haven't been clicked yet but ARE active.
     _re_mod.compile(r"view\s+offer", _re_mod.I),
 ]
+
+# DELETED 2026-10-16: r"\bhired\s+you\b" and r"\byou(?:'re|\s+were)\s+hired\b".
+#
+# The dashboard showed "1 HIRED" for week 42. The entire evidence was Sinking
+# Birdies (proposal 318) writing, in the middle of a message about scope:
+#
+#   "The main reason I hired you was to try to identify and fix the products
+#    receiving zero impressions."
+#
+# — a client referring to an EARLIER arrangement while deciding whether to
+# continue ("If you feel this is something you can realistically get to the
+# bottom of, I'd be happy to continue working with you on it. If not, no
+# problem at all"). Nothing in that capture's 11,660 characters contained a
+# contract artifact of any kind. The pattern cannot distinguish "I hired you"
+# from "the reason I hired you was", and prose about hiring is exactly what
+# people write when they are NOT hiring you right now.
+#
+# A missed hire is a status Artem corrects in one click; a false hire corrupts
+# the one number the whole funnel is judged by. So hires come from artifacts.
+_HIRE_SIGNALS = list(_HIRE_CONTRACT_SIGNALS)
 
 _INTERVIEW_SIGNALS = [
     _re_mod.compile(r"\binterview(?:ing)?\b",               _re_mod.I),

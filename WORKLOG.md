@@ -10237,3 +10237,45 @@ forward would hijack a tab he is reading.
 
 Note for future feed/outcome analysis: "Active proposals (7)" is still never
 scraped, so an invite under discussion remains invisible.
+
+### Same day — the "1 HIRED" that followed was a false positive, not a clock problem
+
+Owner, immediately after the fix above: "it says 1 hired which is false."
+
+Proposal 318 (Sinking Birdies, "Google Ads Shopping Campaign Fix") had been
+flipped to `hired` on 2026-10-14. The entire evidence was one sentence the
+client typed in the middle of a message about scope:
+
+  "The main reason I hired you was to try to identify and fix the products
+   receiving zero impressions."
+
+He was referring to an earlier arrangement while deciding whether to carry on —
+the same message ends "If you feel this is something you can realistically get
+to the bottom of, I'd be happy to continue working with you on it. If not, no
+problem at all." Nothing in that capture's 11,660 characters held a contract
+artifact: no "active contract", no "view contract", no offer card, not even the
+word "contract".
+
+`\bhired\s+you\b` cannot tell "I hired you" from "the reason I hired you was",
+and prose about hiring is precisely what people write when they are NOT hiring
+you right now. Deleted it and `\byou(?:'re|\s+were)\s+hired\b` with it. A hire
+is a CONTRACT event and Upwork always renders a contract as page furniture, so
+`_HIRE_CONTRACT_SIGNALS` (active/view contract, contract started/active, offer
+card, rate card) is now the whole list, and `_signal_from_client_messages` —
+the path that reads what the client TYPED — uses those and nothing else.
+
+The asymmetry is the point: a missed hire is a status Artem corrects in one
+click, a false hire corrupts the single number the funnel is judged by.
+
+Fixed the rule first, then the row (318 → `replied`), so the next sync cannot
+re-flip it. `status_updated_at` was deliberately left at Oct 14 12:02 — the
+reply genuinely did land then, and that is the stamp the week card counts on.
+Week 42 now reads 14 / 4 viewed / 4 replies / 0 hired. One real hire remains in
+the DB, proposal 41 from June.
+
+**Worth knowing before the pager fix first runs:** `status_updated_at` is when
+Falcon Scout NOTICED a change, not when it happened on Upwork. Normally the two
+are hours apart and the arrival clock is right. But the pager fix will refresh
+68 proposals that have not been looked at in weeks, and every status change
+discovered in that first pass will be stamped with that moment — so expect a
+one-off bump in whichever week it lands. It is a backfill, not a good week.

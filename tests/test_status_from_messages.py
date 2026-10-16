@@ -18,7 +18,8 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parent.parent
 src = (ROOT / "api" / "main.py").read_text(encoding="utf-8")
 tree = ast.parse(src)
-WANT = {"_HIRE_SIGNALS", "_INTERVIEW_SIGNALS", "_DECLINE_SIGNALS", "_OUTCOME_FROM", "_signal_from_client_messages"}
+WANT = {"_HIRE_SIGNALS", "_HIRE_CONTRACT_SIGNALS", "_INTERVIEW_SIGNALS", "_DECLINE_SIGNALS",
+        "_OUTCOME_FROM", "_signal_from_client_messages"}
 nodes = []
 for n in tree.body:
     if isinstance(n, ast.FunctionDef) and n.name in WANT:
@@ -55,6 +56,30 @@ check("declined" not in FROM["interviewing"], "an interview invite never reopens
 check("_client_texts and match_via in _EXACT_MATCH_PATHS" in src,
       "messages_status_sync applies them on exact matches only")
 check('m.get("from") == "client"' in src, "…and reads only messages attributed to the client")
+
+# ── a hire needs a contract, not a sentence (owner, 2026-10-16) ──────────────
+# The dashboard showed "1 HIRED" for week 42 off this one line, mid-message,
+# from a client who was deciding whether to CONTINUE. Nothing in that capture's
+# 11,660 characters held a contract artifact.
+sinking_birdies = (
+    "Hi Artem,\n"
+    "Yes, I've had a look through it - thank you for taking the time to audit the account.\n"
+    "The main reason I hired you was to try to identify and fix the products receiving zero "
+    "impressions.\n"
+    "If you feel this is something you can realistically get to the bottom of, I'd be happy to "
+    "continue working with you on it. If not, no problem at all, I'd just rather be clear on the "
+    "scope before we go further."
+)
+check(sig([sinking_birdies]) is None,
+      "proposal 318: 'the main reason I hired you' is a client's prose, not a hire")
+check(sig(["We hired you last spring and it went well — want to do it again?"]) is None,
+      "…nor is any other past-tense mention of hiring")
+check(sig(["Active contract", "View contract"]) == "hired",
+      "a contract artifact still reads as hired")
+check(sig(["View offer $1,200"]) == "hired", "…as does an offer card")
+check(sig(["Rate: $45/hr   Limit: 20 hrs/week"]) == "hired", "…and a rate card")
+check(not any(rx.search("the main reason I hired you") for rx in ns["_HIRE_SIGNALS"]),
+      "the prose patterns are gone from the capture path too, not just this one")
 
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)
