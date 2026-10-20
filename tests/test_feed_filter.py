@@ -109,5 +109,30 @@ assert_(upwork_api._row_passes(
      "payment_verified": True}, CFG) is None,
     "a plain-SEO job is reachable (the feed had 'seo audit' but not 'seo')")
 
+# ── the 2026-10-20 coverage audit ────────────────────────────────────────────
+# Probed Upwork with 29 terms the feed did not use: of 232 Google Ads / SEO
+# postings found, the keyword list could not reach 26. Most were one of three
+# clusters, and the AI-search one is the work Artem is actively writing letters
+# for (job 17986, "AEO Expert for Backlink Building").
+for kw in ("adwords", "search engine optimization", "backlink", "link build",
+           "generative engine optimization", "answer engine optimization"):
+    assert_(kw in CFG["keywords"], f"coverage keyword present: {kw!r}")
+
+for title, desc in (
+    ("AdWords's specialist", "Manage our AdWords account."),
+    ("Generative Engine Optimization (GEO) Specialist required",
+     "We want to appear in AI answers."),
+    ("UK Link Builder for a B2B Warehousing firm", "Build quality links to our site."),
+    ("Search Engine Optimization", "Improve our rankings."),
+):
+    assert_(upwork_api._row_passes(
+        {"title": title, "description_full": desc, "payment_verified": True}, CFG) is None,
+        f"reachable: {title[:46]}")
+
+# "seo" is matched as a plain substring, which is what lets "google ad" match
+# "google ads" — so it also matches "Seoul". No posting is currently kept on
+# that alone; if one ever is, this is the cause, not a new bug.
+assert_("seo" in "seoul", "known: the keyword match is a substring, so 'seo' is inside 'Seoul'")
+
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)

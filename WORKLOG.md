@@ -10330,3 +10330,65 @@ are not a fit" — an outright rejection counted as a positive, because
 `_DECLINE_SIGNALS` has no pattern for it. Fixing it drops week 42 to 2 replies
 and the rate to 13%. Not touched: a loose "not a fit" over-fires on hedging
 ("let me know if it's not a fit"), which needs the owner's call.
+
+## 2026-10-20 — feed coverage audit: what Google Ads / SEO work were we missing?
+
+Owner asked whether any Google Ads or SEO postings were getting past the feed.
+Probed Upwork with **29 search terms the feed config does not use** (adwords,
+spelled-out "search engine optimization", backlinks, link building, GEO/AEO,
+Google Business Profile, Core Web Vitals, conversion tracking, GA4, …): 577 raw
+→ 306 unique postings, of which 232 were genuinely Google Ads / SEO work.
+
+The current feed would keep 108 and drop 124. Splitting the drops by whether
+they were policy or blindness:
+
+**Deliberate (not a problem):** hourly<25 (28), fixed<100 (18),
+unverified-payment (17), posted>72h (17), country:india (9). These are Artem's
+own floors doing their job.
+
+**Stop words (also correct):** meta ads (3), social media (3), facebook (1),
+linkedin (1), instagram (1) — Meta/Pinterest/social work, not his lane. The
+title-only rule plus the lane rescue behaved exactly as designed.
+
+**The real blind spot: `no-keyword-in-text`, 26 postings**, in three clusters:
+
+1. **AI search — GEO / AEO.** The biggest and most expensive miss. The keyword
+   list had nothing for generative/answer engine optimization, so a whole
+   emerging category was invisible: "SEO & GEO / AI Search Optimization
+   Specialist – Financial Trading" **$1,000**, "SEO & GEO Specialist
+   (Healthcare)" **$700**, "Generative Engine Optimization (GEO) Specialist
+   required" $200, "SEO / AEO / GEO Specialist — Ongoing", "Technical SEO,
+   schema, and AI search (AEO/GEO) specialist". This is the exact work behind
+   job 17986, the AEO/backlink invite he wrote a letter for on 2026-10-11.
+2. **Links / digital PR** — "HARO / Qwoted / Featured Links" **$4,000**, "UK
+   Link Builder", "Backlink Outreach Specialist", "SEO Backlink Building
+   Expert" $320, "Digital PR & Media Outreach" $20-40/hr.
+3. **Spelled-out and abbreviated variants** — "AdWords's specialist" (the
+   keyword list had no "adwords" at all) and a posting titled simply "Search
+   Engine Optimization", which does not contain the substring "seo".
+
+Added six keywords: `adwords`, `search engine optimization`, `backlink`,
+`link build`, `generative engine optimization`, `answer engine optimization`.
+Live fetch went 85 → 105 kept, and 16 GEO/AEO/link postings that were invisible
+now come through.
+
+`link build` rather than `link building` — the test caught that "UK Link
+**Builder**" matches neither "link building" nor "backlink". Same prefix trick
+as `google ad` covering `google ads`.
+
+**Offered and NOT taken, pending the owner:**
+- *Google Business Profile / "google my business"* (+8). Half of it is online
+  reputation management rather than SEO — "Google Negative review removal",
+  "Online Reputation Management", "GBP and Social Media Management" — though
+  "GBP Specialist: Remove Unauthorized listings" at **$1,499** and the GBP
+  suspension work are real local SEO. Owner's call on whether ORM is in scope.
+- *Core Web Vitals / page speed / site speed* (+6). Mostly web dev — Wix,
+  WooCommerce retainers, localization — with one genuine "Technical SEO Expert
+  for Website Migration, Core Web Vitals" $250. Consistent with the 2026-10-16
+  decision to stay on PPC/SEO rather than widen into web dev, so not added.
+
+**Known and left alone:** keywords match as plain substrings, which is what lets
+`google ad` match "google ads" — and also means `seo` matches "Seoul". No
+posting is currently kept on that alone; pinned in the test so the cause is
+obvious if one ever is. Word-boundary matching would break the `google ad`
+prefix, so it is not the fix.
