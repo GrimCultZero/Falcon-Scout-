@@ -32,6 +32,12 @@ worse — that is the whole reason for the rebuild). That file carries the migra
 owner decisions, the known-unfixed defects with evidence, and the working agreements. Nothing in it is
 committed yet.
 
+**`DASHBOARD_HANDOFF.md` — READ THIS TOO if you are touching the Dashboard period cards, proposal
+statuses, or the inbox sync.** It carries what "a reply" means (the client's FIRST message, dated when
+they sent it), why SUBMITTED/VIEWED use a different clock from REPLIES/HIRED, the `first_reply_at`
+mechanism, the open owner decisions, and a list of things that look like bugs but are deliberate and
+must not be "fixed".
+
 ## Memory & persistence protocol (MANDATORY — every session, every account)
 
 This project is on a **private GitHub repo**: `https://github.com/GrimCultZero/Falcon-Scout-`
