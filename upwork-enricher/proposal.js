@@ -1493,14 +1493,40 @@
     const seenContainers = new Set();
     const seenTitles = new Set();
 
+    // A row container must hold exactly ONE "Initiated" anchor — its own.
+    // Owner, 2026-10-20: "SEO Expert for WordPress" (proposal 364) went viewed on
+    // the 17 Oct sync while Upwork never showed it viewed. That run scraped 9 of
+    // the 10 rows on the page, and the false flag landed on the TOP row: the
+    // >= 80-char walk-up overshot into a wrapper holding several rows, so the top
+    // row's title was read together with another row's "Viewed by client" (SEO
+    // Audit for Real Estate, the one really viewed), and that other row was then
+    // dropped as a duplicate container. Promotion never downgrades, so one
+    // overshoot is permanent. Now the walk stops before an ancestor that contains
+    // a second row's anchor and uses the largest subtree that is still this
+    // row's alone, even if it is shorter than 80 chars.
+    const _anchorsIn = (el) => {
+      let n = 0;
+      for (const a of tightDateNodes) if (el.contains(a) && ++n > 1) break;
+      return n;
+    };
+    let multiRowContainers = 0;
+
     for (const dateEl of tightDateNodes) {
       // Walk up to find the row container. Heuristic: the FIRST ancestor whose
       // innerText is big enough to contain a title + date + status (>= 80 chars)
-      // but small enough to be one row (<= 2000 chars). We DON'T require an ID
-      // anymore — the backend can match by title.
+      // but small enough to be one row (<= 2000 chars), and which holds no other
+      // row's anchor (see above). We DON'T require an ID anymore — the backend
+      // can match by title.
       let cur = dateEl;
       let rowContainer = null;
+      let lastOwn = null;
       for (let i = 0; i < 12 && cur; i++) {
+        if (_anchorsIn(cur) > 1) {
+          multiRowContainers++;
+          rowContainer = lastOwn;
+          break;
+        }
+        lastOwn = cur;
         const len = (cur.innerText || '').length;
         if (len >= 80 && len <= 2000) {
           rowContainer = cur;
@@ -1587,6 +1613,14 @@
       // Push only if we have SOMETHING to match on (title or id).
       if (!job_title && !upwork_job_id && !upwork_proposal_id) continue;
       rows.push({ upwork_job_id, upwork_proposal_id, job_title, initiated_at, viewed });
+    }
+    // Travels to sync_runs.scroll_json with the pager diagnostics, so a page
+    // where the walk-up hit a multi-row wrapper is visible after the tab closes.
+    if (multiRowContainers > 0) {
+      console.warn(`[Cockpit Proposal] ${multiRowContainers} row walk-up(s) stopped at a multi-row wrapper`);
+      _lastPagerDiag = Object.assign(_lastPagerDiag || {}, {
+        multiRowContainers: ((_lastPagerDiag && _lastPagerDiag.multiRowContainers) || 0) + multiRowContainers,
+      });
     }
 
     // Diagnostic: per-row viewed flags so the user can verify what was scraped.

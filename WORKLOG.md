@@ -10392,3 +10392,38 @@ as `google ad` covering `google ads`.
 posting is currently kept on that alone; pinned in the test so the cause is
 obvious if one ever is. Word-boundary matching would break the `google ad`
 prefix, so it is not the fix.
+
+---
+
+## 2026-10-20 — a viewed flag smeared onto the wrong row (extension 5.15)
+
+**Symptom (owner):** Outcomes showed "SEO Expert for WordPress" (proposal 364)
+as the latest VIEWED, while Upwork showed it unviewed. The one actually viewed
+was "SEO Audit for Real Estate Website" (360, viewed 2026-10-16, correct).
+
+**Evidence:** sync_runs 368 (2026-10-17 10:48) is the run that promoted 364:
+`newly_viewed=1`, and it scraped **9 rows from a page showing 10**, with 364 as
+the **top** row. Re-running the old walk-up on a synthetic page reproduces both
+at once: the walk from a row's "Initiated" label to the first ancestor with
+≥ 80 chars overshot into a wrapper holding several rows. The top row's title
+was read alongside another row's "Viewed by client", and the other row was
+dropped as a duplicate container. Every other row on that page was correct.
+
+**Fix (proposal.js, scrapeProposalsList):** a row container may hold only ONE
+"Initiated" anchor. The walk stops before an ancestor containing a second
+anchor and uses the largest subtree that is still this row's alone, even if
+it's under 80 chars. When this happens it is counted into
+`scroll_json.pager.multiRowContainers`, so the next occurrence shows up in
+sync_runs instead of only in a tab that closes itself.
+
+**Data:** 364 reset to `sent` (status_updated_at = sent_at). Promotion never
+downgrades, so a false view is permanent until someone clears it by hand.
+DB backup taken before the edit (session scratchpad, not committed).
+
+**Not verified on the live page.** The real Upwork DOM from 17 Oct is gone,
+and the agent's browser profile isn't logged in to Upwork. The theory fits
+the 9-of-10 evidence and the synthetic repro, but the true check is the next
+syncs on extension 5.15. If a false view appears again with
+`multiRowContainers` absent, this wasn't the cause.
+
+**Owner action:** reload the extension at chrome://extensions so 5.15 runs.
