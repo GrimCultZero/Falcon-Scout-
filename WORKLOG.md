@@ -10427,3 +10427,15 @@ syncs on extension 5.15. If a false view appears again with
 `multiRowContainers` absent, this wasn't the cause.
 
 **Owner action:** reload the extension at chrome://extensions so 5.15 runs.
+
+---
+
+## 2026-10-27 — `[[ ARTEM: … ]]` blocked everywhere (DESIGN.md §24)
+
+Owner shared a draft (job 20655) ending `Availability: [[ ARTEM: weekly availability and hours]]` and asked
+to block it "forever". Root cause was the prompt itself: it told the model to write a placeholder for any fact it
+lacked, and only dollar-bearing ones were ever unwrapped. Two letters had already been sent that way (proposals
+349, 351). Fix: prompt now says omit; `stripPlaceholders` runs on generator output, chat rewrites, restored
+drafts and Copy / Apply / Save. New test `tests/placeholder-block.test.js`; also moved the 5.14 version pin in
+`inbox-scrape.test.js` to 5.15 (my earlier extension bump had left it failing). Open: KB #775/#777 hold the
+placeholders as example letters.

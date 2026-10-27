@@ -1552,3 +1552,24 @@ declared later in the same function; the ReferenceError was swallowed by `catch 
 out without the case studies, the reference templates and the case-facts block for seven weeks. The catch
 now logs and flags `kbContextFailed`. Anything that feeds the prompt must fail loudly — a missing block
 changes every letter and no check notices the absence.
+
+## 24. No unfinished placeholder ever reaches a client (2026-10-27)
+
+**Reverses** the 2026-06-24 rule that a fact the KB lacks becomes a visible `[[ ARTEM: … ]]` slot "so he fills
+it before sending". Owner, on a draft for job 20655 ending in `Availability: [[ ARTEM: weekly availability and
+hours]]`: *"I want us to block things like this forever, its a bug."* It had already shipped twice: proposals
+349 and 351 were saved as sent with `[[ ARTEM: approximate monthly spend for Skin Reboot]]` and
+`[[ ARTEM: name the AI tools or automations used]]` in them (and sit in the KB as `sent_proposal` #775 / #777).
+
+- **Rule:** a point the model has no real fact for is **omitted**, never bracketed. A letter must be sendable
+  exactly as written.
+- **Prompt:** the four places that asked for a placeholder (checklist items, the FACTUAL ITEMS rule, the
+  business-facts header) now say omit.
+- **Gate (always enforced, no shadow phase — there is no judgment call in a bracketed gap):**
+  `stripPlaceholders()` in `lib/letterGuards.js`, via `_blockPlaceholders()` in `JobDetail.jsx`, on every path:
+  generator final text, chat rewrites, restored drafts, and the send side (Copy, Apply on Upwork, Save —
+  `_cleanForSend`, which also updates the textarea so what is pasted is what is on screen). Removes the slot and
+  its lead-in ("Availability:" label, or the "at"/"of" before it); records `placeholderStripped`.
+- **Kept:** `_unwrapFilledPlaceholders` still turns a slot that already holds a `$` figure into plain text.
+- `tests/placeholder-block.test.js` pins the three real shapes and that every surface calls the gate.
+- **Not done:** KB #775 / #777 still carry the placeholders as past-letter examples (priming); left for the owner.

@@ -1018,3 +1018,61 @@ export function findUnbackedCaseWork(letter) {
   }
   return out
 }
+
+// ── unfinished placeholders ("[[ ARTEM: … ]]") ───────────────────────────────
+// Owner, 2026-10-27, on a draft for job 20655 that ended up with the line
+//   "Availability: [[ ARTEM: weekly availability and hours]]"
+// "I want us to block things like this forever, its a bug." It was not the first:
+// proposals 349 and 351 were SAVED AS SENT with "[[ ARTEM: approximate monthly
+// spend for Skin Reboot]]" and "[[ ARTEM: name the AI tools or automations used]]"
+// inside them. The prompt used to TELL the model to write one for any fact it did
+// not have ("a visible [[ ARTEM: … ]] placeholder so he fills it before sending"),
+// and the only unwrap (_unwrapFilledPlaceholders) left every placeholder without a
+// dollar figure in place. A client-facing letter has no use for an unfinished
+// slot, so none may reach the textarea, the clipboard or a saved proposal: the
+// slot goes, and the claim it stood for goes with it. Never invented, never left.
+//
+// Pure: JobDetail.jsx records the telemetry. Returns the cleaned text and the
+// placeholders it removed (so a caller can say so, and a test can see them).
+const _PH_SRC = String.raw`\[\[(?:(?!\]\])[^\n]){0,300}\]\]|\[\[\s*ARTEM\b[^\n]*|\[\s*ARTEM\s*:[^\]\n]*\]`
+// A short "Availability:" / "- Team size:" label that only introduced the slot.
+const _PH_LABEL_RE = /^\s*(?:[-•*]\s*)?[A-Z][\w &/'’()+-]{0,40}:\s*$/
+// The connector that only introduced the slot: "…revenue, at [[…]]." → "…revenue."
+const _PH_LEAD_RE = /(?:[\s,;:–-]*\b(?:at|of|with|for|about|around|approximately|approx|roughly|circa|from|over|and|or|plus)\b\.?)?[\s,~≈]*$/i
+const _PH_PUNCT_ONLY_RE = /^[\s.,;:!?)\]]*$/
+
+function _joinAroundPlaceholder(before, after) {
+  const bEmpty = !before.trim()
+  const aEmpty = _PH_PUNCT_ONLY_RE.test(after)
+  // The whole line was the slot (or a label + the slot): drop the line.
+  if ((bEmpty || _PH_LABEL_RE.test(before)) && aEmpty) return ''
+  // The slot was its own sentence: it goes, the sentence before it stays.
+  if (bEmpty || /[.!?]["'”’)\]]*\s*$/.test(before)) {
+    return aEmpty ? before.trimEnd() : `${before.trimEnd()} ${after.trimStart()}`.trimStart()
+  }
+  // The slot sat inside a sentence: take it and its lead-in word, keep the rest.
+  const lead = before.replace(_PH_LEAD_RE, '')
+  return /^\s*[.,;:!?)]/.test(after) ? lead.trimEnd() + after.trimStart() : `${lead.trimEnd()} ${after.trimStart()}`
+}
+
+export function stripPlaceholders(text) {
+  const removed = []
+  if (!text || typeof text !== 'string' || !/\[\s*\[?\s*ARTEM|\[\[/i.test(text)) return { text, removed }
+  const out = []
+  for (const line of text.split('\n')) {
+    let cur = line
+    for (let guard = 0; guard < 20; guard++) {
+      const m = new RegExp(_PH_SRC, 'i').exec(cur)
+      if (!m) break
+      removed.push(m[0].trim())
+      cur = _joinAroundPlaceholder(cur.slice(0, m.index), cur.slice(m.index + m[0].length))
+    }
+    // A line that held nothing but the slot leaves no empty line behind.
+    if (cur === '' && line !== '') continue
+    out.push(cur)
+  }
+  let cleaned = out.join('\n').replace(/\n{3,}/g, '\n\n')
+  // A slot that closed the letter leaves no blank tail the letter did not have.
+  if (!/\n$/.test(text)) cleaned = cleaned.replace(/\n+$/, '')
+  return { text: cleaned, removed }
+}

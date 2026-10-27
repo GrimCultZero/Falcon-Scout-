@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -122,8 +122,8 @@ function extractWebsiteUrl(text) {
 //
 // FACTUAL items (team size, retainer/budget, turnaround time, "N sites you
 // manage", years in business, location) require Artem's real data — the prompt
-// will instruct the model to answer from KB facts or leave a [[ ARTEM: … ]]
-// placeholder, never to fabricate.
+// will instruct the model to answer from KB facts or OMIT the point, never to
+// fabricate and never to leave a bracketed placeholder (owner, 2026-10-27).
 const _CHECKLIST_TRIGGER_RE = /^(?:\s*)(?:to\s+apply|how\s+to\s+apply|to\s+be\s+considered|when\s+(?:you\s+)?appl(?:y|ying)|in\s+your\s+(?:proposal|application|cover\s+letter)\s*,?\s*(?:please\s+)?(?:include|tell|share|send)|please\s+(?:include|send|provide|share|answer)|kindly\s+(?:include|send|provide)|send(?:\s+(?:me|us))?|provide|include|share|application\s+requirements?|requirements?\s+to\s+apply|must\s+include)\b[:\s]*$/im
 // End-of-line variant: a trigger phrase immediately before a line-ending colon.
 // The trailing ":" is a strong "list follows" signal, so we can allow preceding
@@ -204,10 +204,10 @@ function extractApplicationChecklist(text) {
   const promptBlock =
     `⛔ MANDATORY APPLICATION CHECKLIST (the client put this in the posting — this OVERRIDES any attached file's topic; the POSTING defines what to answer):\n` +
     `The proposal will be AUTO-REJECTED if it does not address EVERY item below. This list is FOR YOUR REFERENCE — cover every point, but do NOT reproduce this list or its wording in the letter (see the ANSWER IN YOUR OWN VOICE rule below):\n` +
-    classified.map((c, i) => `  ${i + 1}. ${c.text}${c.factual ? '   ← FACTUAL: answer from ARTEM\'S BUSINESS FACTS below if it covers this; otherwise a clear placeholder like [[ ARTEM: fill in ]] — never invent an unknown number, price, URL, or claim.' : ''}`).join('\n') +
+    classified.map((c, i) => `  ${i + 1}. ${c.text}${c.factual ? '   ← FACTUAL: answer from ARTEM\'S BUSINESS FACTS below if it covers this; otherwise OMIT that point from the letter entirely — never invent an unknown number, price, URL, or claim, and never write a bracketed placeholder or a blank to fill in.' : ''}`).join('\n') +
     `\n\nANSWER IN YOUR OWN VOICE — NEVER ECHO THE QUESTIONS (mandatory, highest-priority on wording): Do NOT paste or restate the client's question text as a heading before answering it. Copying their exact wording — e.g. "1. Your experience with local service business campaigns (with a quick example or result)" then an answer — is the #1 tell of a mechanical AI form-fill and it reads terribly. Instead: answer the points in Artem's own words, woven into natural, flowing prose the way a person actually writes. If a light structure genuinely helps readability, use a SHORT self-authored label of 2–4 words in Artem's voice ("Local results:", "First thing I'd check:", "Rate & availability:") — NEVER the client's full question echoed back. The client can see their own questions; repeating them wastes space and signals a template. Prefer flowing paragraphs over any numbered list; a numbered list is acceptable ONLY when the client explicitly numbered the questions AND you keep the labels to a few of your own words.` +
     (hasFactual
-      ? `\n\nFACTUAL ITEMS RULE (critical): for team size, portfolio/site URLs, landing-page turnaround, and monthly retainer, use the values in "ARTEM'S BUSINESS FACTS" below. For anything factual NOT covered there (e.g. a specific client name, an exact metric you don't have), do NOT fabricate — emit a visible [[ ARTEM: … ]] placeholder so he fills it before sending.`
+      ? `\n\nFACTUAL ITEMS RULE (critical): for team size, portfolio/site URLs, landing-page turnaround, and monthly retainer, use the values in "ARTEM'S BUSINESS FACTS" below. For anything factual NOT covered there (e.g. a specific client name, an exact metric you don't have), do NOT fabricate, and do NOT leave a bracketed placeholder or a blank to fill in: leave that point out of the letter entirely and answer the rest. A letter must be sendable exactly as written.`
       : ``) +
     `\n\nNO BODY↔ANSWERS DUPLICATION (mandatory structure): do NOT cover the same point twice — once in a body section and again where you address the checklist. Pick one home for each piece of content. The right shape: a SHORT hook (the client's core problem + the credentials + ONE sharp differentiating insight), then address their points once, in your own words. Do NOT write full body sections ("here's my approach…", "here's how I'd build the pages…") that you then repeat almost verbatim when answering the questions — that doubles the length and reads as padding.` +
     `\n\nTIMELINE/DURATION QUESTIONS (mandatory): if any checklist item asks "how long", "rough timeline", "turnaround", "ETA", "when can you complete/start", or similar, the answer MUST contain a CONCRETE time estimate (e.g. "3–5 business days", "about a week", "2–3 days once I have access"). Describing the deliverable or the steps is NOT an answer to a timeline question — give an actual duration. (This is the one case where stating a timeline in the letter is REQUIRED, overriding the usual omit-timeline rule.)` +
@@ -275,7 +275,7 @@ function buildArtemFactsBlock(contextText) {
       `    (Share the set that matches the client's platform — a WordPress job → the WordPress links, a Shopify job → the Shopify links. Don't paste both unless both are relevant.)`
   }
   return [
-    `ARTEM'S BUSINESS FACTS — use these REAL values when the client asks for proof / examples / portfolio, team size, turnaround, or pricing. These OVERRIDE the [[ ARTEM: … ]] placeholder rule for the items below (real values exist — use them):`,
+    `ARTEM'S BUSINESS FACTS — use these REAL values when the client asks for proof / examples / portfolio, team size, turnaround, or pricing. These are the real values for the items below — use them (for anything NOT listed here, omit the point; never write a placeholder):`,
     ``,
     `• PORTFOLIO — share ONLY when the client asks for examples / proof / portfolio / "sites you manage". Never paste links unprompted.`,
     `    ${portfolioLines}`,
@@ -3267,6 +3267,21 @@ const GC_ENFORCE_CHAT = false
 // generate() since 2026-08-19 and had never once run on chat output — so every
 // anti-fabrication guard protected the letter the generator wrote and not the
 // letter Artem actually sends, after he has edited it in chat.
+// No unfinished "[[ ARTEM: … ]]" slot reaches Artem's textarea, clipboard or a saved
+// proposal (owner, 2026-10-27: "block things like this forever, its a bug"; two were
+// already saved as sent: proposals 349, 351). Removes the slot and the claim it stood
+// for, and records it. Always enforced: unlike a grounding flag there is no judgment
+// call, a letter with a bracketed gap in it is unsendable.
+function _blockPlaceholders(text, jobObj, surface = 'generator') {
+  try {
+    const r = stripPlaceholders(text)
+    if (!r.removed.length) return text
+    console.warn(`[Falcon] Removed ${r.removed.length} unfinished placeholder(s) from the letter: ${r.removed.join(' | ')}`)
+    _recordViolations(surface, jobObj && jobObj.id, ['placeholderStripped'])
+    return r.text
+  } catch (_) { return text }
+}
+
 function _gcShadow(finalText, jobObj, surface = 'generator') {
   try {
     // Title + description: both are the client's own words (a figure in the title,
@@ -6377,7 +6392,7 @@ function ProposalColumn({
         proposalCacheRef.current[newId] = stored
       }
     }
-    setProposal(cached?.proposal || '')
+    setProposal(_blockPlaceholders(cached?.proposal || '', job, 'restore'))
     if (cached?.feedback) setFeedback(cached.feedback)
 
     if (!newId) return
@@ -6890,7 +6905,7 @@ function ProposalColumn({
       // owns. We also classify each item: FACTUAL items (team size, retainer/
       // rate, turnaround, "N sites you manage", years in business) require Artem's
       // real data — the model must NOT fabricate them; it answers from KB facts if
-      // present, otherwise leaves a clearly-marked [[ ARTEM: … ]] placeholder.
+      // present, otherwise leaves that point out (no placeholders — see _blockPlaceholders).
       const applicationChecklist = extractApplicationChecklist(fullDescription)
 
       // ── Required literal opener phrase ("Start your proposal with 'X'") ──
@@ -9669,7 +9684,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       {
         // Already stripped above, before the checks ran. Kept as its own binding so
         // the stale-navigation branch below reads the same either way.
-        const _finalText = text
+        const _finalText = _blockPlaceholders(text, job)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {
@@ -9688,8 +9703,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
     }
   }
 
+  // What leaves the textarea (clipboard, Upwork, a saved proposal) is checked once
+  // more: a placeholder TYPED into the box, or one that predates the gate, goes out
+  // otherwise. The textarea is updated too, so what is pasted is what is on screen.
+  const _cleanForSend = (text) => {
+    const clean = _blockPlaceholders(text, job, 'send')
+    if (clean !== text) setProposal(clean)
+    return clean
+  }
+
   const copy = () => {
-    navigator.clipboard.writeText(proposal)
+    navigator.clipboard.writeText(_cleanForSend(proposal))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -9708,7 +9732,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
   const applyOnUpwork = (e) => {
     fireApplyAnimation(e && e.currentTarget)
     if (proposal.trim()) {
-      navigator.clipboard.writeText(proposal).catch(() => {})
+      navigator.clipboard.writeText(_cleanForSend(proposal)).catch(() => {})
     }
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -9732,6 +9756,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       setSaveMsg({ kind: 'err', text: 'Nothing to save' })
       return
     }
+    const _sendText = _cleanForSend(proposal)
     setSaving(true)
     setSaveMsg(null)
     try {
@@ -9739,13 +9764,13 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       const url = isUpdate ? `/proposals/${savedProposal.id}` : '/proposals'
       const method = isUpdate ? 'PUT' : 'POST'
       const body = isUpdate ? {
-        sent_text: proposal,
+        sent_text: _sendText,
         status: statusValue,
         client_reply_text: replyText || null,
         notes: notesText || null,
       } : {
         job_id: job.id,
-        sent_text: proposal,
+        sent_text: _sendText,
         status: statusValue,
       }
       const res = await fetch(url, {
@@ -10128,7 +10153,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           onMessagesChange={(msgs) => { chatMessagesRef.current = msgs; setChatHasMessages((msgs || []).length > 0) }}
           onRework={(msgs) => generate(buildAdjustments(msgs), digitBombArmed ? { digitBombCaseId } : {})}
           reworkLabel="↺ Rework letter"
-          onProposalRewrite={(text) => setProposal(_gcShadow(text, job))}
+          onProposalRewrite={(text) => setProposal(_blockPlaceholders(_gcShadow(text, job), job, 'chat'))}
           currentProposalText={proposal}
           fillHeight={true}
           droppedFiles={droppedFiles}
