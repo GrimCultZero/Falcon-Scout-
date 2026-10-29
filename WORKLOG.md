@@ -10509,3 +10509,51 @@ Also: browsing job pages in his Chrome runs his extension and WRITES to his DB (
 `extension` rows, ~20 re-enriched). Nothing changed on Upwork, but "read-only" only
 holds for Upwork. Proposed hardening, not done: reject a restriction when the page
 title does not match the stored job title, and re-scrape any row flagged "only".
+
+## 2026-10-29 -- T1 (audit): verified database backup OUTSIDE the repo
+Audit finding P0: upwork_jobs.db was the only copy of the business (819 KB entries, 408
+proposals with outcomes, telemetry) with no copy off the machine; the five
+`upwork_jobs.db.bak-*` files sat in the same folder as the DB.
+
+Done:
+- **Step 0**: before anything else, a consistent snapshot into Dropbox/FalconScoutBackups
+  (`pre-T1-upwork_jobs-20261029-2033.db`, integrity ok, row counts equal to live). The
+  `pre-` prefix keeps retention from ever touching it. It earned its place within
+  minutes: see "84 jobs" below.
+- `tools/backup_db.py`: sqlite3 `Connection.backup()` (never a file copy -- the test
+  shows a raw copy of a WAL database sees 0 of 500 rows), written to `.partial`,
+  `PRAGMA integrity_check`ed, then renamed. The copy is converted out of WAL mode so a
+  backup is ONE file (the first run left orphan -wal/-shm files; fixed and cleaned up).
+  Retention = newest file of each of the last 14 days THAT HAVE A BACKUP + newest of
+  each of 8 older weeks. Counting backup-days, not calendar days, means a month with
+  the app off cannot age out the last good copies. Never deletes the newest file; only
+  touches names matching upwork_jobs-YYYYMMDD-HHMM.db (pre-*, legacy/, the status file
+  are left alone); retention does not run after a failed backup.
+- Backend: `_backup_loop` (first run ~60 s after launch, then every 24 h, in a
+  threadpool) and `GET /backup-status`. The startup run skips if a backup under 6 h old
+  exists, because `uvicorn --reload` restarts all day and would otherwise write a
+  45 MB file per restart.
+- UI: `BackupChip` + `lib/backupStatus.js`. Renders NOTHING when healthy (an always-on
+  badge gets ignored); red when no backup, last attempt failed, or older than 48 h.
+  `/backup-status` had to be added to the Vite proxy list or the chip would 404.
+- `.env`: `BACKUP_DIR` set to Dropbox/FalconScoutBackups (value only added; file never
+  printed). `.env.template` documents it.
+- The five old backups (15 files with -wal/-shm sidecars) moved to
+  FalconScoutBackups/legacy; per-file fingerprints (integrity, jobs/proposals/kb counts,
+  US-only count) identical before and after, 0 left in the repo.
+
+Verified: tests/test_backup_db.py (38 checks) and tests/backup-chip.test.js (17); full
+run 29 JS + 10 Python suites green; real endpoint via :8000 and via the :5180 proxy; in
+the live UI the chip is absent when healthy and shows "Backup 3d old" when the response
+is faked to 72 h.
+
+"84 jobs": creating tools/backup_db.py restarted the backend (--reload watches every
+.py in the repo), and startup runs `_prune_jobs()`, which applied the existing retention
+(newest 2000 non-hidden + anything with a proposal or star) and removed 84 old
+unprotected job rows (2462 -> 2378). Expected behaviour, not a bug; all 84 are in the
+pre-T1 snapshot. Worth knowing: ANY .py edit restarts the backend (audit finding 7).
+
+Commit hygiene: `App.jsx` on disk still has the owner's two local port edits
+(27183 -> 27184, plus CRLF). They belong to T2, so the T1 commit stages App.jsx as
+HEAD + only the two chip lines (via `git update-index --cacheinfo`); the working copy
+is untouched. Untouched on purpose: the generator, the extension, anything [OWNER].

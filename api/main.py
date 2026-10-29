@@ -418,6 +418,8 @@ async def _start_background_tasks():
     print("[api-feed/auto] Background auto-fetch loop started (interval from feed_config.auto_fetch_minutes)")
     asyncio.create_task(_prune_loop())
     print(f"[Prune] Auto-prune loop started (every {_PRUNE_INTERVAL_SEC // 3600}h; keeps last {_JOB_RETAIN_RECENT} + responded/hired/starred)")
+    asyncio.create_task(_backup_loop())
+    print("[Backup] DB backup loop started (first run ~60s after launch, then every 24h; skips if a backup under 6h old exists)")
     # Make the CLI bridge available on every backend launch, not just when the
     # user runs the full falconscout.bat — fire-and-forget, doesn't block startup.
     asyncio.create_task(_ensure_cli_bridge_running())
@@ -555,6 +557,62 @@ async def _prune_loop():
             break
         except Exception as exc:
             print(f"[Prune] loop error (will retry): {exc}")
+
+
+# ── Off-folder DB backup (audit 2026-10-29, T1) ─────────────────────────────
+# upwork_jobs.db is the only copy of the business (KB, proposals + outcomes,
+# telemetry) and had no backup outside the repo folder. tools/backup_db.py takes
+# a verified snapshot with sqlite3's backup API into BACKUP_DIR (.env), keeps 14
+# daily + 8 weekly, and writes backup_status.json beside the files. This loop only
+# schedules it; the work happens in a threadpool so it never blocks the event loop.
+#
+# The module is loaded by path rather than by putting tools/ on sys.path: tools/
+# holds ad-hoc analysis scripts and shadowing their names is not worth the risk.
+_BACKUP_INTERVAL_SEC = 24 * 60 * 60
+_BACKUP_STARTUP_MIN_AGE_H = 6     # --reload restarts the backend all day; one backup per restart would be a 45 MB file each time
+_BACKUP_LOOP_MIN_AGE_H = 23
+_backup_mod = None
+
+
+def _backup_module():
+    global _backup_mod
+    if _backup_mod is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("falcon_backup_db", ROOT / "tools" / "backup_db.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _backup_mod = mod
+    return _backup_mod
+
+
+async def _backup_loop():
+    import asyncio
+    loop = asyncio.get_event_loop()
+    await asyncio.sleep(60)               # don't compete with startup
+    min_age = _BACKUP_STARTUP_MIN_AGE_H
+    while True:
+        try:
+            res = await loop.run_in_executor(None, lambda: _backup_module().run_backup(min_age_hours=min_age))
+            if res.get("skipped"):
+                print(f"[Backup] recent backup exists ({res.get('file')}), skipped")
+            elif res.get("ok"):
+                print(f"[Backup] saved {res.get('file')} ({(res.get('size_bytes') or 0) // 1048576} MB) -> {res.get('dir')}; "
+                      f"retention removed {len(res.get('deleted') or [])}")
+            else:
+                print(f"[Backup] FAILED: {res.get('error')}")
+            min_age = _BACKUP_LOOP_MIN_AGE_H
+            await asyncio.sleep(_BACKUP_INTERVAL_SEC)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            print(f"[Backup] loop error (retry in 1h): {exc}")
+            await asyncio.sleep(3600)
+
+
+@app.get("/backup-status")
+def backup_status():
+    """Last backup time / size / ok, for the header chip. `stale` = none, or older than 48 h."""
+    return _backup_module().backup_status()
 
 
 # Daily ghost sweep — runs every 24h while the backend is alive (DESIGN §13).

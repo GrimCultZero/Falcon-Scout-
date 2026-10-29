@@ -34,6 +34,7 @@ export default defineConfig({
       '/feed-config': 'http://localhost:8000',
       '/upwork': 'http://localhost:8000',
       '/outcomes-activity': 'http://localhost:8000',
+      '/backup-status': 'http://localhost:8000',
     },
   },
 })
