@@ -62,3 +62,14 @@ The owner states, from memory, that US-only jobs used to be shown in the feed an
 
 ## 9. Evidence locations
 `WORKLOG.md` entry 2026-10-29; backups `upwork_jobs.db.bak-*`; scraper `upwork-enricher/content.js` (~lines 154–170); gray-out `frontend/src/components/JobList.jsx:97`; feed filter `api/upwork_api.py` `_row_passes`; sample US-only job IDs in the Oct 11 backup: 17659, 17727, 17837, 17869, 17875.
+
+## 10. Addendum (same day, later): the grayed rows the owner then saw were false positives
+After the report was written the owner sent a screenshot of the feed showing two grayed "US only" rows (#003 "Restaurant SEO", #004 "Kitchen Remodeling Media Buyer") and asked whether something had been changed in the code. Nothing had: the remote head was unchanged. Findings:
+- The rows were `source='extension'` (created because the page was opened directly in Chrome) or `api`, stamped `geo_restriction='United States only'` between 17:29 and 17:30 UTC. That is exactly when the real US-only job pages from section 4.7 were being opened, one after another, in the same Chrome profile.
+- **Their pages say "Worldwide".** Re-reading each page with the scraper's exact three regexes gave: label branch none, located-sentence none, keyword branch "Worldwide", header "Worldwide". When those pages were reopened at 17:42 the extension re-scraped them and overwrote the value with "Worldwide". So the flag was wrong, and it was self-corrected by a re-scrape.
+- Only one row is a real US-only job: #18171 (the page that does show the banner). It is a `source='room'` row, so the feed excludes it (commit 5a51d0b); it would not appear in the list.
+- Most likely cause (not proven): the extension attached text scraped while a US-only page was loading to different jobs' IDs. The real US-only pages that were opened (17727, 17837) created no rows, while three unrelated jobs were stamped, which fits that. The code writes "X only" only at `content.js:166`, and only when the sentence matches.
+- The geo scraper has produced wrong values before: three live rows hold nonsense such as "Skills and Expertise" and "English: Strong working proficiency" (the label branch capturing the next line).
+- Why it matters: `JobDetail.jsx` (~5183) treats "United States only" as a hard disqualifier ("Artem cannot legally apply"), so a false flag on a worldwide job can push the analyser to SKIP it.
+- **Side effect of the investigation itself:** opening job pages in the owner's Chrome runs his extension, which writes to Falcon Scout's database. The browsing created 2 rows (#21118, #21119) and re-enriched about 20 existing ones. Nothing was changed on Upwork. An earlier statement that nothing was modified should be read as "nothing on Upwork".
+Revised bottom line for section 5: the conclusions about the bot being the only source of genuine US-only jobs stand. This episode shows the gray-out UI works end to end, and that the enrichment can occasionally write a wrong restriction.

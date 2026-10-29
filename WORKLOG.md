@@ -10492,3 +10492,20 @@ jobs got through in 10 days; (2) the UI requests no `limit`, so it gets the
 200-row default = about one day of API volume; (3) the Bot chip filters 170 dead
 rows and the listener re-creates a `[TEST] Python / Telethon Integration` seed job
 on every start, which is the Bot view's newest "job".
+
+### Same day, later -- the grayed "US only" rows the owner then saw were FALSE positives
+Owner sent a screenshot with two grayed "US only" rows (#003/#004) and asked what
+changed in the code. Nothing did. Both rows (and a third, api-sourced one) were
+stamped `geo_restriction='United States only'` at 17:29-17:30Z, exactly while I was
+opening real US-only pages in his Chrome. Their own pages say "Worldwide"; reopening
+them at 17:42Z made the extension re-scrape and correct all three. Only #18171 is a
+genuine US-only job, and it is a `room` row so the feed hides it. The extension
+probably attached text scraped during a US-only page load to other jobs' IDs (not
+proven; `content.js:166` is the only writer of "X only"). A false flag matters:
+JobDetail treats "United States only" as a hard disqualifier. The geo scraper has
+produced wrong values before ("Skills and Expertise", "English: Strong working
+proficiency" in 3 live rows).
+Also: browsing job pages in his Chrome runs his extension and WRITES to his DB (2 new
+`extension` rows, ~20 re-enriched). Nothing changed on Upwork, but "read-only" only
+holds for Upwork. Proposed hardening, not done: reject a restriction when the page
+title does not match the stored job title, and re-scrape any row flagged "only".
