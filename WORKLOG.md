@@ -10439,3 +10439,56 @@ lacked, and only dollar-bearing ones were ever unwrapped. Two letters had alread
 drafts and Copy / Apply / Save. New test `tests/placeholder-block.test.js`; also moved the 5.14 version pin in
 `inbox-scrape.test.js` to 5.15 (my earlier extension bump had left it failing). Open: KB #775/#777 hold the
 placeholders as example letters.
+
+## 2026-10-29 — "I no longer see US-only jobs": they existed, and they came only from the Telegram bot
+
+Owner: US-only jobs used to appear (grayed out) in the feed; none for days; maybe
+Upwork changed policy. First pass looked only at the LIVE database, found zero
+`geo_restriction='United States only'` rows, and wrongly concluded they had
+"never existed". **That was wrong.** The live DB had been pruned (retention was
+200 rows until 2026-10-15). The five `upwork_jobs.db.bak-*` files hold the
+history: **29 distinct US-only jobs, every one `source='bot'`**, 20 of them
+captured Oct 7-10 (20 of 126 enriched bot jobs, ~16%). In the same window the
+API feed produced 142 enriched jobs and **0** US-only. Last US-only capture:
+2026-10-13 10:43, the last real bot batch; the bot was cancelled 2026-10-15.
+
+What was verified, and what it rules out:
+- The pipeline is intact. Opening five of those job URLs in the owner's
+  logged-in Chrome (read-only): three still render the banner "Only freelancers
+  located in the U.S. may apply." -- the exact sentence `content.js` matches --
+  and one shows it in the header label where "Worldwide" normally sits; the other
+  two are private / no longer available. So Upwork's wording has not changed and
+  the gray-out (`JobList.jsx` isUsOnly: opacity .55, grayscale, red border,
+  "US only" badge) would fire if such a job were enriched.
+- Falcon Scout does not filter on location: `_row_passes` has no geo rule.
+- The API feed searches AS the owner's account (Ukraine). A sweep of 739 postings
+  returned 0 with a mandatory location, 96 with a soft preference ("Preferred
+  qualifications -> Location", Apply stays enabled). 29 freshly opened Google Ads /
+  SEO job pages: 29 "Worldwide", none restricted. Find Work has no "U.S. Only" tab
+  (Upwork shows it to US-located freelancers).
+- Upwork's help article confirms hard US-only jobs exist (US-located, verified
+  freelancers only) but says nothing about who sees them in search; undated.
+
+Conclusion (likely, NOT proven): Upwork does not list hard-restricted jobs in
+search/Find Work for a non-US account, but the page is viewable by direct link.
+The bot delivered links unconstrained by the owner's eligibility; the extension
+opened each and read the banner. With the bot gone the only feed is the owner's
+own eligibility-filtered search, so none arrive. It is not a Falcon Scout bug and
+there is no evidence of a policy change. These jobs cannot be applied to anyway
+(location verification), so the loss is informational (market signal; the
+"US-only on PPC often means agency-front" heuristic in DESIGN.md).
+
+Lesson: before concluding "never existed", look in the backups -- the live DB is
+a 200/2000-row window, not a history. Also: 17 enriched rows with NULL geo were
+sampled (3) and are private/expired jobs, not hidden restrictions.
+
+Unexplained: two Upwork job IDs from the US-only list now sit on `source='room'`
+rows (created by the inbox sync) with different titles and no location -- worth a
+look if the owner ever replied to a US-only job.
+
+Side findings, NOT fixed: (1) `exclude_countries: india` misses `IND` -- the API
+labels some countries with ISO-3 codes (`IND`, `USA`, `GBR`, `AUS`) -- 12 Indian
+jobs got through in 10 days; (2) the UI requests no `limit`, so it gets the
+200-row default = about one day of API volume; (3) the Bot chip filters 170 dead
+rows and the listener re-creates a `[TEST] Python / Telethon Integration` seed job
+on every start, which is the Bot view's newest "job".
