@@ -182,6 +182,32 @@ def _get_ai_provider() -> str:
 def _set_ai_provider(provider: str) -> None:
     _AI_PROVIDER_FILE.write_text(_json_mod.dumps({"provider": provider}))
 
+# ── CLI bridge port: ONE setting, read the same way as bridge-port.js ───────
+# The port was a literal in three files, and only half of the move off the
+# default was ever committed: the owner's other app (Baba Leada) owns the default
+# port, so on his machine Falcon Scout's bridge runs on a different one. Now it is
+# CLI_BRIDGE_PORT in .env. load_dotenv(override=True) above puts .env into
+# os.environ, which is exactly the precedence bridge-port.js mirrors (key in
+# .env, then the process environment, then the default below).
+#
+# An invalid value RAISES. Falling back to the default would send this app's
+# prompts -- job postings, client details -- to whatever else owns that port.
+_BRIDGE_DEFAULT_PORT = 27183
+
+def _bridge_port() -> int:
+    raw = (os.environ.get("CLI_BRIDGE_PORT") or "").strip()
+    if not raw:
+        return _BRIDGE_DEFAULT_PORT
+    if not (raw.isascii() and raw.isdigit()):
+        raise ValueError(f'CLI_BRIDGE_PORT must be a whole number, got "{raw}"')
+    port = int(raw)
+    if not 1024 <= port <= 65535:
+        raise ValueError(f"CLI_BRIDGE_PORT must be between 1024 and 65535, got {port}")
+    return port
+
+def _bridge_url(path: str = "") -> str:
+    return f"http://127.0.0.1:{_bridge_port()}{path}"
+
 # ── CLI bridge auto-start / self-heal ───────────────────────────────────────
 # Owner request, 2026-08-18: "I need bridge to start on every app launch and
 # be always available to be able to switch between CLI and API at any time."
@@ -195,7 +221,7 @@ async def _ping_cli_bridge() -> bool:
     import httpx as _httpx_ping
     try:
         async with _httpx_ping.AsyncClient(timeout=1.0) as c:
-            r = await c.get("http://127.0.0.1:27184/ping")
+            r = await c.get(_bridge_url("/ping"))
         return r.status_code == 200
     except Exception:
         return False
@@ -307,7 +333,7 @@ def _flatten_for_cli(request: dict) -> str:
 
 async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
     """Route a Messages-API-shaped {system?, messages} request through the local
-    CLI bridge (cli-bridge.js, port 27184) instead of api.anthropic.com.
+    CLI bridge (cli-bridge.js, port = CLI_BRIDGE_PORT) instead of api.anthropic.com.
 
     Mirrors the CLI branch in /claude (below) so every Claude-calling endpoint
     honors the API/CLI provider toggle — not just the main analyse/generate proxy.
@@ -315,17 +341,17 @@ async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
     it identically (parsed["content"][0]["text"], etc)."""
     import httpx as _httpx_cli
     prompt_text = _flatten_for_cli(request)
-    print(f"[CLI bridge] {kind}: {len(prompt_text)} chars -> http://127.0.0.1:27184/ai")
+    print(f"[CLI bridge] {kind}: {len(prompt_text)} chars -> {_bridge_url('/ai')}")
     try:
         async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-            br_resp = await br.post("http://127.0.0.1:27184/ai", json={"prompt": prompt_text, "model": model})
+            br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model})
     except _httpx_cli.ConnectError:
         # Self-heal: the bridge may have been closed or never started this
         # session — spawn it and retry the SAME request once before giving up.
         if await _ensure_cli_bridge_running(wait_for_ready=True):
             try:
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-                    br_resp = await br.post("http://127.0.0.1:27184/ai", json={"prompt": prompt_text, "model": model})
+                    br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model})
             except _httpx_cli.ConnectError:
                 raise HTTPException(
                     status_code=502,
@@ -1181,6 +1207,19 @@ def set_ai_provider_endpoint(data: dict):
         raise HTTPException(status_code=400, detail="provider must be 'api' or 'cli'")
     _set_ai_provider(p)
     return {"provider": p}
+
+
+@app.get("/ai-provider/bridge-status")
+async def get_bridge_status():
+    """Is the CLI bridge reachable? The header chip asks THIS instead of fetching
+    the bridge from the browser, so the page never needs to know the port (it
+    used to hardcode it) and never talks to a local port directly.
+    An unusable CLI_BRIDGE_PORT is reported, not hidden -- see _bridge_port()."""
+    try:
+        port = _bridge_port()
+    except ValueError as exc:
+        return {"up": False, "port": None, "error": str(exc)}
+    return {"up": await _ping_cli_bridge(), "port": port}
 
 
 @app.get("/jobs/latest-captured")
@@ -6214,7 +6253,7 @@ async def claude_proxy(request: dict):
         # ── CLI bridge routing ──────────────────────────────────────────────
         # When the user has switched to CLI mode, flatten the request into a
         # plain text prompt and pipe it through the local cli-bridge.js server
-        # (port 27184) instead of calling api.anthropic.com.
+        # (port = CLI_BRIDGE_PORT) instead of calling api.anthropic.com.
         if _get_ai_provider() == "cli":
             import httpx as _httpx_cli
             import traceback as _tb
@@ -6222,11 +6261,11 @@ async def claude_proxy(request: dict):
             while True:
               try:
                 prompt_text = _flatten_for_cli(request)
-                print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → http://127.0.0.1:27184/ai")
+                print(f"[CLI bridge] {kind}: {len(prompt_text)} chars → {_bridge_url('/ai')}")
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
                     # Pass the requested model so the bridge forces it via --model
                     # (else the CLI uses its default — often Opus, the slowest).
-                    br_resp = await br.post("http://127.0.0.1:27184/ai", json={"prompt": prompt_text, "model": model})
+                    br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model})
                 if br_resp.status_code != 200:
                     raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")
                 text = br_resp.json().get("content", "")

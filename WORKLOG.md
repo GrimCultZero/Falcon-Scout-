@@ -10557,3 +10557,17 @@ Commit hygiene: `App.jsx` on disk still has the owner's two local port edits
 (27183 -> 27184, plus CRLF). They belong to T2, so the T1 commit stages App.jsx as
 HEAD + only the two chip lines (via `git update-index --cacheinfo`); the working copy
 is untouched. Untouched on purpose: the generator, the extension, anything [OWNER].
+
+## 2026-10-29 -- T2 (audit): one configurable bridge port (supersedes the 10-01 "never commit the local port edits" note)
+Baba Leada owns 27183, so Falcon Scout's bridge runs on 27184 on this machine. That move was only
+half committed (main.py said 27184; cli-bridge.js and App.jsx said 27183 and were hand-edited).
+Now: `CLI_BRIDGE_PORT` in .env (default 27183), resolved by bridge-port.js (bridge) and
+`_bridge_port()` (backend) with the same precedence (.env, then environment, then default; an
+invalid value raises/exits, it never falls back to the default). The page no longer pings the
+bridge: the chip asks `GET /ai-provider/bridge-status`. Local .env has CLI_BRIDGE_PORT=27184;
+the owner's two local edits are gone (replaced by the setting, never committed as 27184).
+`.gitattributes` (text=auto, *.bat CRLF) committed on its own: the index was already 100% LF,
+so renormalizing changed no file. Netstat before/after: 27183 unchanged (PID 34896), 27184 on
+the same bridge (PID 17024). Tests: tests/bridge-port.test.js, tests/test_bridge_port.py
+(Python and Node agree on 19 inputs). Not done: a visual browser check of the chip; the running
+bridge process still runs the old code until its next restart (same port).

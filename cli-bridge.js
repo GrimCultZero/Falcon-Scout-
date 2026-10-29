@@ -14,7 +14,18 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-const PORT = 27183;
+// The port comes from CLI_BRIDGE_PORT in .env (see bridge-port.js for the default
+// and for why it is a setting and not a literal). api/main.py reads the same key,
+// so the bridge and the backend can never disagree. An invalid value stops the
+// bridge instead of guessing: a guess could mean taking another app's port.
+const { resolveBridgePortInfo } = require('./bridge-port');
+let PORT, PORT_SOURCE;
+try {
+  ({ port: PORT, source: PORT_SOURCE } = resolveBridgePortInfo());
+} catch (e) {
+  console.error(`\nCLI bridge NOT started: ${e.message}\n`);
+  process.exit(1);
+}
 const HOST = '127.0.0.1';
 
 // Run `claude` from a neutral, empty directory so it does NOT auto-discover
@@ -130,7 +141,8 @@ const server = http.createServer((req, res) => {
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') {
     console.error(`\nPort ${PORT} is already in use — a CLI bridge is probably already running.`);
-    console.error('This window can be closed; the existing bridge will keep serving.\n');
+    console.error('This window can be closed; the existing bridge will keep serving.');
+    console.error('(If ANOTHER app owns this port, set a different CLI_BRIDGE_PORT in .env and restart the backend.)\n');
   } else {
     console.error('Bridge error:', e.message);
   }
@@ -138,7 +150,7 @@ server.on('error', (e) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Falcon Scout CLI Bridge running at http://${HOST}:${PORT}`);
+  console.log(`Falcon Scout CLI Bridge running at http://${HOST}:${PORT}  (port from ${PORT_SOURCE})`);
   console.log(`Routing /ai → claude -p  (cwd: ${NEUTRAL_CWD})`);
   console.log(`Using isolated account profile: ${ARTEM_CONFIG_DIR}`);
   console.log('Test: echo "reply with just: ok" | claude -p');

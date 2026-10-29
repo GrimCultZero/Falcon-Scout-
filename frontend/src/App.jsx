@@ -1377,7 +1377,7 @@ function UsageChip() {
 const _AI_PROVIDER_LS = 'falcon_ai_provider'
 
 // Shows current AI provider (API / CLI) and lets the user toggle.
-// In CLI mode: pings the bridge every 5s and shows online/offline status.
+// In CLI mode: asks the backend every 5s whether the bridge is up (online/offline).
 function AiProviderChip() {
   // Seed from localStorage for instant display (no flicker on reload)
   const [provider, setProvider] = useState(() => localStorage.getItem(_AI_PROVIDER_LS) || 'api')
@@ -1398,8 +1398,11 @@ function AiProviderChip() {
   // Ping bridge every 5s when in CLI mode
   useEffect(() => {
     if (provider !== 'cli') { setBridgeOk(false); return }
-    const ping = () => fetch('http://127.0.0.1:27183/ping', { signal: AbortSignal.timeout(2000) })
-      .then(r => r.ok).then(setBridgeOk).catch(() => setBridgeOk(false))
+    // Ask the BACKEND whether the bridge is up (it pings the port set by
+    // CLI_BRIDGE_PORT). The page used to hardcode the bridge's port and fetch it
+    // directly, which is how a port move got half-committed.
+    const ping = () => fetch('/ai-provider/bridge-status', { signal: AbortSignal.timeout(3000) })
+      .then(r => (r.ok ? r.json() : { up: false })).then(d => setBridgeOk(!!d.up)).catch(() => setBridgeOk(false))
     ping()
     const id = setInterval(ping, 5000)
     return () => clearInterval(id)

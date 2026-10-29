@@ -66,15 +66,17 @@ read-only and posts one row. 5.6 ends the thread at the client's card; 5.7 stopp
 
 ## 2. Uncommitted and untracked — and what to do with it
 
-**Two modified files. These are the owner's local edits. NEVER commit them.**
+**SUPERSEDED 2026-10-29 (audit task T2).** This section used to say the owner's two local port edits must
+never be committed. They are gone: the bridge port is now one setting, `CLI_BRIDGE_PORT` in `.env`, read by
+`cli-bridge.js` (through `bridge-port.js`) and by `api/main.py`. The page no longer talks to the bridge at all;
+it asks the backend (`GET /ai-provider/bridge-status`). The owner's other app (`baba-leada`) still owns 27183, so
+his local `.env` carries `CLI_BRIDGE_PORT=27184`; on any other machine it can stay unset. Never kill anything on
+27183. What the section used to list, for the record:
 
-| File | Change | Why |
+| File | Old local change | Why |
 | --- | --- | --- |
 | `cli-bridge.js` | `PORT = 27183` → `27184` | Port collision with his other project (`baba-leada`) running its own bridge on 27183 |
-| `frontend/src/App.jsx` | bridge ping URL → `127.0.0.1:27184` | Must match the line above or the UI shows the bridge offline |
-
-They are consistent with each other, so the app works locally. They're local-only because 27183 is still the
-committed default. Leave them alone.
+| `frontend/src/App.jsx` | bridge ping URL → `127.0.0.1:27184` | Had to match the line above or the UI showed the bridge offline |
 
 **Untracked — real client data, never commit:**
 - `corrections/` — 43 files, one per "Share with Claude" press (newest: `20260930T134127-job-16878.md`)
@@ -105,7 +107,7 @@ Also never commit (mostly gitignored, but check): `upwork_jobs.db`, `tests/.lett
   ```powershell
   $env:CLAUDE_CONFIG_DIR = "$env:USERPROFILE\.claude-artem"
   "reply with just: ok" | claude -p --model sonnet --strict-mcp-config --disable-slash-commands
-  Invoke-RestMethod -Uri "http://127.0.0.1:27184/ai" -Method Post -ContentType "application/json" `
+  Invoke-RestMethod -Uri "http://127.0.0.1:<CLI_BRIDGE_PORT from .env>/ai" -Method Post -ContentType "application/json" `
     -Body '{"prompt":"reply with just: ok","model":"sonnet"}'
   ```
 - `falconscout.bat` starts the bridge in its own window. If the port is already held, `cli-bridge.js` prints an

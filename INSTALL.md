@@ -145,7 +145,10 @@ for %t in (tests\*.test.js) do node %t
 |---|---|
 | 8000 | FastAPI backend |
 | 5180 | Vite frontend (pinned; it exits rather than hop ports) |
-| 27184 | CLI bridge — **local change on the original machine**, the committed default is 27183 |
+| `CLI_BRIDGE_PORT` (default 27183) | CLI bridge — a setting in `.env`, read by both the bridge and the backend |
 
-If the bridge shows offline, check `cli-bridge.js` and `frontend/src/App.jsx`
-agree on the port number.
+If another program on your machine already listens on 27183, add a line such as
+`CLI_BRIDGE_PORT=27184` to `.env` (any free port from 1024 to 65535) and restart the
+backend and the bridge. There is nothing to edit in the code: the page no longer
+talks to the bridge itself, it asks the backend (`/ai-provider/bridge-status`).
+If the bridge shows offline, check that value and that `node cli-bridge.js` is running.
