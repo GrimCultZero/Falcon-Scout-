@@ -1,0 +1,13 @@
+# Line endings (audit 2026-10-29, T2).
+#
+# Without this file the repo relied on each machine's core.autocrlf. On a clone
+# or a tool that doesn't set it, a file that Windows editors had flipped to CRLF
+# showed up as a 2,900-line diff (cli-bridge.js, App.jsx), which hides the one
+# real line that changed and makes review impossible.
+#
+# text=auto : git decides per file; text files are stored as LF in the repo and
+#             compared as LF, so an editor flipping CRLF <-> LF is not a change.
+#             Binary files (the case-study PDFs, images, the DB) are left alone.
+# *.bat     : batch files must be CRLF on disk or cmd.exe can mis-parse labels.
+* text=auto
+*.bat text eol=crlf
