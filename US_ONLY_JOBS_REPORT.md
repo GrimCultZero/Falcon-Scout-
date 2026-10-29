@@ -1,6 +1,12 @@
 # Falcon Scout — "US-only jobs disappeared from the feed": investigation report
 Date: 2026-10-29. Project: Falcon Scout (Windows-local tool: Upwork job capture → Chrome-extension enrichment → AI analysis). Owner: Artem.
 
+## 0. Owner requirement and current status (read this first)
+- **Requirement (owner, 2026-10-29): "I want to always see those jobs."** US-only (location-restricted) postings should always be visible in the feed, grayed out with the "US only" badge, as they were while the Telegram bot fed the app.
+- **Status: not met, and not achievable with the current feed.** The only feed now is the Upwork API, which searches as the owner's non-US account and has never returned one. A new source is needed (options in section 8). First test whether Upwork withholds these jobs from a non-US account (compare with a US-based account), since that decides what is feasible.
+- **Do not treat the grayed rows the owner saw later that day as a recovery.** They were false positives (section 10).
+- **Browsing job pages in the owner's Chrome writes to his database** through the extension (section 10).
+
 ## 1. TL;DR
 - The owner says US-only jobs used to appear (grayed out) in the feed and none have for days. **Backups confirm it**: 29 distinct US-only jobs existed, and **every one came from the Telegram bot** (@OffersHunterBot), which shut down 2026-10-15.
 - The API feed that replaced the bot has never produced one. The likely cause is that Upwork does not list location-restricted jobs for a non-US freelancer account, while the bot supplied links that weren't limited by the owner's eligibility. This is a hypothesis, not proven.
