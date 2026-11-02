@@ -1815,6 +1815,15 @@ def share_with_claude(data: dict):
             lines.append(f"**{role}:**")
             lines.append(content)
             lines.append("")
+            # The paste-ready answers to the client's questions live on the message
+            # as `answers` ({q, text}), not in `content`. Until 2026-11-02 the
+            # snapshot dropped them, so "tell me if you like the answers" could not
+            # be done from the shared file.
+            for a in (m.get("answers") or []):
+                if isinstance(a, dict) and a.get("text"):
+                    lines.append(f"**ANSWER - {a.get('q') or 'question'}:**")
+                    lines.append(a["text"])
+                    lines.append("")
 
     text = "\n".join(lines)
     snap_path.write_text(text, encoding="utf-8")

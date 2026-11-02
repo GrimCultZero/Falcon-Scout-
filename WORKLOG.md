@@ -10627,3 +10627,16 @@ attachment is the last sentence of the audit paragraph and must say it is attach
 type; the by-hand claim goes inside that paragraph. Tests added to tests/audit-case-ask.test.js.
 Not verified on a real generation (paid). Separate, not fixed: the chat wrote "Derma Solution
 (attached as PDF) (USA, YMYL medical aesthetics, attached as a PDF)", a doubled label.
+
+## 2026-11-02 (evening) -- Doubled PDF label on Derma Solution; the share snapshot dropped the answers
+1. "Derma Solution (attached as PDF) (USA, YMYL medical aesthetics, attached as a PDF)" (job 21630,
+   chat). `_stripDuplicateAttachmentLabel` correctly merged it to "Derma Solution (USA, YMYL medical
+   aesthetics, attached as PDF)"; `_fixPdfCaseLabelMisattribution`, next in the same chain, only knew
+   two labelled shapes ("Name (attached" and "Name, attached") and read the merged one as unlabelled,
+   so it prepended a second "(attached as PDF)". Its lookahead now also accepts a label inside a
+   descriptor parenthetical. tests/pdf-label-in-descriptor.test.js (5 of 9 fail on the old code).
+2. "Share with Claude" wrote the chat transcript from `content` only, so the paste-ready answers to
+   the client's questions (`message.answers`, {q, text}) never reached share-with-claude.md or the
+   corrections archive; only the one-line remarks did. api/main.py now writes each as
+   "**ANSWER - <question>:**". Takes effect on the next Share press; earlier snapshots cannot be
+   recovered.

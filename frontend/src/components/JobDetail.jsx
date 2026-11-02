@@ -3001,8 +3001,13 @@ function _fixPdfCaseLabelMisattribution(text) {
   // removed. Confirmed real, job 13388 ("Skin Reboot (attached as PDF),
   // attached as PDF" survived into the final letter despite the dedup regex
   // matching and stripping it correctly in isolation). Recognize both shapes.
+  // Third labelled shape (job 21630, 2026-11-02): the label sits INSIDE a descriptor
+  // parenthetical, "Derma Solution (USA, YMYL medical aesthetics, attached as PDF)",
+  // which _stripDuplicateAttachmentLabel produces when it merges two parentheticals.
+  // Neither lookahead alternative saw it, so this loop added a second label:
+  // "Derma Solution (attached as PDF) (USA, YMYL medical aesthetics, attached as PDF)".
   for (const name of ['Derma Solution', 'Skin Reboot']) {
-    const re = new RegExp(`\\b(${name})\\b(?!\\s*[,(]\\s*attached)`, 'gi')
+    const re = new RegExp(`\\b(${name})\\b(?!\\s*[,(]\\s*attached)(?!\\s*\\([^()]*\\battached\\s+(?:as\\s+(?:a\\s+)?pdf|in\\s+(?:the\\s+)?profile\\s+highlights)\\b)`, 'gi')
     text = text.replace(re, '$1 (attached as PDF)')
   }
   return text
