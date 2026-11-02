@@ -10655,3 +10655,18 @@ asked or flag the missing part in <remarks>). Applies only on a screening-questi
 tests/chat-answers-no-invented-method.test.js. Not verified on a real chat reply (paid). The three
 cleaned answers were handed to the owner as text; Q3's "what correction was needed" and "how I verify"
 have no record and need a true example from Artem.
+
+## 2026-11-02 (night, 2) -- Analyser: check the hours estimate on fixed-price jobs
+Job 21650 (Wix SEO, $250 fixed, 7/10 APPLY): "~6-8h, $31-42/hr effective, at or above his floor". The
+hours came from the smallest band of the existing table that fit one line of a ten-workstream scope
+(audit, Wix setup, redirects, canonicals, schema, images, scripts, Core Web Vitals, implementation,
+launch checklist). Artem's own technical SEO audit alone is $700 flat (KB rule 426). At a realistic
+12-20h the job is ~$12-20/hr. Owner agreed with the review and asked for the rule.
+Added to the FIXED / FLAT-PRICE RATE INTERPRETATION RULE (JobDetail.jsx, analyser prompt): add the
+workstreams, do not pick the smallest band; "implementation" on a limited platform goes to the top of the
+range; state a range and the rate at both ends; "at or above his floor" only if the HIGH-hours end
+clears it; flag a budget below his $700 audit price when the scope is that audit plus more; label hours
+as estimates. No scoring thresholds changed (existing <$15 skip / $15-29 -1 / >=$30 still apply, now to
+the honest range). tests/analyser-fixed-price-hours.test.js. Not verified on a re-run of job 21650's
+analysis (a paid call). For reference, from the DB: SEO fixed-price proposals with budgets <= $400
+were 25 (1 replied, 4 viewed, 20 ghosted), above $400 were 10 (0 replied, 1 viewed, 9 ghosted).
