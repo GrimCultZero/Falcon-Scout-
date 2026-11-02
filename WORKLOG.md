@@ -10640,3 +10640,18 @@ Not verified on a real generation (paid). Separate, not fixed: the chat wrote "D
    corrections archive; only the one-line remarks did. api/main.py now writes each as
    "**ANSWER - <question>:**". Takes effect on the next Share press; earlier snapshots cannot be
    recovered.
+
+## 2026-11-02 (night) -- Screening answers: no invented working method, no disclaimers
+Read the three paste-ready answers for job 21630 against KB #6 and #419. Numbers all matched. Faults:
+answer 3 wrote verification practice in the first person (acceptance check per brief, re-crawl against
+the brief, Search Console check) with no KB record; answer 2 read the audit's projected mobile score
+(45-55) as the speed gain and derived "a modest gain, so it went last", a reason the audit does not
+give; every answer closed with "I have no measured result" and one opened with "I'd rather give you
+a case I can back up". Q1/Q2 relabelled the nearest case (a Google Ads tracking audit; a sequencing
+decision) as the story asked for.
+Fix: four bullets added to the screening-turn directive in JobDetail.jsx (method only from the KB;
+a number is only what the document calls it; no disclaimers inside <answer>; answer the question
+asked or flag the missing part in <remarks>). Applies only on a screening-question turn.
+tests/chat-answers-no-invented-method.test.js. Not verified on a real chat reply (paid). The three
+cleaned answers were handed to the owner as text; Q3's "what correction was needed" and "how I verify"
+have no record and need a true example from Artem.
