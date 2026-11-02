@@ -353,6 +353,49 @@ export function letterGivesExample(text) {
   return casesMentioned(t).length > 0 || _URL_RE.test(t)
 }
 
+// ── the audit case (2026-11-02, job 21630) ──────────────────────────────────
+// Does the posting ask to SEE an audit Artem has done: an audit case, an audit
+// sample, examples of past audits? Job 21630: "One redacted audit or performance
+// case showing the problem, your analysis, recommended actions, and what you
+// personally did." The letter offered Derma Solution (a results case) as the
+// audit case. Artem: "why are you picking Derma solution as audit case and not
+// the real audit case?" Not matched: the audit the client is buying ("deliver an
+// audit report", "a full SEO audit of our site").
+const _AUDIT_KIND = String.raw`(?:(?:seo|technical(?:\s+seo)?|site|website|google\s+ads|ppc|ads?|account|paid\s+media)\s+)*`
+const _AUDIT_CASE_ASK_RES = [
+  // "audit or performance case", "audit examples", "audit or growth strategy examples"
+  new RegExp(String.raw`\baudits?\s+(?:or\s+[\w-]+\s+(?:[\w-]+\s+)?)?(?:cases?|case\s+stud(?:y|ies)|samples?|examples?)\b`, 'i'),
+  // "examples of previous SEO audits", "examples of similar large-scale WordPress content audits"
+  new RegExp(String.raw`\b(?:samples?|examples?|copy)\s+of\s+(?:an?\s+|your\s+|one\s+of\s+your\s+)?(?:[\w-]+\s+){0,4}?audits?\b`, 'i'),
+  // "a redacted sample audit", "sample technical SEO audit"
+  new RegExp(String.raw`\b(?:sample|redacted|anonymi[sz]ed)\s+${_AUDIT_KIND}audits?\b`, 'i'),
+  // "a technical SEO audit you've delivered", "an audit you've conducted"
+  /\baudits?\s+(?:that\s+)?you(?:['’]ve|\s+have)?\s+(?:personally\s+)?(?:done|completed|delivered|conducted|performed|written|produced|run)\b/i,
+  // "full-scope website audits (please share samples)"
+  /\baudits?\s*\(\s*(?:please\s+)?(?:share|send|attach|include|provide)\s+(?:some\s+)?(?:samples?|examples?)\b/i,
+]
+export function findAuditCaseAsk(text) {
+  const t = String(text || '')
+  let best = null
+  for (const re of _AUDIT_CASE_ASK_RES) {
+    const m = t.match(re)
+    if (m && (!best || m.index < best.index)) best = { index: m.index, phrase: m[0] }
+  }
+  if (!best) return null
+  const from = Math.max(t.lastIndexOf('.', best.index) + 1, t.lastIndexOf('\n', best.index) + 1, best.index - 90)
+  const endDot = t.slice(best.index).search(/[.\n?!]/)
+  const to = Math.min(endDot === -1 ? t.length : best.index + endDot, best.index + best.phrase.length + 70)
+  return { phrase: best.phrase, sentence: t.slice(from, to).replace(/\s+/g, ' ').trim() }
+}
+
+// Is this KB entry one of the audit samples Artem attaches (#419 technical SEO,
+// #6 Google Ads)? Same test as the chat's "Audit Samples" section in api/main.py.
+export function isAuditSampleEntry(e) {
+  const title = String((e && e.title) || '')
+  return /\baudits?\b.*\b(?:examples?|samples?)\b|\b(?:examples?|samples?)\b.*\baudits?\b|\bwork\s+samples?\b/i.test(title) ||
+    /^\s*WORK SAMPLE/i.test(String((e && e.content) || ''))
+}
+
 // Is this a from-scratch LAUNCH? A negated mention is the opposite signal — job
 // 16378: "improve performance rather than simply starting over from scratch" (an
 // existing account) read as a launch, so wrongAuditOfferOnLaunch flagged the

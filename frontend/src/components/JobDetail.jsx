@@ -10,7 +10,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders } from '../lib/letterGuards'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -6220,7 +6220,9 @@ function ProposalColumn({
     ? [job?.title, job?.description_full || job?.description_snippet || job?.raw_message].filter(Boolean).join('\n')
     : ''
   const _exampleAsk = proposal ? findRequestedExample(_postingForNotes) : null
-  const _liveMissingExample = !!(_exampleAsk && !letterGivesExample(proposal))
+  // An attached audit sample answers "examples of your previous audits" (job 21630).
+  const _liveMissingExample = !!(_exampleAsk && !letterGivesExample(proposal) &&
+    !(findAuditCaseAsk(_postingForNotes) && draftAttachesAuditSample(proposal)))
   //   agency pitch a white-label / agency pitch on a posting that never asked for
   //                that arrangement (jobs 16678, 16504)
   const _liveWhiteLabelPitch = proposal && !postingAsksForWhiteLabel(_postingForNotes)
@@ -6655,6 +6657,7 @@ function ProposalColumn({
       let pastProposalsText = ''
       let portfolioText = ''
       let referenceText = ''  // vertical templates / prompt reference entries (e.g. "Upwork Prompt Gemini + template examples")
+      let auditSamplesText = ''  // what is in the audit samples Artem attaches (KB #419, #6)
 
       // ── Check browser-side cache before refetching KB ──────────────────
       // Regenerations of the same job within 5 minutes reuse the previously
@@ -6673,6 +6676,7 @@ function ProposalColumn({
         pastProposalsText = cached.pastProposalsText
         portfolioText     = cached.portfolioText
         referenceText     = cached.referenceText || ''
+        auditSamplesText  = cached.auditSamplesText || ''
         console.log('[Falcon] KB context cache hit for', cacheKey, '— skipped 4 fetches.')
       }
 
@@ -6870,8 +6874,19 @@ function ProposalColumn({
           // templates and real client metrics (e.g. "Upwork Prompt Gemini + template examples").
           // These are NOT case-study attachments — they are reference material the
           // generator uses to pick accurate metrics and vertical-appropriate phrasing.
+          // The audit samples are NOT templates: until 2026-11-02 "two technical SEO
+          // website audit examples…" matched /example/ and reached the model as a
+          // "vertical reference template", so on job 21630, asked for "one redacted
+          // audit … case", it presented Derma Solution as the audit case and the
+          // real audit only as an attachment line.
+          const auditSampleEntries = manualEntries.filter(e => isAuditSampleEntry(e))
+          if (auditSampleEntries.length > 0) {
+            auditSamplesText = '\n\nWHAT IS IN THE AUDIT SAMPLES ARTEM ATTACHES (attachments inventory items 3 and 5; these are the real documents, so describe them only from these facts):\n' +
+              auditSampleEntries.map(e => `--- ${e.title} ---\n${(e.content || '').slice(0, 8000)}`).join('\n\n')
+          }
           const referenceEntries = manualEntries.filter(e =>
             /template|prompt|example/i.test(e.title) &&
+            !isAuditSampleEntry(e) &&
             !/case stud|portfolio|results|overview|client/i.test(e.title) // don't double-count portfolio entries
           )
           if (referenceEntries.length > 0) {
@@ -6881,7 +6896,7 @@ function ProposalColumn({
         }
         // Stash the freshly-built context for the next regenerate within 5 min.
         kbContextCacheRef.current[cacheKey] = {
-          kbRulesText, examplesText, pastProposalsText, portfolioText, referenceText,
+          kbRulesText, examplesText, pastProposalsText, portfolioText, referenceText, auditSamplesText,
           cachedAt: Date.now(),
         }
         }  // end of `if (!cacheFresh)` block
@@ -6895,6 +6910,19 @@ function ProposalColumn({
 
       // Prefer the full description from the enricher; bot postings are often truncated.
       const fullDescription = (job.description_full || job.description_snippet || job.raw_message || '').trim()
+
+      // ── The posting asks to see an audit Artem has done (job 21630) ──────────
+      // "One redacted audit or performance case…": the letter's audit case must be
+      // his real audit sample, not a results case study called an audit.
+      const _auditCaseAsk = auditSamplesText ? findAuditCaseAsk(`${job?.title || ''}\n${fullDescription}`) : null
+      const _auditCaseBlock = _auditCaseAsk
+        ? `\n\nTHIS POSTING ASKS TO SEE AN AUDIT YOU HAVE DONE ("${_auditCaseAsk.sentence.slice(0, 160)}") — mandatory:
+- The case you present is Artem's REAL audit sample for this job's channel (the technical SEO audit sample for an SEO job, the Google Ads audit sample for a PPC job), described from WHAT IS IN THE AUDIT SAMPLES above. Never present a results case study (Derma Solution, Skin Reboot, …) as "the audit case".
+- Cover what the posting asks for, from those facts only: the site, described by its type (e.g. "a bilingual EN/DE bridal e-commerce site on Webflow"); never its domain when the posting asks for a redacted or anonymised sample. Then the 3-4 problems the audit found that matter most for THIS client, how the fixes were prioritised and handed to the developer and content roles, and what Artem personally did (he wrote the audit: found the issues, prioritised them, specified each fix).
+- Name the attachment in that same paragraph, e.g. "the full technical SEO audit sample is attached so you can see the format and depth". This IS the audit-sample attachment line; never add a second one.
+- NO implementation, ranking, traffic or revenue result is on record for either audit sample: never state or imply one. If the posting asks how outcomes were measured, say in one plain sentence that the sample shows the diagnosis and the fix plan, then give ONE approved case study with measured results (its real figures, and how they were measured) in its own short paragraph as the outcome example.
+- If neither sample is the kind of audit asked for (e.g. an analytics audit), present the closest one as what it is, without calling it the kind asked for.`
+        : ''
 
       // ── Application-checklist detection (deterministic) ──────────────────────
       // Postings frequently end with an explicit "To Apply / Send: / Please
@@ -7758,7 +7786,7 @@ After this opening, proceed with the rest of the letter NORMALLY per the rules a
     : 'If other case studies are genuinely relevant, cite THOSE instead per the normal CASE STUDY SELECTION RULE; zero additional case studies is fine too.'
 })()}
 ═══════════════════════════════════════════════════════════════════
-` : ''}${portfolioText}${portfolioText ? renderCaseFactsBlock() : ''}${referenceText}${_digitBombCase ? _dropPastLetterOpenings(pastProposalsText) : pastProposalsText}${examplesText}${adjustments}
+` : ''}${portfolioText}${portfolioText ? renderCaseFactsBlock() : ''}${referenceText}${auditSamplesText}${_auditCaseBlock}${_digitBombCase ? _dropPastLetterOpenings(pastProposalsText) : pastProposalsText}${examplesText}${adjustments}
 ${kbRulesText ? `
 RULE COMPLIANCE GATE (silent, mandatory):
 Before you emit the cover letter, run this checklist *internally* (do NOT include it in your output):

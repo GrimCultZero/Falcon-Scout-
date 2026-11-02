@@ -2790,19 +2790,31 @@ async def chat(request: dict):
     # Partition by intent
     rules           = [e for e in kb_entries if e.type == "rule"]
     case_studies    = [e for e in kb_entries if e.type == "case_study"]
+    # The audit samples Artem attaches (KB #419 technical SEO, #6 Google Ads).
+    # Their own section, in full, straight after the rules. Owner, 2026-11-02, job
+    # 21630: asked "do you have the content of my SEO audit cases?", the chat said
+    # no - #419 was the last entry of the notes section, which starts at char
+    # 42,591 of a 44,094-char bundle cut at 40,000, so none of it was sent.
+    work_samples    = [
+        e for e in kb_entries
+        if e.type in ("manual", "note") and e.title
+        and (_re.search(r"\baudits?\b.*\b(?:examples?|samples?)\b|\b(?:examples?|samples?)\b.*\baudits?\b|\bwork\s+samples?\b", e.title, _re.I)
+             or (e.content or "").lstrip().upper().startswith("WORK SAMPLE"))
+    ]
     # Manual entries whose title looks like a portfolio/case-study artefact
     portfolio_like  = [
         e for e in kb_entries
         if e.type == "manual"
         and e.title
+        and e not in work_samples
         and _re.search(r"case stud|portfolio|results|overview|client", e.title, _re.I)
     ]
     sent_proposals  = [e for e in kb_entries if e.type == "sent_proposal"]
     client_replies  = [e for e in kb_entries if e.type == "client_reply"]
     feedback_liked  = [e for e in kb_entries if e.type == "feedback" and e.tags and "liked" in (e.tags or "")]
-    notes           = [e for e in kb_entries if e.type == "note"]
+    notes           = [e for e in kb_entries if e.type == "note" and e not in work_samples]
     scraped         = [e for e in kb_entries if e.type == "scraped"]
-    misc_manual     = [e for e in kb_entries if e.type == "manual" and e not in portfolio_like]
+    misc_manual     = [e for e in kb_entries if e.type == "manual" and e not in portfolio_like and e not in work_samples]
 
     def _render(items, head_title, intro, per_item_cap=None):
         if not items:
@@ -2870,6 +2882,25 @@ async def chat(request: dict):
         out.append("")
         kb_sections.append("\n".join(out))
 
+    if work_samples:
+        kb_sections.append(_render(
+            work_samples,
+            "Audit Samples Artem Attaches (real documents, described in full)",
+            "These are the actual audit deliverables Artem attaches to proposals: the "
+            "technical SEO audit sample and the Google Ads audit sample. You DO know "
+            "their contents: they are below. When a posting asks for an audit case, an "
+            "audit sample or an example of audit work, THIS is the case to present for "
+            "the job's channel (technical SEO audit for SEO, Google Ads audit for PPC): "
+            "what the site was, what the audit found, how it prioritised the fixes, and "
+            "that Artem wrote it. Use only the facts written here. No implementation, "
+            "ranking, traffic or revenue result is on record for these audits, so never "
+            "state one; for measured outcomes, cite an approved case study instead. When "
+            "the posting asks for a redacted sample, describe the site by its type "
+            "(e.g. a bilingual EN/DE bridal e-commerce site on Webflow), not its domain.",
+        ))
+    # Rules and audit samples are never cut by the size ceiling below.
+    _protected_sections = len(kb_sections)
+
     if case_studies or portfolio_like:
         all_cs = (portfolio_like + case_studies)[:6]  # cap count; portfolio-style first
         kb_sections.append(_render(
@@ -2931,7 +2962,11 @@ async def chat(request: dict):
     # Hard ceiling on total KB bytes to stay under the 30k input-tokens-per-minute
     # rate limit. ~1 token ≈ 4 chars, so 40k chars ≈ 10k tokens — leaves room for
     # job context, conversation history, and system instructions.
-    _KB_MAX_CHARS = 40000
+    # The CLI bridge (Artem's subscription) has no per-minute token limit, so it
+    # gets twice the room. Either way the cut lands on the last, lowest-priority
+    # sections, never inside the rules or the audit samples.
+    _KB_MAX_CHARS = 80000 if _get_ai_provider() == "cli" else 40000
+    _KB_MAX_CHARS = max(_KB_MAX_CHARS, len("\n".join(kb_sections[:_protected_sections]).strip()))
     if len(kb_text) > _KB_MAX_CHARS:
         kb_text = kb_text[:_KB_MAX_CHARS].rstrip() + "\n\n… [KB truncated to fit token budget]"
 

@@ -10571,3 +10571,44 @@ so renormalizing changed no file. Netstat before/after: 27183 unchanged (PID 348
 the same bridge (PID 17024). Tests: tests/bridge-port.test.js, tests/test_bridge_port.py
 (Python and Node agree on 19 inputs). Not done: a visual browser check of the chip; the running
 bridge process still runs the old code until its next restart (same port).
+
+
+## 2026-11-02 -- The audit case was Derma Solution, and the chat could not see the real audit
+Job 21630 ("SEO Specialist for Audits..."), shared by the owner with the chat transcript. The
+posting asks for "One redacted audit or performance case showing the problem, your analysis,
+recommended actions, and what you personally did". The letter wrote "Audit case: Derma Solution
+(attached as PDF)" and mentioned the real audit only as "I've attached a sample technical SEO
+audit". Asked "why are you picking Derma solution as audit case and not the real audit case?"
+and "do you have a content of my SEO audit cases?", the chat said it could not see them.
+
+Two causes, both in how KB #419 (the lemoos.com and mon-lumiere.com audit samples, core) is fed:
+- Chat (`/chat` in api/main.py): #419 went into "Notes & Manual Entries", the last section
+  before scraped, capped at 700 chars. The bundle was 44,094 chars, cut at 40,000; #419 started
+  at char 42,591. Nothing of it was sent, so the chat's "no" was true.
+- Generator (JobDetail.jsx): #419's title says "examples", so it matched the reference-template
+  filter and reached the model as "VERTICAL REFERENCE TEMPLATES". The contents were there, but
+  framed as phrasing material. Nothing told the model the posting was asking for this document.
+
+Fix:
+- Chat: the audit samples (#419, #6 "Google Ads audit Example 1") get their own section, in
+  full, straight after the rules, with an intro: they are the case to present when a posting
+  asks for an audit case; no implementation or outcome result is on record for them; describe
+  the site by type when the posting asks for a redacted sample. The size ceiling is 80k in CLI
+  mode (no per-minute token limit) and still 40k in API mode, and never cuts inside the rules or
+  the samples. Real KB: CLI bundle 53,321 chars, nothing truncated; API 40,038, cut inside the
+  case-studies section (rules and samples whole).
+- Generator: `isAuditSampleEntry` and `findAuditCaseAsk` (letterGuards.js). The samples leave
+  the template block for their own "WHAT IS IN THE AUDIT SAMPLES ARTEM ATTACHES" block. When
+  the posting asks to see an audit, a directive says that sample is the case: site by type,
+  3-4 findings relevant to the client, how fixes were prioritised and handed over, that Artem
+  wrote it, attachment named in the same paragraph (it is the audit-sample line), no results
+  claimed; if outcome measurement is asked, one measured case study in its own paragraph.
+  The live "no example" note now accepts an attached audit sample on an audit-examples ask.
+- `findAuditCaseAsk` read against all 2,387 postings: 24 match, every one a real ask; the 8
+  near misses (approach to audits, "no unpaid audit or sample is requested", a client buying an
+  audit) do not.
+
+Tests: tests/audit-case-ask.test.js, tests/test_chat_kb_samples.py. All 31 JS and 12 Python
+suites pass. Not verified: a real generation on job 21630 (a paid call, not run). Owner: press
+Rescan & Re-write or Redo on 21630 to get the new letter, and check the attached audit PDF is
+itself redacted, since the posting asks for a redacted sample.
