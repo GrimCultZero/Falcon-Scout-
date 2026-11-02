@@ -86,6 +86,14 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(/auditSamplesText  = cached\.auditSamplesText/.test(src) && /referenceText, auditSamplesText,\s*\r?\n\s*cachedAt/.test(src), 'a cached regenerate keeps them');
   assert(/findAuditCaseAsk\(_postingForNotes\) && draftAttachesAuditSample\(proposal\)/.test(src), 'an attached audit sample answers an audit-examples ask in the live note');
 
+  // Owner, 2026-11-02, on the first rewrite: the letter never said the sample was
+  // attached as its own statement, and "I wrote the audit myself" read as cringe.
+  const dir = src.slice(src.indexOf('THIS POSTING ASKS TO SEE AN AUDIT YOU HAVE DONE'), src.indexOf('const _auditCaseBlock') + 4000);
+  assert(/SENTENCE OF ITS OWN[^]*must say it is attached/.test(dir), 'the attachment is its own sentence and must say "attached"');
+  assert(/NEVER write "I wrote the audit myself"/.test(dir), 'authorship claims ("I wrote the audit myself") are forbidden');
+  assert(!/he wrote the audit/.test(dir), 'the directive no longer tells the model Artem wrote it');
+  assert(/by-hand claim goes INSIDE the audit-case paragraph/.test(dir), 'the by-hand claim sits in the audit paragraph, not after the rate');
+
   console.log(`\n${bad ? `${bad} FAILED` : 'ALL PASS'}`);
   process.exit(bad ? 1 : 0);
 })();

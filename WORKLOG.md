@@ -10612,3 +10612,18 @@ Tests: tests/audit-case-ask.test.js, tests/test_chat_kb_samples.py. All 31 JS an
 suites pass. Not verified: a real generation on job 21630 (a paid call, not run). Owner: press
 Rescan & Re-write or Redo on 21630 to get the new letter, and check the attached audit PDF is
 itself redacted, since the posting asks for a redacted sample.
+
+## 2026-11-02 (later) -- Audit-case letter: attachment sentence, no "I wrote it myself"
+Owner, reading the first letter produced by the fix above (job 21630): the letter described the
+audit but its attachment was buried inside a sentence about authorship, and "I wrote the audit
+myself: found the issues, ranked them..." read as cringe. The by-hand claim was also not in the
+audit paragraph: the enforcer tacked "Every audit I run is done entirely by hand" onto the end of
+the rate paragraph (missingManualAuditClaimAutoInserted fired).
+Cause: my own directive told the model to state "what Artem personally did (he wrote the audit)"
+and to name the attachment "in that same paragraph", and the chat's Audit Samples intro said "that
+Artem wrote it". Fix (JobDetail.jsx directive, api/main.py chat intro): authorship wording is
+forbidden ("what you personally did" is answered by how the document is built, as plain fact); the
+attachment is the last sentence of the audit paragraph and must say it is attached, naming the
+type; the by-hand claim goes inside that paragraph. Tests added to tests/audit-case-ask.test.js.
+Not verified on a real generation (paid). Separate, not fixed: the chat wrote "Derma Solution
+(attached as PDF) (USA, YMYL medical aesthetics, attached as a PDF)", a doubled label.
