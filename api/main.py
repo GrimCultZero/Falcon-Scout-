@@ -2821,7 +2821,7 @@ async def chat(request: dict):
         e for e in kb_entries
         if e.type in ("manual", "note") and e.title
         and e not in work_samples
-        and _re.search(r"authoritative\s+case[- ]study\s+metrics|case\s+studies\s+results\s+overview", e.title, _re.I)
+        and _re.search(r"authoritative\s+case[- ]study\s+metrics|case\s+studies\s+results\s+overview|web\s+development\s+client\s+case\s+studies\s+portfolio", e.title, _re.I)
     ]
     # Manual entries whose title looks like a portfolio/case-study artefact
     portfolio_like  = [
@@ -2942,14 +2942,18 @@ async def chat(request: dict):
     _protected_sections = len(kb_sections)
 
     if case_studies or portfolio_like:
-        all_cs = (portfolio_like + case_studies)[:6]  # cap count; portfolio-style first
+        # The detailed per-case entries Artem curated (is_core) in full: the largest is
+        # 2,302 chars and the old 1,200 cap cut Atlant, Casa Eleganza, Game-X and SMASH
+        # mid-section. The ~80 translated blog case studies are not approved proof and
+        # used to fill whatever slot was left by title order, so they stay out.
+        all_cs = (portfolio_like + [e for e in case_studies if e.is_core])[:8]
         kb_sections.append(_render(
             all_cs,
             "Approved Case Studies & Portfolio",
             "These are the ONLY case studies you may reference, name, or suggest attaching. "
             "Never invent project names, metrics, client names, or results outside this list. "
             "If a relevant case study isn't here, say so — don't make one up.",
-            per_item_cap=1200,
+            per_item_cap=2600,
         ))
 
     if feedback_liked:
