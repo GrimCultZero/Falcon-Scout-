@@ -115,7 +115,8 @@ const throwsWith = (fn, re) => { try { fn(); return false; } catch (e) { return 
   if (FORBIDDEN.has(freePort) || freePort < 40000) {
     assert(false, `refusing to run the live-bridge test on port ${freePort}`);
   } else {
-    fs.writeFileSync(path.join(scratch, '.env'), `CLI_BRIDGE_PORT=${freePort}\n`);
+    // Since T3 the bridge will not start without a token (see bridge-lockdown.test.js).
+    fs.writeFileSync(path.join(scratch, '.env'), `CLI_BRIDGE_PORT=${freePort}\nCLI_BRIDGE_TOKEN=${'t'.repeat(40)}\n`);
     const child = spawn(process.execPath, [path.join(scratch, 'cli-bridge.js')], { cwd: scratch });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });

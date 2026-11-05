@@ -86,6 +86,15 @@ if exist ".env" (
   copy ".env.template" ".env" >nul
   echo       .env created from the template - YOU MUST EDIT IT, see below.
 )
+REM The CLI bridge only answers the backend, which proves itself with this shared
+REM secret (audit T3). Creates it if missing; never prints it.
+".venv\Scripts\python.exe" tools\ensure_bridge_token.py
+if errorlevel 1 (
+  echo       FAILED to write CLI_BRIDGE_TOKEN to .env
+  set "FAILED=1"
+  goto :done
+)
+echo       CLI bridge token present.
 
 if exist "upwork_jobs.db" (
   echo       upwork_jobs.db found.

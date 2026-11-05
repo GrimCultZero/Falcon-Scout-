@@ -85,4 +85,35 @@ function resolveBridgePort(opts) {
   return resolveBridgePortInfo(opts).port;
 }
 
-module.exports = { resolveBridgePort, resolveBridgePortInfo, parseEnvFile, DEFAULT_PORT };
+// ── CLI_BRIDGE_TOKEN (audit 2026-10-29, T3) ─────────────────────────────────
+// The shared secret the backend sends as X-Falcon-Token on every /ai call.
+// Same precedence as the port (key in .env, then the process environment).
+// There is NO default: a bridge without a token would be open to every web page
+// in the browser, so a missing or short token stops the bridge.
+// setup.bat and falconscout.bat create it (tools/ensure_bridge_token.py).
+const MIN_TOKEN_LENGTH = 32;
+
+/**
+ * @param {{envFile?: string, environ?: object}} [opts]  injectable for tests
+ * @returns {string}
+ * @throws {Error} when CLI_BRIDGE_TOKEN is missing or shorter than MIN_TOKEN_LENGTH
+ */
+function resolveBridgeToken(opts = {}) {
+  const envFile = opts.envFile || path.join(__dirname, '.env');
+  const environ = opts.environ || process.env;
+  const fromFile = parseEnvFile(envFile);
+  let raw;
+  if (Object.prototype.hasOwnProperty.call(fromFile, 'CLI_BRIDGE_TOKEN')) raw = fromFile.CLI_BRIDGE_TOKEN;
+  else raw = environ.CLI_BRIDGE_TOKEN;
+  const token = (raw === undefined || raw === null) ? '' : String(raw).trim();
+  if (!token) {
+    throw new Error('CLI_BRIDGE_TOKEN is not set in .env. Run falconscout.bat or setup.bat once '
+      + '(they create it), or run: .venv\\Scripts\\python tools\\ensure_bridge_token.py');
+  }
+  if (token.length < MIN_TOKEN_LENGTH) {
+    throw new Error(`CLI_BRIDGE_TOKEN must be at least ${MIN_TOKEN_LENGTH} characters, got ${token.length}`);
+  }
+  return token;
+}
+
+module.exports = { resolveBridgePort, resolveBridgePortInfo, resolveBridgeToken, parseEnvFile, DEFAULT_PORT, MIN_TOKEN_LENGTH };

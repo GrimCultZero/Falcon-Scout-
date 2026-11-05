@@ -98,6 +98,15 @@ $env:CLAUDE_CONFIG_DIR = "$env:USERPROFILE\.claude-artem"
 If that prints `ok`, the bridge will work. A *"Not logged in"* error in the app
 is this profile, not the bridge itself.
 
+**The bridge is locked to the backend.** It answers only requests that carry the
+shared secret `CLI_BRIDGE_TOKEN` from `.env`, refuses web pages from other sites,
+and runs `claude -p` with no tools (it cannot read files or run commands).
+`setup.bat` and `falconscout.bat` create the token for you. If the bridge window
+says *"CLI_BRIDGE_TOKEN is not set"*, run
+`.venv\Scripts\python tools\ensure_bridge_token.py` and start it again. If the app
+says *"missing or wrong X-Falcon-Token"*, the bridge and the backend read different
+values: close the bridge window and restart the backend.
+
 ---
 
 ## 6. Start it

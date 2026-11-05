@@ -208,6 +208,23 @@ def _bridge_port() -> int:
 def _bridge_url(path: str = "") -> str:
     return f"http://127.0.0.1:{_bridge_port()}{path}"
 
+# ── CLI bridge token (audit 2026-10-29, T3) ─────────────────────────────────
+# cli-bridge.js answers /ai only when X-Falcon-Token equals CLI_BRIDGE_TOKEN
+# from .env, so a web page open in the browser can no longer spend Artem's
+# subscription. Only the backend calls the bridge; the browser never does.
+# setup.bat / falconscout.bat create the token (tools/ensure_bridge_token.py).
+def _bridge_headers() -> dict:
+    token = (os.environ.get("CLI_BRIDGE_TOKEN") or "").strip()
+    if len(token) >= 2 and token[0] in "\"'" and token[-1] == token[0]:
+        token = token[1:-1].strip()
+    if not token:
+        raise HTTPException(
+            status_code=502,
+            detail="CLI_BRIDGE_TOKEN is missing from .env -- run: .venv\\Scripts\\python tools\\ensure_bridge_token.py, "
+                   "then restart the backend and close the CLI bridge window",
+        )
+    return {"X-Falcon-Token": token}
+
 # ── CLI bridge auto-start / self-heal ───────────────────────────────────────
 # Owner request, 2026-08-18: "I need bridge to start on every app launch and
 # be always available to be able to switch between CLI and API at any time."
@@ -342,16 +359,17 @@ async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
     import httpx as _httpx_cli
     prompt_text = _flatten_for_cli(request)
     print(f"[CLI bridge] {kind}: {len(prompt_text)} chars -> {_bridge_url('/ai')}")
+    bridge_headers = _bridge_headers()
     try:
         async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-            br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model})
+            br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model}, headers=bridge_headers)
     except _httpx_cli.ConnectError:
         # Self-heal: the bridge may have been closed or never started this
         # session — spawn it and retry the SAME request once before giving up.
         if await _ensure_cli_bridge_running(wait_for_ready=True):
             try:
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
-                    br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model})
+                    br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model}, headers=bridge_headers)
             except _httpx_cli.ConnectError:
                 raise HTTPException(
                     status_code=502,
@@ -6344,7 +6362,8 @@ async def claude_proxy(request: dict):
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
                     # Pass the requested model so the bridge forces it via --model
                     # (else the CLI uses its default — often Opus, the slowest).
-                    br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model})
+                    br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model},
+                                            headers=_bridge_headers())
                 if br_resp.status_code != 200:
                     raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")
                 text = br_resp.json().get("content", "")
