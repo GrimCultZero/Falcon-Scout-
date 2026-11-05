@@ -10670,3 +10670,9 @@ as estimates. No scoring thresholds changed (existing <$15 skip / $15-29 -1 / >=
 the honest range). tests/analyser-fixed-price-hours.test.js. Not verified on a re-run of job 21650's
 analysis (a paid call). For reference, from the DB: SEO fixed-price proposals with budgets <= $400
 were 25 (1 replied, 4 viewed, 20 ghosted), above $400 were 10 (0 replied, 1 viewed, 9 ghosted).
+
+## 2026-11-05 — chat could not see the "House Painting" case (KB roster cut off)
+- Owner asked the cover-letter chat to add "house paintings"; it replied the entry was "cut off in what I have" and asked him to paste it. The entry was fine in the KB (#1 case 9, #506 case 8: Google Ads, USA, 2,100+ clicks, $140/conv, CTR 7.3%).
+- Cause (`/chat` in `api/main.py`): #1 (manual, "...Case Studies Results Overview", 6.6k chars) went through the case-study cap of 1,200 chars, so only Skin Reboot survived; #506 (note, authoritative metrics recap) went through the notes cap of 700 chars and was the 4th of 8 note slots. Cases 6-11 never reached the model. Same class of defect as the audit-sample cut (2026-11-02).
+- Fix: both entries are now a `case_roster` section, rendered in full right after the audit samples and counted in `_protected_sections` (never cut by the size ceiling); removed from the portfolio/notes/misc lists to avoid duplicates. Verified live: the chat now answers House Painting with channel + figures.
+- Note for later: any entry that must be seen whole needs the same treatment; the per-section caps are silent.

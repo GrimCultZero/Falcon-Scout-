@@ -2810,20 +2810,34 @@ async def chat(request: dict):
         and (_re.search(r"\baudits?\b.*\b(?:examples?|samples?)\b|\b(?:examples?|samples?)\b.*\baudits?\b|\bwork\s+samples?\b", e.title, _re.I)
              or (e.content or "").lstrip().upper().startswith("WORK SAMPLE"))
     ]
+    # The case-study ROSTER: the portfolio overview (#1, all cases with their figures)
+    # and the owner's authoritative-metrics recap (#506). Owner, 2026-11-05: asked to add
+    # "house paintings", the chat said the entry was "cut off in what I have" and asked
+    # him to paste it. It was cut: #1 went through the 1,200-char case-study cap (Skin
+    # Reboot only) and #506 through the 700-char notes cap, 4th of 8 note slots, so case 8
+    # never arrived. Same defect as the audit samples above: the two entries that name
+    # every approved case must reach the model whole, and the size ceiling must not cut them.
+    case_roster     = [
+        e for e in kb_entries
+        if e.type in ("manual", "note") and e.title
+        and e not in work_samples
+        and _re.search(r"authoritative\s+case[- ]study\s+metrics|case\s+studies\s+results\s+overview", e.title, _re.I)
+    ]
     # Manual entries whose title looks like a portfolio/case-study artefact
     portfolio_like  = [
         e for e in kb_entries
         if e.type == "manual"
         and e.title
         and e not in work_samples
+        and e not in case_roster
         and _re.search(r"case stud|portfolio|results|overview|client", e.title, _re.I)
     ]
     sent_proposals  = [e for e in kb_entries if e.type == "sent_proposal"]
     client_replies  = [e for e in kb_entries if e.type == "client_reply"]
     feedback_liked  = [e for e in kb_entries if e.type == "feedback" and e.tags and "liked" in (e.tags or "")]
-    notes           = [e for e in kb_entries if e.type == "note" and e not in work_samples]
+    notes           = [e for e in kb_entries if e.type == "note" and e not in work_samples and e not in case_roster]
     scraped         = [e for e in kb_entries if e.type == "scraped"]
-    misc_manual     = [e for e in kb_entries if e.type == "manual" and e not in portfolio_like and e not in work_samples]
+    misc_manual     = [e for e in kb_entries if e.type == "manual" and e not in portfolio_like and e not in work_samples and e not in case_roster]
 
     def _render(items, head_title, intro, per_item_cap=None):
         if not items:
@@ -2911,7 +2925,20 @@ async def chat(request: dict):
             "the posting asks for a redacted sample, describe the site by its type "
             "(e.g. a bilingual EN/DE bridal e-commerce site on Webflow), not its domain.",
         ))
-    # Rules and audit samples are never cut by the size ceiling below.
+    if case_roster:
+        # Oldest-first by id so the overview (#1) precedes the recap (#506); the recap
+        # says it overrides any other number, and the intro below repeats that.
+        kb_sections.append(_render(
+            sorted(case_roster, key=lambda e: e.id or 0),
+            "Approved Case Study Roster (complete, in full)",
+            "This is the full list of approved case studies with their channel (Google Ads "
+            "or SEO), market and real figures. Every case Artem names is in it. If he names "
+            "a case, find it here and use it; NEVER say its details are cut off or ask him "
+            "to paste it. Check the channel before adding one: a Google Ads job takes the "
+            "Google Ads cases, an SEO job the SEO cases. Where the two entries differ, the "
+            "'Authoritative case-study metrics' recap wins.",
+        ))
+    # Rules, audit samples and the case roster are never cut by the size ceiling below.
     _protected_sections = len(kb_sections)
 
     if case_studies or portfolio_like:
