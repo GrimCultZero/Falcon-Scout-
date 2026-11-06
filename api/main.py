@@ -136,6 +136,14 @@ def _ensure_job_columns():
             # here retroactively so a fresh clone / restored backup self-heals too.
             conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN upwork_proposal_id TEXT")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_upwork_proposal_id ON proposals(upwork_proposal_id)")
+
+        # sync_runs.header_count / coverage (audit 2026-10-29, T5). A DB too old to
+        # have the table at all gets it, complete, from create_all instead.
+        sync_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(sync_runs)").fetchall()}
+        if sync_cols and "header_count" not in sync_cols:
+            conn.exec_driver_sql("ALTER TABLE sync_runs ADD COLUMN header_count INTEGER")
+        if sync_cols and "coverage" not in sync_cols:
+            conn.exec_driver_sql("ALTER TABLE sync_runs ADD COLUMN coverage REAL")
 _ensure_job_columns()
 
 
@@ -3801,6 +3809,63 @@ def delete_proposal(proposal_id: int):
         return {"ok": True, "deleted_id": proposal_id}
 
 
+# ── Proposals sync: scraped-title guard and coverage (audit 2026-10-29, T5) ─────
+# Extension <= 5.15 sent the row's age line ("last week", "last month", "2
+# quarters ago") as the row's TITLE for every proposal older than about a week.
+# Here that string went into `Job.title.ilike('%last week%')`, which matches any
+# job whose title merely contains those words. Until every browser runs 5.16+,
+# an age is treated as "no title" so it can never pick a proposal.
+_REL_TIME_TITLE_RE = re.compile(
+    r"^(?:"
+    r"(?:last|this|next|previous|earlier)\s+(?:second|minute|hour|day|week|weekend|month|quarter|year)"
+    r"|yesterday|today|tomorrow|just now|now|a moment ago"
+    r"|(?:about\s+|over\s+|almost\s+)?(?:a|an|one|a few|a couple of|\d+)\s+(?:second|minute|hour|day|week|month|quarter|year)s?\s+(?:ago|earlier)"
+    r")$",
+    re.IGNORECASE,
+)
+_HEADER_COUNT_RE = re.compile(r"submitted\s+proposals\s*\(\s*(\d{1,5})\s*\)", re.IGNORECASE)
+
+
+def _clean_scraped_title(title) -> str:
+    """The scraped title, or '' when it is only a relative time."""
+    t = re.sub(r"\s+", " ", str(title or "")).strip()
+    if not t or _REL_TIME_TITLE_RE.match(t):
+        return ""
+    return t
+
+
+def _sync_header_count(data: dict):
+    """How many submitted proposals Upwork said exist, or None.
+
+    Extension 5.16+ sends `header_count`. Older runs still carry the heading text
+    ("Submitted proposals  (94)") in scroll.pager.section.headText, so the number
+    is recoverable for them too.
+    """
+    raw = data.get("header_count")
+    try:
+        n = int(raw)
+        if 0 < n < 100000:
+            return n
+    except (TypeError, ValueError):
+        pass
+    pager = ((data.get("scroll") or {}).get("pager") or {}) if isinstance(data.get("scroll"), dict) else {}
+    for cand in (pager.get("headerCount"), ((pager.get("section") or {}).get("headText"))):
+        if isinstance(cand, int) and 0 < cand < 100000:
+            return cand
+        if isinstance(cand, str):
+            m = _HEADER_COUNT_RE.search(cand)
+            if m and int(m.group(1)) > 0:
+                return int(m.group(1))
+    return None
+
+
+def _sync_coverage(rows_scraped: int, header_count):
+    """rows read / rows Upwork says exist, rounded; None when the count is unknown."""
+    if not header_count:
+        return None
+    return round(rows_scraped / header_count, 4)
+
+
 @app.post("/proposal-status-sync")
 def proposal_status_sync(data: dict):
     """
@@ -3840,7 +3905,7 @@ def proposal_status_sync(data: dict):
                 continue
             upwork_job_id = (row.get("upwork_job_id") or "").lstrip("~").strip()
             upwork_proposal_id = (row.get("upwork_proposal_id") or "").strip()
-            job_title = (row.get("job_title") or "").strip()
+            job_title = _clean_scraped_title(row.get("job_title"))
             viewed = bool(row.get("viewed"))
 
             # 0) Strongest possible match: Upwork's own numeric proposal id,
@@ -3928,6 +3993,9 @@ def proposal_status_sync(data: dict):
         # writing nothing. flush() forces the INSERT here so a failure is caught
         # by this except rather than surfacing later at commit().
         _sync_run_error = None
+        # Failed/empty reports (scroll.failed, no rows) have nothing to measure.
+        _header_count = _sync_header_count(data) if scanned else None
+        _coverage = _sync_coverage(scanned, _header_count)
         try:
             session.add(SyncRun(
                 leg="proposals-list",
@@ -3936,6 +4004,8 @@ def proposal_status_sync(data: dict):
                 not_matched=len(not_matched),
                 newly_viewed=newly_viewed,
                 scroll_json=_json_mod.dumps(data.get("scroll")) if data.get("scroll") else None,
+                header_count=_header_count,
+                coverage=_coverage,
             ))
             session.flush()
         except Exception as e:
@@ -3953,6 +4023,8 @@ def proposal_status_sync(data: dict):
         "sync_run_logged": _sync_run_error is None,
         "sync_run_error": _sync_run_error,
         "scanned": scanned,
+        "header_count": _header_count,
+        "coverage": _coverage,
         "updated": updated,
         "newly_viewed": newly_viewed,
         "not_matched_count": len(not_matched),
@@ -3985,6 +4057,8 @@ def list_sync_runs(limit: int = Query(50, ge=1, le=500), leg: Optional[str] = Qu
                 "matched": r.matched,
                 "not_matched": r.not_matched,
                 "newly_viewed": r.newly_viewed,
+                "header_count": r.header_count,
+                "coverage": r.coverage,
                 "scroll": _json_mod.loads(r.scroll_json) if r.scroll_json else None,
             } for r in runs],
         }

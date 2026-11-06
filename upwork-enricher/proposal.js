@@ -1036,6 +1036,129 @@
   // content stops changing, and is hard-capped. A sync that reads too few rows
   // is a bad day; one that loops forever inside the user's browser is worse.
   const _PAGE_CAP = 15;
+  const _PAGE_CAP_MAX = 40;   // ceiling when the header count asks for more pages
+  const _PAGE_SIZE = 10;      // Upwork shows 10 submitted proposals per page
+
+  // ── Pure helpers (kept free of DOM access so tests/proposal-sync-rows.test.js
+  //    can lift and run them from this file) ─────────────────────────────────
+
+  // Upwork prints each row's age on its own line under "Initiated <date>":
+  // "4 days ago", "yesterday", "3 weeks ago", and for older rows "last week",
+  // "last month", "2 quarters ago". This is NOT a job title.
+  //
+  // T5 (audit 2026-10-29): the title filter knew only "N <unit> ago", "yesterday",
+  // "today" and "just now", so on every proposal older than ~a week the row's
+  // "title" came out as "last week" / "last month" (9 characters, so it passed the
+  // 8-character minimum). The title dedupe then kept ONE row per such page and
+  // dropped the rest. It hit whole pages at once (page 4 of a live 10-page list:
+  // all ten rows read "last week", one kept), the bad block moved down the list as
+  // proposals aged, and "zero new rows" then ended the whole sync (19 of 90).
+  // Anything that reads as an age is rejected here, however Upwork words it.
+  function _isRelativeTimeText(line) {
+    const t = String(line || '').replace(/\s+/g, ' ').trim();
+    if (!t) return false;
+    if (/^(?:yesterday|today|tomorrow|just now|now|a moment ago)$/i.test(t)) return true;
+    if (/^(?:last|this|next|previous|earlier)\s+(?:second|minute|hour|day|week|weekend|month|quarter|year)$/i.test(t)) return true;
+    // "4 days ago", "2 quarters ago", "an hour ago", "about 3 weeks ago". Spelled
+    // out, not a loose /ago$/, so a real title that happens to end in "ago" survives.
+    if (/^(?:about\s+|over\s+|almost\s+)?(?:a|an|one|a few|a couple of|\d+)\s+(?:second|minute|hour|day|week|month|quarter|year)s?\s+(?:ago|earlier)$/i.test(t)) return true;
+    return false;
+  }
+
+  // The row's title, from the best evidence available:
+  //  1. its own proposal link (/nx/proposals/<id>): the title is that link's
+  //     text, on every row of the live page (100% of 91), whatever the layout;
+  //  2. else the first plausible text line, as before.
+  // `linkTexts` are the texts of the row's proposal links, `lines` the row's text
+  // lines. Both are passed in so this stays testable without a DOM.
+  function _pickJobTitle(linkTexts, lines) {
+    const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+    for (const raw of (linkTexts || [])) {
+      const t = clean(raw);
+      if (t.length >= 4 && t.length <= 200 && !_isRelativeTimeText(t)
+          && !/^(?:view proposal|view job|view|details|boosted|boost outbid)$/i.test(t)) return t;
+    }
+    for (const raw of (lines || [])) {
+      const line = clean(raw);
+      if (line.length < 8 || line.length > 200) continue;
+      if (/^(initiated|submitted|viewed|received|status|posted)\b/i.test(line)) continue;
+      if (/^[\d$.,\s]+$/.test(line)) continue;
+      if (/^(about the client|hourly|fixed|connects|payment\s+verified|\$\d)/i.test(line)) continue;
+      if (_isRelativeTimeText(line)) continue;
+      // UI chrome / call-to-action buttons that aren't titles.
+      if (/^(boost|withdraw|view proposal|view job|message|send a message|see more|show more|load more|archive|edit|reuse|details|hire)\b/i.test(line)) continue;
+      if (/\b(boosted|not boosted|learn more)\b/i.test(line)) continue;
+      if (/boost(ed)?\b.*\boutbid\b/i.test(line)) continue;
+      if (/^general profile\b/i.test(line)) continue;
+      return line;
+    }
+    return '';
+  }
+
+  // Identity of a scraped row, strongest first: Upwork's own numeric proposal id
+  // (unique per proposal), then the job's ~hex id, then the title. Two different
+  // proposals can legitimately carry the same title or no hex id; only a shared
+  // proposal id means "the same row seen twice".
+  function _rowKey(r) {
+    const pid = String((r && r.upwork_proposal_id) || '').trim();
+    if (pid) return 'p:' + pid;
+    const jid = String((r && r.upwork_job_id) || '').trim();
+    if (jid) return 'j:' + jid;
+    const title = String((r && r.job_title) || '').trim().toLowerCase();
+    return title ? 't:' + title : '';
+  }
+
+  // "Submitted proposals (94)": the number Upwork itself says exists. The Active
+  // list has its own header ("Active proposals (10)"), which this must not read.
+  function _parseSubmittedCount(text) {
+    const m = String(text || '').match(/submitted\s+proposals\s*\(\s*(\d{1,5})\s*\)/i);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  // The pager's "Current page X of Y" control. Its text is an accessible prefix
+  // followed by the visible page digit, and the SEPARATOR between them is not
+  // stable: usually a line break ("Current page 2 of 9\n2") but in 12 of 88 runs
+  // since run 520 it was nothing at all ("Current page 1 of 101" = "of 10" + "1").
+  // The old pattern read that as 101 pages, and its sibling `go to page N`
+  // pattern required a space ("go to page2" never matched), so the walk found no
+  // way to page 2 and stopped at page 1 with 10 of 90 rows (T5).
+  // `expectedTotal` (pages implied by the header count, or null) settles the one
+  // truly ambiguous case, where the glued digit could also belong to the total.
+  function _parseCurrentPageText(text, expectedTotal) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    const m = t.match(/^current\s+page\s+(\d+)\s+of\s+(\d+)(?:\s+(\d+))?$/i);
+    if (!m) return null;
+    const current = parseInt(m[1], 10);
+    let total = parseInt(m[2], 10);
+    if (m[3] === undefined && m[2].length > m[1].length && m[2].endsWith(m[1])) {
+      const stripped = parseInt(m[2].slice(0, m[2].length - m[1].length), 10);
+      if (stripped >= current && (!expectedTotal || stripped === expectedTotal || total !== expectedTotal)) total = stripped;
+    }
+    return { current, total };
+  }
+
+  // How many rows page `page` (1-based) should hold: a full page, or what is
+  // left of the header count on the last one. null when the count is unknown.
+  function _expectedRowsOnPage(page, headerCount) {
+    if (!headerCount || headerCount < 1 || page < 1) return null;
+    const left = headerCount - _PAGE_SIZE * (page - 1);
+    if (left <= 0) return 0;
+    return Math.min(_PAGE_SIZE, left);
+  }
+
+  // Why paging should stop, or null to keep going. Replaces the old
+  // "a page with zero new rows ends the sync", which one badly-read page
+  // (above) turned into a 19-of-90 run. Now it stops only when:
+  //  - the header count has been reached;
+  //  - two pages IN A ROW added nothing (stuck on the same page);
+  //  - the page cap is hit.
+  // (A missing next-page control, i.e. the last page, is decided by the caller.)
+  function _pagingStopReason({ mergedCount, headerCount, emptyStreak, page, cap }) {
+    if (headerCount && mergedCount >= headerCount) return 'header count reached (' + mergedCount + '/' + headerCount + ')';
+    if (emptyStreak >= 2) return 'two pages in a row added no new rows';
+    if (page >= cap) return 'page cap ' + cap;
+    return null;
+  }
 
   // A cheap signature of what is currently rendered. Used to confirm the click
   // actually changed the page rather than assuming a fixed wait was enough.
@@ -1169,14 +1292,16 @@
     let curEl = null;
     let iconNextArrows = [];
     let iconNextWant = null;
+    const _hdr = _parseSubmittedCount(document.body && document.body.innerText);
+    const _expectedTotal = _hdr ? Math.ceil(_hdr / _PAGE_SIZE) : null;
     for (const el of cands) {
-      // The visible digit follows the accessible prefix, so the normalised text
-      // is "Current page 1 of 7 1" — allow that trailing repeat, but keep the
+      // The visible digit follows the accessible prefix, with a line break, a
+      // space or nothing between them (see _parseCurrentPageText) — keep the
       // anchors so a container holding several controls still cannot match.
-      const m = strs(el).map(t => t.match(/^current\s+page\s+(\d+)\s+of\s+(\d+)(?:\s+\d+)?$/i)).find(Boolean);
-      if (m) {
-        probe.currentPage = parseInt(m[1], 10);
-        probe.totalPages = parseInt(m[2], 10);
+      const pp = strs(el).map(t => _parseCurrentPageText(t, _expectedTotal)).find(Boolean);
+      if (pp) {
+        probe.currentPage = pp.current;
+        probe.totalPages = pp.total;
         curEl = el;
         break;
       }
@@ -1190,7 +1315,8 @@
       const hits = cands.filter(el => {
         if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
         return strs(el).some(t => {
-          const m = t.match(/^go\s+to\s+page\s+(\d+)$/i);
+          // "go to page 2" or, when the DOM text has no separators, "go to page2".
+          const m = t.match(/^go\s*to\s*page\s*(\d+)$/i);
           return m && parseInt(m[1], 10) === want;
         });
       });
@@ -1349,8 +1475,8 @@
     try {
       for (const el of document.querySelectorAll('button, a, [role="button"]')) {
         const t = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '')).replace(/\s+/g, ' ').trim();
-        const m = t.match(/^current\s+page\s+(\d+)\s+of\s+(\d+)(?:\s+\d+)?$/i);
-        if (m) { pageAfter = parseInt(m[1], 10); break; }
+        const pp = _parseCurrentPageText(t, null);
+        if (pp) { pageAfter = pp.current; break; }
       }
     } catch (_) {}
     _lastPagerDiag = Object.assign(_lastPagerDiag || {}, {
@@ -1368,53 +1494,99 @@
   // Scrape EVERY page and merge. Returns the same { rows, debug } shape as the
   // single-page scrape, so both call sites are unchanged apart from the name.
   async function scrapeAllProposalPages() {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const merged = [];
-    const seen = new Set();
+    const byKey = new Map();
     const perPage = [];
     let debug = null;
     let page = 0;
+    let emptyStreak = 0;
+    let stopReason = null;
+    // The number Upwork itself prints ("Submitted proposals (94)"). It is the
+    // yardstick for "did we read everything": it sets how many rows each page
+    // should hold, when to stop, and the coverage recorded in sync_runs.
+    let headerCount = _parseSubmittedCount(document.body && document.body.innerText);
+    const capFor = (h) => h ? Math.min(_PAGE_CAP_MAX, Math.max(_PAGE_CAP, Math.ceil(h / _PAGE_SIZE) + 3)) : _PAGE_CAP;
+    let cap = capFor(headerCount);
 
-    while (page < _PAGE_CAP) {
-      page++;
-      const res = await scrapeProposalsList();
-      if (!debug) debug = res.debug;               // keep page 1's diagnostics
+    // Merge one scrape's rows into the result. A row already seen (same proposal
+    // id, else job id, else title) is not added twice, but a later "viewed"
+    // reading upgrades it: a retry can see what the first pass missed.
+    const ingest = (rows) => {
       let added = 0;
-      for (const r of (res.rows || [])) {
-        // Dedupe on the id when Upwork exposes it, else on title — the same
-        // precedence /proposal-status-sync uses to match rows to records.
-        const key = (r.upwork_job_id || '').trim() || `t:${(r.job_title || '').trim().toLowerCase()}`;
-        if (!key || key === 't:') continue;
-        if (seen.has(key)) continue;
-        seen.add(key); merged.push(r); added++;
+      for (const r of (rows || [])) {
+        const key = _rowKey(r);
+        if (!key) continue;
+        const have = byKey.get(key);
+        if (have) { if (r.viewed && !have.viewed) have.viewed = true; continue; }
+        byKey.set(key, r); merged.push(r); added++;
       }
-      perPage.push({ page, scraped: (res.rows || []).length, newRows: added });
-      console.log(`[Cockpit Proposal] page ${page}: ${(res.rows || []).length} rows, ${added} new`);
-      // A page that contributes nothing new means we are re-reading the same
-      // one — treat it as the end rather than trusting the pager control.
-      if (added === 0 && page > 1) break;
+      return added;
+    };
+
+    while (true) {
+      page++;
+      let res = await scrapeProposalsList();
+      if (!debug) debug = res.debug;               // keep page 1's diagnostics
+      const fresh = _parseSubmittedCount(document.body && document.body.innerText);
+      if (fresh) { headerCount = fresh; cap = capFor(headerCount); }
+      let added = ingest(res.rows);
+      let onPage = (res.rows || []).length;
+
+      // Completeness: Upwork says how many proposals exist, so this page should
+      // hold a full 10 (or what is left). If it holds fewer it was caught mid-
+      // render or is still showing part of the previous page: wait and read it
+      // again, up to twice, before moving on. Moving on is what lost the other
+      // rows for good, because the pager only goes forward.
+      const expected = _expectedRowsOnPage(page, headerCount);
+      let retries = 0;
+      while (expected && onPage < expected && retries < 2) {
+        retries++;
+        await sleep(1500);
+        res = await scrapeProposalsList();
+        added += ingest(res.rows);
+        onPage = Math.max(onPage, (res.rows || []).length);
+      }
+
+      perPage.push({ page, scraped: onPage, newRows: added, expected, retries });
+      console.log(`[Cockpit Proposal] page ${page}: ${onPage} rows${expected ? ' of ' + expected + ' expected' : ''}, ${added} new${retries ? ', ' + retries + ' re-read(s)' : ''}`);
+
+      emptyStreak = added === 0 ? emptyStreak + 1 : 0;
+      stopReason = _pagingStopReason({ mergedCount: merged.length, headerCount, emptyStreak, page, cap });
+      if (stopReason) break;
+
       // Pagination is an enhancement over the first page, so a fault in it
-      // must degrade to "page 1 only" rather than throwing away rows already
+      // must degrade to "pages so far" rather than throwing away rows already
       // scraped. Before this, any error in the pager propagated out of the
       // scrape entirely and lost all 10 rows plus the sync_runs record.
       let advanced = false;
       try {
         advanced = await _goToNextProposalsPage();
       } catch (e) {
-        _lastPagerDiag = Object.assign(_lastPagerDiag || {}, {
-          stopReason: 'pager threw: ' + ((e && (e.stack || e.message)) || e),
-        });
-        console.error('[Cockpit Proposal] pager threw — keeping page 1 rows:', e);
+        stopReason = 'pager threw: ' + ((e && (e.stack || e.message)) || e);
+        console.error('[Cockpit Proposal] pager threw — keeping the rows read so far:', e);
       }
-      if (!advanced) break;
+      if (!advanced) {
+        // No next control = the last page. _goToNextProposalsPage already noted
+        // why; keep that reason unless the pager threw.
+        stopReason = stopReason || (_lastPagerDiag && _lastPagerDiag.stopReason) || 'no next page';
+        break;
+      }
+    }
+
+    const coverage = headerCount ? Math.round((merged.length / headerCount) * 10000) / 10000 : null;
+    if (coverage !== null && coverage < 0.95) {
+      console.warn(`[Cockpit Proposal] LOW COVERAGE: read ${merged.length} of ${headerCount} submitted proposals (${Math.round(coverage * 100)}%). Stopped: ${stopReason}`);
     }
 
     // Mirror the pagination summary into _lastPagerDiag as well as debug —
     // debug only reaches the on-page banner, which dies with the tab.
     _lastPagerDiag = Object.assign(_lastPagerDiag || {}, {
-      pagesVisited: page, perPage, totalMerged: merged.length, pageCap: _PAGE_CAP,
+      pagesVisited: page, perPage, totalMerged: merged.length, pageCap: cap,
+      headerCount, coverage, stopReason,
     });
     if (debug) {
-      debug.pagination = { pagesVisited: page, perPage, totalMerged: merged.length };
+      debug.pagination = { pagesVisited: page, perPage, totalMerged: merged.length, headerCount, coverage, stopReason };
       debug.rowCount = merged.length;
       debug.rowTitles = merged.map(r => `${r.viewed ? '\ud83d\udc41 ' : ''}${r.job_title || r.upwork_job_id || '?'}`);
       debug.viewedRowCount = merged.filter(r => r.viewed).length;
@@ -1566,29 +1738,16 @@
       // status label. Heuristic: first line ≥ 8 chars, not all numeric/dollars,
       // not starting with a known status/metadata prefix.
       const lines = rowText.split('\n').map(l => l.trim()).filter(Boolean);
-      let job_title = '';
-      for (const line of lines) {
-        if (line.length < 8 || line.length > 200) continue;
-        if (/^(initiated|submitted|viewed|received|status|posted)\b/i.test(line)) continue;
-        if (/^[\d$.,\s]+$/.test(line)) continue;
-        if (/^(about the client|hourly|fixed|connects|payment\s+verified|\$\d)/i.test(line)) continue;
-        // Relative timestamps in ANY unit (the page uses these, not absolute
-        // dates): "26 minutes ago", "2 hours ago", "yesterday", "just now".
-        if (/\b(seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+ago\b/i.test(line)) continue;
-        if (/^(yesterday|today|just now|a (minute|moment|few seconds) ago)\b/i.test(line)) continue;
-        // UI chrome / call-to-action buttons that aren't titles.
-        if (/^(boost|withdraw|view proposal|view job|message|send a message|see more|show more|load more|archive|edit|reuse|details|hire)\b/i.test(line)) continue;
-        if (/\b(boosted|not boosted|learn more)\b/i.test(line)) continue;
-        if (/boost(ed)?\b.*\boutbid\b/i.test(line)) continue;
-        if (/^general profile\b/i.test(line)) continue;
-        job_title = line;
-        break;
-      }
-
-      // Dedupe by title (in case the row matches more than once via different
-      // date subnodes) — but only if we got one. Empty titles fall through.
-      if (job_title && seenTitles.has(job_title.toLowerCase())) continue;
-      if (job_title) seenTitles.add(job_title.toLowerCase());
+      // The row's own proposal link carries its title (see _pickJobTitle); the
+      // text lines are the fallback. Reading the first plausible LINE alone is
+      // what turned "last week" into a title (T5, audit 2026-10-29).
+      let linkTexts = [];
+      try {
+        linkTexts = [...rowContainer.querySelectorAll('a[href*="/nx/proposals/"]')]
+          .filter(a => /\/nx\/proposals\/\d/.test(a.getAttribute('href') || ''))
+          .map(a => a.innerText || a.getAttribute('aria-label') || '');
+      } catch (_) { linkTexts = []; }
+      const job_title = _pickJobTitle(linkTexts, lines);
 
       // Optional ID — hunt within the row container only. If we find it, great;
       // if not, the backend matches by title.
@@ -1603,6 +1762,15 @@
       // to upwork_job_id then title when it isn't found in this row's DOM.
       const proposalIdMatch = html.match(/\/nx\/proposals\/(\d+)/);
       const upwork_proposal_id = proposalIdMatch ? proposalIdMatch[1] : null;
+
+      // Dedupe by title only when the row has no id of its own (in case it matches
+      // more than once via different date subnodes — seenContainers already
+      // catches the usual case). Two DIFFERENT proposals can share a title;
+      // dropping the second one on title alone silently lost rows (T5).
+      if (!upwork_proposal_id && !upwork_job_id && job_title) {
+        if (seenTitles.has(job_title.toLowerCase())) continue;
+        seenTitles.add(job_title.toLowerCase());
+      }
 
       // Layer 0 cross-check: title-scan matched viewed titles from the HTML.
       if (!viewed && _titleScanSaysViewed(job_title, viewedTitleSet)) {
@@ -1885,7 +2053,13 @@
         // reason pagination stopped lives only in the proposals tab's console,
         // and that tab closes itself — the same blind spot that hid the
         // sync_runs NameError for weeks.
-        body: JSON.stringify({ rows, scroll: { ...(_lastScrollStats || {}), pager: _lastPagerDiag } }),
+        // header_count is what Upwork says exists ("Submitted proposals (94)"); the
+        // backend stores it next to rows_scraped so coverage is a column (T5).
+        body: JSON.stringify({
+          rows,
+          header_count: (_lastPagerDiag && _lastPagerDiag.headerCount) || null,
+          scroll: { ...(_lastScrollStats || {}), pager: _lastPagerDiag },
+        }),
         signal: ctrl.signal,
       });
     } catch (e) {
@@ -1925,7 +2099,11 @@
       : 'Falcon Sync — done';
 
     const lines = [];
-    if (typeof scraped === 'number') lines.push(`Scraped <b>${scraped}</b> proposal rows`);
+    if (typeof scraped === 'number') {
+      const pg = debug && debug.pagination;
+      const of = pg && pg.headerCount ? ` of <b>${pg.headerCount}</b> (${Math.round((pg.coverage || 0) * 100)}%)` : '';
+      lines.push(`Scraped <b>${scraped}</b>${of} proposal rows`);
+    }
     if (typeof viewed === 'number') lines.push(`Viewed-by-client: <b>${viewed}</b>`);
     if (result) {
       lines.push(`Matched &amp; promoted to “viewed”: <b>${result.updated ?? 0}</b>`);

@@ -6,11 +6,13 @@ const fs = require('fs');
 let _fails = 0;
 const _log = console.log;
 console.log = (...a) => { if (/^FAIL\b/.test(String(a[0]))) _fails++; _log(...a); };
-const src = fs.readFileSync(String.raw`C:\Users\syzov\upwork-cockpit\upwork-enricher\proposal.js`, 'utf8')
+const src = fs.readFileSync(require('path').join(__dirname, '..', 'upwork-enricher', 'proposal.js'), 'utf8')
   .replace(/\r\n/g, '\n');
 const a = src.indexOf('function _submittedSectionRoot()');
 const b = src.indexOf('\n  }\n', src.indexOf('function _findNextPageControl()')) + 4;
 const fnSrc = src.slice(a, b);
+const helperSrc = src.slice(src.indexOf('  function _isRelativeTimeText('), src.indexOf('  // A cheap signature of what is currently rendered.'));
+if (!helperSrc.includes('_parseCurrentPageText')) throw new Error('could not lift the pager helpers from proposal.js');
 
 // ── minimal DOM ───────────────────────────────────────────────────────────
 let ALL = [];
@@ -85,7 +87,9 @@ function run(body) {
   global.document = { querySelectorAll: () => ALL.filter(e => e !== body) };
   // _lastPagerDiag is module-scope in proposal.js; declare it so the extracted
   // functions can write their diagnostics without a ReferenceError.
-  const f = new Function('let _lastPagerDiag = null;' + fnSrc + '; return { _findNextPageControl, _submittedSectionRoot };')();
+  // The pager code now leans on the pure helpers defined just above it in proposal.js
+  // (_parseCurrentPageText, _parseSubmittedCount) and on _PAGE_SIZE; lift them too.
+  const f = new Function('let _lastPagerDiag = null; const _PAGE_SIZE = 10;' + helperSrc + fnSrc + '; return { _findNextPageControl, _submittedSectionRoot, _diag: () => _lastPagerDiag };')();
   return f;
 }
 
@@ -319,6 +323,93 @@ function page2WithNextTitle({ titleAsButton = false, nextButton = false } = {}) 
   const { _findNextPageControl } = run(body);
   const got = _findNextPageControl();
   console.log(`${got === null ? 'PASS' : 'FAIL'}  page 9 of 9 -> stops, even with icon arrows still rendered`);
+}
+
+// ── sync_runs 554 (2026-10-29 12:24): the audit's T5 regression ──────────────
+// Page 2 of 9 as stored in that run's probe: 10 title links (each also labelled
+// "<title> Boosted"), "Boost outbid" / "Boosted" buttons between them, the
+// tooltip and collapse buttons above, then first | prev | go to page 1 |
+// Current page 2 of 9 | next | last. That run went on to read page 3 as ONE row
+// (the age line "last week" had been taken for the title of all ten, see
+// proposal-sync-rows.test.js) and the zero-new-rows stop ended the sync at 19 of
+// 90. The PAGER found its way correctly the whole time; pinning that here keeps
+// the two causes apart: the fix for the rows must not be mistaken for a pager fix.
+{
+  ALL = [];
+  const body = E('body');
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals  (90)' }));
+  add(submitted, E('button', { attrs: { 'aria-label': 'More info on submitted proposals' } }));
+  add(submitted, E('button', { text: 'Close the tooltip' }));
+  add(submitted, E('button', { cls: 'header-collapse-button air3-btn m-0 p-0' }));
+  const titles = ['Google Ads expert: set up a Search campaign', 'SEO & Google Ads Specialist One-Time Audit', 'Google Ads For Florist Business',
+    'Google Ads Manager for Fitness Equipment Ecommerce', 'Google Ads Account Audit', 'Complete Company Website', 'Google Ads Specialist for IT Support',
+    'Google Ads and Conversion tracking audit with PDF Report', 'Google Ads Specialist Negative Keyword Optimization', 'Google Ads Specialist Needed to take the account to the next level'];
+  titles.forEach((t, i) => {
+    const row = add(submitted, E('div'));
+    add(row, E('div', { text: 'Initiated Oct 2' + (i % 9) + ', 2026\nlast week' }));
+    add(row, E('button', { text: i % 2 ? 'Boost outbid' : 'Boosted' }));
+    add(row, E('a', { text: t, attrs: { href: '/nx/proposals/20610000000000000' + String(i).padStart(2, '0'), 'aria-label': t + ' Boosted' } }));
+  });
+  const spager = add(submitted, E('div'));
+  const first = add(spager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  const prev  = add(spager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  add(spager, E('button', { text: 'go to page\n1' }));
+  add(spager, E('button', { text: 'Current page 2 of 9\n2' }));
+  const next  = add(spager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  const last  = add(spager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+
+  const { _findNextPageControl, _diag } = run(body);
+  const got = _findNextPageControl();
+  const probe = (_diag() || {}).probe || {};
+  console.log(`${got === next ? 'PASS' : 'FAIL'}  run 554: page 2 of 9 with 10 age-line rows -> the NEXT arrow is chosen (the pager was never the fault)`);
+  console.log(`${got !== last && got !== first && got !== prev ? 'PASS' : 'FAIL'}  run 554: not the last-page arrow, not an arrow before the current page`);
+  console.log(`${probe.rowLinksSkipped === 10 ? 'PASS' : 'FAIL'}  run 554: all 10 row title links (one of them "…to the next level") are skipped as rows -> ${probe.rowLinksSkipped}`);
+  console.log(`${probe.currentPage === 2 && probe.totalPages === 9 ? 'PASS' : 'FAIL'}  run 554: position read as page 2 of 9`);
+}
+
+// ── sync_runs 666 / 662 (2026-11-06): the "page 1 only" runs ─────────────────
+// 12 of 88 runs since run 520 read exactly 10 rows. Their stored probe: the
+// section's only pager controls were "Current page 1 of 101" and "go to page2" --
+// no separator between the accessible text and the visible digit -- so the total
+// read as 101 and `go to page 2` (which demanded a space) never matched. The walk
+// stopped at page 1: coverage 10/94.
+{
+  ALL = [];
+  const body = E('body');
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals  (94)' }));
+  add(submitted, E('button', { cls: 'header-collapse-button air3-btn m-0 p-0' }));
+  for (let i = 0; i < 10; i++) {
+    const row = add(submitted, E('div'));
+    add(row, E('div', { text: 'Initiated Nov 3, 2026\n4 days ago' }));
+    add(row, E('a', { text: 'Google Ads job ' + i, attrs: { href: '/nx/proposals/20610000000000000' + String(i).padStart(2, '0'), 'aria-label': 'Google Ads job ' + i } }));
+  }
+  const pager = add(submitted, E('div'));
+  add(pager, E('button', { text: 'Current page 1 of 101' }));   // "of 10" + the digit "1", glued
+  const go2 = add(pager, E('button', { text: 'go to page2' }));  // and no space here either
+
+  const { _findNextPageControl, _diag } = run(body);
+  const got = _findNextPageControl();
+  const probe = (_diag() || {}).probe || {};
+  console.log(`${got === go2 ? 'PASS' : 'FAIL'}  run 666: "go to page2" (no space) is found -> the walk can leave page 1  -> got ${got ? JSON.stringify(got.innerText) : 'null'}`);
+  console.log(`${probe.currentPage === 1 && probe.totalPages === 10 ? 'PASS' : 'FAIL'}  run 666: "Current page 1 of 101" is read as page 1 of 10 (was 101) -> ${probe.currentPage}/${probe.totalPages}`);
+}
+// The same glued text on the last page must still end the walk.
+{
+  ALL = [];
+  const body = E('body');
+  const submitted = add(body, E('section'));
+  add(submitted, E('h2', { text: 'Submitted proposals  (94)' }));
+  const row = add(submitted, E('div'));
+  add(row, E('div', { text: 'Initiated Jun 3, 2026\n2 quarters ago' }));
+  const pager = add(submitted, E('div'));
+  add(pager, E('button', { text: 'go to page9' }));
+  add(pager, E('button', { text: 'Current page 10 of 1010' }));
+  add(pager, E('button', { cls: 'air3-btn air3-btn-circle air3-pagination' }));
+  const { _findNextPageControl, _diag } = run(body);
+  const got = _findNextPageControl();
+  console.log(`${got === null ? 'PASS' : 'FAIL'}  glued "Current page 10 of 1010" is the LAST page of 10 -> stops (was: read as 1010 pages, kept clicking)  -> pages ${((_diag() || {}).probe || {}).currentPage}/${((_diag() || {}).probe || {}).totalPages}`);
 }
 
 _log(_fails ? `\n${_fails} FAILURES` : '\nall pass');

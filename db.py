@@ -350,6 +350,16 @@ class SyncRun(Base):
     newly_viewed = Column(Integer, nullable=False, default=0)
     # JSON blob of the scraper's list-load stats (startCount/endCount/passes/grew).
     scroll_json  = Column(Text, nullable=True)
+    # What Upwork itself says exists: the "(94)" in "Submitted proposals (94)",
+    # read by the extension (5.16+) or, for older runs, parsed out of
+    # scroll_json.pager.section.headText. Audit 2026-10-29 T5: rows_scraped alone
+    # cannot say whether a run read everything, and runs reading 19 of 90 looked
+    # like successes. NULL for runs where the count was not available (messages
+    # leg, failures, pre-T5 runs that did not record the header).
+    header_count = Column(Integer, nullable=True)
+    # rows_scraped / header_count, rounded to 4 places. < 0.8 means the run
+    # missed more than a fifth of the list (T6 turns that into an alert).
+    coverage     = Column(Float, nullable=True)
 
 
 def init_db(database_url: str):
