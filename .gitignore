@@ -37,8 +37,10 @@ US_ONLY_ACCESS_RESEARCH.md
 LINKEDIN_PARTNER_SEARCH_HANDOFF.md
 LINKEDIN_SEARCH_RESULT.md
 
-# LibreOffice/OpenOffice lock files (".~lock.<name>#"), left behind when an office app crashes
+# Office lock files, left behind when an office app crashes:
+# LibreOffice/OpenOffice ".~lock.<name>#" and MS Office "~$<name>"
 .~lock.*#
+~$*
 
 # ── Python ───────────────────────────────────────────────────────────────
 __pycache__/
