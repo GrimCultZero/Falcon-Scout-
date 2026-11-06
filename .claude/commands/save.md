@@ -11,7 +11,10 @@ Steps:
    (newest at the bottom). If a note was passed ($ARGUMENTS), weave it in.
 2. Append the entry to `WORKLOG.md` (session narrative) — or to `CASES.md` if it's a solved client
    scenario / finding.
-3. Run automatically, without asking: `git add -A && git commit -m "context: <short summary>" && git push`
+3. Run automatically, without asking:
+   `git add -u && git add -- WORKLOG.md CASES.md DESIGN.md PROJECT_HANDOFF.md && git commit -m "context: <short summary>" && git push`
+   Never `git add -A` or `git add .`: they would stage client data (`corrections/`, debug dumps).
+   If this topic created a NEW file that belongs in the repo, stage it by name.
 4. Confirm in one line: what was captured and that it's pushed.
 
 Rules: distill, never paste raw secrets. Keep it tight — what happened, why, and anything the next

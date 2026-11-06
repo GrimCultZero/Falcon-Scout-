@@ -20,6 +20,25 @@ upwork_jobs.db-shm
 share-with-claude.md
 messages_sync_debug.json
 messages_passive_debug.json
+# any scraper/sync debug dump (they carry client messages)
+*_debug.json
+
+# Owner's correction notes on real letters -- real client data (audit 2026-10-29, T4).
+# The 19 files committed on Sep 2-3 were untracked, kept on disk; they remain in
+# git history until the owner approves a history purge.
+corrections/
+
+# Hand-made feed config snapshots
+feed_config.json.bak-*
+
+# Audit / outreach working files -- contain outreach and lead data (owner, 2026-11-07)
+AUDIT_2026-10-29.md
+US_ONLY_ACCESS_RESEARCH.md
+LINKEDIN_PARTNER_SEARCH_HANDOFF.md
+LINKEDIN_SEARCH_RESULT.md
+
+# LibreOffice/OpenOffice lock files (".~lock.<name>#"), left behind when an office app crashes
+.~lock.*#
 
 # ── Python ───────────────────────────────────────────────────────────────
 __pycache__/
@@ -41,6 +60,7 @@ frontend/dist/
 # ── OS / editor cruft ──────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 *.swp
 .idea/
 .vscode/

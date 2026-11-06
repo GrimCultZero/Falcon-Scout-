@@ -7,9 +7,12 @@ file in the project plus full history.
 
 ## The two buttons (double-click)
 
-- **`sync.bat`** — "Save everything to GitHub now." Stages all changes, commits
-  with a timestamp, pulls the latest, then pushes. Use it whenever you want a
-  manual backup, or at the end of a work session.
+- **`sync.bat`** — "Save my work to GitHub now." Stages changes to files git
+  already tracks plus the memory docs, commits with a timestamp, pulls the
+  latest, then pushes. Use it whenever you want a manual backup, or at the end
+  of a work session. It does not add NEW files by itself (that used to sweep
+  client data into GitHub); it lists them at the end so you can add the ones
+  you want with `git add <file>`.
 - **`get-latest.bat`** — "Get the newest version." Pulls from GitHub. Run this
   **before** you start working, especially if the last session was on a
   different account/machine.

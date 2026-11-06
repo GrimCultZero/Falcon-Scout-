@@ -54,7 +54,9 @@ iterations** without losing the thread. Follow this protocol every session:
 3. **Append the essentials of the session to `WORKLOG.md`** (what we did, why, decisions, anything
    the next iteration must know). Add solved client scenarios / findings to `CASES.md`. Put settled
    architectural decisions in `DESIGN.md`.
-4. **Commit and push** (`git add -A && git commit && git push`). Keep the GitHub copy authoritative.
+4. **Commit and push** (`git add -u`, plus any new files **by name**, then `git commit && git push`).
+   Never `git add -A` / `git add .`: they sweep in client data such as `corrections/` (audit 2026-10-29, T4).
+   Keep the GitHub copy authoritative.
    This is the standing default the owner asked for — sync automatically after each meaningful chunk.
 
 **The split that matters (the owner's instruction):**
@@ -82,7 +84,7 @@ instruction to capture the **latest topic discussed** into project memory:
    (`//save: <note>`), weave it in.
 2. **Append** it to `WORKLOG.md` (session narrative) — or to `CASES.md` if it's a solved client
    scenario / finding.
-3. **Commit AND push, automatically** (`git add -A && git commit -m "context: <summary>" && git push`)
+3. **Commit AND push, automatically** (`git add -u && git add -- WORKLOG.md CASES.md DESIGN.md PROJECT_HANDOFF.md && git commit -m "context: <summary>" && git push`)
    — never pause to ask permission; pushing to GitHub is part of the trigger.
 4. **Confirm** in one line: what was captured + that it's pushed.
 
