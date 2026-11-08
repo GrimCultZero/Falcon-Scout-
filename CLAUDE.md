@@ -6,11 +6,11 @@ Local Windows tool that captures Upwork job postings from Telegram (@OffersHunte
 ## Stack at a glance
 - **Backend:** FastAPI + Uvicorn on `:8000` (`api/main.py`)
 - **DB:** SQLite via SQLAlchemy (`db.py`, `upwork_jobs.db`)
-- **Capture:** Telethon listener (`listener.py`) + regex parser (`parser.py`)
+- **Capture:** the API job feed (a backend loop, `api/upwork_api.py`). The Telethon listener (`listener.py`) + regex parser (`parser.py`) are kept in the repo but no longer launched: the bot shut down 2026-10-15 (T19 may revive that source)
 - **Frontend:** React + Vite on `:5180` (`frontend/src/`)
 - **Enrichment:** Chrome extension Manifest V3 (`upwork-enricher/`)
 - **LLM:** Claude (`claude-sonnet-4-5`) via `/claude` proxy
-- **Launcher:** `falconscout.bat`
+- **Launcher:** `falconscout.bat` (daily: backend without reload, frontend, bridge only when the provider is `cli`); `falconscout-dev.bat` for backend development (reloads on `.py` edits)
 
 ## Read this first
 **`DESIGN.md`** at the repo root is the canonical source of truth for:
@@ -101,10 +101,12 @@ paste raw secrets — distill, don't copy.
 
 ## Quick start
 ```bash
-falconscout.bat              # everything
-.\.venv\Scripts\uvicorn api.main:app --reload --port 8000   # backend only
+falconscout.bat              # daily: backend (no reload) + frontend (+ bridge if provider is cli)
+falconscout-dev.bat          # same, backend reloads on every .py edit (development only)
+.\.venv\Scripts\uvicorn api.main:app --port 8000            # backend only, no reload
+.\.venv\Scripts\uvicorn api.main:app --port 8000 --reload   # backend only, development
 cd frontend && npm run dev                  # frontend only
-python listener.py                          # listener only
+python listener.py                          # optional, retired Telegram source: no longer launched
 ```
 
 **Backend must run from `.venv`, not a bare system Python** (confirmed 2026-08-20, after a real
