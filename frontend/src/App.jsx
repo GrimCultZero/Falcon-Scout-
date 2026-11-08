@@ -8,6 +8,7 @@ import Outcomes from './components/Outcomes'
 import FeedSettings from './components/FeedSettings'
 import SettingsTab from './components/SettingsTab'
 import BackupChip from './components/BackupChip'
+import HealthStrip from './components/HealthStrip'
 import { getNotifySettings, notifyPermission, passesNotifyFilter, notifyNewJobs } from './lib/notifications'
 
 // ── Build-time debug: ring buffer of console errors/warnings + uncaught errors.
@@ -865,6 +866,7 @@ export default function App() {
 
         {/* Right side: usage chip + live indicator + dark mode toggle */}
         <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:'auto' }}>
+          <HealthStrip />
           <BackupChip />
           <AiProviderChip />
           <UsageChip />

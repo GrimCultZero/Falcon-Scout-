@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { newestRunId, judgeSyncRuns, SYNC_POLL_MS, SYNC_GIVE_UP_MS } from '../lib/syncGate'
 
 // Outcomes tab — manage all sent proposals without having to remember which
 // job each one belongs to. The friction-reducer described in
@@ -71,7 +72,7 @@ export default function Outcomes({ active = false }) {
   const [rowMsg, setRowMsg] = useState({})  // { [proposalId]: {kind, text} }
   const [shareStatus, setShareStatus] = useState(null) // 'sending'|'ok'|'err'
   // Status-sync from Upwork's Submitted-proposals list
-  const [syncStatus, setSyncStatus] = useState(null) // null|'opening'|'scraping'|{ok, scanned, updated, newly_viewed}|{err, msg}
+  const [syncStatus, setSyncStatus] = useState(null) // null|'opening'|{running}|{ok, text, run}|{err, msg}  ('scraping' kept for the button label)
   // Timestamp of the most recent successful sync — persisted to localStorage
   // so it survives reloads and tab switches.
   const [lastSyncedAt, setLastSyncedAt] = useState(() => {
@@ -109,6 +110,8 @@ export default function Outcomes({ active = false }) {
       const d = e.detail || {}
       if (d._from_poll) return  // activity poll re-broadcast, not a real sync
       if (d.error) return
+      // A sync that scanned 0 rows is not a sync (T6): do not stamp "last synced".
+      if (typeof d.scanned === 'number' && d.scanned === 0) return
       const now = new Date()
       setLastSyncedAt(now)
       try { localStorage.setItem('falconscout.lastSyncedAt', now.toISOString()) } catch {}
@@ -200,7 +203,7 @@ export default function Outcomes({ active = false }) {
   // The bridge sets the auto-sync flag in chrome.storage and opens the
   // Upwork proposals page. proposal.js sees the flag on load, scrapes,
   // POSTs to /proposal-status-sync, and emits a result event back here.
-  const syncFromUpwork = () => {
+  const syncFromUpwork = async () => {
     console.log('[Outcomes] syncFromUpwork clicked. bridgeReady =', bridgeReady)
     if (!bridgeReady) {
       console.warn('[Outcomes] bridge not ready — extension content script (bridge.js) is not loaded on this page. Reload the extension at chrome://extensions, then hard-refresh this tab.')
@@ -210,6 +213,19 @@ export default function Outcomes({ active = false }) {
     }
     console.log('[Outcomes] dispatching cockpit:sync-statuses')
     setSyncStatus('opening')
+    // T6: "synced" is decided by the database, not by this button. Note the newest
+    // proposals-list run BEFORE anything is dispatched; only a run with a higher id
+    // (written by the backend after the click) can turn the button green.
+    let baselineRunId
+    try {
+      const r = await fetch('/sync-runs?leg=proposals-list&limit=5')
+      if (!r.ok) throw new Error('API ' + r.status)
+      baselineRunId = newestRunId(await r.json())
+    } catch (e) {
+      setSyncStatus({ err: true, msg: `Backend not reachable (${e.message}): a sync could not be recorded, so none was started.` })
+      setTimeout(() => setSyncStatus(null), 15000)
+      return
+    }
     // Sync v2: BOTH legs now self-report on their own Upwork tabs via green
     // on-page banners and POST straight to the backend — no cross-tab relay
     // (that was the unreliable part). So the dashboard no longer waits on a
@@ -242,15 +258,47 @@ export default function Outcomes({ active = false }) {
     setTimeout(() => window.removeEventListener('cockpit:status:synced', onSyncError), 5000)
 
     window.dispatchEvent(new CustomEvent('cockpit:sync-statuses'))
-    setTimeout(() => { if (!failed) setSyncStatus({ ok: true, banner: true }) }, 800)
+    // Used to be: paint a green "synced" 800 ms later no matter what (it showed
+    // "SYNCED" through a whole blackout, WORKLOG 2026-09-16). Now: "running" until
+    // a real sync_runs row appears, then green with what it read; red if the run
+    // read 0 rows or nothing was recorded in time.
+    setTimeout(() => { if (!failed) setSyncStatus({ running: true }) }, 800)
+    const startedAt = Date.now()
+    const poll = async () => {
+      if (failed) return
+      let verdict = { state: 'waiting' }
+      try {
+        const r = await fetch('/sync-runs?leg=proposals-list&limit=10')
+        if (r.ok) verdict = judgeSyncRuns(await r.json(), baselineRunId)
+      } catch (_) { /* keep waiting; the time limit below ends it */ }
+      if (failed) return
+      if (verdict.state === 'ok') {
+        setSyncStatus({ ok: true, text: verdict.text, run: verdict.run })
+        try { fetchProposals() } catch (_) {}
+        setTimeout(() => setSyncStatus(cur => (cur && cur.ok ? null : cur)), 22000)
+        return
+      }
+      if (verdict.state === 'empty') {
+        setSyncStatus({ err: true, msg: `Not synced: ${verdict.text}. No statuses were updated.` })
+        setTimeout(() => setSyncStatus(null), 20000)
+        return
+      }
+      if (Date.now() - startedAt > SYNC_GIVE_UP_MS) {
+        setSyncStatus({ err: true, msg: 'Not synced: no sync result was recorded within 3 minutes. Is Upwork open, and is the extension reloaded?' })
+        setTimeout(() => setSyncStatus(null), 20000)
+        return
+      }
+      setTimeout(poll, SYNC_POLL_MS)
+    }
+    setTimeout(poll, SYNC_POLL_MS)
     // Refresh the list a few times so newly-promoted statuses surface here
     // without a manual reload, then clear the banner.
     // The messages leg can walk up to 10 rooms (~2 min) — keep refreshing long
     // enough for late promotions to land here without a manual reload.
     const refreshes = [4000, 9000, 15000, 30000, 60000, 90000, 130000]
     refreshes.forEach(ms => setTimeout(() => { try { fetchProposals() } catch (_) {} }, ms))
-    // Never clear a failure here — it owns its own (longer) timeout above.
-    setTimeout(() => { if (!failed) setSyncStatus(null) }, 22000)
+    // No unconditional clear any more: "running" ends only when the poll above
+    // gets a verdict, and every verdict clears itself.
   }
 
   // Snapshot the currently expanded proposal (or first one in view) to
@@ -748,16 +796,16 @@ export default function Outcomes({ active = false }) {
             See DESIGN.md Phase 6. */}
         <button
           onClick={syncFromUpwork}
-          disabled={syncStatus === 'opening' || syncStatus === 'scraping'}
+          disabled={syncStatus === 'opening' || syncStatus === 'scraping' || !!(syncStatus && syncStatus.running)}
           title="Open Upwork's Submitted-proposals page and bulk-update viewed statuses"
           style={{
             padding: '4px 12px', fontSize: 10, fontWeight: 700,
             background: (syncStatus && syncStatus.ok) ? '#00d070'
               : (syncStatus && syncStatus.err) ? '#e05050'
-              : (syncStatus === 'opening' || syncStatus === 'scraping') ? 'var(--border)'
+              : (syncStatus === 'opening' || syncStatus === 'scraping' || (syncStatus && syncStatus.running)) ? 'var(--border)'
               : 'rgba(0,200,212,0.10)',
             color: (syncStatus && (syncStatus.ok || syncStatus.err)) ? '#fff'
-              : (syncStatus === 'opening' || syncStatus === 'scraping') ? 'var(--text3)'
+              : (syncStatus === 'opening' || syncStatus === 'scraping' || (syncStatus && syncStatus.running)) ? 'var(--text3)'
               : '#00c8d4',
             border: '1px solid ' + (
               (syncStatus && syncStatus.ok) ? '#00d070'
@@ -765,17 +813,14 @@ export default function Outcomes({ active = false }) {
               : 'rgba(0,200,212,0.40)'
             ),
             borderRadius: 4,
-            cursor: (syncStatus === 'opening' || syncStatus === 'scraping') ? 'wait' : 'pointer',
+            cursor: (syncStatus === 'opening' || syncStatus === 'scraping' || (syncStatus && syncStatus.running)) ? 'wait' : 'pointer',
             textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'inherit',
           }}
         >
           {syncStatus === 'opening' ? '⏳ opening upwork…'
             : syncStatus === 'scraping' ? '⏳ scraping statuses…'
-            : (syncStatus && syncStatus.ok) ? (() => {
-                const bits = []
-                if (syncStatus.newly_replied) bits.push(`${syncStatus.newly_replied} new repl${syncStatus.newly_replied === 1 ? 'y' : 'ies'}`)
-                return bits.length ? `✓ synced — ${bits.join(', ')}` : `✓ synced`
-              })()
+            : (syncStatus && syncStatus.running) ? '⏳ waiting for the sync to report…'
+            : (syncStatus && syncStatus.ok) ? `✓ synced — ${syncStatus.text || 'recorded'}`
             : (syncStatus && syncStatus.err) ? `✗ ${syncStatus.msg}`
             : '🔄 sync from upwork'}
         </button>
@@ -812,7 +857,7 @@ export default function Outcomes({ active = false }) {
           counts and matched/promoted numbers appear, no F12 or dashboard relay
           needed. This panel just confirms the messages (reply) leg + points the
           user to that tab. Has an × to dismiss. */}
-      {syncStatus && typeof syncStatus === 'object' && (syncStatus.ok || syncStatus.err) && (
+      {syncStatus && typeof syncStatus === 'object' && (syncStatus.running || syncStatus.ok || syncStatus.err) && (
         <div style={{
           margin: '0 16px 8px', padding: '8px 12px', borderRadius: 6,
           background: 'var(--bg2)', border: '1px solid var(--border)',
@@ -826,6 +871,11 @@ export default function Outcomes({ active = false }) {
           >×</button>
           {syncStatus.err ? (
             <div style={{ color: '#ef4444' }}>⚠ {syncStatus.msg}</div>
+          ) : syncStatus.ok ? (
+            <div style={{ color: '#00d070', fontWeight: 700 }}>
+              ✓ SYNCED — the proposals sync {syncStatus.text}
+              {syncStatus.run && syncStatus.run.id ? <span style={{ color: 'var(--text3)', fontWeight: 400 }}> (sync_runs #{syncStatus.run.id})</span> : null}
+            </div>
           ) : (
             <>
               <div style={{ color: '#00c8d4', fontWeight: 700, marginBottom: 4 }}>

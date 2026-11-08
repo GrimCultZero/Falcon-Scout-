@@ -667,6 +667,129 @@ def backup_status():
     return _backup_module().backup_status()
 
 
+# ── GET /health: one verdict per instrument (audit 2026-10-29, T6) ──────────
+# The verdicts and every threshold live in tools/health_report.py (pure, no I/O,
+# clock passed in). This part only gathers the inputs. Each source is read in its
+# own try, so one unreadable instrument shows up as an amber "could not read"
+# instead of taking the whole endpoint down.
+_health_mod = None
+
+
+def _health_module():
+    global _health_mod
+    if _health_mod is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("falcon_health_report", ROOT / "tools" / "health_report.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _health_mod = mod
+    return _health_mod
+
+
+# Written by /messages-status-sync for a passive read (one open conversation).
+_PASSIVE_DEBUG_FILE = ROOT / "messages_passive_debug.json"
+
+
+def _scroll_dict(raw):
+    try:
+        d = _json_mod.loads(raw) if raw else {}
+    except Exception:
+        d = {}
+    return d if isinstance(d, dict) else {}
+
+
+def _health_inputs(now=None):
+    """Plain-data inputs for health_report.build_report. `now` is naive UTC, like
+    every timestamp in the database."""
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    since_24h = now - timedelta(hours=24)
+    out = {}
+
+    # Feed: newest API-sourced job, and whether the feed is supposed to be running.
+    try:
+        import upwork_api
+        with Session(engine) as s:
+            row = (s.query(Job.captured_at).filter(Job.source == "api")
+                   .order_by(Job.captured_at.desc()).first())
+        cfg = upwork_api.load_feed_config()
+        out["feed"] = {"last_insert": row.captured_at if row else None,
+                       "auto_fetch_minutes": int(cfg.get("auto_fetch_minutes") or 0),
+                       "connected": bool(upwork_api.is_connected())}
+    except Exception as e:
+        out["feed"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # Proposals sync: the latest run of any kind, the latest that read rows, and
+    # how many empty runs there were today.
+    try:
+        def _run(r):
+            if r is None:
+                return None
+            sc = _scroll_dict(r.scroll_json)
+            return {"id": r.id, "ts": r.ts, "rows_scraped": r.rows_scraped, "header_count": r.header_count,
+                    "coverage": r.coverage, "stage": sc.get("stage") if sc.get("failed") else None}
+        with Session(engine) as s:
+            q = s.query(SyncRun).filter(SyncRun.leg == "proposals-list")
+            last_run = q.order_by(SyncRun.ts.desc()).first()
+            last_good = q.filter(SyncRun.rows_scraped > 0).order_by(SyncRun.ts.desc()).first()
+            zero24 = q.filter(SyncRun.rows_scraped == 0, SyncRun.ts >= since_24h).count()
+            out["proposals"] = {"last_run": _run(last_run), "last_good": _run(last_good), "zero_row_runs_24h": zero24}
+    except Exception as e:
+        out["proposals"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # Messages sync: newest inbox walk, and how many conversations were opened.
+    # Passive reads (one open conversation) are not syncs and are not logged here.
+    try:
+        with Session(engine) as s:
+            q = s.query(SyncRun).filter(SyncRun.leg == "messages-list")
+            newest = q.order_by(SyncRun.ts.desc()).first()
+            recent = q.filter(SyncRun.ts >= since_24h).all()
+        rooms = 0
+        for r in recent:
+            v = _scroll_dict(r.scroll_json).get("rooms_visited")
+            rooms += v if isinstance(v, int) else 0
+        out["messages"] = {"last_run_ts": newest.ts if newest else None,
+                           "walks_24h": len(recent), "rooms_visited_24h": rooms}
+    except Exception as e:
+        out["messages"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # Last passive read: the extension's one-conversation read leaves no
+    # sync_runs row, only the debug file the endpoint writes.
+    try:
+        p = _PASSIVE_DEBUG_FILE
+        at = None
+        if p.exists():
+            raw = _json_mod.loads(p.read_text(encoding="utf-8")).get("at")
+            if raw:
+                dtv = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                at = (dtv.astimezone(timezone.utc) if dtv.tzinfo else dtv.replace(tzinfo=timezone.utc)).replace(tzinfo=None)
+        out["passive"] = {"last_at": at}
+    except Exception as e:
+        out["passive"] = {"error": f"{type(e).__name__}: {e}"}
+
+    try:
+        out["backup"] = _backup_module().backup_status()
+    except Exception as e:
+        out["backup"] = {"error": f"{type(e).__name__}: {e}"}
+    return out
+
+
+@app.get("/health")
+async def health():
+    """Verdict (ok / amber / red / info) for the feed, both syncs, the backup and the
+    CLI bridge, with a plain-language reason for each. The header strip polls this."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    inputs = await loop.run_in_executor(None, _health_inputs, now)
+    bridge = {"provider": _get_ai_provider()}
+    try:
+        bridge.update(port=_bridge_port(), up=await _ping_cli_bridge())
+    except ValueError as exc:
+        bridge.update(port=None, up=False, error=str(exc))
+    inputs["bridge"] = bridge
+    return _health_module().build_report(inputs, now, datetime.now().hour)
+
+
 # Daily ghost sweep — runs every 24h while the backend is alive (DESIGN §13).
 # The startup call above covers the "fresh launch" case; this background task
 # covers long-running sessions so we don't need the user to restart for the

@@ -35,6 +35,8 @@ export default defineConfig({
       '/upwork': 'http://localhost:8000',
       '/outcomes-activity': 'http://localhost:8000',
       '/backup-status': 'http://localhost:8000',
+      '/health': 'http://localhost:8000',
+      '/sync-runs': 'http://localhost:8000',
     },
   },
 })
