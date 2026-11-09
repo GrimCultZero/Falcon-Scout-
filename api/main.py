@@ -878,14 +878,34 @@ async def _api_feed_loop():
             # catch-up; it shut down 2026-10-15.)
             gap = await loop.run_in_executor(None, _feed_gap_hours)
             deep = gap >= _CATCHUP_GAP_HOURS and (_time.time() - last_catchup) >= _CATCHUP_MIN_INTERVAL_SEC
+            saved_early = 0
             if deep:
+                # Newest first: one normal page per keyword (~30 s) saves the fresh
+                # postings, THEN the slow paging back fills the hole behind them,
+                # saving after each keyword. Before 2026-11-09 the deep pass came
+                # first and saved nothing until every keyword was done, so the feed
+                # sat empty for ~3.5 minutes after a launch that followed a long gap.
+                try:
+                    rows, stats = await loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg)
+                    ins, skip = await loop.run_in_executor(None, _upsert_api_jobs, rows)
+                    saved_early += ins
+                    print(f"[api-feed/catchup] newest page first: {stats} inserted={ins} skipped={skip}")
+                except Exception as exc:
+                    print(f"[api-feed/catchup] newest-page pass failed, going straight to paging back: {exc}")
+
+                def _save_as_you_go(fresh):
+                    nonlocal saved_early
+                    n, _ = _upsert_api_jobs(fresh)
+                    saved_early += n
+
                 print(f"[api-feed/catchup] {gap:.1f}h gap — paging back through every keyword")
-                rows, stats = await loop.run_in_executor(None, upwork_api.fetch_and_filter_deep, cfg)
+                rows, stats = await loop.run_in_executor(
+                    None, lambda: upwork_api.fetch_and_filter_deep(cfg, on_keyword=_save_as_you_go))
                 last_catchup = _time.time()
             else:
                 rows, stats = await loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg)
             ins, skip = await loop.run_in_executor(None, _upsert_api_jobs, rows)
-            print(f"[api-feed/{'catchup' if deep else 'auto'}] {stats} inserted={ins} skipped={skip}")
+            print(f"[api-feed/{'catchup' if deep else 'auto'}] {stats} inserted={ins + saved_early} skipped={skip}")
             await asyncio.sleep(mins * 60)
         except asyncio.CancelledError:
             break

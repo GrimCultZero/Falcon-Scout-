@@ -10751,3 +10751,29 @@ were 25 (1 replied, 4 viewed, 20 ghosted), above $400 were 10 (0 replied, 1 view
 - Tests: `tests/launcher.test.js` (34 checks + docs). It runs the REAL batch file through `cmd.exe` with the dry-run hook, in a scratch folder with its own `.env` and `ai_provider.json` (your real `.env`, database and ports are never used): provider cli -> bridge, backend, frontend in that order; api -> backend, frontend; no file -> no bridge; compact and pretty-printed JSON; a value that merely contains "cli" ("cliff") does not start the bridge; dev variant has `--reload`; started from another folder it still launches from its own; a missing token is created and never printed, an existing one is left byte for byte, no `.env` does not crash.
 - Verified in a sandbox with the commands the real launcher prints: the daily backend command (port swapped to 8011) kept the same processes, logged no reload and kept answering after a `.py` file was edited; the dev command (8012) logged "StatReload detected changes in 'api\main.py'. Reloading...". The three commands each came up: `node cli-bridge.js` (sandbox port), `npm run dev` (:5180), the daily backend. Everything was stopped by process tree afterwards and the sandbox removed (its junction to the real `.venv` was removed on its own first).
 - NOT verified: a cold start with the real `falconscout.bat` on the real ports, with your real database, extension and browser (it opens console windows and a browser tab and starts the feed loop). Do that once: run `falconscout.bat`, open the header, edit a `.py` file, and confirm the backend window does not restart.
+
+## 2026-11-09 -- Slow feed after startup: newest page first, deep catch-up saves as it goes; "Sync read 0 rows"
+Owner: Falcon Scout "loads very long" and the feed waits a long time before new jobs arrive, only at
+startup; the rest of the work is normal.
+Diagnosis (measured, not guessed): the page is not slow. DB 47 MB, the startup SQL takes milliseconds
+(the startup prune selects 0 rows), every page endpoint answers in <= 0.3 s (/kb 9.3 MB, /proposals
+3.9 MB, /jobs 1.6 MB, all fast on localhost). The wait is the feed: after a launch that follows a gap
+of 1 h or more, `_api_feed_loop` runs the deep catch-up (36 keywords x up to 8 pages, one request after
+another) and saved NOTHING until every keyword was done. Run of 2026-11-09: backend up 16:36:29 UTC,
+all 131 new jobs inserted in the 16:40 minute, i.e. ~3 min 45 s of empty feed (20 s start delay + the
+deep fetch). By design since 2026-10-15 (the Telegram bot's catch-up was replaced), never optimised.
+Fix: (1) on a gap, run the normal newest-page fetch first (one page per keyword) and save it;
+(2) then the deep pass, which now takes `on_keyword(rows)` and hands over the new kept rows after each
+keyword, saved as it goes (`fetch_and_filter_deep(..., on_keyword=...)` in api/upwork_api.py, loop in
+api/main.py). A failing callback or a failed newest-page pass never stops the catch-up; the full result
+is still saved at the end (idempotent). Not parallelised: Upwork's rate limits are unknown.
+tests/test_feed_catchup_incremental.py. Also adjusted tests/test_chat_kb_samples.py to the 2026-11-05
+chat changes by another session (case roster section, `is_core` selection, protected sections raise
+the ceiling). Not verified on a cold launch after a long gap (needs a real restart).
+"Sync read 0 rows" chip (red): the proposals sync (extension, hourly) opens a background Upwork tab
+?falconsync=1 and the page never reported back in 240 s ("no-report"; tab loaded, not frozen, not
+discarded, not active). The last run, 2026-11-08 18:04 UTC, was such a failure, and nothing has run
+since because Chrome/the extension was off overnight (the first hourly alarm fires 60 min after the
+extension starts). So the chip shows the last run, 24 h old. Not new: since 25 Oct 10 of ~110 runs
+failed with no-report and 10 with gate-declined; 2026-11-08 failed 3 of 4. A good run restores it.
+Not fixed: the cause of the silent background tab is unknown.

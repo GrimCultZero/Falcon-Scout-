@@ -609,7 +609,7 @@ def _posted_dt(row: dict) -> "datetime | None":
         return None
 
 
-def fetch_and_filter_deep(cfg: dict | None = None, max_pages: int = 8):
+def fetch_and_filter_deep(cfg: dict | None = None, max_pages: int = 8, on_keyword=None):
     """Catch-up fetch for when the feed has a hole in it.
 
     The normal fetch takes only the newest page per keyword, which is right at
@@ -623,6 +623,12 @@ def fetch_and_filter_deep(cfg: dict | None = None, max_pages: int = 8):
     or until max_pages, which bounds the API calls. Dedup and filtering are
     identical to the normal path, and _upsert_api_jobs skips what we already
     have — so a catch-up that overlaps costs requests, never duplicates.
+
+    `on_keyword(rows)`, when given, is called after each keyword finishes with the
+    kept rows not yet handed over, so the caller can save them as it goes. Until
+    2026-11-09 nothing was saved until every keyword was done, and with a day-long
+    gap that was ~3.5 minutes of an empty feed after startup. A failing callback
+    never stops the fetch; the full result is still returned at the end.
     """
     cfg = cfg or load_feed_config()
     per_kw = int(cfg.get("per_keyword_limit") or 20)
@@ -632,6 +638,7 @@ def fetch_and_filter_deep(cfg: dict | None = None, max_pages: int = 8):
 
     seen = {}
     fetched = pages = 0
+    delivered = set()
     for kw in keywords:
         offset = 0
         for _ in range(max_pages):
@@ -654,6 +661,16 @@ def fetch_and_filter_deep(cfg: dict | None = None, max_pages: int = 8):
             if last_dt is not None and last_dt.timestamp() < cutoff:
                 break
             offset += per_kw
+
+        if on_keyword is not None:
+            try:
+                kept_now, _stats = _apply_filter(seen, cfg, fetched)
+                fresh = [r for r in kept_now if r.get("upwork_job_id") not in delivered]
+                delivered.update(r.get("upwork_job_id") for r in fresh)
+                if fresh:
+                    on_keyword(fresh)
+            except Exception as e:
+                print(f"[feed/catchup] saving after keyword {kw!r} failed (kept for the final save): {e}")
 
     return _apply_filter(seen, cfg, fetched, {"deep": True, "pages": pages})
 

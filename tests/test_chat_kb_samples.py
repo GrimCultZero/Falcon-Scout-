@@ -35,6 +35,9 @@ body = chat[chat.index("    # Partition by intent"):chat.index("    # ── Bui
 
 
 def bundle(entries, provider):
+    for e in entries:
+        if not hasattr(e, "is_core"):
+            e.is_core = e.type == "case_study"   # the chat now picks its case studies by this flag
     ns = {"kb_entries": entries, "_re": re, "_get_ai_provider": lambda: provider}
     exec(textwrap.dedent(body), ns)
     return ns["kb_text"]
@@ -59,12 +62,19 @@ for provider in ("cli", "api"):
     kb = bundle(entries, provider)
     assert_("END-OF-SEO-SAMPLE" in kb, f"[{provider}] the technical SEO audit sample reaches the chat whole")
     assert_("END-OF-PPC-SAMPLE" in kb, f"[{provider}] the Google Ads audit sample reaches the chat whole")
-    assert_(kb.index("# Audit Samples Artem Attaches") < kb.index("# Approved Case Studies"),
+    # Unprotected sections (the case studies, from the 2026-11-05 roster change on) may be
+    # cut away by the ceiling in API mode with this much synthetic text, so compare with
+    # whichever of them is still there.
+    later = [kb.find(h) for h in ("# Approved Case Study Roster", "# Approved Case Studies") if kb.find(h) != -1]
+    assert_(kb.index("# Audit Samples Artem Attaches") < min(later or [len(kb)]),
             f"[{provider}] the samples come straight after the rules, ahead of anything the cap can cut")
     assert_(kb.count("lemoos.com") == 1, f"[{provider}] #419 is not also repeated in the notes section")
     assert_("Rule 34." in kb, f"[{provider}] every rule survives")
 
-assert_(len(bundle(entries, "api")) <= 40000 + 60, "API mode still holds the 40k ceiling (rate limit)")
+# The case-study roster (2026-11-05) is protected like the rules and samples, so the ceiling
+# can rise to hold it; with no roster entry, API mode still holds the 40k ceiling.
+no_roster = [e for e in entries if "Results Overview" not in e.title]
+assert_(len(bundle(no_roster, "api")) <= 40000 + 60, "API mode still holds the 40k ceiling (rate limit)")
 assert_("scraped scraped" in bundle(entries, "cli") and len(bundle(entries, "cli")) > 40000,
         "CLI mode has the larger ceiling, so the lower sections are no longer cut at 40k")
 
