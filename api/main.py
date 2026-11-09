@@ -1818,7 +1818,7 @@ def share_with_claude(data: dict):
             f"# Falcon Scout DEBUG snapshot — {ts}",
             "",
             "## App state",
-            f"- view: `{ctx.get('view')}`  ·  feed source: **{ctx.get('feedSource')}**",
+            f"- view: `{ctx.get('view')}`",
             f"- filter: `{ctx.get('filter')}`  ·  query: `{ctx.get('query') or ''}`",
             f"- jobs visible: {ctx.get('jobCount')}  ·  selected job id: {ctx.get('selectedId')}",
             "",

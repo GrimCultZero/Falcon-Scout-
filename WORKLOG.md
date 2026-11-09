@@ -10844,3 +10844,14 @@ in background.js ("likely never captured by the Telegram listener"), which needs
 Not done, needs the owner: end the "Falcon Scout" login in Telegram (Settings > Devices > Active sessions),
 and, if wanted, revoke the api_id/api_hash at my.telegram.org. Deleting the local session does not end the
 session on Telegram's side.
+## 2026-11-09 (later 4) -- The All / Bot / API toggle is removed from the feed header
+- Owner saw the "Bot" tab still in the header after the Telegram removal. It was left on purpose (the 170 old
+  bot jobs) but with the bot gone it only filtered history, and "All" vs "API" differed by those 170 rows.
+- frontend/src/App.jsx: removed the toggle, the `feedSource` state and ref, the `source` query parameter in
+  `fetchJobs`, the refetch effect, and `feedSource` from the debug-share context. The stale
+  `falconFeedSource` localStorage key is deleted on load (a saved "bot" would otherwise have been ignored,
+  not harmful, but this tidies it). The feed now always shows every job (old bot rows stay listed, they just age out).
+- api/main.py: the debug snapshot no longer prints "feed source". The `/jobs?source=` parameter stays (harmless,
+  and the dashboard still reads `source`).
+- Verified: vite build compiles; the live page at :5180 has no Bot/API buttons and loads the feed; all JS and
+  Python suites pass. Reload the page tab to see it.

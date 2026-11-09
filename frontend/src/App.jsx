@@ -263,11 +263,9 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // Feed source toggle: 'all' | 'bot' | 'api'. Persisted. Read via a ref inside
-  // fetchJobs so we don't re-plumb every call site / fight stale closures.
-  const [feedSource, setFeedSource] = useState(() => localStorage.getItem('falconFeedSource') || 'all')
-  const feedSourceRef = useRef(feedSource)
-  useEffect(() => { feedSourceRef.current = feedSource; localStorage.setItem('falconFeedSource', feedSource) }, [feedSource])
+  // The All / Bot / API source toggle is gone (2026-11-09): the Telegram bot is
+  // shut down, so the feed has one live source. Drop the old persisted choice.
+  useEffect(() => { try { localStorage.removeItem('falconFeedSource') } catch {} }, [])
   const [apiFetching, setApiFetching] = useState(false)
   const [apiFetchMsg, setApiFetchMsg] = useState('')
   const [feedSettingsOpen, setFeedSettingsOpen] = useState(false)
@@ -450,8 +448,6 @@ export default function App() {
       const params = new URLSearchParams()
       if (q) params.set('q', q)
       if (f && f !== 'all') params.set('filter_type', f)
-      const src = feedSourceRef.current
-      if (src && src !== 'all') params.set('source', src)
       const res = await fetch('/jobs?' + params.toString())
       if (!res.ok) throw new Error('API error ' + res.status)
       const data = await res.json()
@@ -482,8 +478,6 @@ export default function App() {
   }, [])
 
   useEffect(() => { fetchJobs(query, filter) }, [query, filter])
-  // Refetch when the feed source toggle changes (ref is already updated above).
-  useEffect(() => { fetchJobs(query, filter) }, [feedSource])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pull fresh jobs from the Upwork API on demand.
   const fetchApiJobs = useCallback(async () => {
@@ -522,7 +516,7 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kind: 'debug',
-          context: { view, feedSource, filter, query, jobCount: jobs.length, selectedId },
+          context: { view, filter, query, jobCount: jobs.length, selectedId },
           jobs: rows,
           errors: (window.__falconErrLog || []).slice(-40),
         }),
@@ -530,7 +524,7 @@ export default function App() {
       setDebugMsg(res.ok ? '✓ shared' : '✗ failed')
     } catch { setDebugMsg('✗ failed') }
     setTimeout(() => setDebugMsg(''), 4000)
-  }, [jobs, view, feedSource, filter, query, selectedId])
+  }, [jobs, view, filter, query, selectedId])
 
   // Poll job list every 10 s; also refresh selected job detail
   useEffect(() => {
@@ -914,36 +908,8 @@ export default function App() {
                   style={{ width:'100%', background:'var(--bg3)', border:'1px solid var(--border2)', color:'var(--text)', fontFamily:'Inter, sans-serif', fontSize:11, padding:'8px 10px 8px 32px', borderRadius:4, outline:'none', boxSizing:'border-box' }} />
               </div>
 
-              {/* Feed source toggle (All / Bot / API) + on-demand API fetch + settings */}
+              {/* On-demand API fetch + settings */}
               <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                {/* Segmented toggle — solid, inset, clear active state */}
-                <div style={{
-                  display:'flex', borderRadius:7, overflow:'hidden',
-                  border:'1px solid var(--border2)',
-                  boxShadow:'inset 0 1px 2px rgba(0,0,0,0.10)', flexShrink:0,
-                }}>
-                  {[['all','All'],['bot','Bot'],['api','API']].map(([key,label], i) => {
-                    const active = feedSource === key
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => setFeedSource(key)}
-                        title={key === 'api' ? 'Jobs pulled from the Upwork API' : key === 'bot' ? 'Jobs captured via the Telegram bot' : 'Both sources'}
-                        style={{
-                          padding:'4px 11px', fontSize:10, fontWeight:800, fontFamily:'Inter, sans-serif',
-                          letterSpacing:'0.07em', cursor:'pointer',
-                          border:'none', borderLeft: i === 0 ? 'none' : '1px solid var(--border2)',
-                          background: active ? 'linear-gradient(180deg, #00d2de 0%, #00abb8 100%)' : 'var(--bg2)',
-                          color: active ? '#04303a' : 'var(--text2)',
-                          boxShadow: active ? 'inset 0 -2px 0 rgba(0,0,0,0.16)' : 'none',
-                          transition:'background 0.12s, color 0.12s',
-                        }}
-                        onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg3)' }}
-                        onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'var(--bg2)' }}
-                      >{label}</button>
-                    )
-                  })}
-                </div>
                 {/* Fetch API — the hero action, solid gradient */}
                 <button
                   onClick={fetchApiJobs}
