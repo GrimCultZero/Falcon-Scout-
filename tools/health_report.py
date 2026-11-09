@@ -36,6 +36,11 @@ FEED_WATCH_TO_HOUR = 23        # exclusive
 # unconditional: 24 h with no good read is a real problem however it came about.
 PROPOSALS_AMBER_HOURS = 6
 PROPOSALS_RED_HOURS = 24
+# The 24 h red is softened to yellow ("wait") only while the extension has run for less
+# than this long with no good read since it started: its first sync fires ~60 min after
+# Chrome starts (hourly alarm) and takes up to 4 min, and a retry comes an hour later.
+# So 130 min = two chances. Owner, 2026-11-09: "only turn red when something is wrong".
+PROPOSALS_FIRST_SYNC_GRACE_MIN = 130
 COVERAGE_AMBER = 0.95          # T5's acceptance bar
 COVERAGE_RED = 0.8
 
@@ -53,7 +58,9 @@ BACKUP_RED_HOURS = 48
 # the extension log one -- so they are amber, not red.
 HARMLESS_ZERO_ROW_STAGES = ("gate-declined",)
 
-_RANK = {"ok": 0, "info": 0, "amber": 1, "red": 2}
+# "wait" (yellow) = nothing is wrong, an instrument is inside its normal waiting time.
+# Drawn as a pill so it is explained, but it never counts as a problem.
+_RANK = {"ok": 0, "info": 0, "wait": 0, "amber": 1, "red": 2}
 
 
 def _minutes(now, then):
@@ -151,19 +158,40 @@ def _proposals(data, now_utc, ext=None):
     level = "ok"
     notes = []
 
+    # Is the extension running, and has it had its normal time to read yet? "wait" is
+    # the yellow state for "nothing wrong, still within the normal time": the first
+    # sync comes about an hour after Chrome starts (hourly alarm), then a retry an
+    # hour later. Only counts while NO good read exists since the extension started.
+    running_min = None
+    since = None
+    if ext is not None:
+        since = ext.get("since")
+        running_min = _minutes(now_utc, since) if since else 0.0
+    no_read_since_start = bool(since) and good["ts"] < since
+
     if age_h > PROPOSALS_RED_HOURS:
-        level = "red"
-        notes.append(f"The last good sync was {_ago(age_h * 60)} ago (red after {PROPOSALS_RED_HOURS} h).")
+        if no_read_since_start and running_min < PROPOSALS_FIRST_SYNC_GRACE_MIN:
+            level = "wait"
+            notes.append(f"The extension started {_ago(running_min)} ago and has not had its first sync yet "
+                         f"(one an hour, the first about an hour after Chrome starts). The last good sync was {_ago(age_h * 60)} ago, "
+                         f"from before Chrome started. This turns red if no sync has read after {PROPOSALS_FIRST_SYNC_GRACE_MIN // 60} h "
+                         f"{PROPOSALS_FIRST_SYNC_GRACE_MIN % 60} min of running.")
+        else:
+            level = "red"
+            notes.append(f"The last good sync was {_ago(age_h * 60)} ago (red after {PROPOSALS_RED_HOURS} h).")
     elif age_h > PROPOSALS_AMBER_HOURS:
-        running_h = None
-        if ext is not None:
-            since = ext.get("since")
-            running_h = _minutes(now_utc, since) / 60.0 if since else 0.0
+        running_h = None if running_min is None else running_min / 60.0
         if running_h is not None and running_h <= PROPOSALS_AMBER_HOURS:
-            # Not long enough running to have produced a good read: no pill.
-            ran = "has not been heard from" if not running_h else f"has only been running for {_ago(running_h * 60)}"
-            notes.append(f"The last good sync was {_ago(age_h * 60)} ago, but the extension {ran} "
-                         f"(amber after {PROPOSALS_AMBER_HOURS} h of running, red after {PROPOSALS_RED_HOURS} h).")
+            # Not long enough running to have produced a good read: no alarm.
+            if no_read_since_start:
+                level = "wait"
+                notes.append(f"The extension started {_ago(running_min)} ago; the next sync is due within the hour. "
+                             f"The last good sync was {_ago(age_h * 60)} ago, from before Chrome started "
+                             f"(amber after {PROPOSALS_AMBER_HOURS} h of running without a read).")
+            else:
+                ran = "has not been heard from" if not running_h else f"has only been running for {_ago(running_h * 60)}"
+                notes.append(f"The last good sync was {_ago(age_h * 60)} ago, but the extension {ran} "
+                             f"(amber after {PROPOSALS_AMBER_HOURS} h of running, red after {PROPOSALS_RED_HOURS} h).")
         else:
             level = "amber"
             notes.append(f"The last good sync was {_ago(age_h * 60)} ago (amber after {PROPOSALS_AMBER_HOURS} h).")
@@ -172,7 +200,10 @@ def _proposals(data, now_utc, ext=None):
 
     if cov is not None:
         read = f"{good.get('rows_scraped')} of {hdr}" if hdr else "?"
-        if cov < COVERAGE_RED:
+        if level == "wait" and cov < COVERAGE_AMBER:
+            # The partial read is from before this launch and a new one is already due.
+            notes.append(f"The previous read covered only {read} proposals ({round(cov * 100)}%); a new one is due.")
+        elif cov < COVERAGE_RED:
             level = _worst(level, "red")
             notes.append(f"It read only {read} proposals ({round(cov * 100)}%): under {round(COVERAGE_RED * 100)}% means a fifth of the list is unchecked.")
         elif cov < COVERAGE_AMBER:

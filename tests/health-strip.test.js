@@ -54,6 +54,17 @@ const lib = (f) => import(pathToFileURL(path.join(ROOT, 'frontend', 'src', 'lib'
   s = healthStripState(many);
   assert(s.pills.map(p => p.level).join() === 'red,amber,amber' && s.pills[0].key === 'messages_sync' && s.overall === 'red', 'several problems: red first, then amber; overall is the worst');
 
+  // Yellow: inside the normal waiting time, nothing wrong (owner, 2026-11-09).
+  const waiting = allOk(); waiting.items.proposals_sync = item('wait', { label: 'Proposals', age_minutes: 1500, reason: 'The extension started 6 min ago and has not had its first sync yet.' });
+  s = healthStripState(waiting);
+  assert(s.pills.length === 1 && s.pills[0].level === 'wait' && s.pills[0].text === 'Sync: waiting for first read', 'a waiting sync -> one YELLOW pill that says what it is waiting for, not "Sync 25 h ago"');
+  assert(s.overall === 'ok', '...and yellow is never the verdict: overall stays ok');
+  assert(/has not had its first sync yet/.test(s.pills[0].title), '...with the backend reason in the tooltip');
+  const waitPlusRed = allOk(); waitPlusRed.items.proposals_sync = item('wait', { label: 'Proposals' }); waitPlusRed.items.bridge = item('red', { label: 'CLI bridge' });
+  s = healthStripState(waitPlusRed);
+  assert(s.pills.map(p => p.level).join() === 'red,wait' && s.overall === 'red', 'yellow is listed after the real problems, and the verdict is the real problem');
+  assert(pillText('proposals_sync', { level: 'wait', age_minutes: 1500, last_run_zero_rows: true, coverage: 0.2 }) === 'Sync: waiting for first read', 'a waiting item is named as waiting even with an old low read or an empty run on record');
+
   const backupRed = allOk(); backupRed.items.backup = item('red', { label: 'Backup' });
   s = healthStripState(backupRed);
   assert(s.pills.length === 1 && s.pills[0].level === 'ok', 'a red backup is NOT a second pill: it keeps its own chip (BackupChip)');

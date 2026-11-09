@@ -15,7 +15,9 @@
 //
 // Pure functions, no React: tests feed them canned reports.
 
-const PILL_ORDER = ['red', 'amber']
+// 'wait' is the yellow "inside its normal waiting time, nothing wrong" state (2026-11-09):
+// shown as a pill so it is explained, listed after the real problems, never a problem itself.
+const PILL_ORDER = ['red', 'amber', 'wait']
 const NOT_SHOWN_AS_PILL = new Set(['backup'])   // has its own chip
 
 function ago(minutes) {
@@ -34,6 +36,9 @@ export function pillText(key, item) {
       if (item.connected === false) return 'Feed: Upwork API disconnected'
       return item.age_minutes == null ? 'Feed: nothing yet' : `Feed quiet ${ago(item.age_minutes)}`
     case 'proposals_sync':
+      // Yellow, nothing wrong: the extension has just started and its first sync is not
+      // due yet. Named for what is happening, so it does not read as a failure.
+      if (item.level === 'wait') return 'Sync: waiting for first read'
       // A pill exists only when something is really off: a low read (coverage), or no
       // good read for hours. An empty latest run is named only when nothing else is
       // the reason; since 2026-11-09 it never lights the pill on its own.
@@ -82,5 +87,7 @@ export function healthStripState(report) {
   if (!pills.length) {
     return { overall: 'ok', pills: [{ key: 'all-ok', level: 'ok', text: 'Instruments live', title: summary }], summary }
   }
-  return { overall: pills[0].level, pills, summary }
+  // Yellow ("wait") explains a normal wait; it is never what the strip's verdict is.
+  const problems = pills.filter(p => p.level !== 'wait')
+  return { overall: problems.length ? problems[0].level : 'ok', pills, summary }
 }

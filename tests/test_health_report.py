@@ -119,15 +119,33 @@ def ext(since_hours=None):
 def rep_ext(good_h, ext_in, last=None, zero24=0):
     return rep(proposals=prop(run(hours=good_h, rid=8), last=last, zero24=zero24), extension=ext_in)["items"]["proposals_sync"]
 it = rep_ext(14, ext(since_hours=0.1), last=real)
-check(it["level"] == "ok" and "only been running for" in it["reason"], "Chrome closed overnight, started 6 min ago, last good read 14 h ago -> OK, not amber (the pill that nagged for an hour)")
-check(rep_ext(14, ext(since_hours=5.9))["level"] == "ok", "running 5.9 h, no good read for 14 h -> still ok (it has not had 6 running hours)")
+check(it["level"] == "wait" and "started 6 min ago" in it["reason"] and "next sync is due" in it["reason"],
+      "Chrome started 6 min ago, last good read 14 h ago (before the launch) -> YELLOW 'wait', explained; not amber or red (the pill that looked like a failure)")
+check(rep_ext(14, ext(since_hours=5.9))["level"] == "wait", "running 5.9 h, no good read since it started -> still yellow (it has not had 6 running hours)")
 check(rep_ext(14, ext(since_hours=6.5))["level"] == "amber", "running 6.5 h without a good read -> amber")
 check(rep_ext(14, ext(since_hours=30))["level"] == "amber", "running for 30 h, last good read 14 h ago -> amber (the running stretch outlasts the gap)")
 it = rep_ext(14, ext(since_hours=None))
-check(it["level"] == "ok" and "not been heard from" in it["reason"], "the extension has not been heard from (Chrome closed) -> ok, and the reason says so")
-check(rep_ext(25, ext(since_hours=0.1))["level"] == "red", "24 h red is unconditional: 25 h since a good read is red even with Chrome just started")
-check(rep_ext(25, ext(since_hours=None))["level"] == "red", "...and red when the extension has not been heard from at all")
-check(rep_ext(24, ext(since_hours=0.1))["level"] == "ok", "exactly 24 h with Chrome just started: not red yet, and not amber (running < 6 h)")
+check(it["level"] == "ok" and "not been heard from" in it["reason"], "the extension has not been heard from (Chrome closed), read 14 h ago -> ok (nothing is expected), and the reason says so")
+# red at 24 h is for something wrong: softened to yellow only while the first syncs have not had their turn
+it = rep_ext(25, ext(since_hours=0.1))
+check(it["level"] == "wait" and "has not had its first sync yet" in it["reason"], "25 h since a good read, Chrome started 6 min ago -> YELLOW (a launch after a long break is not a failure)")
+check(rep_ext(25, ext(since_hours=2.1))["level"] == "wait", "...still yellow at 2 h 6 min of running (its first sync and one retry have not both had their turn)")
+check(rep_ext(25, ext(since_hours=2.3))["level"] == "red", "...and red once Chrome has run 2 h 18 min and still no read since it started")
+check(rep_ext(25, ext(since_hours=None))["level"] == "red", "25 h and the extension has not been heard from at all -> red (it may be disabled)")
+check(rep_ext(24, ext(since_hours=0.1))["level"] == "wait", "exactly 24 h with Chrome just started: not red; yellow, waiting for the first read")
+check(rep_ext(25, None)["level"] == "red", "no extension information passed (old callers): red at 25 h as before")
+# a good read AFTER the extension started ends the waiting: the age rules apply again
+start_h = 3
+check(rep_ext(1, ext(since_hours=start_h))["level"] == "ok", "good read 1 h ago, Chrome running 3 h -> ok (a read exists since it started)")
+check(rep(proposals=prop(run(hours=26, rid=8)), extension={"since": ago(hours=30), "last": ago(minutes=2)})["items"]["proposals_sync"]["level"] == "red",
+      "running 30 h, last good read 26 h ago (the read predates a long run, no wait) -> still judged by age: red")
+check(rep_ext(14, ext(since_hours=0.1), last=real)["extension_running_hours"] == 0.1, "the item reports how long the extension has been running")
+# the previous partial read does not turn a launch red
+it = rep(proposals=prop(run(hours=14, rows=19, hdr=90, cov=0.2111, rid=8)), extension=ext(since_hours=0.1))["items"]["proposals_sync"]
+check(it["level"] == "wait" and "covered only 19 of 90" in it["reason"], "an old 19-of-90 read does not turn a fresh launch red: yellow, with the old read mentioned")
+# the overall verdict: yellow is never a problem
+r = rep(proposals=prop(run(hours=14, rid=8)), extension=ext(since_hours=0.1))
+check(r["overall"] == "ok" and "proposals_sync" not in r["problems"], "yellow does not count as a problem: overall stays ok and problems is empty")
 check(rep_ext(3, ext(since_hours=40))["level"] == "ok", "a good read 3 h ago -> ok however long Chrome has run")
 check(rep_ext(8, ext(since_hours=0.1), zero24=0)["age_minutes"] == 480.0, "the item still reports the real age of the last good read")
 # coverage rules are untouched by the extension state
@@ -309,7 +327,8 @@ it = call_health()["items"]["proposals_sync"]
 check(it["level"] == "ok" and "not been heard from" in it["reason"], "handler: Chrome not running (the extension never heard from), good read 14 h ago -> ok, not a pill")
 ns["_ext_contact"].update(since=utcnow() - timedelta(minutes=5), last=utcnow() - timedelta(seconds=30))
 it = call_health()["items"]["proposals_sync"]
-check(it["level"] == "ok" and "only been running for" in it["reason"], "handler: the extension started 5 min ago -> ok (the stale pill after a launch is gone)")
+check(it["level"] == "wait" and "started 5 min ago" in it["reason"] and it["extension_running_hours"] < 0.2,
+      "handler: the extension started 5 min ago, good read 14 h ago -> yellow 'wait' (the red pill after a launch is gone)")
 ns["_ext_contact"].update(since=utcnow() - timedelta(hours=7), last=utcnow() - timedelta(seconds=30))
 check(call_health()["items"]["proposals_sync"]["level"] == "amber", "handler: running 7 h with no good read -> amber")
 ns["_ext_contact"].update(since=utcnow() - timedelta(hours=7), last=utcnow() - timedelta(minutes=50))

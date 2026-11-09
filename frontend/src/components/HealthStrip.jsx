@@ -7,6 +7,8 @@ import { healthStripState } from '../lib/healthStrip'
 // a stale sync turns it red within one poll. The backup keeps its own chip.
 const COLORS = {
   ok:    { bg: 'rgba(16,185,129,0.10)', border: 'rgba(16,185,129,0.40)', fg: '#34d399', dot: '#10b981' },
+  // Calm yellow: "waiting, within the normal time, nothing wrong". Lighter than amber (a warning).
+  wait:  { bg: 'rgba(250,204,21,0.09)', border: 'rgba(250,204,21,0.38)', fg: '#fde047', dot: '#facc15' },
   amber: { bg: 'rgba(245,158,11,0.14)', border: 'rgba(245,158,11,0.55)', fg: '#fbbf24', dot: '#f59e0b' },
   red:   { bg: 'rgba(239,68,68,0.14)',  border: 'rgba(239,68,68,0.55)',  fg: '#ff8a8a', dot: '#ef4444' },
 }

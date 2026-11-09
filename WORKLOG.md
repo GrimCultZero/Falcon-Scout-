@@ -10799,3 +10799,23 @@ the real `_health_inputs`, the middleware lifted from main.py), tests/health-str
 old expectations that a 0-row run is amber/red (gate-declined, no-rows, no stage) on purpose.
 Seen live right after: the pill is RED because the last good read is 25 h old (24 h rule, unconditional by
 decision): it clears at the next good sync. Not changed: the cause of the silent background tab.
+
+## 2026-11-09 (later 2) -- Yellow "wait" state: a normal wait must not look like a failure
+Owner, seeing the sync pill still red right after a launch (last good read 25 h old, Chrome just
+started): "add yellow when it's within the normal time frame, so it won't look like a bug ... and only
+turn red when something is wrong". This replaces my earlier "24 h red is unconditional" for ONE case.
+New level `wait` (yellow) in tools/health_report.py, drawn by HealthStrip.jsx in a calm yellow, listed
+after the real problems, never counted as a problem (rank 0: `overall` stays ok, `problems` empty).
+Proposals item: `wait` when the extension is running, NO good read exists since it started, and it is
+still inside its normal time: under 6 h of running for the 6-24 h band, and under 130 min
+(PROPOSALS_FIRST_SYNC_GRACE_MIN: the first hourly sync ~60 min after Chrome starts, takes up to 4 min,
+plus one retry an hour later) for the 24 h band. After that: amber at 6 h running, red at 24 h as before.
+Still red: 24 h and the extension not heard from at all (it may be disabled); 24 h with no read after
+the grace; a low-coverage read made AFTER the launch. A pre-launch partial read (e.g. 19 of 90) is only
+mentioned while waiting, so it cannot turn a launch red. Pill text "Sync: waiting for first read".
+`healthStripState().overall` ignores yellow. Tests: tests/test_health_report.py (bands, boundaries at
+2 h 6 min / 2 h 18 min, no-extension-info callers, handler through the real `_health_inputs`),
+tests/health-strip.test.js. Live: pill read `wait`, overall ok, immediately after the reload.
+Known limit: the running-since stamp lives in backend memory, so a backend restart makes Chrome look
+freshly started (yellow again, red grace restarted). Harmless with the production launcher; under
+`--reload` every .py edit does it.
