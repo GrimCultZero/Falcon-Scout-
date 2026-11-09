@@ -376,6 +376,8 @@ DEFAULT_FEED_CONFIG = {
         "aeo", "geo", "ai search", "llm seo",
         "local citation", "citation building", "guest post",
         "youtube ads", "google business profile", "gbp",
+        # Found in the first live drops (feed_drops, 2026-11-09) and validated before adding.
+        "local search", "link insertion", "google review",
     ],
     # Stop words — drop a job if its title/description contains any. (From the bot.)
     "stop_words": [
@@ -406,6 +408,7 @@ DEFAULT_FEED_CONFIG = {
         "google tag manager", "ga4", "google analytics", "conversion tracking",
         "search console", "indexing", "guest post", "youtube ads",
         "google business profile", "gbp",
+        "local search", "link insertion", "google review",
     ],
     # whole_word_keywords: matched as whole words, never inside another word.
     #   Substring "geo" is inside "geography" and "geolocation". "geo" is also not
@@ -415,7 +418,7 @@ DEFAULT_FEED_CONFIG = {
     #   of these whole words. "Google Business Profile API Expert: Transition App
     #   from Test to Production" is software integration, not local SEO (found by
     #   replaying the stored postings, WORKLOG 2026-11-09).
-    "keyword_title_exclusions": {"google business profile": ["api"], "gbp": ["api"]},
+    "keyword_title_exclusions": {"google business profile": ["api"], "gbp": ["api"], "google review": ["api"]},
     # keyword_context: an ambiguous keyword only counts when the text also contains
     #   one of these. "indexing" alone is "database indexing" as often as Google.
     "keyword_context": {
@@ -437,7 +440,7 @@ DEFAULT_FEED_CONFIG = {
     "marked_keywords": {
         "tracking": ["google tag manager", "ga4", "google analytics",
                      "conversion tracking", "consent mode"],
-        "gbp": ["google business profile", "google my business", "gbp"],
+        "gbp": ["google business profile", "google my business", "gbp", "google review"],
     },
     # Rate floors. A job with an hourly ceiling below min_hourly, or a fixed
     # budget below min_fixed, is dropped. Jobs with NO stated rate are KEPT
