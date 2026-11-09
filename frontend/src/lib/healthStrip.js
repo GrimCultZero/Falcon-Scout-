@@ -34,8 +34,12 @@ export function pillText(key, item) {
       if (item.connected === false) return 'Feed: Upwork API disconnected'
       return item.age_minutes == null ? 'Feed: nothing yet' : `Feed quiet ${ago(item.age_minutes)}`
     case 'proposals_sync':
-      if (item.last_run_zero_rows) return 'Sync read 0 rows'
+      // A pill exists only when something is really off: a low read (coverage), or no
+      // good read for hours. An empty latest run is named only when nothing else is
+      // the reason; since 2026-11-09 it never lights the pill on its own.
       if (item.coverage != null && item.coverage < 0.95) return `Sync read ${Math.round(item.coverage * 100)}%`
+      if (item.age_minutes != null && item.age_minutes >= 360) return `Sync ${ago(item.age_minutes)} ago`
+      if (item.last_run_zero_rows) return 'Sync read 0 rows'
       return item.age_minutes == null ? 'Sync: never ran' : `Sync ${ago(item.age_minutes)} ago`
     case 'messages_sync':
       return item.age_minutes == null ? 'Inbox: never walked' : `Inbox ${ago(item.age_minutes)} ago`

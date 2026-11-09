@@ -459,6 +459,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# When was the Chrome extension last heard from, and since when without a break?
+# /health judges the proposals sync on hours the extension was RUNNING, not on the
+# wall clock, so a night with Chrome closed does not light the header pill after
+# the next launch (owner, 2026-11-09). The extension's own calls (its background
+# worker, or its content scripts on upwork.com) are the only requests that carry
+# these Origins; the app on :5180 does not. In memory, naive UTC like every
+# timestamp here: a backend restart forgets it, which can only hide an amber pill,
+# never the 24 h red.
+_EXT_GAP_MIN = 45
+_ext_contact = {"since": None, "last": None}
+
+
+@app.middleware("http")
+async def _note_extension_contact(request, call_next):
+    origin = request.headers.get("origin") or ""
+    if origin.startswith("chrome-extension://") or origin == "https://www.upwork.com":
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        last = _ext_contact["last"]
+        if last is None or (now - last).total_seconds() > _EXT_GAP_MIN * 60:
+            _ext_contact["since"] = now
+        _ext_contact["last"] = now
+    return await call_next(request)
+
 
 @app.on_event("startup")
 async def _start_background_tasks():
@@ -735,6 +758,12 @@ def _health_inputs(now=None):
             out["proposals"] = {"last_run": _run(last_run), "last_good": _run(last_good), "zero_row_runs_24h": zero24}
     except Exception as e:
         out["proposals"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # Is Chrome (the extension) running, and since when? `since` is None when it has
+    # not been heard from within _EXT_GAP_MIN minutes, which means "not running now".
+    last_seen = _ext_contact["last"]
+    running = last_seen is not None and (now - last_seen).total_seconds() <= _EXT_GAP_MIN * 60
+    out["extension"] = {"since": _ext_contact["since"] if running else None, "last": last_seen}
 
     # Messages sync: newest inbox walk, and how many conversations were opened.
     # Passive reads (one open conversation) are not syncs and are not logged here.

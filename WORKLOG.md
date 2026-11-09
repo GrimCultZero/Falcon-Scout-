@@ -10777,3 +10777,25 @@ since because Chrome/the extension was off overnight (the first hourly alarm fir
 extension starts). So the chip shows the last run, 24 h old. Not new: since 25 Oct 10 of ~110 runs
 failed with no-report and 10 with gate-declined; 2026-11-08 failed 3 of 4. A good run restores it.
 Not fixed: the cause of the silent background tab is unknown.
+
+## 2026-11-09 (later) -- Header "Sync" pill: lit by running hours, not the wall clock; red at 24 h unchanged
+Owner: "Why do we even need this sync indicator?" The pill exists because the proposals sync once failed
+silently for 11.6 days (14-26 Aug) and the dashboard then read the tool's silence as client rejection.
+Its flaw: it reported the LAST RUN, so after a night with Chrome closed it sat red for up to an hour after
+every launch (the first hourly sync fires 60 min after the extension starts), and a single empty run (about
+1 in 10) turned it red too. Owner decision: show it only when the sync has really been unhealthy: no good
+read for 6 h or more while Chrome has been running; keep the 24 h red.
+Changed: tools/health_report.py (proposals item): amber needs 6 h of EXTENSION RUNNING without a good read
+(`inputs["extension"]["since"]`; not passed = old behaviour); red after 24 h wall-clock, unconditional;
+a 0-row latest run no longer raises the level (still reported in the reason and `last_run_zero_rows`);
+item carries `extension_running_hours`. api/main.py: `_note_extension_contact` middleware stamps requests
+whose Origin is `chrome-extension://...` or `https://www.upwork.com` (in memory; a gap over 45 min starts a
+new running stretch; a backend restart forgets it, which can only hide an amber, never the red). Verified
+live: after the reload `extension_running_hours` read 0.0, then 0.02 within ~3 min (the extension's
+auto-enrich alarm every 3 min), so the Origin assumption holds. frontend/src/lib/healthStrip.js: the pill
+text says "Sync 24 h ago" when age is the reason; "Sync read 0 rows" only when nothing else is.
+Coverage thresholds are untouched. Tests: tests/test_health_report.py (extension cases, the handler through
+the real `_health_inputs`, the middleware lifted from main.py), tests/health-strip.test.js. Rewrote the
+old expectations that a 0-row run is amber/red (gate-declined, no-rows, no stage) on purpose.
+Seen live right after: the pill is RED because the last good read is 25 h old (24 h rule, unconditional by
+decision): it clears at the next good sync. Not changed: the cause of the silent background tab.

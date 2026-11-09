@@ -30,6 +30,10 @@ FEED_WATCH_FROM_HOUR = 7       # inclusive
 FEED_WATCH_TO_HOUR = 23        # exclusive
 
 # Proposals sync (the Chrome extension reads Upwork's "Submitted proposals").
+# AMBER (the header pill) counts hours the extension was actually RUNNING without
+# a good read, not wall-clock hours: Chrome closed overnight made the pill sit red
+# for up to an hour after every launch (owner, 2026-11-09). RED is wall-clock and
+# unconditional: 24 h with no good read is a real problem however it came about.
 PROPOSALS_AMBER_HOURS = 6
 PROPOSALS_RED_HOURS = 24
 COVERAGE_AMBER = 0.95          # T5's acceptance bar
@@ -111,15 +115,23 @@ def _feed(data, now_utc, local_hour):
 
 
 def _zero_row_reason(run):
+    """(kind, text) for a latest run that read 0 rows. Information only since
+    2026-11-09: a single empty run does not light the pill (about 1 run in 10 is
+    empty and the next hourly one reads fine); six running hours with no good read
+    does, and that is judged on the age of the last good read."""
     stage = run.get("stage")
     if stage in HARMLESS_ZERO_ROW_STAGES:
         return "amber", ("The last sync run read 0 rows (stage: gate-declined). That is what the extension logs when the "
                          "proposals page is opened by hand without a sync, so it is not a failure, but no sync has run since.")
     where = f" (stage: {stage})" if stage else ""
-    return "red", f"The last sync run read 0 rows{where}. The scraper started and saw nothing."
+    return "red", (f"The last sync run read 0 rows{where}. The scraper started and saw nothing. "
+                   f"One empty run is not an alarm; the pill lights after {PROPOSALS_AMBER_HOURS} h of Chrome running with no good read.")
 
 
-def _proposals(data, now_utc):
+def _proposals(data, now_utc, ext=None):
+    """`ext` = {"since": naive-UTC start of the current stretch of extension contact, or
+    None when the extension has not been heard from recently}. None (not passed) means
+    "unknown": the old behaviour, amber on age alone."""
     label = "Proposals"
     if data.get("error"):
         return _unreadable(label, data["error"])
@@ -143,8 +155,18 @@ def _proposals(data, now_utc):
         level = "red"
         notes.append(f"The last good sync was {_ago(age_h * 60)} ago (red after {PROPOSALS_RED_HOURS} h).")
     elif age_h > PROPOSALS_AMBER_HOURS:
-        level = "amber"
-        notes.append(f"The last good sync was {_ago(age_h * 60)} ago (amber after {PROPOSALS_AMBER_HOURS} h).")
+        running_h = None
+        if ext is not None:
+            since = ext.get("since")
+            running_h = _minutes(now_utc, since) / 60.0 if since else 0.0
+        if running_h is not None and running_h <= PROPOSALS_AMBER_HOURS:
+            # Not long enough running to have produced a good read: no pill.
+            ran = "has not been heard from" if not running_h else f"has only been running for {_ago(running_h * 60)}"
+            notes.append(f"The last good sync was {_ago(age_h * 60)} ago, but the extension {ran} "
+                         f"(amber after {PROPOSALS_AMBER_HOURS} h of running, red after {PROPOSALS_RED_HOURS} h).")
+        else:
+            level = "amber"
+            notes.append(f"The last good sync was {_ago(age_h * 60)} ago (amber after {PROPOSALS_AMBER_HOURS} h).")
     else:
         notes.append(f"Last good sync {_ago(age_h * 60)} ago.")
 
@@ -163,10 +185,10 @@ def _proposals(data, now_utc):
 
     # The flag asked for in T6: a run that reads 0 rows. Only the LATEST run
     # counts: once a good run follows it, it no longer says anything about now.
+    # Reported, but it no longer raises the level by itself (2026-11-09).
     zero_flag = False
     if last is not None and last.get("rows_scraped") == 0 and last["ts"] >= good["ts"]:
-        zlvl, why = _zero_row_reason(last)
-        level = _worst(level, zlvl)
+        _kind, why = _zero_row_reason(last)
         notes.append(why)
         zero_flag = True
     if zero24 and not zero_flag:
@@ -175,7 +197,10 @@ def _proposals(data, now_utc):
     return {"level": level, "label": label, "reason": " ".join(notes), "age_minutes": round(age_h * 60, 1),
             "last_good_at": _iso(good["ts"]), "rows_scraped": good.get("rows_scraped"), "header_count": hdr,
             "coverage": cov, "last_run_rows": (last or {}).get("rows_scraped"), "last_run_at": _iso((last or {}).get("ts")),
-            "last_run_zero_rows": zero_flag, "zero_row_runs_24h": zero24}
+            "last_run_zero_rows": zero_flag, "zero_row_runs_24h": zero24,
+            # How long the extension has been running (None: not passed; 0: not heard from).
+            "extension_running_hours": (None if ext is None else
+                                        round(_minutes(now_utc, ext["since"]) / 60.0, 2) if ext.get("since") else 0.0)}
 
 
 def _messages(data, now_utc):
@@ -265,7 +290,7 @@ def build_report(inputs, now_utc, local_hour):
     every timestamp the database stores. local_hour: 0-23, machine local time."""
     items = {
         "feed": _feed(inputs.get("feed") or {}, now_utc, local_hour),
-        "proposals_sync": _proposals(inputs.get("proposals") or {}, now_utc),
+        "proposals_sync": _proposals(inputs.get("proposals") or {}, now_utc, inputs.get("extension")),
         "messages_sync": _messages(inputs.get("messages") or {}, now_utc),
         "backup": _backup(inputs.get("backup") or {}),
         "bridge": _bridge(inputs.get("bridge") or {}),

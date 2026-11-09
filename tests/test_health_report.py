@@ -100,13 +100,38 @@ check(lvl(rep(proposals={"last_run": None, "last_good": None, "zero_row_runs_24h
 good = run(hours=2, rid=10)
 hand = {"id": 11, "ts": ago(minutes=20), "rows_scraped": 0, "header_count": None, "coverage": None, "stage": "gate-declined"}
 it = rep(proposals=prop(good, last=hand, zero24=1))["items"]["proposals_sync"]
-check(it["level"] == "amber" and it["last_run_zero_rows"] is True and "not a failure" in it["reason"],
-      "latest run read 0 rows because the page was opened by hand (gate-declined) -> amber, and says it is not a failure")
+check(it["level"] == "ok" and it["last_run_zero_rows"] is True and "not a failure" in it["reason"],
+      "latest run read 0 rows because the page was opened by hand (gate-declined) -> still ok (2026-11-09: an empty run alone no longer lights the pill), flagged and explained")
 real = {"id": 12, "ts": ago(minutes=20), "rows_scraped": 0, "header_count": None, "coverage": None, "stage": "no-rows"}
 it = rep(proposals=prop(good, last=real, zero24=1))["items"]["proposals_sync"]
-check(it["level"] == "red" and "read 0 rows" in it["reason"] and "no-rows" in it["reason"], "latest run read 0 rows (stage no-rows) -> red, with the stage")
+check(it["level"] == "ok" and it["last_run_zero_rows"] is True and "read 0 rows" in it["reason"] and "no-rows" in it["reason"],
+      "latest run read 0 rows (stage no-rows), good read 2 h ago -> ok, with the stage in the reason")
 nostage = {"id": 13, "ts": ago(minutes=5), "rows_scraped": 0, "header_count": None, "coverage": None, "stage": None}
-check(lvl(rep(proposals=prop(good, last=nostage)), "proposals_sync") == "red", "a 0-row run with no recorded stage -> red")
+check(lvl(rep(proposals=prop(good, last=nostage)), "proposals_sync") == "ok", "a 0-row run with no recorded stage, good read 2 h ago -> ok")
+# the same empty run, but no good read for hours, is what lights the pill (judged on age)
+stale_good = run(hours=7, rid=9)
+check(lvl(rep(proposals=prop(stale_good, last=real, zero24=3)), "proposals_sync") == "amber", "empty latest run AND no good read for 7 h (extension state unknown) -> amber")
+check(lvl(rep(proposals=prop(run(hours=25, rid=9), last=real, zero24=3)), "proposals_sync") == "red", "empty latest run AND no good read for 25 h -> red")
+
+# ── amber counts hours the extension was RUNNING; red is wall-clock (owner, 2026-11-09) ──
+def ext(since_hours=None):
+    return {"since": ago(hours=since_hours) if since_hours is not None else None, "last": ago(minutes=2)}
+def rep_ext(good_h, ext_in, last=None, zero24=0):
+    return rep(proposals=prop(run(hours=good_h, rid=8), last=last, zero24=zero24), extension=ext_in)["items"]["proposals_sync"]
+it = rep_ext(14, ext(since_hours=0.1), last=real)
+check(it["level"] == "ok" and "only been running for" in it["reason"], "Chrome closed overnight, started 6 min ago, last good read 14 h ago -> OK, not amber (the pill that nagged for an hour)")
+check(rep_ext(14, ext(since_hours=5.9))["level"] == "ok", "running 5.9 h, no good read for 14 h -> still ok (it has not had 6 running hours)")
+check(rep_ext(14, ext(since_hours=6.5))["level"] == "amber", "running 6.5 h without a good read -> amber")
+check(rep_ext(14, ext(since_hours=30))["level"] == "amber", "running for 30 h, last good read 14 h ago -> amber (the running stretch outlasts the gap)")
+it = rep_ext(14, ext(since_hours=None))
+check(it["level"] == "ok" and "not been heard from" in it["reason"], "the extension has not been heard from (Chrome closed) -> ok, and the reason says so")
+check(rep_ext(25, ext(since_hours=0.1))["level"] == "red", "24 h red is unconditional: 25 h since a good read is red even with Chrome just started")
+check(rep_ext(25, ext(since_hours=None))["level"] == "red", "...and red when the extension has not been heard from at all")
+check(rep_ext(24, ext(since_hours=0.1))["level"] == "ok", "exactly 24 h with Chrome just started: not red yet, and not amber (running < 6 h)")
+check(rep_ext(3, ext(since_hours=40))["level"] == "ok", "a good read 3 h ago -> ok however long Chrome has run")
+check(rep_ext(8, ext(since_hours=0.1), zero24=0)["age_minutes"] == 480.0, "the item still reports the real age of the last good read")
+# coverage rules are untouched by the extension state
+check(rep(proposals=prop(run(rows=69, hdr=87, cov=0.79)), extension=ext(since_hours=0.1))["items"]["proposals_sync"]["level"] == "red", "a low read (79%) is red whatever the extension state")
 # a 0-row run that a later good run has replaced no longer alarms, but is still counted
 later_good = run(hours=0.2, rid=14)
 old_zero = {"id": 13, "ts": ago(hours=1), "rows_scraped": 0, "header_count": None, "coverage": None, "stage": "no-rows"}
@@ -158,7 +183,7 @@ from db import Base, Job, SyncRun                            # noqa: E402
 src = (ROOT / "api" / "main.py").read_text(encoding="utf-8")
 tree = ast.parse(src)
 WANT_FUNCS = {"_health_module", "_scroll_dict", "_health_inputs", "health"}
-WANT_VARS = {"_health_mod", "_PASSIVE_DEBUG_FILE"}
+WANT_VARS = {"_health_mod", "_PASSIVE_DEBUG_FILE", "_ext_contact", "_EXT_GAP_MIN"}
 nodes = []
 for n in tree.body:
     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in WANT_FUNCS:
@@ -259,16 +284,69 @@ with Session(engine) as s:
     s.commit()
 r = call_health()
 it = r["items"]["proposals_sync"]
-check(it["level"] == "amber" and it["last_run_zero_rows"] is True and "gate-declined" in it["reason"] and it["zero_row_runs_24h"] == 1,
-      "handler: a 0-row run reads its stage from scroll_json and is flagged amber")
+check(it["level"] == "ok" and it["last_run_zero_rows"] is True and "gate-declined" in it["reason"] and it["zero_row_runs_24h"] == 1,
+      "handler: a 0-row run reads its stage from scroll_json, is flagged, and no longer lights the pill by itself")
 with Session(engine) as s:
-    add(s, "proposals-list", utcnow() - timedelta(minutes=1), 0, scroll_json=_json_mod.dumps({"failed": True, "stage": "no-rows"}))
+    add(s, "proposals-list", utcnow() - timedelta(minutes=1), 0, scroll_json=_json_mod.dumps({"failed": True, "stage": "no-report"}))
     s.commit()
-check(call_health()["items"]["proposals_sync"]["level"] == "red", "handler: a real failure stage (no-rows) is red")
+it = call_health()["items"]["proposals_sync"]
+check(it["level"] == "ok" and it["last_run_zero_rows"] is True and "no-report" in it["reason"],
+      "handler: a failure stage (no-report) one hour after a good read is ok, with the stage in the reason")
 with Session(engine) as s:
     add(s, "proposals-list", utcnow(), 87, header_count=87, coverage=1.0)
     s.commit()
 check(call_health()["items"]["proposals_sync"]["level"] == "ok", "handler: the next good sync clears the flag")
+
+# the extension heartbeat, through the real _health_inputs: the 14 h-old good read of a morning launch
+with Session(engine) as s:
+    s.query(SyncRun).filter(SyncRun.leg == "proposals-list").delete()
+    n = utcnow()
+    add(s, "proposals-list", n - timedelta(hours=14), 87, header_count=87, coverage=1.0)
+    add(s, "proposals-list", n - timedelta(hours=14) + timedelta(minutes=4), 0, scroll_json=_json_mod.dumps({"failed": True, "stage": "no-report"}))
+    s.commit()
+ns["_ext_contact"].update(since=None, last=None)
+it = call_health()["items"]["proposals_sync"]
+check(it["level"] == "ok" and "not been heard from" in it["reason"], "handler: Chrome not running (the extension never heard from), good read 14 h ago -> ok, not a pill")
+ns["_ext_contact"].update(since=utcnow() - timedelta(minutes=5), last=utcnow() - timedelta(seconds=30))
+it = call_health()["items"]["proposals_sync"]
+check(it["level"] == "ok" and "only been running for" in it["reason"], "handler: the extension started 5 min ago -> ok (the stale pill after a launch is gone)")
+ns["_ext_contact"].update(since=utcnow() - timedelta(hours=7), last=utcnow() - timedelta(seconds=30))
+check(call_health()["items"]["proposals_sync"]["level"] == "amber", "handler: running 7 h with no good read -> amber")
+ns["_ext_contact"].update(since=utcnow() - timedelta(hours=7), last=utcnow() - timedelta(minutes=50))
+check(call_health()["items"]["proposals_sync"]["level"] == "ok", "handler: last heard from 50 min ago (longer than the 45 min gap) means Chrome is not running now -> ok")
+with Session(engine) as s:
+    s.query(SyncRun).filter(SyncRun.leg == "proposals-list").update({SyncRun.ts: utcnow() - timedelta(hours=26)})
+    s.commit()
+ns["_ext_contact"].update(since=None, last=None)
+check(call_health()["items"]["proposals_sync"]["level"] == "red", "handler: 26 h without a good read is red even if the extension has not been heard from")
+with Session(engine) as s:
+    add(s, "proposals-list", utcnow(), 87, header_count=87, coverage=1.0)
+    s.commit()
+check(call_health()["items"]["proposals_sync"]["level"] == "ok", "handler: a good read clears it again")
+
+# the middleware that records the contact, lifted from main.py
+mw = next((n for n in ast.parse(src).body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_note_extension_contact"), None)
+check(mw is not None, "main.py has the _note_extension_contact middleware")
+if mw is not None:
+    mw.decorator_list = []
+    mns = {"datetime": datetime, "timezone": timezone, "_EXT_GAP_MIN": ns["_EXT_GAP_MIN"], "_ext_contact": {"since": None, "last": None}}
+    exec(compile(ast.Module(body=[mw], type_ignores=[]), "main_mw", "exec"), mns)
+    async def _next(req):
+        return "response"
+    def _req(origin):
+        return types.SimpleNamespace(headers={"origin": origin} if origin else {})
+    def _call(origin):
+        return asyncio.run(mns["_note_extension_contact"](_req(origin), _next))
+    check(_call("http://localhost:5180") == "response" and mns["_ext_contact"]["last"] is None, "middleware: the app on :5180 is not the extension and records nothing")
+    check(_call(None) == "response" and mns["_ext_contact"]["last"] is None, "middleware: a request with no Origin records nothing")
+    _call("chrome-extension://abcdef")
+    first = mns["_ext_contact"]["since"]
+    check(first is not None and mns["_ext_contact"]["last"] is not None, "middleware: a request from the extension records contact and starts a stretch")
+    _call("https://www.upwork.com")
+    check(mns["_ext_contact"]["since"] == first, "middleware: a content-script call (upwork.com origin) inside the gap continues the same stretch")
+    mns["_ext_contact"]["last"] = utcnow() - timedelta(minutes=50)
+    _call("chrome-extension://abcdef")
+    check(mns["_ext_contact"]["since"] > first, "middleware: after a gap longer than 45 min, a new stretch starts")
 
 # robustness: a broken source degrades one item, not the endpoint
 ns["_PASSIVE_DEBUG_FILE"] = tmp / "bad.json"

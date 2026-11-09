@@ -66,7 +66,9 @@ const lib = (f) => import(pathToFileURL(path.join(ROOT, 'frontend', 'src', 'lib'
     const st = healthStripState(bad_);
     assert(st.overall === 'unknown' && st.pills.length === 1 && st.pills[0].text === 'Health unknown' && st.pills[0].level === 'amber', `no usable /health (${JSON.stringify(bad_)}) -> amber "Health unknown", never silence`);
   }
-  assert(pillText('proposals_sync', { last_run_zero_rows: true }) === 'Sync read 0 rows', 'a 0-row latest run is named on the pill');
+  assert(pillText('proposals_sync', { last_run_zero_rows: true, age_minutes: 30 }) === 'Sync read 0 rows', 'a 0-row latest run is named when nothing else is the reason');
+  assert(pillText('proposals_sync', { last_run_zero_rows: true, age_minutes: 1462 }) === 'Sync 24 h ago',
+    '...but a pill lit by 24 h without a good read says so, not "read 0 rows" (owner, 2026-11-09)');
   assert(pillText('proposals_sync', { coverage: 0.2111, age_minutes: 30 }) === 'Sync read 21%', 'low coverage is named on the pill (19 of 90 -> 21%)');
   assert(pillText('proposals_sync', { coverage: 1.0, age_minutes: 600 }) === 'Sync 10 h ago', 'a stale but complete sync names its age');
   assert(pillText('feed', { age_minutes: 45 }) === 'Feed quiet 45 min' && pillText('feed', {}) === 'Feed: nothing yet', 'feed pill text');
