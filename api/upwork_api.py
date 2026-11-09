@@ -369,6 +369,13 @@ DEFAULT_FEED_CONFIG = {
         "ppc audit", "paid search", "performance max", "pmax", "google shopping",
         "shopping campaigns", "account audit", "campaign audit",
         "seo audit", "seo strategy", "local seo", "technical seo",
+        # T18 (audit 2026-10-29): the 2026-11 coverage audit found in-lane work the
+        # list above could not reach. See the scoping rules below.
+        "google tag manager", "ga4", "google analytics", "conversion tracking",
+        "consent mode", "search console", "indexing",
+        "aeo", "geo", "ai search", "llm seo",
+        "local citation", "citation building", "guest post",
+        "youtube ads", "google business profile", "gbp",
     ],
     # Stop words — drop a job if its title/description contains any. (From the bot.)
     "stop_words": [
@@ -385,6 +392,53 @@ DEFAULT_FEED_CONFIG = {
     # Tightens the API's loose full-text match. Set false to keep everything
     # the API returned (looser, more volume).
     "require_keyword_in_text": True,
+    # ── How a keyword is matched (T18, audit 2026-10-29) ─────────────────────
+    # Plain keywords are substrings of title + description (that is what lets
+    # "google ad" match "google ads"). Three refinements, each measured against the
+    # stored postings (WORKLOG 2026-11-09) before it shipped:
+    #
+    # title_only_keywords: counts ONLY when it appears in the TITLE. These name a
+    #   tool or a task, and tools sit in the descriptions of hundreds of generic web
+    #   design / CRO / "marketing manager" postings ("graphic designer, familiar with
+    #   Google Analytics"); matched against the whole text they would let a lot of
+    #   off-lane work through. In a title they name the job.
+    "title_only_keywords": [
+        "google tag manager", "ga4", "google analytics", "conversion tracking",
+        "search console", "indexing", "guest post", "youtube ads",
+        "google business profile", "gbp",
+    ],
+    # whole_word_keywords: matched as whole words, never inside another word.
+    #   Substring "geo" is inside "geography" and "geolocation". "geo" is also not
+    #   matched when hyphen-joined ("geo-location", "geo-fencing": app development).
+    "whole_word_keywords": ["aeo", "geo", "ga4", "gbp"],
+    # keyword_title_exclusions: a keyword does NOT count when its title also has one
+    #   of these whole words. "Google Business Profile API Expert: Transition App
+    #   from Test to Production" is software integration, not local SEO (found by
+    #   replaying the stored postings, WORKLOG 2026-11-09).
+    "keyword_title_exclusions": {"google business profile": ["api"], "gbp": ["api"]},
+    # keyword_context: an ambiguous keyword only counts when the text also contains
+    #   one of these. "indexing" alone is "database indexing" as often as Google.
+    "keyword_context": {
+        "indexing": ["google", "seo", "search console", "sitemap", "crawl", "serp",
+                     "website", "webpage", "web page"],
+    },
+    # google_proximity: a TITLE passes the keyword test when "google" sits within 6
+    #   words of ads / advertising / campaign(s) / ppc / search / shopping / pmax, which
+    #   catches "Google and Instagram Ads", "Google & Meta Ads", "Google and Social
+    #   Ads". Title only: over 559 stored titles it matched 0 off-lane ones, but
+    #   applied to descriptions too it let 54 through (web designers, automation
+    #   engineers). Set false to turn it off.
+    "google_proximity": True,
+    # marked_keywords: a posting that passes ONLY because of these (its title names
+    #   tracking, or a Google Business Profile, and says nothing of Google Ads / SEO /
+    #   PPC) gets a visible tag in the feed instead of being dropped or hidden
+    #   (owner decision 2026-11-09: GBP is half reputation management; tracking-only
+    #   jobs are in scope but should be recognisable at a glance).
+    "marked_keywords": {
+        "tracking": ["google tag manager", "ga4", "google analytics",
+                     "conversion tracking", "consent mode"],
+        "gbp": ["google business profile", "google my business", "gbp"],
+    },
     # Rate floors. A job with an hourly ceiling below min_hourly, or a fixed
     # budget below min_fixed, is dropped. Jobs with NO stated rate are KEPT
     # (many good postings omit budget; the analyser handles rate).
@@ -483,6 +537,86 @@ def _stop_word_hit(text: str, stop_words) -> "str | None":
     return None
 
 
+# ── keyword matching (T18) ───────────────────────────────────────────────────
+_WORD_RE = re.compile(r"[a-z0-9]+")
+_GOOGLE_NEAR = frozenset({"ad", "ads", "advertising", "campaign", "campaigns",
+                          "ppc", "search", "shopping", "pmax"})
+_KW_RE_CACHE: dict[tuple, "re.Pattern"] = {}
+
+
+def _google_near_ads(text: str, window: int = 6) -> bool:
+    """True when the word "google" has one of _GOOGLE_NEAR within `window` words."""
+    words = _WORD_RE.findall((text or "").lower())
+    for i, w in enumerate(words):
+        if w != "google":
+            continue
+        around = words[max(0, i - window):i] + words[i + 1:i + 1 + window]
+        if any(x in _GOOGLE_NEAR for x in around):
+            return True
+    return False
+
+
+def _kw_in(keyword: str, hay: str, whole: "set | frozenset") -> bool:
+    """Is `keyword` in `hay` (already lowercase)? Whole-word keywords never match
+    inside another word; "geo" additionally never matches hyphen-joined."""
+    if keyword not in whole:
+        return keyword in hay
+    key = (keyword, keyword == "geo")
+    rx = _KW_RE_CACHE.get(key)
+    if rx is None:
+        edge = r"[\w-]" if keyword == "geo" else r"\w"
+        rx = re.compile(rf"(?<!{edge}){re.escape(keyword)}(?!{edge})")
+        _KW_RE_CACHE[key] = rx
+    return bool(rx.search(hay))
+
+
+def _keyword_hit(title: str, desc: str, cfg: dict) -> "str | None":
+    """The reason this row counts as in-lane ('seo', 'proximity', ...), else None.
+    `title` and `desc` are lowercase. See the config comments for the scoping rules."""
+    blob = title + " " + desc
+    title_only = {k.lower() for k in (cfg.get("title_only_keywords") or [])}
+    whole = frozenset(k.lower() for k in (cfg.get("whole_word_keywords") or []))
+    context = {k.lower(): [c.lower() for c in v] for k, v in (cfg.get("keyword_context") or {}).items()}
+    excl = {k.lower(): [w.lower() for w in v] for k, v in (cfg.get("keyword_title_exclusions") or {}).items()}
+    for k in (x.lower() for x in (cfg.get("keywords") or [])):
+        if not _kw_in(k, title if k in title_only else blob, whole):
+            continue
+        if any(_kw_in(w, title, frozenset({w})) for w in excl.get(k, ())):
+            continue
+        need = context.get(k)
+        if need and not any(c in blob for c in need):
+            continue
+        return k
+    if cfg.get("google_proximity", True) and _google_near_ads(title):
+        return "proximity"
+    return None
+
+
+def feed_tag_for(row: dict, cfg: dict) -> "str | None":
+    """'tracking' or 'gbp' when the TITLE is about that and says nothing of Google
+    Ads / SEO / PPC; else None. Only a marker: it never drops or hides a row."""
+    title = (row.get("title") or "").lower()
+    if not title:
+        return None
+    marked = cfg.get("marked_keywords") or {}
+    whole = frozenset(k.lower() for k in (cfg.get("whole_word_keywords") or []))
+    tag = None
+    for name, words in marked.items():
+        if any(_kw_in(w.lower(), title, whole) for w in words):
+            tag = name
+            break
+    if not tag:
+        return None
+    marked_words = {w.lower() for ws in marked.values() for w in ws}
+    core_cfg = dict(cfg)
+    core_cfg["keywords"] = [k for k in (cfg.get("keywords") or []) if k.lower() not in marked_words]
+    core_cfg["title_only_keywords"] = list(core_cfg["keywords"])      # title only, whatever the scope
+    core_cfg["google_proximity"] = False
+    if _keyword_hit(title, "", core_cfg) or _google_near_ads(title):
+        return None                       # the title also names Google Ads / SEO work
+    return tag
+
+
 def _row_passes(row: dict, cfg: dict) -> "str | None":
     """Return a drop-reason string if the row should be filtered out, else None."""
     title = (row.get("title") or "").lower()
@@ -508,8 +642,7 @@ def _row_passes(row: dict, cfg: dict) -> "str | None":
         return f"stopword:{hit}"
 
     if cfg.get("require_keyword_in_text"):
-        kws = [k.lower() for k in (cfg.get("keywords") or [])]
-        if kws and not any(k in blob for k in kws):
+        if (cfg.get("keywords") or []) and not _keyword_hit(title, desc, cfg):
             return "no-keyword-in-text"
 
     min_h = cfg.get("min_hourly") or 0
@@ -550,16 +683,38 @@ def _row_passes(row: dict, cfg: dict) -> "str | None":
     return None
 
 
-def _apply_filter(seen: dict, cfg: dict, fetched: int, extra: dict | None = None):
+_DROP_SINK = None
+
+
+def set_drop_sink(fn) -> None:
+    """Register fn(list_of_dropped_rows), called with every row a fetch dropped, so
+    the backend can record them (feed_drops). Nothing was recorded before T18, which
+    is why the 2026-10-29 coverage audit had to be done by hand in a browser."""
+    global _DROP_SINK
+    _DROP_SINK = fn
+
+
+def _apply_filter(seen: dict, cfg: dict, fetched: int, extra: dict | None = None,
+                  record_drops: bool = True):
     """Shared tail of both fetch paths: post-filter the merged rows and build
-    the stats block."""
-    kept, drops = [], {}
+    the stats block. Kept rows carry `feed_tag` ('tracking' / 'gbp' / None)."""
+    kept, drops, dropped_rows = [], {}, []
     for r in seen.values():
         reason = _row_passes(r, cfg)
         if reason:
             drops[reason] = drops.get(reason, 0) + 1
+            dropped_rows.append({"upwork_job_id": r.get("upwork_job_id"), "title": r.get("title"),
+                                 "reason": reason, "posted_date": r.get("posted_date")})
         else:
+            r["feed_tag"] = feed_tag_for(r, cfg)
             kept.append(r)
+
+    # A sink that fails must never fail the fetch that called it.
+    if record_drops and _DROP_SINK is not None and dropped_rows:
+        try:
+            _DROP_SINK(dropped_rows)
+        except Exception as e:
+            print(f"[feed] recording {len(dropped_rows)} dropped rows failed: {e}")
 
     stats = {
         "keywords": len(cfg.get("keywords") or []),
@@ -664,7 +819,7 @@ def fetch_and_filter_deep(cfg: dict | None = None, max_pages: int = 8, on_keywor
 
         if on_keyword is not None:
             try:
-                kept_now, _stats = _apply_filter(seen, cfg, fetched)
+                kept_now, _stats = _apply_filter(seen, cfg, fetched, record_drops=False)
                 fresh = [r for r in kept_now if r.get("upwork_job_id") not in delivered]
                 delivered.update(r.get("upwork_job_id") for r in fresh)
                 if fresh:

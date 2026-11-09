@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import FeedDrops from './FeedDrops'
 
 // Feed Settings — edit the Upwork API feed filter config (mirrors the bot's
 // settings tab). Keywords + stop words drive per-keyword search and the hard
@@ -170,6 +171,8 @@ export default function FeedSettings({ open, onClose, onSaved, embedded = false 
                 </label>
               </div>
             </div>
+
+            <FeedDrops />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <button onClick={save} disabled={saving} className="btn-primary" style={{ padding: '7px 18px', fontSize: 13 }}>

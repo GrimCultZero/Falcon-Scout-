@@ -34,7 +34,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).parent))  # api/ dir — for sibling imports (upwork_api)
 load_dotenv(ROOT / ".env", override=True)
 
-from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, SyncRun, Base  # noqa: E402
+from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, SyncRun, FeedDrop, Base  # noqa: E402
 import json as _json_mod
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'upwork_jobs.db'}")
@@ -76,6 +76,10 @@ def _ensure_job_columns():
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN source TEXT DEFAULT 'bot'")
             conn.exec_driver_sql("UPDATE jobs SET source='bot' WHERE source IS NULL")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_jobs_source ON jobs(source)")
+        if "feed_tag" not in existing:
+            # T18: 'tracking' / 'gbp' marker for postings the feed lets through but
+            # that deserve a visible label. NULL for every existing row.
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN feed_tag TEXT")
         if "enrich_attempts" not in existing:
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN enrich_attempts INTEGER NOT NULL DEFAULT 0")
         if "last_enrich_attempt_at" not in existing:
@@ -837,6 +841,87 @@ async def _ghost_sweep_loop():
             print(f"[Ghost Timer] Sweep error (will retry tomorrow): {exc}")
 
 
+_FEED_DROP_RETENTION_DAYS = 7
+
+
+def _record_feed_drops(dropped):
+    """Remember the postings a fetch filtered out, and why (audit T18).
+
+    `dropped`: dicts with upwork_job_id / title / reason / posted_date. One row per
+    posting: a posting that keeps being fetched keeps its row, with the newest reason
+    and `fetched_at`. Postings already stored as jobs are skipped (a kept job that
+    merely ages past the cutoff is not a miss). Rows older than 7 days are deleted.
+    Never raises: recording must not be able to fail a fetch.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        by_id = {}
+        for d in dropped or []:
+            uid = (d.get("upwork_job_id") or "").strip()
+            if uid:
+                by_id[uid] = d
+        with Session(engine) as session:
+            ids = list(by_id)
+            stored_jobs, existing = set(), {}
+            for i in range(0, len(ids), 400):                  # SQLite caps bound variables
+                chunk = ids[i:i + 400]
+                stored_jobs.update(r[0] for r in session.query(Job.upwork_job_id).filter(Job.upwork_job_id.in_(chunk)))
+                for row in session.query(FeedDrop).filter(FeedDrop.upwork_job_id.in_(chunk)):
+                    existing[row.upwork_job_id] = row
+            for uid, d in by_id.items():
+                if uid in stored_jobs:
+                    continue
+                row = existing.get(uid)
+                if row is None:
+                    session.add(FeedDrop(upwork_job_id=uid, title=(d.get("title") or "")[:300], reason=d.get("reason") or "?",
+                                         posted_date=d.get("posted_date"), fetched_at=now))
+                else:
+                    row.reason, row.fetched_at = d.get("reason") or row.reason, now
+                    if d.get("title"):
+                        row.title = d["title"][:300]
+            session.query(FeedDrop).filter(FeedDrop.fetched_at < now - timedelta(days=_FEED_DROP_RETENTION_DAYS)).delete()
+            session.commit()
+    except Exception as e:
+        print(f"[feed_drops] could not record {len(dropped or [])} dropped rows: {e}")
+
+
+def _feed_api():
+    """The upwork_api module, with the drop recorder installed."""
+    import upwork_api
+    upwork_api.set_drop_sink(_record_feed_drops)
+    return upwork_api
+
+
+_FEED_DROP_POLICY = ("hourly<", "fixed<", "unverified-payment", "posted>", "country:")
+
+
+@app.get("/feed-drops")
+def feed_drops(hours: int = Query(24, ge=1, le=24 * _FEED_DROP_RETENTION_DAYS), per_group: int = Query(200, ge=1, le=1000)):
+    """What the feed filtered out in the last `hours`, grouped by reason, newest first,
+    each with its Upwork link (audit T18). `kind` separates the two stories: "text"
+    (no keyword in the text, or a title stop word) is where an in-lane miss would be;
+    "policy" (rate floors, payment, age, country) is Artem's own floors working."""
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
+    with Session(engine) as session:
+        rows = (session.query(FeedDrop).filter(FeedDrop.fetched_at >= since)
+                .order_by(FeedDrop.fetched_at.desc()).all())
+    groups = {}
+    for r in rows:
+        g = groups.setdefault(r.reason, {"reason": r.reason, "count": 0, "rows": []})
+        g["count"] += 1
+        if len(g["rows"]) < per_group:
+            g["rows"].append({"upwork_job_id": r.upwork_job_id, "title": r.title,
+                              "posted_date": r.posted_date,
+                              "fetched_at": r.fetched_at.isoformat() if r.fetched_at else None,
+                              "url": f"https://www.upwork.com/jobs/{r.upwork_job_id}"})
+    out = list(groups.values())
+    for g in out:
+        g["kind"] = "policy" if g["reason"].startswith(_FEED_DROP_POLICY) else "text"
+    # The "text" groups first (that is where a miss would be), biggest first.
+    out.sort(key=lambda g: (g["kind"] != "text", g["reason"] != "no-keyword-in-text", -g["count"]))
+    return {"hours": hours, "retention_days": _FEED_DROP_RETENTION_DAYS, "total": len(rows), "groups": out}
+
+
 def _upsert_api_jobs(rows):
     """Insert new API-sourced jobs (dedup on upwork_job_id). Shared by the
     on-demand /api-fetch endpoint and the background auto-fetch loop."""
@@ -885,7 +970,7 @@ _CATCHUP_MIN_INTERVAL_SEC = 30 * 60
 async def _api_feed_loop():
     import asyncio
     import time as _time
-    import upwork_api
+    upwork_api = _feed_api()
     loop = asyncio.get_event_loop()
     # Small initial delay so startup isn't blocked by a first fetch.
     await asyncio.sleep(20)
@@ -1317,6 +1402,8 @@ def _serialize(j: Job) -> dict:
         ),
         "fixed_budget": j.fixed_budget,
         "source": getattr(j, "source", None) or "bot",
+        # 'tracking' / 'gbp' / None: a badge in the feed list (T18). Never hides the row.
+        "feed_tag": getattr(j, "feed_tag", None),
         # ── Enrichment: job details ──────────────────────────────────────
         "experience_level": j.experience_level,
         "hours_per_week": j.hours_per_week,
@@ -6110,7 +6197,7 @@ def api_fetch():
     per-keyword search → merge/dedup → hard post-filter (stop words, keyword-in-text,
     rate floors, country exclude, payment) → upsert with source='api'.
     Dedup on upwork_job_id never clobbers an existing row's source."""
-    import upwork_api
+    upwork_api = _feed_api()
     try:
         rows, stats = upwork_api.fetch_and_filter()
     except upwork_api.UpworkError as e:
@@ -6131,7 +6218,7 @@ def api_fetch_catchup():
     (e.g. the first run after @OffersHunterBot shut down on 2026-10-15).
 
     Slow by design — roughly 200 API calls and a few minutes."""
-    import upwork_api
+    upwork_api = _feed_api()
     try:
         rows, stats = upwork_api.fetch_and_filter_deep()
     except upwork_api.UpworkError as e:

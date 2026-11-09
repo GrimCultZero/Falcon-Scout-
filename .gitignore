@@ -78,3 +78,7 @@ FalconScout-setup-*.zip
 
 # Database backups taken before migrations - full client data, never commit.
 upwork_jobs.db.bak-*
+
+# Folders the Claude apps create in the project folder (generated outputs, cowork files).
+Claude outputs/
+Claude Cowork Folder/

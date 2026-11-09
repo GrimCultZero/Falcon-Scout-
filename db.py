@@ -45,6 +45,12 @@ class Job(Base):
     # seen by both keeps a single row (whichever inserted first owns `source`).
     source = Column(String, nullable=True, index=True)
 
+    # Visible marker for postings that pass the feed filter only because their TITLE
+    # is about tracking ("tracking") or a Google Business Profile ("gbp") and says
+    # nothing of Google Ads / SEO / PPC (audit T18, owner decision 2026-11-09). The
+    # feed shows it as a badge; it never hides or drops the row. NULL = no marker.
+    feed_tag = Column(String, nullable=True)
+
     # ── Enrichment: job details ───────────────────────────────────────────
     experience_level = Column(String, nullable=True)
     hours_per_week   = Column(String, nullable=True)
@@ -318,6 +324,31 @@ class RuleViolation(Base):
     # The pre-check / guard name, e.g. "wrongAuditOfferOnLaunch",
     # "irrelevantCaseOnRegulated", "vapeOnPpcOnlyJob", or an analyser flag key.
     check_name = Column(String, nullable=False, index=True)
+
+
+class FeedDrop(Base):
+    """A posting the API feed fetched and then FILTERED OUT, and why (audit T18).
+
+    Nothing recorded drops before this, so a miss could not be noticed from inside
+    the app: the 2026-10-29 coverage audit had to be done by hand against Upwork's
+    own search. Feed Settings now shows the last 24 h grouped by reason, each title
+    linking to Upwork, so a wrongly dropped in-lane job is visible in seconds.
+
+    One row per posting (upsert on upwork_job_id: a posting that keeps showing up
+    keeps its row, with the newest reason and `fetched_at`). Kept for 7 days.
+    """
+
+    __tablename__ = "feed_drops"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    upwork_job_id = Column(String, nullable=False, unique=True, index=True)
+    title         = Column(String, nullable=True)
+    # e.g. "no-keyword-in-text", "stopword:meta ads", "hourly<25", "fixed<100",
+    # "unverified-payment", "posted>72h", "country:india"
+    reason        = Column(String, nullable=False, index=True)
+    posted_date   = Column(String, nullable=True)
+    fetched_at    = Column(DateTime, nullable=False, index=True,
+                           default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class SyncRun(Base):
