@@ -9,6 +9,7 @@ import FeedSettings from './components/FeedSettings'
 import SettingsTab from './components/SettingsTab'
 import BackupChip from './components/BackupChip'
 import HealthStrip from './components/HealthStrip'
+import { FEED_LIMIT } from './lib/feedLimit'
 import { getNotifySettings, notifyPermission, passesNotifyFilter, notifyNewJobs } from './lib/notifications'
 
 // ── Build-time debug: ring buffer of console errors/warnings + uncaught errors.
@@ -448,6 +449,9 @@ export default function App() {
       const params = new URLSearchParams()
       if (q) params.set('q', q)
       if (f && f !== 'all') params.set('filter_type', f)
+      // The backend default is 200 rows, about a day of API volume. Ask for enough to
+      // cover the 72 h the feed keeps (peak 72 h so far: ~565 jobs), with headroom (T21).
+      params.set('limit', String(FEED_LIMIT))
       const res = await fetch('/jobs?' + params.toString())
       if (!res.ok) throw new Error('API error ' + res.status)
       const data = await res.json()

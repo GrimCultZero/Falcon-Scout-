@@ -2277,19 +2277,28 @@ def enrich_job(data: dict):
                     job = j
                     break
 
-        # 4. Title match (bot stopped sending URLs - match against recent jobs)
+        # 4. Title match (bot stopped sending URLs - match against recent jobs).
+        # T21 (audit 2026-10-29): this used to attach a page to ANY of the 100 newest jobs
+        # that shared 3 words with its title, then write the page's data and job id onto
+        # that other job ("Google Ads Specialist for X" onto "Google Ads Specialist for Y"):
+        # the likely source of stamps on unrelated jobs and of job ids on room rows. Now:
+        #  - a candidate that already has a DIFFERENT upwork job id is never the match;
+        #  - when the page supplied its own job id (and no row has it), only an EXACT title
+        #    match is allowed (the room-row case: same title, no id yet); the loose
+        #    word-overlap match is kept only for pages that carried no id at all.
         page_title = data.get("page_title", "")
         if not job and page_title:
             recent = session.query(Job).order_by(Job.captured_at.desc()).limit(100).all()
             pt_lower = page_title.lower().strip()
+            _other_id = lambda j: bool(job_id_clean and j.upwork_job_id and str(j.upwork_job_id).lstrip("~") != job_id_clean)
             for j in recent:
-                if j.title and j.title.lower().strip() == pt_lower:
+                if j.title and j.title.lower().strip() == pt_lower and not _other_id(j):
                     job = j
                     break
-            if not job:
+            if not job and not job_id_clean:
                 pt_words = set(pt_lower.split())
                 for j in recent:
-                    if j.title:
+                    if j.title and not _other_id(j):
                         jt_words = set(j.title.lower().split())
                         if len(pt_words & jt_words) >= min(3, len(pt_words)):
                             job = j

@@ -24,6 +24,8 @@ from pathlib import Path
 
 import httpx
 
+from country_codes import normalize_country
+
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN_FILE = ROOT / ".upwork_token.json"
 
@@ -295,7 +297,9 @@ def _map_node(n: dict) -> dict:
         "hourly_rate_max": hmax,
         # fixed_budget only when there's no hourly range (otherwise it's an hourly job)
         "fixed_budget": (f"${fixed:,.0f}" if (fixed and not hmin and not hmax) else None),
-        "client_country": loc.get("country"),
+        # The API sometimes gives an ISO-3 code ("IND", "USA", "GBR"); store the NAME so
+        # exclude_countries ("india") and the feed agree (audit T21).
+        "client_country": normalize_country(loc.get("country")),
         "category": n.get("category"),
         "posted_date": n.get("publishedDateTime") or n.get("createdDateTime"),
         "experience_level": n.get("experienceLevel"),
@@ -668,7 +672,8 @@ def _row_passes(row: dict, cfg: dict) -> "str | None":
             pass
 
     excl = [c.lower() for c in (cfg.get("exclude_countries") or [])]
-    country = (row.get("client_country") or "").lower()
+    # Match on the normalised name: a stored legacy "IND" must be caught by "india" (T21).
+    country = (normalize_country(row.get("client_country")) or "").lower()
     if excl and country and any(c in country for c in excl):
         return f"country:{country}"
 
