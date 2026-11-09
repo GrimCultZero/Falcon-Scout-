@@ -141,7 +141,8 @@ assert(r.status === 0 && names(r) === 'Backend | Frontend' && !fs.existsSync(pat
 // ── docs say the same thing ─────────────────────────────────────────────────
 const install = text('INSTALL.md').replace(/\r\n/g, '\n');
 const claude = text('CLAUDE.md').replace(/\r\n/g, '\n');
-assert(/Falcon Scout Enricher 5\.16/.test(install) && !/Enricher 5\.1[0-5]/.test(install), 'INSTALL.md names extension 5.16 (the version the launcher era needs)');
+const _mv = JSON.parse(text('upwork-enricher', 'manifest.json')).version;
+assert(install.includes(`Falcon Scout Enricher ${_mv}`) && !/Enricher 5\.1[0-5]/.test(install), `INSTALL.md names the manifest's extension version (${_mv})`);
 assert(!/Opens four windows/.test(install) && /falconscout-dev\.bat/.test(install) && /no auto-reload|without .{0,12}reload/i.test(install), 'INSTALL.md describes the three-window, no-reload launcher and the dev variant');
 assert(/no Telegram listener any more/i.test(install) && !/python listener\.py/.test(install), 'INSTALL.md says there is no Telegram listener and no longer shows its command');
 assert(/falconscout-dev\.bat/.test(claude) && /listener[\s\S]{0,120}removed on 2026-11-09/i.test(claude) && !/python listener\.py/.test(claude), "CLAUDE.md's quick start lists the dev launcher, says the listener was removed, and no longer shows its command");

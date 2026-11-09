@@ -37,7 +37,7 @@ import upwork_api  # noqa: E402
 NEW_KEYWORDS = ["google tag manager", "ga4", "google analytics", "conversion tracking", "consent mode",
                 "search console", "indexing", "aeo", "geo", "ai search", "llm seo",
                 "local citation", "citation building", "guest post", "youtube ads",
-                "google business profile", "gbp", "local search", "link insertion", "google review"]
+                "google business profile", "gbp", "local search", "link insertion"]
 
 # A title with none of these says nothing about marketing, ads, search or e-commerce.
 _LANE_TITLE = re.compile(r"google|ads?\b|adwords|ppc|sem\b|seo|aeo|geo|search|shopping|pmax|performance max|"

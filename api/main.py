@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent))  # api/ dir — for sibling impor
 load_dotenv(ROOT / ".env", override=True)
 
 from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, SyncRun, FeedDrop, Base  # noqa: E402
+from geo_restriction import normalize_geo_value  # noqa: E402  (api/ is on sys.path, see above)
 import json as _json_mod
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'upwork_jobs.db'}")
@@ -76,6 +77,11 @@ def _ensure_job_columns():
             conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN source TEXT DEFAULT 'bot'")
             conn.exec_driver_sql("UPDATE jobs SET source='bot' WHERE source IS NULL")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_jobs_source ON jobs(source)")
+        if "geo_evidence" not in existing:
+            # T20: the text a geo_restriction was read from, and when (NULL = pre-T20 row).
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN geo_evidence TEXT")
+        if "geo_read_at" not in existing:
+            conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN geo_read_at DATETIME")
         if "feed_tag" not in existing:
             # T18: 'tracking' / 'gbp' marker for postings the feed lets through but
             # that deserve a visible label. NULL for every existing row.
@@ -1421,6 +1427,8 @@ def _serialize(j: Job) -> dict:
         "bid_average": j.bid_average,
         "bid_low": j.bid_low,
         "geo_restriction": j.geo_restriction,
+        "geo_evidence": j.geo_evidence,
+        "geo_read_at": (j.geo_read_at.isoformat() + "Z") if j.geo_read_at else None,
         # ── Enrichment: client ───────────────────────────────────────────
         "hire_rate": j.hire_rate,
         "payment_verified": j.payment_verified,
@@ -2312,7 +2320,7 @@ def enrich_job(data: dict):
             "experience_level", "hours_per_week", "duration", "project_type",
             "connects_required", "available_connects", "proposals",
             "last_viewed", "interviewing", "invites_sent", "unanswered_invites",
-            "bid_high", "bid_average", "bid_low", "geo_restriction",
+            "bid_high", "bid_average", "bid_low",
             "hire_rate", "payment_verified", "phone_verified",
             "client_rating_score", "client_review_count",
             "client_jobs_posted", "client_jobs_open",
@@ -2327,6 +2335,20 @@ def enrich_job(data: dict):
         for field in fields:
             if field in data and data[field] is not None:
                 setattr(job, field, data[field])
+
+        # geo_restriction (audit T20): only a value the known-value rule accepts is
+        # stored (api/geo_restriction.py), with the text it came from and when. An older
+        # extension that still sends "Skills and Expertise" or the next line of the
+        # description is refused here, not stored. null = the page did not say: keep what
+        # we have (a stale value then ages out of the analyser's 24 h evidence window).
+        if data.get("geo_restriction") is not None:
+            _geo = normalize_geo_value(data["geo_restriction"])
+            if _geo:
+                job.geo_restriction = _geo
+                job.geo_evidence = (str(data.get("geo_evidence") or "").strip()[:300] or None)
+                job.geo_read_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            else:
+                print(f"[enrich] refused geo_restriction {str(data['geo_restriction'])[:60]!r} for job {job.id}: not a known value")
 
         job.enriched_at = datetime.now(timezone.utc)
         session.commit()

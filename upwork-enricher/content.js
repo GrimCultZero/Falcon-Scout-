@@ -25,6 +25,97 @@
     return null;
   }
 
+  // ── Freelancer location restriction (audit 2026-10-29, T20) ─────────────────
+  // The analyser treats "United States only" as a hard disqualifier, so a wrong
+  // value turns a good job into a SKIP. This used to write whatever text followed a
+  // label ("Skills and Expertise", "English: Strong working proficiency", the next
+  // line of the description) and, on 2026-10-29, stamped "United States only" on two
+  // Worldwide jobs while real US-only pages were open in the same Chrome.
+  //
+  // Now a value is written ONLY from
+  //   (a) the exact sentence "Only freelancers located in X may apply", or
+  //   (b) a header label ("Talent Preferences" / "Preferred Location" / "Location
+  //       Preference") whose value is one the KNOWN set contains (Worldwide, a
+  //       country, a region, "<place> only");
+  // anything else is null (unknown). Each write carries `geo_evidence`, the text it
+  // came from. api/geo_restriction.py is the backend's copy of this rule; the list
+  // below is generated from it and tests/test_geo_restriction.py fails if they differ.
+  const GEO_PLACES = new Set('afghanistan|africa|albania|algeria|americas|andorra|angola|apac|argentina|armenia|asia|asia pacific|australia|austria|azerbaijan|bahamas|bahrain|bangladesh|barbados|belarus|belgium|belize|benelux|benin|bhutan|bolivia|bosnia and herzegovina|botswana|brazil|brunei|bulgaria|burkina faso|burundi|cambodia|cameroon|canada|cape verde|central america|chad|chile|china|colombia|comoros|congo|costa rica|croatia|cuba|cyprus|czech republic|czechia|denmark|dominican republic|eastern europe|ecuador|egypt|el salvador|emea|estonia|eswatini|ethiopia|eu|europe|european union|fiji|finland|france|gabon|gambia|georgia|germany|ghana|greece|guatemala|guinea|guyana|haiti|honduras|hong kong|hungary|iceland|india|indonesia|iran|iraq|ireland|israel|italy|ivory coast|jamaica|japan|jordan|kazakhstan|kenya|kosovo|kuwait|kyrgyzstan|laos|latin america|latvia|lebanon|lesotho|liberia|libya|liechtenstein|lithuania|luxembourg|macau|madagascar|malawi|malaysia|maldives|mali|malta|mauritania|mauritius|mexico|middle east|moldova|monaco|mongolia|montenegro|morocco|mozambique|myanmar|namibia|nepal|netherlands|new zealand|nicaragua|niger|nigeria|nordics|north america|north macedonia|norway|oceania|oman|pakistan|palestine|panama|papua new guinea|paraguay|peru|philippines|poland|portugal|puerto rico|qatar|romania|russia|rwanda|saudi arabia|scandinavia|senegal|serbia|seychelles|sierra leone|singapore|slovakia|slovenia|somalia|south africa|south america|south korea|south sudan|southeast asia|spain|sri lanka|sudan|suriname|sweden|switzerland|syria|taiwan|tajikistan|tanzania|thailand|togo|trinidad and tobago|tunisia|turkey|turkmenistan|u.s.|u.s.a.|uae|uganda|uk|ukraine|united arab emirates|united kingdom|united states|uruguay|us|usa|uzbekistan|venezuela|vietnam|western europe|yemen|zambia|zimbabwe'.split('|'));
+  const GEO_US_FORMS = new Set(['us', 'usa', 'u.s.', 'u.s.a.', 'u.s', 'united states', 'the united states', 'the u.s.', 'the us']);
+
+  function normGeoPlace(p) {
+    const s = String(p || '').replace(/\s+/g, ' ').trim().replace(/\.$/, '').trim();
+    const low = s.toLowerCase();
+    if (GEO_US_FORMS.has(low) || GEO_US_FORMS.has(low + '.')) return 'United States';
+    if (low === 'uk' || low === 'the uk' || low === 'u.k') return 'United Kingdom';
+    return s.replace(/^the\s+/i, '');
+  }
+
+  // The value to store for a candidate string, or null to refuse it.
+  function normalizeGeoValue(raw) {
+    if (raw == null) return null;
+    const s = String(raw).replace(/\s+/g, ' ').trim();
+    if (!s || s.length > 64 || /\n/.test(String(raw).trim())) return null;
+    if (s.toLowerCase() === 'worldwide') return 'Worldwide';
+    const m = s.match(/^([A-Za-z][A-Za-z .,'&()-]{0,58}?)\s+only$/i);
+    if (m) {
+      // Every place named must be a known country or region ("United States or Canada
+      // only" is fine; "English only" or free text is not).
+      const parts = m[1].split(/\s*(?:,|\bor\b|\band\b|&)\s*/i).map(normGeoPlace).filter(Boolean);
+      if (!parts.length || !parts.every((x) => GEO_PLACES.has(x.toLowerCase()))) return null;
+      return parts.join(' or ') + ' only';
+    }
+    const place = normGeoPlace(s);
+    if (GEO_PLACES.has(place.toLowerCase()) || GEO_PLACES.has(s.toLowerCase())) return place;
+    return null;
+  }
+
+  // -> { geo_restriction, geo_evidence }, both null when the page does not say.
+  function parseGeoRestriction(body) {
+    const text = String(body || '');
+    const sentence = text.match(/Only freelancers located in ([^\n]{1,60}?)\s+may\s+apply/i);
+    if (sentence) {
+      const value = normalizeGeoValue(normGeoPlace(sentence[1]) + ' only');
+      if (value) return { geo_restriction: value, geo_evidence: sentence[0].replace(/\s+/g, ' ').trim().slice(0, 200) };
+    }
+    const label = text.match(/(?:Talent\s+Preferences|Preferred\s+Location|Location\s+Preference)([^\n]*)\n([^\n]{0,80})/i);
+    if (label) {
+      const sameLine = (label[1] || '').replace(/^\s*[:\-–]\s*/, '').trim();
+      for (const cand of [sameLine, (label[2] || '').trim()]) {
+        const value = cand ? normalizeGeoValue(cand) : null;
+        if (value) return { geo_restriction: value, geo_evidence: (label[0].split('\n')[0].trim() + ' -> ' + cand).slice(0, 200) };
+      }
+    }
+    return { geo_restriction: null, geo_evidence: null };
+  }
+
+  // ── Is the scrape still about the job the tab was showing when it started? ───
+  // Upwork is a single-page app: the address bar, the canonical link and the text can
+  // belong to different jobs for a moment after navigation. A reading taken across
+  // that moment is dropped, not sent.
+  function jobIdFromUrl(u) {
+    const m = String(u || '').match(/~([0-9a-f]{16,})/i);
+    return m ? m[1].toLowerCase() : null;
+  }
+  function pageOwnJobIds() {
+    const ids = new Set();
+    const add = (u) => { const id = jobIdFromUrl(u); if (id) ids.add(id); };
+    const canonical = document.querySelector('link[rel="canonical"]');
+    if (canonical && canonical.href) add(canonical.href);
+    const og = document.querySelector('meta[property="og:url"]');
+    if (og && og.content) add(og.content);
+    return ids;
+  }
+  // null when the reading is consistent, else the reason it must be dropped.
+  function sameJobProblem(startHref, endHref, dataJobId, pageIds) {
+    const startId = jobIdFromUrl(startHref), endId = jobIdFromUrl(endHref);
+    if (startId && endId && startId !== endId) return 'the URL changed to another job while scraping';
+    if (!startId && endId) return 'the tab had no job id when scraping started but has one now';
+    if (startId && dataJobId && String(dataJobId).toLowerCase() !== startId) return 'the scraped job id differs from the URL the scrape started on';
+    if (startId && pageIds && pageIds.size && !pageIds.has(startId)) return "the page's own job id differs from the URL";
+    return null;
+  }
+
   function extractData() {
     const data = {
       job_id: getJobId(),
@@ -151,23 +242,11 @@
     const projectTypeMatch = body.match(/Project Type:\s*([^\n]+)/i);
     data.project_type = projectTypeMatch ? projectTypeMatch[1].trim() : null;
 
-    // Freelancer location preference (Worldwide / US only / etc.)
-    // Priority: labelled preference > "Only freelancers located in X" sentence > bare keyword
-    let geoStr = null;
-    const geoLabelMatch = body.match(/(?:Talent\s+Preferences|Preferred\s+Location|Location\s+Preference)[^\n]*\n([^\n]{2,40})/i);
-    const geoLocatedMatch = body.match(/Only freelancers located in (.+?)\s+may\s+apply/i);
-    const geoKeywordMatch = body.match(/\b(Worldwide|US\s+only|United\s+States\s+only|North\s+America\s+only|Europe\s+only|UK\s+only)\b/i);
-    if (geoLabelMatch) {
-      geoStr = geoLabelMatch[1].trim();
-    } else if (geoLocatedMatch) {
-      // Normalise "the U.S." / "the United States" → "US only"
-      let loc = geoLocatedMatch[1].trim().replace(/^the\s+/i, '').replace(/\.$/, '');
-      loc = loc.replace(/^U\.S\.?$/i, 'United States').replace(/^UK\.?$/i, 'United Kingdom');
-      geoStr = loc + ' only';
-    } else if (geoKeywordMatch) {
-      geoStr = geoKeywordMatch[1].trim();
-    }
-    data.geo_restriction = geoStr;
+    // Freelancer location restriction: ONLY from the exact sentence or a labelled header
+    // with a known value (see parseGeoRestriction above). null = the page does not say.
+    const geo = parseGeoRestriction(body);
+    data.geo_restriction = geo.geo_restriction;
+    data.geo_evidence = geo.geo_evidence;
 
     // Bid range (shown in Activity section)
     const bidsMatch = body.match(/High\s*\n\$([\d.]+)\s*\nAverage\s*\n\$([\d.]+)\s*\nLow\s*\n\$([\d.]+)/i);
@@ -576,6 +655,8 @@
   }
 
   async function run() {
+    // T20: remember which job this tab showed when the scrape STARTED.
+    const startHref = window.location.href;
     try {
       // Wait for BOTH panels in parallel — they hydrate independently.
       await Promise.all([waitForClientSection(), waitForActivityPanel()]);
@@ -608,6 +689,14 @@
         }
       } catch (e) {
         console.log('[Cockpit] Review scraping error:', e);
+      }
+
+      // T20: a reading taken while the tab moved to another job (or whose page id
+      // disagrees with its URL) must not be written to ANY job. Drop it.
+      const _problem = sameJobProblem(startHref, window.location.href, data.job_id, pageOwnJobIds());
+      if (_problem) {
+        console.warn('[Cockpit] Dropping this reading: ' + _problem + '. URL then:', startHref, 'now:', window.location.href);
+        return;
       }
 
       console.log('[Cockpit] Extracted:', data);

@@ -69,6 +69,12 @@ class Job(Base):
     bid_average = Column(Float, nullable=True)
     bid_low     = Column(Float, nullable=True)
     geo_restriction = Column(String, nullable=True)
+    # Where geo_restriction came from and when it was read (audit T20). The analyser
+    # only treats "United States only" as a hard disqualifier when there is evidence
+    # (the matched sentence / label) AND the read is under 24 h old; otherwise the
+    # location is "unverified". NULL on rows written before T20.
+    geo_evidence = Column(String, nullable=True)
+    geo_read_at = Column(DateTime, nullable=True)
     # "Already hired: N" — count of freelancers the client has already hired for this job.
     # >0 is a strong negative signal: the client is mostly done filling the role.
     client_already_hired = Column(Integer, nullable=True)

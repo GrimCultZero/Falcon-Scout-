@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { geoVerdict, geoPromptValue } from '../lib/geoEvidence'
 import * as XLSX from 'xlsx'
 // Step 21-A: structured case ledger + {{case:id}} placeholder expansion (DESIGN.md §21.3).
 // Runs as the FIRST output step (before _cleanPasteText + the _strip* pile) so a case
@@ -1276,9 +1277,9 @@ export default function JobDetail({
                   {job.geo_restriction && (
                     <EnrichRow
                       label="Location"
-                      value={job.geo_restriction}
+                      value={geoVerdict(job).unverified ? `${job.geo_restriction} (unverified)` : job.geo_restriction}
                       good={/worldwide/i.test(job.geo_restriction)}
-                      bad={/us.only|united states only|north america only/i.test(job.geo_restriction)}
+                      bad={geoVerdict(job).verified || (!geoVerdict(job).usOnly && /north america only/i.test(job.geo_restriction))}
                     />
                   )}
                 </div>
@@ -5106,7 +5107,7 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         `Title: ${job.title}`,
         rateLine,
         `Country: ${job.client_country || 'unknown'}`,
-        `Freelancer geo restriction: ${job.geo_restriction || 'none'}`,
+        `Freelancer geo restriction: ${geoPromptValue(job)}`,
         `Category: ${job.category || 'unknown'}`,
         `Keywords: ${job.keywords || 'none'}`,
         `Description (full):\n${fullDescription}`,
@@ -5189,7 +5190,7 @@ Artem is a Top Rated individual freelancer BUT delivers through his associated a
 - Stay honest, not inflated: IT Force is a real ecommerce/web-dev team, not a 7-service full-stack shop. On a multi-service posting whose PRIMARY need is outside the core lane, a MAYBE with honest strength-ranking is fair — but that is a scope judgment, NOT an "individual freelancer can't be an agency" rejection.
 
 HARD DISQUALIFIERS — if any apply, score MUST be 0 and verdict MUST be SKIP, no exceptions:
-1. "Freelancer geo restriction" field contains "United States only", "US only", or any similar restriction (Artem cannot legally apply)
+1. "Freelancer geo restriction" field contains "United States only", "US only", or any similar restriction (Artem cannot legally apply). A field that says "location unverified" is NOT a restriction and does NOT trigger this rule
 2. Rate ceiling is below $15/hr. For HOURLY RANGE jobs (e.g. "$15-$45/hr"), use the CEILING ($45 in this example), NOT the floor — the ceiling is what the client is willing to pay up to, and Artem can negotiate to that. Only disqualify when the CEILING (or the single rate, for non-range jobs) is below $15/hr. Below-$30 ceilings should be a soft negative signal / flag, not a hard skip.
 3. Payment NOT verified AND client has under 5 reviews. READ THE CLIENT LINE LITERALLY — this fires ONLY when the client line above literally says "payment NOT verified". If it says "payment verified", the client IS verified: you may NOT write "payment not verified", "unverified payment", or "high non-payment risk" anywhere in your output. NEVER CONTRADICT THE CLIENT DATA YOU WERE GIVEN — do not call spend "unknown" when a spend figure is provided, and do not invent a client-quality red flag that the data disproves. Fabricating this disqualifier has caused wrong SKIPs.
 4. "ALREADY HIRED" count ≥ 1 — the client has already hired someone for this role and is unlikely to hire again. Verdict MUST be SKIP and the "flags" array MUST include a flag noting "Client already hired N freelancer(s)".
@@ -5332,7 +5333,7 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
       // is allowed to block the override.
       if (_isPpcAuditJob) {
         const _hasRealDisqualifier =
-          /\b(?:united states only|us only|usa only)\b/i.test(String(job.geo_restriction || '')) ||
+          geoVerdict(job).verified ||
           (job.payment_verified === false && (Number(job.client_review_count) || 0) < 5) ||   // unknown (panel not read) is not a disqualifier
           (Number(job.client_already_hired) || 0) >= 1
         if (!_hasRealDisqualifier && (parsed.verdict !== 'APPLY' || (Number(parsed.score) || 0) < 7)) {

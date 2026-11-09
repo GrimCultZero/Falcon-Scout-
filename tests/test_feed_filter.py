@@ -290,25 +290,24 @@ assert_(passes("Local SEO and Google Business Profile API setup", "x"), "…so e
 assert_(tag("GTM Engineer to Validate Demand and Polish Go-to-Market Plan") is None, "'GTM' (go-to-market) does not tag a posting as tracking-only")
 assert_(tag("Google Tag Manager (GTM) Specialist - Cross-Domain Tracking & Attribution Setup") == "tracking", "…while Google Tag Manager still does")
 
-# ── follow-up: three in-lane gaps the first LIVE feed_drops showed (2026-11-09) ──
+# ── follow-up: two in-lane gaps the first LIVE feed_drops showed (2026-11-09) ──
 # Validated before adding: each one's only live hit was the real miss, no off-lane
-# title anywhere in the stored postings or the live drops. All three are title-only.
-FOLLOW_UP_KW = ["local search", "link insertion", "google review"]
+# title anywhere in the stored postings or the live drops. Both are title-only.
+# Owner decision: review removal is NOT added ("google review" was tried and removed).
+FOLLOW_UP_KW = ["local search", "link insertion"]
 OLD2_CFG = {**CFG, "keywords": [k for k in CFG["keywords"] if k not in FOLLOW_UP_KW]}
 for t in ("Local Search Ranking Improvement",
-          "Link insertion vendor for B2B SaaS and HR blogs (US traffic, strict vetting)",
-          "Google Review Removal Expert"):
+          "Link insertion vendor for B2B SaaS and HR blogs (US traffic, strict vetting)"):
     assert_(passes(t), f"LIVE MISS now passes: {t}")
     assert_(not passes(t, cfg=OLD2_CFG), f"…and was dropped without the new keyword: {t}")
-assert_(all(k in CFG["keywords"] and k in upwork_api.DEFAULT_FEED_CONFIG["keywords"] for k in FOLLOW_UP_KW), "the three are in the live config and in the defaults")
+assert_(all(k in CFG["keywords"] and k in upwork_api.DEFAULT_FEED_CONFIG["keywords"] for k in FOLLOW_UP_KW), "both are in the live config and in the defaults")
 assert_(all(k in CFG["title_only_keywords"] for k in FOLLOW_UP_KW), "…and are title-only (precision, like the other tool phrases)")
-assert_(not passes("Website help", "We have local search needs, a link insertion budget and want Google reviews."),
-        "mentioned only in a DESCRIPTION, none of the three counts")
-assert_(not passes("Google Reviews API integration for our app", "Pull reviews."), "'google review' skips a title that says 'api' (software, not reputation work)")
-assert_(passes("Google reviews management for local clinics"), "…while a real reviews job passes")
-assert_(tag("Google Review Removal Expert") == "gbp", "Google Review Removal is reputation management: passes AND is tagged GBP (marked, not hidden)")
-assert_(tag("Local Search Ranking Improvement") is None and tag("Link insertion vendor for B2B SaaS") is None, "local search / link insertion are ordinary in-lane work: no tag")
-assert_(not passes("Amazon Negative Review Removal Specialist - Pay Per Removed Review", "Remove reviews."), "an Amazon review job is still dropped by its stop word")
+assert_(not passes("Website help", "We have local search needs and a link insertion budget."), "mentioned only in a DESCRIPTION, neither counts")
+assert_(tag("Local Search Ranking Improvement") is None and tag("Link insertion vendor for B2B SaaS") is None, "ordinary in-lane work: no tag")
+# owner: do NOT add review removal
+assert_("google review" not in CFG["keywords"] and "google review" not in upwork_api.DEFAULT_FEED_CONFIG["keywords"], "OWNER: no review-removal keyword in the config or the defaults")
+for t in ("Google Review Removal Expert", "Amazon Negative Review Removal Specialist - Pay Per Removed Review", "Online Reputation Management: remove bad reviews"):
+    assert_(not passes(t, "Remove reviews."), f"review removal is dropped: {t}")
 
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)

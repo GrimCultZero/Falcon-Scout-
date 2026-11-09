@@ -61,7 +61,7 @@ It cannot be installed automatically — Chrome requires this by hand:
 1. Open `chrome://extensions`
 2. Turn on **Developer mode** (top right)
 3. **Load unpacked** → select the `upwork-enricher` folder
-4. Confirm it shows **Falcon Scout Enricher 5.16**
+4. Confirm it shows **Falcon Scout Enricher 5.17**
 
 Re-do step 3 (the reload button) after any change to the extension's files.
 

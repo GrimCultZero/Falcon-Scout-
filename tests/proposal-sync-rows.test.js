@@ -232,7 +232,8 @@ const rowsFor = (from, to) => { const a = []; for (let i = from; i <= to; i++) a
   assert(!/if \(added === 0 && page > 1\) break;/.test(src), 'the "zero new rows ends the sync" stop is gone');
   assert(/header_count: \(_lastPagerDiag && _lastPagerDiag\.headerCount\) \|\| null/.test(src), 'the sync POST carries header_count');
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'upwork-enricher', 'manifest.json'), 'utf8'));
-  assert(manifest.version === '5.16', `extension version bumped to 5.16 so a stale loaded extension is visible (${manifest.version})`);
+  const _v = manifest.version.split('.').map(Number);
+  assert(_v[0] > 5 || (_v[0] === 5 && _v[1] >= 16), `extension version is 5.16 or newer, so a stale loaded extension is visible (${manifest.version})`);
 
   console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
   process.exit(bad ? 1 : 0);

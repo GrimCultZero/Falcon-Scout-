@@ -304,6 +304,9 @@ def _map_node(n: dict) -> dict:
         "proposals": (str(n["totalApplicants"]) if n.get("totalApplicants") is not None else None),
         # mandatory preferred location ≈ a hard geo restriction; soft one → preferred_qualifications
         "geo_restriction": (pref_loc if (pref_mand and pref_loc) else None),
+        # T20: where that value came from and when (the structured API field is evidence).
+        "geo_evidence": (f"Upwork API: mandatory preferred location {pref_loc!r}" if (pref_mand and pref_loc) else None),
+        "geo_read_at": (datetime.now(timezone.utc).replace(tzinfo=None) if (pref_mand and pref_loc) else None),
         "preferred_qualifications": (f"Location: {pref_loc}" if (pref_loc and not pref_mand) else None),
         "client_total_spent_detail": (f"${spent:,.0f} total spent" if spent is not None else None),
         # Also populate client_spend (what JobList renders in the row) so API
@@ -377,7 +380,8 @@ DEFAULT_FEED_CONFIG = {
         "local citation", "citation building", "guest post",
         "youtube ads", "google business profile", "gbp",
         # Found in the first live drops (feed_drops, 2026-11-09) and validated before adding.
-        "local search", "link insertion", "google review",
+        # ("google review" was added and removed again: owner, 2026-11-09, no review removal.)
+        "local search", "link insertion",
     ],
     # Stop words — drop a job if its title/description contains any. (From the bot.)
     "stop_words": [
@@ -408,7 +412,7 @@ DEFAULT_FEED_CONFIG = {
         "google tag manager", "ga4", "google analytics", "conversion tracking",
         "search console", "indexing", "guest post", "youtube ads",
         "google business profile", "gbp",
-        "local search", "link insertion", "google review",
+        "local search", "link insertion",
     ],
     # whole_word_keywords: matched as whole words, never inside another word.
     #   Substring "geo" is inside "geography" and "geolocation". "geo" is also not
@@ -418,7 +422,7 @@ DEFAULT_FEED_CONFIG = {
     #   of these whole words. "Google Business Profile API Expert: Transition App
     #   from Test to Production" is software integration, not local SEO (found by
     #   replaying the stored postings, WORKLOG 2026-11-09).
-    "keyword_title_exclusions": {"google business profile": ["api"], "gbp": ["api"], "google review": ["api"]},
+    "keyword_title_exclusions": {"google business profile": ["api"], "gbp": ["api"]},
     # keyword_context: an ambiguous keyword only counts when the text also contains
     #   one of these. "indexing" alone is "database indexing" as often as Google.
     "keyword_context": {
@@ -440,7 +444,7 @@ DEFAULT_FEED_CONFIG = {
     "marked_keywords": {
         "tracking": ["google tag manager", "ga4", "google analytics",
                      "conversion tracking", "consent mode"],
-        "gbp": ["google business profile", "google my business", "gbp", "google review"],
+        "gbp": ["google business profile", "google my business", "gbp"],
     },
     # Rate floors. A job with an hourly ceiling below min_hourly, or a fixed
     # budget below min_fixed, is dropped. Jobs with NO stated rate are KEPT
