@@ -131,8 +131,8 @@ assert_(re.search(r'if p\.status == "invited":\s*\n\s*invited_c \+= 1', SRC) is 
 DB_SRC = (ROOT / "db.py").read_text(encoding="utf-8")
 assert_(re.search(r'source = Column\(String, nullable=True, index=True\)', DB_SRC) is not None,
         "Job.source has no default — a row must declare where it came from")
-assert_('job_data.setdefault("source", "bot")' in DB_SRC,
-        "save_job() stamps the Telegram listener path, the one caller that omits it")
+assert_('def save_job(' not in DB_SRC and 'setdefault("source", "bot")' not in DB_SRC,
+        "nothing stamps 'bot' any more: save_job() went with the Telegram listener (2026-11-09)")
 assert_(re.search(r'through the job feed - the conversation is the only record\."\),\s*\n'
                   r'\s*captured_at=datetime\.now\(timezone\.utc\),\s*\n\s*source="room",', SRC) is not None,
         "a room auto-capture is labelled source='room', never 'bot'")

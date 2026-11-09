@@ -10819,3 +10819,28 @@ tests/health-strip.test.js. Live: pill read `wait`, overall ok, immediately afte
 Known limit: the running-since stamp lives in backend memory, so a backend restart makes Chrome look
 freshly started (yellow again, red grace restarted). Harmless with the production launcher; under
 `--reload` every .py edit does it.
+
+## 2026-11-09 (later 3) -- The Telegram listener is disconnected and removed
+Owner: "we can disconnect and remove telegram bot - they no longer working" (@OffersHunterBot shut down
+2026-10-15; the API feed has been the only source since).
+Found first: a `listener.py` console window was open (PID 37796, started 18:36 today with the backend and
+bridge windows). Its python process was not running, only the `cmd /k` shell. It came from the owner's own
+Stream Deck launcher, C:\Users\syzov\Scripts\falconscout-streamdeck.cmd, which still started
+`python listener.py` (and the backend with `--reload`, the old way, not falconscout.bat).
+Done: stopped that window; deleted `upwork_listener.session` and its journal (the local Telegram login,
+untracked); `git rm` listener.py, parser.py (the Telegram message regex parser, used only by the listener,
+the history importer and reparse_jobs), import_history.py, reparse_jobs.py; removed `save_job()` from db.py
+(its only callers were the listener and the importer); removed `telethon` from requirements.txt; removed
+TELEGRAM_API_ID, TELEGRAM_API_HASH, BOT_USERNAME, SESSION_NAME, BOT_CHAT_ID and their comments from the
+local .env (values never printed; nothing else read them) and from .env.template; updated setup.bat,
+falconscout.bat, INSTALL.md, CLAUDE.md. Removed the listener line from the Stream Deck launcher (backup:
+falconscout-streamdeck.cmd.bak-20261109 beside it). Two UI strings that blamed the listener now say
+feed (JobDetail hint, FeedStatus comment). Tests: launcher.test.js now asserts the files are gone and the
+docs say so; test_auto_capture_invites.py asserts nothing stamps "bot" any more.
+Kept on purpose: the 170 jobs with source = 'bot' (of 2,411: 2,204 api, 29 room) (history, still listed under the feed's Telegram-bot
+toggle), db.py's `source` column, the dashboard code that reads it, dedup_jobs.py (not Telegram-specific),
+older design docs (DESIGN.md, PROJECT_HANDOFF.md, AUDIT_*) as history, and the extension's old error text
+in background.js ("likely never captured by the Telegram listener"), which needs an extension reload to change.
+Not done, needs the owner: end the "Falcon Scout" login in Telegram (Settings > Devices > Active sessions),
+and, if wanted, revoke the api_id/api_hash at my.telegram.org. Deleting the local session does not end the
+session on Telegram's side.

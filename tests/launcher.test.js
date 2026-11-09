@@ -4,8 +4,7 @@
 // hung or 500'd mid-edit at least three times) and to open a window for the dead
 // Telegram listener. Now:
 //   * backend WITHOUT --reload; falconscout-dev.bat is the reloading variant;
-//   * no listener window (listener.py and its files stay in the repo: T19 may
-//     revive that source);
+//   * no listener window (the listener itself was removed on 2026-11-09);
 //   * the CLI bridge is started only when ai_provider.json says "cli" (the
 //     backend's own auto-spawn covers a later switch);
 //   * the T3 CLI_BRIDGE_TOKEN step is kept, and runs before anything starts;
@@ -54,9 +53,11 @@ assert(tokenAt > 0 && tokenAt < firstLaunch, 'the CLI_BRIDGE_TOKEN step (T3) is 
 assert(/cd \/d "%~dp0"/.test(codeText), 'it changes to its own folder first, so it works however it is started');
 assert(/FALCON_DRYRUN/.test(bat) && /FALCON_NO_BROWSER/.test(bat), 'the test hooks exist');
 assert(/@echo off\r?\n(?:.*\r?\n)*?.*call "%~dp0falconscout\.bat" dev %\*/.test(text('falconscout-dev.bat')), 'falconscout-dev.bat just calls the launcher with "dev"');
-for (const f of ['listener.py', 'parser.py', 'import_history.py']) {
-  assert(fs.existsSync(path.join(ROOT, f)), `${f} is still in the repo (T19 may revive the Telegram source)`);
+for (const f of ['listener.py', 'parser.py', 'import_history.py', 'reparse_jobs.py']) {
+  assert(!fs.existsSync(path.join(ROOT, f)), `${f} is gone: the Telegram listener was removed on 2026-11-09`);
 }
+assert(!/telethon/i.test(text('requirements.txt')), 'telethon is no longer a requirement');
+assert(!/TELEGRAM_API|BOT_USERNAME|SESSION_NAME|BOT_CHAT_ID/.test(text('.env.template')), '.env.template no longer asks for Telegram settings');
 
 // ── run the real batch file in a scratch folder ─────────────────────────────
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fs_launcher_'));
@@ -142,8 +143,8 @@ const install = text('INSTALL.md').replace(/\r\n/g, '\n');
 const claude = text('CLAUDE.md').replace(/\r\n/g, '\n');
 assert(/Falcon Scout Enricher 5\.16/.test(install) && !/Enricher 5\.1[0-5]/.test(install), 'INSTALL.md names extension 5.16 (the version the launcher era needs)');
 assert(!/Opens four windows/.test(install) && /falconscout-dev\.bat/.test(install) && /no auto-reload|without .{0,12}reload/i.test(install), 'INSTALL.md describes the three-window, no-reload launcher and the dev variant');
-assert(/listener/i.test(install) && /(no longer|not) (started|launched)/i.test(install), 'INSTALL.md says the listener is no longer started');
-assert(/falconscout-dev\.bat/.test(claude) && /no longer launched|not launched|no longer started/i.test(claude), "CLAUDE.md's quick start lists the dev launcher and the listener's new status");
+assert(/no Telegram listener any more/i.test(install) && !/python listener\.py/.test(install), 'INSTALL.md says there is no Telegram listener and no longer shows its command');
+assert(/falconscout-dev\.bat/.test(claude) && /listener[\s\S]{0,120}removed on 2026-11-09/i.test(claude) && !/python listener\.py/.test(claude), "CLAUDE.md's quick start lists the dev launcher, says the listener was removed, and no longer shows its command");
 
 try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* the junction target must never be followed */ }
 assert(fs.existsSync(path.join(ROOT, '.venv', 'Scripts', 'python.exe')), 'cleanup left the real .venv alone');

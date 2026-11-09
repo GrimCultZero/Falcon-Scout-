@@ -37,7 +37,8 @@ class Job(Base):
     # filed every room/proposal/extension row as a Telegram capture — 16 of the
     # 73 "bot" jobs Artem had applied to were really his own invites, which
     # skewed the comparison that decided whether the bot was worth paying for.
-    # Each creation site now says what it is; save_job() stamps the listener
+    # Each creation site now says what it is (the Telegram listener, which stamped
+    # "bot" through save_job(), was removed on 2026-11-09; its rows keep "bot").
     # path, and the feed filter still treats NULL as "not the API feed".
     # (Upwork GraphQL marketplace search). Lets the feed toggle between them and
     # the two be compared side by side. Dedup is still on upwork_job_id, so a job
@@ -396,20 +397,3 @@ def init_db(database_url: str):
     Base.metadata.create_all(engine)
     return engine
 
-
-def save_job(engine, job_data: dict) -> bool:
-    """Insert a job record. Returns True if inserted, False if duplicate."""
-    with Session(engine) as session:
-        upwork_id = job_data.get("upwork_job_id")
-        if upwork_id:
-            exists = session.query(Job).filter_by(upwork_job_id=upwork_id).first()
-            if exists:
-                return False
-        # The Telegram listener is the only caller that doesn't name a source,
-        # so stamp it here rather than on the column, where it would also have
-        # labelled every other creation path "bot".
-        job_data.setdefault("source", "bot")
-        job = Job(**job_data)
-        session.add(job)
-        session.commit()
-        return True

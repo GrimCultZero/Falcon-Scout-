@@ -21,7 +21,7 @@ rather than carrying on half-installed.
 
 | | Why | Where |
 |---|---|---|
-| **Python 3.11+** | backend (and the optional Telegram listener) | <https://www.python.org/downloads/> — tick *Add python.exe to PATH* |
+| **Python 3.11+** | backend | <https://www.python.org/downloads/> — tick *Add python.exe to PATH* |
 | **Node.js LTS** | frontend + CLI bridge | <https://nodejs.org/> |
 
 ---
@@ -32,10 +32,6 @@ rather than carrying on half-installed.
 
 - **`ANTHROPIC_API_KEY`** — required. Without it every AI call fails with
   *"ANTHROPIC_API_KEY not set in .env"*. <https://console.anthropic.com/settings/keys>
-- **`TELEGRAM_API_ID`** / **`TELEGRAM_API_HASH`** — only needed if you run the
-  optional Telegram listener by hand. The launcher no longer starts it (the bot it
-  listened to shut down on 2026-10-15; the API feed replaced it).
-  <https://my.telegram.org/apps>
 - `UPWORK_API_KEY` / `UPWORK_API_SECRET` — optional, for the API job feed.
 
 ---
@@ -50,7 +46,6 @@ public cloud folder.
 | File | What breaks without it |
 |---|---|
 | **`upwork_jobs.db`** | **Everything that matters.** The knowledge base, all 16 case studies, every sent proposal, outcomes, rule telemetry. The app starts but has no memory and writes letters with no case studies. |
-| `upwork_listener.session` (`*.session`) | Only for the optional Telegram listener, which has to log in again without it. Safe to skip |
 | `ai_provider.json` | Falls back to API mode; recreate by toggling CLI/API in Settings |
 | `.upwork_token.json` | Upwork API feed needs re-authorising |
 
@@ -125,8 +120,9 @@ Opens up to three windows, then the browser at <http://localhost:5180>:
 - **CLI bridge** — only when `ai_provider.json` says `"cli"`. If you switch to CLI
   later in Settings, the backend starts the bridge itself on the first CLI call.
 
-The **Telegram listener is no longer started**. The bot it listened to shut down on
-2026-10-15 and the API feed replaced it; `listener.py` and its files stay in the repo.
+There is **no Telegram listener any more**. The bot it listened to shut down on
+2026-10-15, the API feed replaced it, and the listener and its parser were removed on
+2026-11-09 (they stay in git history).
 
 While you are **editing the backend**, use the development launcher instead. It is
 the same, but the backend reloads on every `.py` change:
@@ -142,7 +138,6 @@ To run pieces separately:
 .\.venv\Scripts\uvicorn api.main:app --port 8000 --reload   # backend only, development
 cd frontend && npm run dev                                  # frontend only
 node cli-bridge.js                                          # bridge only
-python listener.py                                          # optional, retired Telegram source
 ```
 
 **Always start the backend from `.venv`**, never a bare system Python. A bare

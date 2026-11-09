@@ -1214,7 +1214,7 @@ export default function JobDetail({
                   {enrichDebug.avg_rate  != null && <div>avg_rate: ${enrichDebug.avg_rate}/hr</div>}
                   {!enrichDebug.proposals && !enrichDebug.hire_rate && (
                     <div style={{ color: '#f59e0b', marginTop: 4 }}>
-                      ⚠ Backend returned OK but no enrichment fields — job may not be in DB yet (listener not running?) or the Upwork page didn't load fully before the extension scraped it.
+                      ⚠ Backend returned OK but no enrichment fields — job may not be in DB yet (the feed has not fetched it) or the Upwork page didn't load fully before the extension scraped it.
                     </div>
                   )}
                 </>

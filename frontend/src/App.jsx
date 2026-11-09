@@ -1116,8 +1116,7 @@ export default function App() {
 }
 
 // ── Feed-activity indicator ──────────────────────────────────────────────────
-// Shows whether the capture bot (@OffersHunterBot via the Telethon listener) is
-// actively pushing new jobs. Fetches /jobs/latest-captured independently so the
+// Shows whether the job feed (the Upwork API poll) is actively bringing in new jobs. Fetches /jobs/latest-captured independently so the
 // status is NEVER affected by the search query or any active filters.
 function FeedStatus() {
   const [freshestMs, setFreshestMs] = useState(0)
@@ -1144,8 +1143,8 @@ function FeedStatus() {
   } else {
     const mins = Math.max(0, Math.floor((Date.now() - freshestMs) / 60000))
     // The feed is bursty — gaps of an hour or two are normal even when the
-    // bot is perfectly connected. So "live" just means a job landed within the
-    // last 2 hours (strong evidence the listener is up). Only after that do we
+    // feed is perfectly healthy. So "live" just means a job landed within the
+    // last 2 hours (strong evidence the feed is up). Only after that do we
     // downgrade to "Quiet", and after a full day to "Idle" (likely down).
     if (mins < 120) {
       // Dark emerald text with a brighter green glow halo for contrast.

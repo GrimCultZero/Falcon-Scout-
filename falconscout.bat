@@ -9,10 +9,9 @@ REM  on every .py edit - for development, not for daily use
 REM  (reload has hung or 500'd the backend mid-edit at least
 REM  three times, audit 2026-10-29 F13).
 REM
-REM  The Telegram listener is NOT started any more: the bot shut
-REM  down on 2026-10-15 and the API feed replaced it. listener.py
-REM  and its files stay in the repo; run it by hand if ever needed
-REM  (see INSTALL.md).
+REM  There is no Telegram listener: the bot shut down on 2026-10-15,
+REM  the API feed replaced it, and the listener was removed on
+REM  2026-11-09.
 REM
 REM  If the provider is switched to CLI later, the backend starts
 REM  the bridge itself on the first CLI call.

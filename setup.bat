@@ -123,9 +123,8 @@ if defined FAILED (
   echo  ===========================================================
   echo.
   echo   Still to do by hand - see INSTALL.md for detail:
-  echo     1. Edit .env  ^(ANTHROPIC_API_KEY; the TELEGRAM_ values are only for the
-  echo        optional listener, which falconscout.bat no longer starts^)
-  echo     2. Copy from the old machine: upwork_jobs.db, *.session ^(optional^),
+  echo     1. Edit .env  ^(ANTHROPIC_API_KEY^)
+  echo     2. Copy from the old machine: upwork_jobs.db,
   echo        ai_provider.json, .upwork_token.json
   echo     3. Load the Chrome extension: chrome://extensions ^> Developer mode
   echo        ^> Load unpacked ^> select the upwork-enricher folder
