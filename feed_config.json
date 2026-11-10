@@ -100,5 +100,9 @@
   ],
   "payment_verified_only": true,
   "per_keyword_limit": 20,
-  "auto_fetch_minutes": 3
+  "auto_fetch_minutes": 3,
+  "test_week": {
+    "from": "2026-11-10",
+    "until": "2026-11-17"
+  }
 }

@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "api"))
 
 import upwork_api  # noqa: E402
 
-CFG = upwork_api.load_feed_config()
+CFG = {**upwork_api.load_feed_config(), "test_week": None}  # the base rules; the owner's test week (feed_config test_week) is tested in test_test_week.py
 
 bad = 0
 

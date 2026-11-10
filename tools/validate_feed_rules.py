@@ -58,7 +58,7 @@ def load_postings(db_path):
 
 def word_rules_only(cfg):
     """The same config with every floor off, so only the word rules decide."""
-    return {**cfg, "min_hourly": 0, "min_fixed": 0, "payment_verified_only": False,
+    return {**cfg, "test_week": None, "min_hourly": 0, "min_fixed": 0, "payment_verified_only": False,
             "max_posting_age_hours": 0, "exclude_countries": []}
 
 

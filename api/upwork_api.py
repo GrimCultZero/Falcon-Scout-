@@ -450,6 +450,17 @@ DEFAULT_FEED_CONFIG = {
                      "conversion tracking", "consent mode"],
         "gbp": ["google business profile", "google my business", "gbp"],
     },
+    # ── TEST WEEK (owner-approved, 2026-11-10 to 2026-11-17) ───────────────────
+    # {"from": "2026-11-10", "until": "2026-11-17"}, or null for no test. While it is
+    # active (dates are inclusive, in Europe/Kyiv time):
+    #   * a row that would be dropped for unverified payment, hourly under the floor or
+    #     fixed price under the floor is KEPT and tagged "test:unverified",
+    #     "test:low-hourly" or "test:low-fixed" (shown with a badge in the feed);
+    #   * pure web-development / design jobs are hidden and recorded in feed_drops as
+    #     "testweek:webdev" (see _is_pure_webdev).
+    # India, the stop words, the 72 h age limit and no-keyword-in-text are unchanged.
+    # After "until" the block does nothing: the old rules are back with no manual step.
+    "test_week": None,
     # Rate floors. A job with an hourly ceiling below min_hourly, or a fixed
     # budget below min_fixed, is dropped. Jobs with NO stated rate are KEPT
     # (many good postings omit budget; the analyser handles rate).
@@ -628,11 +639,72 @@ def feed_tag_for(row: dict, cfg: dict) -> "str | None":
     return tag
 
 
-def _row_passes(row: dict, cfg: dict) -> "str | None":
+# ── test week (2026-11-10 .. 2026-11-17) ─────────────────────────────────────
+try:
+    from zoneinfo import ZoneInfo
+    _OWNER_TZ = ZoneInfo("Europe/Kyiv")
+except Exception:                                       # tzdata missing: fall back to UTC
+    _OWNER_TZ = timezone.utc
+
+# Lane words that keep a web-development-looking job: the work Artem does.
+_TW_LANE_RE = re.compile(
+    r"(?<!\w)(?:google ads|adwords|ppc|seo|geo|aeo|ai search|performance max|pmax|tracking|analytics|ga4|google tag manager)(?!\w)",
+    re.I)
+# A TITLE that says the job is building or designing a site.
+_TW_WEBDEV_TITLE_RE = re.compile(
+    r"(?<!\w)(?:shopify|wordpress|webflow|web design(?:er)?|website design(?:er)?|web developer|website developer|developers?|development)(?!\w)",
+    re.I)
+
+
+def test_week_active(cfg: dict, now: "datetime | None" = None) -> bool:
+    """Is the owner's test week on? `from` and `until` are inclusive Europe/Kyiv dates;
+    outside them (or with no block) this is False, so the old rules return by themselves."""
+    tw = (cfg or {}).get("test_week")
+    if not isinstance(tw, dict) or not tw.get("until"):
+        return False
+    today = (now or datetime.now(timezone.utc)).astimezone(_OWNER_TZ).date()
+    try:
+        until = datetime.strptime(str(tw["until"]), "%Y-%m-%d").date()
+        start = datetime.strptime(str(tw["from"]), "%Y-%m-%d").date() if tw.get("from") else None
+    except ValueError:
+        return False                                    # a malformed date never loosens the filter
+    return (start is None or today >= start) and today <= until
+
+
+def _is_pure_webdev(title: str, blob: str) -> bool:
+    """A job that is only about building / designing a website: its TITLE says Shopify,
+    WordPress, Webflow, web design(er) or developer/development, and neither the title nor
+    the text mentions Google Ads, PPC, SEO, GEO, AEO, AI search, Performance Max, tracking
+    or analytics. "Shopify SEO" and "Shopify Google Ads" are NOT pure web development."""
+    return bool(_TW_WEBDEV_TITLE_RE.search(title)) and not _TW_LANE_RE.search(blob)
+
+
+def _floor_failures(row: dict, cfg: dict) -> list:
+    """The money / payment rules this row breaks, as test-week tags (empty = none)."""
+    out = []
+    if cfg.get("payment_verified_only") and row.get("payment_verified") is not True:
+        out.append("test:unverified")
+    min_h = cfg.get("min_hourly") or 0
+    hmax = row.get("hourly_rate_max") or row.get("hourly_rate_min")
+    if min_h and hmax is not None and hmax < min_h:
+        out.append("test:low-hourly")
+    min_f = cfg.get("min_fixed") or 0
+    fixed = row.get("fixed_budget")
+    if min_f and fixed:
+        try:
+            if float(str(fixed).lstrip("$").replace(",", "")) < min_f:
+                out.append("test:low-fixed")
+        except ValueError:
+            pass
+    return out
+
+
+def _row_passes(row: dict, cfg: dict, now: "datetime | None" = None) -> "str | None":
     """Return a drop-reason string if the row should be filtered out, else None."""
     title = (row.get("title") or "").lower()
     desc = (row.get("description_full") or "").lower()
     blob = title + " " + desc
+    testing = test_week_active(cfg, now)
 
     # Stop words match the TITLE ONLY, on whole words (2026-10-15).
     # Matching the whole blob meant one passing mention killed a job that was
@@ -656,14 +728,20 @@ def _row_passes(row: dict, cfg: dict) -> "str | None":
         if (cfg.get("keywords") or []) and not _keyword_hit(title, desc, cfg):
             return "no-keyword-in-text"
 
+    # Test week: pure web-development / design jobs are hidden (and recorded in feed_drops).
+    if testing and _is_pure_webdev(title, blob):
+        return "testweek:webdev"
+
+    # The rate floors. During the test week they do not drop: _apply_filter keeps the row
+    # and tags it (test:low-hourly / test:low-fixed), so they show in the feed with a badge.
     min_h = cfg.get("min_hourly") or 0
     hmax = row.get("hourly_rate_max") or row.get("hourly_rate_min")
-    if min_h and hmax is not None and hmax < min_h:
+    if not testing and min_h and hmax is not None and hmax < min_h:
         return f"hourly<{min_h}"
 
     min_f = cfg.get("min_fixed") or 0
     fixed = row.get("fixed_budget")
-    if min_f and fixed:
+    if not testing and min_f and fixed:
         try:
             fval = float(str(fixed).lstrip("$").replace(",", ""))
             if fval < min_f:
@@ -677,7 +755,7 @@ def _row_passes(row: dict, cfg: dict) -> "str | None":
     if excl and country and any(c in country for c in excl):
         return f"country:{country}"
 
-    if cfg.get("payment_verified_only") and row.get("payment_verified") is not True:
+    if not testing and cfg.get("payment_verified_only") and row.get("payment_verified") is not True:
         return "unverified-payment"
 
     max_age_h = cfg.get("max_posting_age_hours") or 0
@@ -718,7 +796,12 @@ def _apply_filter(seen: dict, cfg: dict, fetched: int, extra: dict | None = None
             dropped_rows.append({"upwork_job_id": r.get("upwork_job_id"), "title": r.get("title"),
                                  "reason": reason, "posted_date": r.get("posted_date")})
         else:
-            r["feed_tag"] = feed_tag_for(r, cfg)
+            # feed_tag: the T18 marker (tracking / gbp) and, during the test week, one tag per
+            # floor the row broke. Comma-separated, e.g. "gbp,test:low-fixed".
+            tags = [t for t in [feed_tag_for(r, cfg)] if t]
+            if test_week_active(cfg):
+                tags += _floor_failures(r, cfg)
+            r["feed_tag"] = ",".join(tags) or None
             kept.append(r)
 
     # A sink that fails must never fail the fetch that called it.

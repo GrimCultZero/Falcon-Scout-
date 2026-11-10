@@ -31,7 +31,7 @@ def check(ok, msg):
         bad += 1
     print(("PASS" if ok else "FAIL") + "  " + msg)
 
-CFG = upwork_api.load_feed_config()
+CFG = {**upwork_api.load_feed_config(), "test_week": None}  # the base rules; the owner's test week (feed_config test_week) is tested in test_test_week.py
 now = datetime.now(timezone.utc)
 def iso(hours_ago):
     return (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")

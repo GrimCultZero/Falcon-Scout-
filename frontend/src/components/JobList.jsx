@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { feedTagBadge } from '../lib/feedDrops'
+import { feedTagBadges } from '../lib/feedDrops'
 
 function formatRate(min, max) {
   if (!min && !max) return null
@@ -98,7 +98,7 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
         const isUsOnly = job.geo_restriction && /United States only|US only/i.test(job.geo_restriction)
         // T18: a row the feed let through because its TITLE is about tracking or a Google
         // Business Profile (and not Google Ads / SEO): shown, never hidden, but labelled.
-        const tagBadge = feedTagBadge(job.feed_tag)
+        const tagBadges = feedTagBadges(job.feed_tag)
         // "Enriched" = the extension scraped full detail. For API-sourced jobs,
         // `proposals` is provided natively by the API, so the old heuristic
         // would mark every API job enriched. Require an explicit enriched_at
@@ -248,13 +248,13 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
               {job.title || 'Untitled'}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-              {tagBadge && (
-                <span data-testid="feed-tag" data-tag={job.feed_tag} title={tagBadge.title}
+              {tagBadges.map(({ tag, badge }) => (
+                <span key={tag} data-testid="feed-tag" data-tag={tag} title={badge.title}
                   style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', padding: '3px 7px', borderRadius: 3, cursor: 'help',
-                           background: tagBadge.bg, color: tagBadge.color, border: `1px solid ${tagBadge.border}` }}>
-                  {tagBadge.label}
+                           background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
+                  {badge.label}
                 </span>
-              )}
+              ))}
               {rate && (
                 <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '3px 7px', borderRadius: 3, ...rateStyle }}>
                   {rate}

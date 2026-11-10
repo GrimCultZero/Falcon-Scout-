@@ -17,6 +17,7 @@ export function describeReason(reason) {
   if (r === 'unverified-payment') return 'Payment not verified'
   if ((m = r.match(/^posted>(\d+)h/))) return `Posted more than ${m[1]} h ago`
   if (r.startsWith('country:')) return `Excluded country: ${r.slice('country:'.length)}`
+  if (r === 'testweek:webdev') return 'Test week: pure web development / design job hidden'
   return r || 'Unknown reason'
 }
 
@@ -46,5 +47,19 @@ export function feedTagBadge(tag) {
       color: '#b45309', bg: 'rgba(245,158,11,0.16)', border: 'rgba(245,158,11,0.5)',
     }
   }
+  const test = {
+    'test:unverified': ['TEST: UNVERIFIED', 'Test week: the client\'s payment is not verified. Normally dropped. Expect more scams and no-hire posts; skim quickly.'],
+    'test:low-hourly': ['TEST: LOW HOURLY', 'Test week: the hourly rate is under the usual floor. Normally dropped.'],
+    'test:low-fixed': ['TEST: LOW FIXED', 'Test week: the fixed price is under the usual floor. Normally dropped.'],
+  }[tag]
+  if (test) {
+    return { label: test[0], title: test[1], color: '#6d28d9', bg: 'rgba(139,92,246,0.14)', border: 'rgba(139,92,246,0.5)' }
+  }
   return null
+}
+
+/** A row's feed_tag can hold several comma-separated tags ("gbp,test:low-fixed"). */
+export function feedTagBadges(tags) {
+  return String(tags || '').split(',').map(t => t.trim()).filter(Boolean)
+    .map(t => ({ tag: t, badge: feedTagBadge(t) })).filter(x => x.badge)
 }
