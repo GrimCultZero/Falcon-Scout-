@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { geoVerdict, geoPromptValue } from '../lib/geoEvidence'
+import { testWeekActive, priceEvidence, testWeekRateLine, testWeekFlags, testWeekPromptBlock, testWeekGuard } from '../lib/priceEvidence'
 import * as XLSX from 'xlsx'
 // Step 21-A: structured case ledger + {{case:id}} placeholder expansion (DESIGN.md §21.3).
 // Runs as the FIRST output step (before _cleanPasteText + the _strip* pile) so a case
@@ -4951,6 +4952,14 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         _WEBDEV_RATE_RE.test(`${job.title || ''} ${job.category || ''} ${job.keywords || ''} ${fullDescription}`)
       const _rateFloor = _isWebDevJob ? 40 : 30
       const _floorLabel = _isWebDevJob ? `$${_rateFloor}/hr developer` : `$${_rateFloor}/hr`
+      // TEST WEEK (owner decision 2026-11-12): while feed_config.json's test_week is active the
+      // analyser judges the job, not the money (lib/priceEvidence.js). Read the config here; any
+      // failure means "not active" and every rule below is the old one, unchanged.
+      let _twCfg = null
+      try { const _twRes = await fetch('/feed-config'); if (_twRes.ok) _twCfg = await _twRes.json() } catch { /* old rules */ }
+      const _testWeek = testWeekActive(_twCfg)
+      const _twUntil = _twCfg && _twCfg.test_week ? _twCfg.test_week.until : null
+      const _twEv = _testWeek ? priceEvidence(job, _rateFloor) : null
       // PPC / GOOGLE ADS ACCOUNT AUDIT jobs are sold as a FIXED $300 / 1-working-day
       // deliverable — NOT an hourly engagement. So the hourly floor is irrelevant here and
       // a low posted ceiling or low client avg must NOT count against the job, and
@@ -5018,6 +5027,9 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         // the verdict cap removed for this case only — when the posted ceiling
         // does NOT clear the floor, the harsher branches below still apply in full.
         mandatoryFlags.push(`RATE — POSTED RATE CLEARS THE FLOOR, DO NOT TREAT AS A SKIP DRIVER: this posting states its own rate (ceiling $${Number(job.hourly_rate_max)}/hr), which MEETS OR EXCEEDS Artem's ${_floorLabel} floor. The client's historical average ($${_avgRate}/hr) is lower, which is worth ONE flag as a negotiation/rate-pressure risk — their past hires may have been cheaper role types. It is NOT evidence the posted rate is fake. Apply AT MOST -1 point for this. Do NOT cap the verdict, do NOT say "rate-floor risk dominates", do NOT call the posted range unrealistic, and do NOT let this outweigh scope fit or a low-competition applicant pool.`)
+      } else if (_twEv && (_twEv.cheapPayer || _twEv.weakAvg)) {
+        // Test week: a low average counts only with real history behind it; both cases are
+        // worded by testWeekFlags() below instead of the generic deductions.
       } else if (_avgRate > 0 && _avgRate < _rateFloor - 10) {
         mandatoryFlags.push(`Client historical avg rate $${_avgRate}/hr is FAR below Artem's ${_floorLabel} floor — strong rate-floor risk, cap verdict at MAYBE, -3 points`)
       } else if (_avgRate > 0 && _avgRate < _rateFloor - 5) {
@@ -5032,6 +5044,10 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
             : `Client historical avg $${_avgRate}/hr meets or exceeds Artem's ${_floorLabel} floor — rate is a NON-issue (mild positive). No rate-floor deduction; do NOT flag any rate-floor risk.`
         )
       }
+      // A PPC audit is a fixed-fee product: the rate-floor rules never apply to it, so the
+      // cheap-payer / weak-average wording is left out for those (the other test-week flags stay).
+      const _twEvForFlags = _twEv && _isPpcAuditJob ? { ..._twEv, cheapPayer: false, weakAvg: false } : _twEv
+      if (_twEvForFlags) mandatoryFlags.push(...testWeekFlags(_twEvForFlags))
       if (_interviewing >= 10) {
         mandatoryFlags.push(`Client already interviewing ${_interviewing} candidates — shortlist is closing, cap verdict at MAYBE, -3 points`)
       } else if (_interviewing >= 5) {
@@ -5075,13 +5091,16 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       const _hasHourly = job.hourly_rate_min != null || job.hourly_rate_max != null
       const _hasFixed = job.fixed_budget != null && String(job.fixed_budget).trim() !== ''
       let rateLine
+      const _twRateLine = testWeekRateLine(_twEv)
       // For THIS job the applicable floor is stated explicitly so the model uses
       // the right number — $40/hr on web-dev jobs (Artem's developer rate),
       // $30/hr otherwise. This OVERRIDES the generic "$30/hr" in the rules below.
       const _floorDirective = _isWebDevJob
         ? `Artem's $40/hr DEVELOPER floor (this is a web-development job — use $40/hr, NOT the generic $30/hr, wherever the rules below reference his minimum)`
         : `Artem's $30/hr floor`
-      if (_hasHourly) {
+      if (_twRateLine) {
+        rateLine = _twRateLine   // test week: an unstated / zero / placeholder rate is neutral
+      } else if (_hasHourly) {
         rateLine = `Rate: HOURLY $${job.hourly_rate_min ?? '?'}-$${job.hourly_rate_max ?? '?'}/hr (this is an HOURLY rate — apply the RATE-RANGE rule, compare the CEILING to ${_floorDirective}).`
       } else if (_hasFixed) {
         // Anomalous-budget guard: a fixed figure that is implausibly large
@@ -5296,7 +5315,7 @@ SCORING RULE (mandatory):
 - For each criterion in Preferred qualifications that Artem CLEARLY does not meet, subtract 1 point from the score. Examples of clear mismatches: "Location: United States" (Artem is in Ukraine), "Location: India" (Artem is in Ukraine), specific certification he lacks. Examples that are NOT mismatches: "Location: Europe" (Ukraine is in Europe), "Location: Eastern Europe" (Ukraine is in Eastern Europe), "English required" (Artem is fluent in English), "Talent Type: Agency" / "Agency" (Artem delivers via his associated agency IT Force — do NOT flag this as unmet; see AGENCY / WHITE-LABEL REQUIREMENT above).
 - Floor the resulting score at 5 — preferred-qualification mismatches alone never push verdict to SKIP and never push score below 5.
 - For every missed criterion, the "flags" array MUST include a flag in the exact format: "Doesn't meet preferred: <criterion as written>" (one flag per criterion).
-- The cover letter should pre-empt the concern (timezone overlap, async cadence, etc.) — but that's the generator's job; here, your job is to score honestly and flag visibly.${rulesText}${coreContextText}${examplesText}${adjustments}
+- The cover letter should pre-empt the concern (timezone overlap, async cadence, etc.) — but that's the generator's job; here, your job is to score honestly and flag visibly.${rulesText}${coreContextText}${examplesText}${adjustments}${_testWeek ? testWeekPromptBlock(_twUntil) : ''}
 Respond ONLY with a JSON object. No markdown, no explanation, just the JSON:
 {"verdict":"APPLY","score":8,"summary":"brief fit summary","reasons":["reason 1","reason 2","reason 3"],"flags":["flag 1"]}
 Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
@@ -5346,6 +5365,16 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
           parsed.score = Math.max(Number(parsed.score) || 0, 7)
           _recordViolations('analyser', job?.id, ['auditJobVerdictOverridden'])
         }
+      }
+      // TEST WEEK backstop (lib/priceEvidence.js): the prompt block above asks the model to
+      // judge the job, not the money; this enforces it in code, because prompt rules get
+      // ignored. Only a REAL disqualifier (verified US-only, already hired) may keep a 0-1.
+      if (_testWeek) {
+        const _twReal = geoVerdict(job).verified || (Number(job.client_already_hired) || 0) >= 1
+        const _twAudit = _isPpcAuditJob ? { ..._twEv, cheapPayer: false } : _twEv
+        const { parsed: _twParsed, events: _twEvents } = testWeekGuard(parsed, _twAudit, { realDisq: _twReal, until: _twUntil })
+        parsed = _twParsed
+        if (_twEvents.length) _recordViolations('analyser', job?.id, _twEvents)
       }
       if (_isStaleAnalyse()) {
         // The user navigated to a different job while this analysis was in
