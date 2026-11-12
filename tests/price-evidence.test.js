@@ -140,10 +140,11 @@ const ROOT = path.join(__dirname, '..');
   assert(/_twEv && \(_twEv\.cheapPayer \|\| _twEv\.weakAvg\)/.test(jd), 'in test week the generic avg-rate deductions step aside for the two cases testWeekFlags words itself');
   const iGen = jd.indexOf('const generate = async (adjustmentsArg');
   assert(iGen > 0 && !/_testWeek|priceEvidence|testWeekGuard|testWeekPromptBlock/.test(jd.slice(iGen)), 'the LETTER GENERATOR (everything from generate() on) does not reference any of it');
-  // The finding that decides whether the verdict reaches the generator:
+  // Since 2026-11-12 the generator may READ the analysis (filtered hints) but must never be
+  // GATED by it: the GET route exists, and generate() has no verdict check (tests/analyser-hints.test.js).
   const main = fs.readFileSync(path.join(ROOT, 'api', 'main.py'), 'utf8');
-  assert(/@app\.post\("\/jobs\/\{job_id\}\/analysis"\)/.test(main) && !/@app\.get\("\/jobs\/\{job_id\}\/analysis"\)/.test(main),
-    'PINNED: /jobs/{id}/analysis is POST-only. generate() GETs it, gets 405, and so never sees a verdict (its SKIP gate is dead code). Adding a GET route would switch that gate on and block letters for every SKIP: an owner decision, see WORKLOG.');
+  assert(/@app\.get\("\/jobs\/\{job_id\}\/analysis"\)/.test(main) && !/storedAnalysis\??\.verdict/.test(jd),
+    'the analysis route has a GET, and generate() never branches on the stored verdict, so the analyser changes above cannot block a letter');
 
   console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
   process.exit(bad ? 1 : 0);

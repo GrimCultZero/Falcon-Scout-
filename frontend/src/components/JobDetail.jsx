@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { geoVerdict, geoPromptValue } from '../lib/geoEvidence'
 import { testWeekActive, priceEvidence, testWeekRateLine, testWeekFlags, testWeekPromptBlock, testWeekGuard } from '../lib/priceEvidence'
+import { analyserHintsBlock } from '../lib/analyserHints'
 import * as XLSX from 'xlsx'
 // Step 21-A: structured case ledger + {{case:id}} placeholder expansion (DESIGN.md §21.3).
 // Runs as the FIRST output step (before _cleanPasteText + the _strip* pile) so a case
@@ -6557,9 +6558,11 @@ function ProposalColumn({
     _setCurrentJobId(_jobIdAtCallTime)
     const _isStaleGenerate = () => currentJobIdRef.current !== _jobIdAtCallTime
     try {
-      // Load the stored analysis verdict so the generator can gate on SKIP /
-      // include score + flags in the job context. ProposalColumn is a sibling
-      // of AIAnalysisColumn and can't read its state directly — fetch from API.
+      // Load the stored analysis so the generator can read the analyser's NOTES as hints
+      // (lib/analyserHints.js: scope / fit observations only; never the verdict, the score,
+      // money or competition). ProposalColumn is a sibling of AIAnalysisColumn and can't
+      // read its state directly — fetch from API. It NEVER gates a letter: Artem decides
+      // what to apply to (owner rule 2026-11-12), so there is no SKIP gate any more.
       let storedAnalysis = null
       try {
         const aRes = await fetch(`/jobs/${job.id}/analysis`)
@@ -6569,18 +6572,9 @@ function ProposalColumn({
         }
       } catch {}
 
-      // SKIP gate — deterministic (DESIGN.md §16): if the stored verdict is SKIP,
-      // produce a pass note directly without calling Claude. The prompt-only gate
-      // was reliably ignored by the model. The Redo button passes { skipOverride: true }
-      // so Artem can still force-generate a real letter when he wants to.
-      if (storedAnalysis?.verdict === 'SKIP' && !options.skipOverride) {
-        const reason = storedAnalysis.summary
-          ? storedAnalysis.summary.replace(/\.$/, '')
-          : storedAnalysis.flags?.[0] || 'hard disqualifiers apply'
-        if (!_isStaleGenerate()) setProposal(`Skip — ${reason}.\n\nNot applying on this one.`)
-        setLoading(false)
-        return
-      }
+      // (The deterministic SKIP gate of DESIGN.md §16 was removed 2026-11-12, owner: "I don't
+      // want generator to refuse me in creating any messages". It was dead code until then:
+      // the route it read did not exist. Generate always writes the letter.)
 
       // ── Client-type detection (hoisted) ──────────────────────────────────────
       // Decide DIRECT vs agency/white-label up front, with the SAME scope logic
@@ -7180,8 +7174,7 @@ function ProposalColumn({
         job.proposals ? `Applicants so far: ${job.proposals}` : '',
         (job.client_already_hired ?? 0) > 0 ? `WARNING: client has already hired ${job.client_already_hired} freelancer(s) for this job.` : '',
         job.preferred_qualifications ? `PREFERRED QUALIFICATIONS the client set (Upwork shows a banner when these aren't met — write the cover letter so it pre-empts the visible gap with timezone overlap, async cadence, or other reassurance, but do NOT lead with apology):\n${job.preferred_qualifications}` : '',
-        storedAnalysis ? `Analyser verdict: ${storedAnalysis.verdict} (${storedAnalysis.score}/10)\nAnalyser summary: ${storedAnalysis.summary}` : '',
-        storedAnalysis?.flags?.length ? `Analyser flags:\n${storedAnalysis.flags.map(f => `- ${f}`).join('\n')}` : '',
+        analyserHintsBlock(storedAnalysis),
         ahrefsResult ? `PROSPECT SITE SEO PROFILE (Ahrefs — use this to personalise the cover letter):\n${ahrefsResult}\nIf near-zero organic presence: position the engagement as building from scratch, mention you've grown traffic from flat ground before. If solid base: frame as scaling existing momentum.` : '',
         websiteText
           ? `CLIENT WEBSITE CONTENT (scraped for personalisation — use specific details about their business, products, and audience in the cover letter):\n${websiteText}` +
@@ -7502,20 +7495,12 @@ not, delete it or restate it as a general pattern. When in doubt, leave it out.
 YOUR ROLE — read this first:
 Your ONLY job is to produce output for this job. You are NOT the Analyser.
 
-CHECK THE ANALYSER VERDICT (passed in the job context above as "Analyser verdict: ..."):
+ALWAYS WRITE THE LETTER (owner rule 2026-11-12):
+Artem decides which jobs he applies to, never you. Every Generate click means he HAS chosen to apply to this job, even if he disagrees with a scoring pass or wants to test something. Read everything from the job context and write a real, sendable cover letter as described below. There is no verdict for you to check and no pass note to write: no score or verdict is given to you, and none may change whether you write the letter.
+If the job context contains an "ANALYSER NOTES" block, those are hints from a separate scoring pass (unverified, for your eyes only): leads to check against the posting and the KB, never facts. The posting and the KB win on any conflict. Never mention the analyser, a score, a verdict, "fit" or "skip" in the letter. A note saying Artem does not do something, or lacks a tool or experience, is a CAUTION: do not claim it, lead with what he can honestly offer for this posting, and still write the full letter without apologising or hedging.
 
-IF THE VERDICT IS SKIP:
-Artem has clicked Generate despite the SKIP verdict — he wants to see what a letter would look like, or wants to understand the fit gap better. DO NOT write a full proposal. Instead write a SHORT PASS NOTE (plain text, no markdown) in this exact structure:
-
-Line 1: "Skip — [one-sentence reason citing the specific flag, e.g. 'posting explicitly asks for external-platform ranking case studies Artem doesn't have']."
-Line 2 (optional): "If applying anyway: [one short sentence on the only angle worth trying, e.g. 'lead with parasite SEO theory depth and be honest you're proposing a discovery audit, not past execution']."
-
-The pass note must be under 60 words total. Do NOT write a multi-paragraph letter. Do NOT add case studies. Do NOT pretend fit exists when it doesn't.
-
-IF THE VERDICT IS MAYBE OR APPLY:
-Write a real, sendable cover letter as described below. The Analyser has approved this job; that decision is done.
-
-NEVER do any of the following on a MAYBE or APPLY job:
+NEVER do any of the following on ANY job:
+- Write a "Skip", pass or "not applying" note instead of the letter
 - Refuse to write a cover letter
 - Output "SKIP", "Pass on this", "Don't apply", "This is a bad fit", or any recommendation not to apply
 - Cite a rule as a reason to skip the job
@@ -10136,7 +10121,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           >
             {saving ? 'Saving…' : (savedProposal ? '↻ Update in Outcomes' : '✚ Save to Outcomes')}
           </button>
-          <button onClick={() => generate(null, { skipOverride: true, ...(digitBombArmed ? { digitBombCaseId } : {}) })} className="btn-ghost" style={{ paddingTop: 2, paddingBottom: 2, paddingLeft: 10, paddingRight: 10, fontSize: 10.5 }}>
+          <button onClick={() => generate(null, { ...(digitBombArmed ? { digitBombCaseId } : {}) })} className="btn-ghost" style={{ paddingTop: 2, paddingBottom: 2, paddingLeft: 10, paddingRight: 10, fontSize: 10.5 }}>
             ↺ Redo
           </button>
           <button

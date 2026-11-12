@@ -2197,6 +2197,27 @@ def save_job_analysis(job_id: int, data: dict):
     return {"ok": True}
 
 
+@app.get("/jobs/{job_id}/analysis")
+def get_job_analysis(job_id: int):
+    """
+    The latest stored analyser result for a job: {"analysis": {...} | null, "at": iso | null}.
+    The letter generator reads it ONLY to pick out "ANALYSER NOTES" hints (see
+    frontend/src/lib/analyserHints.js). It never gates a letter: Artem decides what to apply
+    to (owner rule 2026-11-12). Before that date this route did not exist (405), which is
+    why the generator never saw an analysis.
+    """
+    with Session(engine) as session:
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        try:
+            analysis = _json_mod.loads(job.last_analysis_json) if job.last_analysis_json else None
+        except ValueError:
+            analysis = None
+        at = job.last_analysis_at.isoformat() if job.last_analysis_at else None
+    return {"analysis": analysis, "at": at}
+
+
 @app.post("/jobs/{job_id}/classification")
 def save_job_classification(job_id: int, data: dict):
     """
