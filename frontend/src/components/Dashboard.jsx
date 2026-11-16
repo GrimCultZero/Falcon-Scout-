@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import CalibrationCard from './CalibrationCard'
 
 const STATUS_COLOR = {
   sent: '#3b82f6', viewed: '#8b5cf6', replied: '#00c8d4',
@@ -326,6 +327,13 @@ export default function Dashboard({ active = false }) {
       <div style={{ marginTop: 20 }}>
         <Section title="Bid tier × Time-to-Submit" hint="reply rate per cell (cells need 3+ samples to show %)">
           <Crosstab data={crosstab} />
+        </Section>
+      </div>
+
+      {/* Calibration (T9): analyser verdict vs. outcome, from snapshots only. A hint, not a gate. */}
+      <div style={{ marginTop: 20 }}>
+        <Section title="Calibration" hint="analyser verdict vs. what happened · among jobs you applied to">
+          <CalibrationCard active={active} />
         </Section>
       </div>
     </div>

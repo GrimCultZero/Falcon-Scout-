@@ -26,6 +26,7 @@ export default defineConfig({
       '/capture-proposal-update': 'http://localhost:8000',
       '/capture-standalone-proposal': 'http://localhost:8000',
       '/dashboard-stats': 'http://localhost:8000',
+      '/calibration': 'http://localhost:8000',
       '/proposal-submitted': 'http://localhost:8000',
       '/proposal-status-sync': 'http://localhost:8000',
       '/messages-status-sync': 'http://localhost:8000',

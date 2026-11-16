@@ -1573,3 +1573,12 @@ hours]]`: *"I want us to block things like this forever, its a bug."* It had alr
 - **Kept:** `_unwrapFilledPlaceholders` still turns a slot that already holds a `$` figure into plain text.
 - `tests/placeholder-block.test.js` pins the three real shapes and that every surface calls the gate.
 - **Not done:** KB #775 / #777 still carry the placeholders as past-letter examples (priming); left for the owner.
+
+### Analyser calibration is record-only (T9, owner decision 2026-11-16)
+- The analyser gives **hints**; it never gates, blocks or steers the generator. Calibration only records and measures.
+- `/proposal-submitted` (create and update) snapshots `jobs.last_analysis_json` into `proposals.analysis_json` when the
+  proposal has none, and only if the analysis was saved BEFORE the submission. Immutable once set (`api/calibration.py`).
+- The Dashboard "Calibration" card (`GET /calibration`) reads snapshots only: reply rate (headline) and open rate by verdict
+  and by score band, split by regime (analyser before / after 2026-11-12, never pooled), no rate under n = 10, "low sample"
+  under n = 30. Rates are among jobs applied to. "Opened" follows the period cards: declined and ghosted are not opened.
+- `tests/test_analysis_snapshot.py` pins that nothing which builds a letter reads `proposals.analysis_json`.

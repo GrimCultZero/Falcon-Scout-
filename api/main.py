@@ -36,6 +36,7 @@ load_dotenv(ROOT / ".env", override=True)
 
 from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, SyncRun, FeedDrop, Base  # noqa: E402
 from geo_restriction import normalize_geo_value  # noqa: E402  (api/ is on sys.path, see above)
+import calibration as _calibration  # noqa: E402  (T9: record-only analyser snapshots)
 import json as _json_mod
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'upwork_jobs.db'}")
@@ -4083,6 +4084,9 @@ def record_proposal_submitted(data: dict):
                 if new_status != existing.status:
                     existing.status = new_status
                     existing.status_updated_at = datetime.now(timezone.utc)
+            # T9, record-only: snapshot the analyser verdict the proposal went out under.
+            # Only when empty (immutable once set) and only if the analysis predates the submission.
+            _calibration.fill_snapshot(existing, job, submitted_at)
             session.commit()
             session.refresh(existing)
             return _serialize_proposal(existing)
@@ -4102,6 +4106,7 @@ def record_proposal_submitted(data: dict):
             submitted_at=submitted_at,
             upwork_proposal_id=upwork_proposal_id,
             job_snapshot_json=_snapshot_job(job),
+            analysis_json=_calibration.snapshot_text(job, submitted_at),  # T9: record-only
         )
         session.add(p)
         session.commit()
@@ -6396,6 +6401,17 @@ def trigger_ghost_sweep():
     """
     count = _auto_ghost_proposals()
     return {"ghosted_count": count}
+
+
+@app.get("/calibration")
+def calibration_card():
+    """T9, record-only: reply and open rate by analyser verdict and score band, from the
+    snapshots stored on proposals (never from jobs.last_analysis_json), split by regime.
+    The analyser gives hints; nothing here feeds the generator."""
+    with Session(engine) as session:
+        rows = [{"analysis_json": p.analysis_json, "status": p.status, "first_reply_at": p.first_reply_at}
+                for p in session.query(Proposal).filter(Proposal.analysis_json.isnot(None)).all()]
+    return _calibration.calibrate(rows)
 
 
 @app.get("/dashboard-stats")
