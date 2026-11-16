@@ -34,9 +34,10 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).parent))  # api/ dir — for sibling imports (upwork_api)
 load_dotenv(ROOT / ".env", override=True)
 
-from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, SyncRun, FeedDrop, Base  # noqa: E402
+from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, SyncRun, FeedDrop, Generation, Base  # noqa: E402
 from geo_restriction import normalize_geo_value  # noqa: E402  (api/ is on sys.path, see above)
 import calibration as _calibration  # noqa: E402  (T9: record-only analyser snapshots)
+import generations as _generations  # noqa: E402  (T10: record-only drafts + edit ratio)
 import json as _json_mod
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'upwork_jobs.db'}")
@@ -4087,6 +4088,7 @@ def record_proposal_submitted(data: dict):
             # T9, record-only: snapshot the analyser verdict the proposal went out under.
             # Only when empty (immutable once set) and only if the analysis predates the submission.
             _calibration.fill_snapshot(existing, job, submitted_at)
+            _generations.link_latest(session, Generation, existing, submitted_at)   # T10, record-only
             session.commit()
             session.refresh(existing)
             return _serialize_proposal(existing)
@@ -4111,6 +4113,8 @@ def record_proposal_submitted(data: dict):
         session.add(p)
         session.commit()
         session.refresh(p)
+        _generations.link_latest(session, Generation, p, submitted_at)   # T10, record-only
+        session.commit()
         return _serialize_proposal(p)
 
 
@@ -6401,6 +6405,37 @@ def trigger_ghost_sweep():
     """
     count = _auto_ghost_proposals()
     return {"ghosted_count": count}
+
+
+@app.post("/generations")
+def record_generation(data: dict):
+    """T10, record-only: a letter landed in the textarea (generate / rescan / chat rewrite).
+    Body: { job_id, kind, model, text, fired_checks: [str] }. Fire-and-forget from the frontend."""
+    text = (data.get("text") or "").strip()
+    try:
+        job_id = int(data.get("job_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="job_id is required")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    with Session(engine) as session:
+        if not session.get(Job, job_id):
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        g = Generation(job_id=job_id, kind=_generations.clean_kind(data.get("kind")),
+                       model=(str(data.get("model") or "").strip() or None), provider=_get_ai_provider(),
+                       text=text, fired_checks=_generations.clean_checks(data.get("fired_checks")))
+        session.add(g)
+        session.commit()
+        return {"id": g.id}
+
+
+@app.get("/generations/stats")
+def generation_stats():
+    """T10, record-only: median edit ratio and share sent with under 10% edits, per ISO week of the submission."""
+    with Session(engine) as session:
+        rows = [(p.submitted_at, g.edit_ratio) for g, p in
+                session.query(Generation, Proposal).filter(Generation.proposal_id == Proposal.id, Generation.edit_ratio.isnot(None)).all()]
+    return _generations.weekly_stats(rows)
 
 
 @app.get("/calibration")

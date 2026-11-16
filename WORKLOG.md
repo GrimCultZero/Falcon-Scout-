@@ -10932,3 +10932,10 @@ session on Telegram's side.
 - Backfill run 2026-11-16 after a DB backup: 367 of 472 proposals snapshotted; 104 have no analysis, 1 was analysed after sending (left NULL). The running backend (no --reload) needs a restart to serve `/calibration`.
 - First reading, 360 snapshots from the old analyser: reply rate APPLY 10.6% / MAYBE 9.1% / SKIP 8.0%; by score 0-3 8.7%, 4-6 8.8%, 7-8 11.0% (9-10 n=8). The verdict barely separates outcomes; the newer regime has only 7 rows so far. Treat as a hint, as decided.
 - Tests: `tests/test_analysis_snapshot.py`, `tests/calibration-card.test.js`.
+
+## 2026-11-16 - T10 generated drafts and edit ratio (record-only)
+- New table `generations` (job_id, ts, kind generate/rescan/chat, model, provider, text, fired_checks JSON, digit_bomb_case and style_variant NULL until T13 / T22, plus proposal_id and edit_ratio filled at submit). `create_all` builds it; DB backed up first.
+- Frontend: `_recordGeneration` in `JobDetail.jsx` (fire-and-forget POST /generations, swallows every failure, never records an error message) is called where a finished letter is set (generate, or rescan when `coreOnly`) and from the chat rewrite. Provider is read server-side. The letter flow itself is unchanged: the generator still never refuses and never reads the analysis as a gate.
+- `/proposal-submitted` (create and update) links the latest generation made BEFORE the submission and sets `edit_ratio = 1 - difflib ratio(generated, sent_text)` (whitespace collapsed; a bare submit notice with no sent text links nothing). `GET /generations/stats` gives the median edit ratio and the share sent with under 10% edits per ISO week, with n; n < 30 is "low sample". Dashboard card "Edits before sending".
+- T9 footnote: the Calibration card now states the exact reply and open definitions and that they may differ from the period cards.
+- Tests: `tests/test_generations.py` (acceptance: generate, edit, submit gives a sensible ratio), `tests/edit-ratio-card.test.js`. The running backend (no --reload) needs a restart before /generations exists; until then the hooks 404 silently and nothing is recorded.

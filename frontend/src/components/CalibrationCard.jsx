@@ -49,6 +49,8 @@ export default function CalibrationCard({ active = true }) {
           </table>
         </div>
       ))}
+      {/* Footnote: the exact definitions used, and that they differ from the period cards. */}
+      {data.definition_note && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }} data-testid="definition-note">{data.definition_note}</div>}
     </div>
   )
 }

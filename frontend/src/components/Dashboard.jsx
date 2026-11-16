@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import CalibrationCard from './CalibrationCard'
+import EditRatioCard from './EditRatioCard'
 
 const STATUS_COLOR = {
   sent: '#3b82f6', viewed: '#8b5cf6', replied: '#00c8d4',
@@ -334,6 +335,13 @@ export default function Dashboard({ active = false }) {
       <div style={{ marginTop: 20 }}>
         <Section title="Calibration" hint="analyser verdict vs. what happened · among jobs you applied to">
           <CalibrationCard active={active} />
+        </Section>
+      </div>
+
+      {/* How much the generated letter is edited before sending (T10, record-only). */}
+      <div style={{ marginTop: 20 }}>
+        <Section title="Edits before sending" hint="how much you change the generated letter">
+          <EditRatioCard active={active} />
         </Section>
       </div>
     </div>

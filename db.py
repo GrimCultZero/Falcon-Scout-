@@ -313,6 +313,32 @@ class TokenUsage(Base):
     cache_read_input_tokens     = Column(Integer, nullable=True)
 
 
+class Generation(Base):
+    """
+    A letter that landed in the textarea (generate, rescan or chat rewrite), recorded so the
+    owner's edits can be measured (audit 2026-10-29, T10). RECORD-ONLY: nothing that builds a
+    letter reads this table. /proposal-submitted links the latest generation made before the
+    submission and fills proposal_id + edit_ratio (1 - difflib ratio of generated vs sent).
+    digit_bomb_case and style_variant stay NULL until T13 / T22 fill them.
+    """
+
+    __tablename__ = "generations"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    job_id          = Column(Integer, nullable=False, index=True)
+    ts              = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    # "generate" | "rescan" | "chat"
+    kind            = Column(String, nullable=False)
+    model           = Column(String, nullable=True)
+    provider        = Column(String, nullable=True)      # "api" | "cli", from the server's current setting
+    text            = Column(Text, nullable=False)
+    fired_checks    = Column(Text, nullable=True)        # JSON list of the rule checks that fired in that run
+    digit_bomb_case = Column(String, nullable=True)      # T13
+    style_variant   = Column(String, nullable=True)      # T22
+    proposal_id     = Column(Integer, nullable=True, index=True)
+    edit_ratio      = Column(Float, nullable=True)
+
+
 class RuleViolation(Base):
     """
     Telemetry: one row per rule/guard that FIRED during a generation or

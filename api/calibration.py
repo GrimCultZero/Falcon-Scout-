@@ -133,4 +133,7 @@ def calibrate(proposals) -> dict:
     return {"regimes": out, "cutoff": REGIME_CUTOFF.date().isoformat(),
             "min_rate_n": MIN_RATE_N, "low_sample_n": LOW_SAMPLE_N,
             "caption": "Rates are among jobs you applied to. A hint, not a gate: the analyser never blocks or steers the generator.",
+            "definition_note": "Reply = the client's first message was recorded (first_reply_at), or the status is replied, interviewing or hired. "
+                               "Opened = status viewed, replied, interviewing or hired. These are counted per proposal by outcome, so open and reply here "
+                               "may differ from the Dashboard period cards, which count events inside a week.",
             "declined_note": "Declined is not counted as opened (no real view signal), as on the Dashboard period cards; it counts as a reply only if the client's message was recorded. Ghosted is neither."}

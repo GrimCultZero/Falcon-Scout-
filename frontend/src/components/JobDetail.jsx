@@ -3204,6 +3204,19 @@ const _INFO_ONLY_CODES = new Set([
   'auditJobVerdictOverridden',
 ])
 
+// T10, record-only: store every letter that lands in the textarea so the owner's edits can be
+// measured at submit time. Fire-and-forget: a failure here never touches the letter.
+function _recordGeneration(jobId, kind, text, model) {
+  if (jobId == null || !text || /^Error generating cover letter/.test(text)) return
+  try {
+    fetch('/generations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId, kind, model: model || null, text, fired_checks: _getRunViolations() }),
+    }).catch(() => {})
+  } catch (_) {}
+}
+
 // Fire-and-forget telemetry: record which guard pre-checks fired this run so
 // "top violations" is data-driven (DESIGN.md §16, Phase C). Never blocks the UI.
 function _recordViolations(surface, jobId, checks) {
@@ -9743,6 +9756,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         // Already stripped above, before the checks ran. Kept as its own binding so
         // the stale-navigation branch below reads the same either way.
         const _finalText = _blockPlaceholders(text, job)
+        _recordGeneration(_jobIdAtCallTime ?? job?.id, coreOnly ? 'rescan' : 'generate', _finalText, 'claude-sonnet-4-5')
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {
@@ -10211,7 +10225,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           onMessagesChange={(msgs) => { chatMessagesRef.current = msgs; setChatHasMessages((msgs || []).length > 0) }}
           onRework={(msgs) => generate(buildAdjustments(msgs), digitBombArmed ? { digitBombCaseId } : {})}
           reworkLabel="↺ Rework letter"
-          onProposalRewrite={(text) => setProposal(_blockPlaceholders(_gcShadow(text, job), job, 'chat'))}
+          onProposalRewrite={(text) => { const _t = _blockPlaceholders(_gcShadow(text, job), job, 'chat'); _recordGeneration(job?.id, 'chat', _t, 'claude-sonnet-4-5'); setProposal(_t) }}
           currentProposalText={proposal}
           fillHeight={true}
           droppedFiles={droppedFiles}

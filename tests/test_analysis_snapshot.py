@@ -36,7 +36,8 @@ from fastapi import HTTPException                               # noqa: E402
 from sqlalchemy import create_engine                            # noqa: E402
 from sqlalchemy.orm import Session                              # noqa: E402
 import calibration as cal                                       # noqa: E402
-from db import Base, Job, Proposal                              # noqa: E402
+import generations as _gen                                    # noqa: E402
+from db import Base, Job, Proposal, Generation                  # noqa: E402
 
 bad = 0
 def check(ok, msg):
@@ -71,7 +72,7 @@ fn[0].decorator_list = []
 engine = create_engine(f"sqlite:///{Path(tempfile.mkdtemp(prefix='fs_snap_')) / 'scratch.db'}")
 Base.metadata.create_all(engine)
 ns = {"Session": Session, "engine": engine, "Job": Job, "Proposal": Proposal, "HTTPException": HTTPException, "datetime": datetime,
-      "timezone": timezone, "_calibration": cal, "_is_invite_response": lambda t: False, "_serialize_proposal": lambda p: {"id": p.id},
+      "timezone": timezone, "_calibration": cal, "_generations": _gen, "Generation": Generation, "_is_invite_response": lambda t: False, "_serialize_proposal": lambda p: {"id": p.id},
       "_snapshot_job": lambda j: "{}"}
 exec(compile(ast.Module(body=fn, type_ignores=[]), "main_submitted", "exec"), ns)
 submit = ns["record_proposal_submitted"]
@@ -136,6 +137,8 @@ und = cal.calibrate([{"analysis_json": json.dumps({"verdict": "APPLY", "score": 
 check([r["regime"] for r in und["regimes"]] == ["undated"], "a snapshot with no analysis date goes to its own 'undated' group, not into a regime")
 check("among jobs you applied to" in res["caption"] and "not a gate" in res["caption"] and "Declined" in res["declined_note"], "the caption and the declined note say what they must")
 check(cal.calibrate([])["regimes"] == [], "no snapshots -> no groups")
+dn = res["definition_note"]
+check("first_reply_at" in dn and "replied, interviewing or hired" in dn and "viewed, replied, interviewing or hired" in dn and "may differ from the Dashboard period cards" in dn, "the footnote states the exact reply / open definitions and that they may differ from the period cards")
 
 # ── the backfill tool ────────────────────────────────────────────────────────
 spec = importlib.util.spec_from_file_location("backfill", ROOT / "tools" / "backfill_analysis_snapshots.py")
