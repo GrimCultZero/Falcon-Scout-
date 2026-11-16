@@ -15,6 +15,7 @@ import { groundingCheck } from '../lib/groundingCheck'
 // no call offers, and an offered audit always mentions its sample.
 import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions } from '../lib/letterGuards'
 import { findAutoBomb } from '../lib/digitBombMatch'
+import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -1307,7 +1308,7 @@ export default function JobDetail({
               {/* Activity block */}
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 600 }}>Activity</div>
-                <EnrichRow label="Applicants" value={job.proposals} />
+                <EnrichRow label="Applicants" value={job.proposals ? `${job.proposals}${agoText(job.enriched_at || job.captured_at) ? ` · read ${agoText(job.enriched_at || job.captured_at)}` : ''}` : job.proposals} />
                 <EnrichRow label="Connects required" value={job.connects_required} />
                 <EnrichRow label="Interviewing" value={job.interviewing} />
                 <EnrichRow
@@ -1349,6 +1350,17 @@ export default function JobDetail({
                         </div>
                       ))}
                     </div>
+                    {(() => {
+                      // T12, numbers only: how old the ladder is, and the connects held at ranks 1-3. No recommendation.
+                      const lv = ladderView(job)
+                      if (!lv) return null
+                      return (
+                        <div data-testid="ladder-helper" style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', lineHeight: 1.5 }}>
+                          <div>Ladder read {lv.ageText}{lv.stale && <span data-testid="ladder-stale" style={{ marginLeft: 6, color: '#f59e0b', fontWeight: 700 }}>STALE (over 3 h) — press Update bids</span>}</div>
+                          <div data-testid="ladder-ranks">Connects held now: rank 1 = {lv.rank1 ?? '–'} · rank 2 = {lv.rank2 ?? '–'} · rank 3 = {lv.rank3 ?? '–'}. To sit above a rank, bid more than it holds.</div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
               </div>
@@ -6306,6 +6318,9 @@ function ProposalColumn({
   //                the chat wrote "$30/hr or $1,500/month"). A note, not a
   //                rewrite — a figure Artem chose on purpose stays his.
   const _liveOffStandardFee = proposal ? findOffStandardOngoingFee(proposal, { postingText: _postingForNotes }) : null
+  // T13: what the client sees before opening is roughly the first 180 characters; they should hold 4+ words from THIS posting.
+  // Same rule as the generation-time previewNotSpecific check. A note, never a block.
+  const _livePreview = proposal && !proposal.startsWith('Error generating') ? previewCheck(proposal, [job?.title, job?.category, job?.keywords, job?.description_full || job?.description_snippet || job?.raw_message].filter(Boolean).join('\n').toLowerCase()) : null
   // preEnforcerDraft retired 2026-09-02 with the enforcer itself. It existed to
   // show a before/after in the share snapshot so a garbled sentence could be traced
   // to the first pass or the rewrite. There is no rewrite now — the letter Artem
@@ -9841,6 +9856,14 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
     // through the bridge (chrome.tabs.create) is safe to delay; the
     // window.open fallback path is also fine within ~1s of a click in
     // modern browsers' popup-blocker grace window.
+    // T12: refresh the applicants count (and the rest of the enrich) right before applying, the same request the Enrich
+    // button sends. Best effort and never blocking: the apply tab opens either way, and the card shows when it was read.
+    try {
+      const _read = Date.parse(String(job.enriched_at || '').replace(' ', 'T') + (/(Z|[+-]\d\d:?\d\d)$/.test(String(job.enriched_at || '')) ? '' : 'Z'))
+      if (bridgeReady && (Number.isNaN(_read) || Date.now() - _read > 5 * 60000)) {
+        window.dispatchEvent(new CustomEvent('cockpit:enrich', { detail: { url: getUpworkUrl(job, { forEnrichment: true }) } }))
+      }
+    } catch (_) {}
     const url = getUpworkUrl(job, { forApply: true })
     const reduced = (typeof window !== 'undefined' && window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches)
@@ -10009,6 +10032,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               <div style={{ marginTop: 4, fontFamily: 'ui-monospace, monospace', color: 'var(--text2)' }}>
                 {ruleFlags.join('  ·  ')}
               </div>
+            </div>
+          )}
+
+          {_livePreview && (
+            <div data-testid="preview-note" data-specific={_livePreview.count} data-not-specific={_livePreview.notSpecific ? '1' : '0'}
+              style={{ fontSize: 10.5, lineHeight: 1.5, padding: '5px 10px', borderRadius: 3, color: 'var(--text3)',
+                       background: _livePreview.notSpecific ? 'rgba(245,158,11,0.08)' : 'transparent',
+                       border: _livePreview.notSpecific ? '1px solid rgba(245,158,11,0.35)' : '1px solid transparent' }}>
+              {_livePreview.notSpecific
+                ? <>Preview: the first {PREVIEW_CHARS} characters (what the client sees before opening) hold {_livePreview.count} word{_livePreview.count === 1 ? '' : 's'} from this posting, and {PREVIEW_MIN_SPECIFIC}+ is the aim{_livePreview.count ? <> ({_livePreview.words.join(', ')})</> : null}. A note only; nothing is blocked.</>
+                : <>Preview: {_livePreview.count} posting-specific words in the first {PREVIEW_CHARS} characters. Good.</>}
             </div>
           )}
 

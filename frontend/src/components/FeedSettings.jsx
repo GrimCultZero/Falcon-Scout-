@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { FEED_CONFIG_SAVED_EVENT } from '../lib/feedUi'
 import FeedDrops from './FeedDrops'
 
 // Feed Settings — edit the Upwork API feed filter config (mirrors the bot's
@@ -70,6 +71,7 @@ export default function FeedSettings({ open, onClose, onSaved, embedded = false 
       })
       if (!res.ok) throw new Error('save failed')
       setCfg(await res.json())
+      window.dispatchEvent(new Event(FEED_CONFIG_SAVED_EVENT))     // the feed re-reads its display settings
       setMsg('✓ saved')
       if (onSaved) onSaved()
       // Modal auto-closes after save; embedded panel stays put (just clears the msg).
@@ -142,6 +144,12 @@ export default function FeedSettings({ open, onClose, onSaved, embedded = false 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text2)', marginBottom: 18, cursor: 'pointer' }}>
               <input type="checkbox" checked={!!cfg.payment_verified_only} onChange={e => set('payment_verified_only', e.target.checked)} />
               Payment-verified clients only
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text2)', marginBottom: 18, cursor: 'pointer' }}
+              title="Display only: cards whose applicants band is 50+ are shown faded. Nothing is hidden or filtered.">
+              <input type="checkbox" data-testid="dim-50plus" checked={!!cfg.dim_applicants_50plus} onChange={e => set('dim_applicants_50plus', e.target.checked)} />
+              Dim feed cards with 50+ applicants (display only, never a filter)
             </label>
 
             <div style={{ border: '1px solid var(--border2)', borderRadius: 8, padding: '12px 14px', marginBottom: 18 }}>

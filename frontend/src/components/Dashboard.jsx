@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import CalibrationCard from './CalibrationCard'
 import EditRatioCard from './EditRatioCard'
+import RateDimensionsCard from './RateDimensionsCard'
 
 const STATUS_COLOR = {
   sent: '#3b82f6', viewed: '#8b5cf6', replied: '#00c8d4',
@@ -342,6 +343,20 @@ export default function Dashboard({ active = false }) {
       <div style={{ marginTop: 20 }}>
         <Section title="Edits before sending" hint="how much you change the generated letter">
           <EditRatioCard active={active} />
+        </Section>
+      </div>
+
+      {/* Bid signals (T12, record-only): what you could see when you bid vs what happened. A hint, never a filter. */}
+      <div style={{ marginTop: 20 }}>
+        <Section title="Bid signals" hint="reply and open rate by what you could see when you applied · among jobs you applied to">
+          <RateDimensionsCard url="/bid-signals" testid="bid-signals-card" active={active} />
+        </Section>
+      </div>
+
+      {/* Letter style as a tracked experiment (T13, record-only). */}
+      <div style={{ marginTop: 20 }}>
+        <Section title="Letter style" hint="opened and replied by the style of the letter's opening">
+          <RateDimensionsCard url="/style-variants" testid="style-variants-card" active={active} />
         </Section>
       </div>
     </div>

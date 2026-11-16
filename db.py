@@ -287,6 +287,16 @@ class Proposal(Base):
     #   {"verdict":"APPLY","score":8,"summary":"...","reasons":[...],"flags":[...],"model":"...","ran_at":"..."}
     # NULL for historical captures where no contemporaneous analysis ran.
     analysis_json      = Column(Text, nullable=True)
+    # T12 (record-only): what the owner could see when bidding, snapshotted at submit, immutable once set.
+    # A value that changes over time is only taken if it was read BEFORE the submission (else NULL).
+    boost_ladder_json  = Column(Text, nullable=True)       # [{rank, connects, age}] from jobs.boost_bids_json
+    boost_ladder_at    = Column(DateTime, nullable=True)   # when that ladder was captured
+    applicants_band    = Column(String, nullable=True)     # "<5" .. "50+"
+    connects_bid       = Column(Integer, nullable=True)    # the connects bid (bid_amount when the currency is Connects)
+    client_spend_band  = Column(String, nullable=True)
+    title_has_audit    = Column(Boolean, nullable=True)
+    # T13 (record-only): the style variant of the generated letter this proposal was sent from (generations.style_variant)
+    style_variant      = Column(String, nullable=True)
     created_at         = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at         = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

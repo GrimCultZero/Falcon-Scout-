@@ -28,6 +28,8 @@ export default defineConfig({
       '/dashboard-stats': 'http://localhost:8000',
       '/calibration': 'http://localhost:8000',
       '/generations': 'http://localhost:8000',
+      '/bid-signals': 'http://localhost:8000',
+      '/style-variants': 'http://localhost:8000',
       '/proposal-submitted': 'http://localhost:8000',
       '/proposal-status-sync': 'http://localhost:8000',
       '/messages-status-sync': 'http://localhost:8000',

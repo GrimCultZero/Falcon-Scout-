@@ -29,6 +29,7 @@ from sqlalchemy import create_engine                            # noqa: E402
 from sqlalchemy.orm import Session                              # noqa: E402
 import calibration as cal                                       # noqa: E402
 import generations as gen                                       # noqa: E402
+import bid_signals as bids                                       # noqa: E402
 from db import Base, Job, Proposal, Generation                  # noqa: E402
 
 bad = 0
@@ -64,7 +65,7 @@ def lift(name):
 engine = create_engine(f"sqlite:///{Path(tempfile.mkdtemp(prefix='fs_gen_')) / 'scratch.db'}")
 Base.metadata.create_all(engine)
 ns = {"Session": Session, "engine": engine, "Job": Job, "Proposal": Proposal, "Generation": Generation, "HTTPException": HTTPException,
-      "datetime": datetime, "timezone": timezone, "_calibration": cal, "_generations": gen, "_is_invite_response": lambda t: False,
+      "datetime": datetime, "timezone": timezone, "_calibration": cal, "_generations": gen, "_bid_signals": bids, "_is_invite_response": lambda t: False,
       "_serialize_proposal": lambda p: {"id": p.id}, "_snapshot_job": lambda j: "{}", "_get_ai_provider": lambda: "cli"}
 exec(compile(ast.Module(body=[lift("record_generation"), lift("record_proposal_submitted"), lift("generation_stats")], type_ignores=[]), "main_gen", "exec"), ns)
 record, submit, stats = ns["record_generation"], ns["record_proposal_submitted"], ns["generation_stats"]
@@ -90,7 +91,7 @@ j = add_job()
 g1 = record({"job_id": j, "kind": "generate", "model": "claude-sonnet-4-5", "text": LETTER, "fired_checks": ["a", "b"]})["id"]
 r = row(g1)
 check(r["kind"] == "generate" and r["model"] == "claude-sonnet-4-5" and r["provider"] == "cli" and r["text"] == LETTER and json.loads(r["fired_checks"]) == ["a", "b"], "a generation row stores kind, model, the server's provider, text and fired checks")
-check(r["digit_bomb_case"] is None and r["style_variant"] is None and r["proposal_id"] is None and r["edit_ratio"] is None, "digit_bomb_case and style_variant stay NULL (T13 / T22); nothing is linked yet")
+check(r["digit_bomb_case"] is None and r["style_variant"] == gen.classify_variant(LETTER) and r["proposal_id"] is None and r["edit_ratio"] is None, "no bomb: digit_bomb_case stays NULL and style_variant is read from the opening (T13); nothing is linked yet")
 g2 = record({"job_id": j, "kind": "rescan", "text": LETTER + " (rescanned)"})["id"]
 g3 = record({"job_id": j, "kind": "chat", "text": LETTER.replace("Hi Sam", "Hello Sam")})["id"]
 check({row(g2)["kind"], row(g3)["kind"]} == {"rescan", "chat"}, "rescan and chat rewrites are recorded as their own kinds")
@@ -139,9 +140,9 @@ rh = row(gh)
 check(rh["digit_bomb_case"] == "fridgefix" and rh["digit_bomb_score"] is None and rh["style_variant"] == "digit-bomb", "a bomb armed by hand: case id and variant, no score")
 gn = record({"job_id": jb, "kind": "generate", "text": LETTER + " plain"})["id"]
 rn = row(gn)
-check(rn["digit_bomb_case"] is None and rn["digit_bomb_score"] is None and rn["style_variant"] is None, "a letter with no bomb leaves all three NULL")
+check(rn["digit_bomb_case"] is None and rn["digit_bomb_score"] is None and rn["style_variant"] == gen.classify_variant(LETTER + " plain"), "a letter with no bomb: case and score NULL, the variant is classified from the opening")
 gj = record({"job_id": jb, "kind": "generate", "text": LETTER + " junk", "digit_bomb_case": "", "digit_bomb_score": "abc", "style_variant": "x"})["id"]
-check(row(gj)["digit_bomb_case"] is None and row(gj)["style_variant"] is None, "no case id -> no variant either (junk is ignored)")
+check(row(gj)["digit_bomb_case"] is None and row(gj)["style_variant"] == gen.classify_variant(LETTER + " junk"), "no case id: junk (variant 'x') is ignored and the variant comes from the opening")
 check(gen.clean_bomb({"digit_bomb_case": "atlant", "digit_bomb_score": "93"})["digit_bomb_score"] == 93, "the score is stored as a whole number")
 
 # ── the card's numbers ───────────────────────────────────────────────────────

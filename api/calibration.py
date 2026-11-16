@@ -28,6 +28,9 @@ LOW_SAMPLE_N = 30                                # below this: "low sample"
 POS = frozenset({"replied", "interviewing", "hired"})
 REACHED_VIEWED = POS | {"viewed"}
 BANDS = (("0-3", 0, 3), ("4-6", 4, 6), ("7-8", 7, 8), ("9-10", 9, 10))
+DEFINITION_NOTE = ("Reply = the client's first message was recorded (first_reply_at), or the status is replied, interviewing or hired. "
+                   "Opened = status viewed, replied, interviewing or hired. These are counted per proposal by outcome, so open and reply here "
+                   "may differ from the Dashboard period cards, which count events inside a week.")
 REGIMES = (("before", "Analyser before 2026-11-12"), ("after", "Analyser from 2026-11-12 (test-week rules)"),
            ("undated", "Snapshot has no analysis date"))
 
@@ -133,7 +136,5 @@ def calibrate(proposals) -> dict:
     return {"regimes": out, "cutoff": REGIME_CUTOFF.date().isoformat(),
             "min_rate_n": MIN_RATE_N, "low_sample_n": LOW_SAMPLE_N,
             "caption": "Rates are among jobs you applied to. A hint, not a gate: the analyser never blocks or steers the generator.",
-            "definition_note": "Reply = the client's first message was recorded (first_reply_at), or the status is replied, interviewing or hired. "
-                               "Opened = status viewed, replied, interviewing or hired. These are counted per proposal by outcome, so open and reply here "
-                               "may differ from the Dashboard period cards, which count events inside a week.",
+            "definition_note": DEFINITION_NOTE,
             "declined_note": "Declined is not counted as opened (no real view signal), as on the Dashboard period cards; it counts as a reply only if the client's message was recorded. Ghosted is neither."}

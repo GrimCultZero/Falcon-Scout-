@@ -38,6 +38,7 @@ from db import Job, KBEntry, Proposal, TokenUsage, RuleViolation, SyncRun, FeedD
 from geo_restriction import normalize_geo_value  # noqa: E402  (api/ is on sys.path, see above)
 import calibration as _calibration  # noqa: E402  (T9: record-only analyser snapshots)
 import generations as _generations  # noqa: E402  (T10: record-only drafts + edit ratio)
+import bid_signals as _bid_signals  # noqa: E402  (T12: record-only bid snapshots)
 import json as _json_mod
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'upwork_jobs.db'}")
@@ -133,6 +134,11 @@ def _ensure_job_columns():
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_submitted_at ON proposals(submitted_at)")
         if "analysis_json" not in proposals_cols:
             conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN analysis_json TEXT")
+        for _col, _type in (("boost_ladder_json", "TEXT"), ("boost_ladder_at", "DATETIME"), ("applicants_band", "TEXT"),
+                            ("connects_bid", "INTEGER"), ("client_spend_band", "TEXT"), ("title_has_audit", "BOOLEAN"),
+                            ("style_variant", "TEXT")):                      # T12 / T13 snapshots
+            if _col not in proposals_cols:
+                conn.exec_driver_sql(f"ALTER TABLE proposals ADD COLUMN {_col} {_type}")
         gen_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(generations)").fetchall()}
         if gen_cols and "digit_bomb_score" not in gen_cols:        # T22: the table predates the auto-bomb score
             conn.exec_driver_sql("ALTER TABLE generations ADD COLUMN digit_bomb_score INTEGER")
@@ -4091,7 +4097,8 @@ def record_proposal_submitted(data: dict):
             # T9, record-only: snapshot the analyser verdict the proposal went out under.
             # Only when empty (immutable once set) and only if the analysis predates the submission.
             _calibration.fill_snapshot(existing, job, submitted_at)
-            _generations.link_latest(session, Generation, existing, submitted_at)   # T10, record-only
+            _generations.link_latest(session, Generation, existing, submitted_at)   # T10, record-only (also carries the T13 style variant)
+            _bid_signals.fill_snapshot(existing, job, submitted_at)                  # T12, record-only
             session.commit()
             session.refresh(existing)
             return _serialize_proposal(existing)
@@ -4116,7 +4123,8 @@ def record_proposal_submitted(data: dict):
         session.add(p)
         session.commit()
         session.refresh(p)
-        _generations.link_latest(session, Generation, p, submitted_at)   # T10, record-only
+        _generations.link_latest(session, Generation, p, submitted_at)   # T10, record-only (also carries the T13 style variant)
+        _bid_signals.fill_snapshot(p, job, submitted_at)                  # T12, record-only
         session.commit()
         return _serialize_proposal(p)
 
@@ -6427,7 +6435,7 @@ def record_generation(data: dict):
         g = Generation(job_id=job_id, kind=_generations.clean_kind(data.get("kind")),
                        model=(str(data.get("model") or "").strip() or None), provider=_get_ai_provider(),
                        text=text, fired_checks=_generations.clean_checks(data.get("fired_checks")),
-                       **_generations.clean_bomb(data))
+                       **_generations.with_variant(_generations.clean_bomb(data), text))
         session.add(g)
         session.commit()
         return {"id": g.id}
@@ -6440,6 +6448,25 @@ def generation_stats():
         rows = [(p.submitted_at, g.edit_ratio) for g, p in
                 session.query(Generation, Proposal).filter(Generation.proposal_id == Proposal.id, Generation.edit_ratio.isnot(None)).all()]
     return _generations.weekly_stats(rows)
+
+
+@app.get("/bid-signals")
+def bid_signals_card():
+    """T12, record-only: reply / open rate by the bid snapshots taken at submit. A hint, never a filter."""
+    with Session(engine) as session:
+        rows = [{"status": p.status, "first_reply_at": p.first_reply_at, "boost_ladder_json": p.boost_ladder_json, "connects_bid": p.connects_bid,
+                 "applicants_band": p.applicants_band, "client_spend_band": p.client_spend_band, "title_has_audit": p.title_has_audit}
+                for p in session.query(Proposal).all()]
+    return _bid_signals.dashboard(rows)
+
+
+@app.get("/style-variants")
+def style_variants_card():
+    """T13, record-only: opened / replied by the style variant carried onto the proposal."""
+    with Session(engine) as session:
+        rows = [{"status": p.status, "first_reply_at": p.first_reply_at, "style_variant": p.style_variant}
+                for p in session.query(Proposal).all()]
+    return _bid_signals.variants(rows)
 
 
 @app.get("/calibration")

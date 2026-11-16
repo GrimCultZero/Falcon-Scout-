@@ -486,6 +486,8 @@ DEFAULT_FEED_CONFIG = {
     # current like the bot, even with the dashboard closed. 3 min ≈ "live"
     # (new jobs surface within ~3 min of posting) without risking rate limits.
     "auto_fetch_minutes": 3,
+    # T12 (display only, never a filter): fade feed cards whose applicants band is "50+". Off by default.
+    "dim_applicants_50plus": False,
     # ── Background auto-enrichment ────────────────────────────────────────
     # When on, the Chrome extension polls GET /jobs/pending-enrich and silently
     # opens each unenriched job in a hidden Upwork tab to scrape the full

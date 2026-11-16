@@ -1,5 +1,7 @@
 import { memo } from 'react'
 import { feedTagBadges } from '../lib/feedDrops'
+import { applicantsChip, shouldDim } from '../lib/bidSignals'
+import { useFeedUi } from '../lib/feedUi'
 
 function formatRate(min, max) {
   if (!min && !max) return null
@@ -89,6 +91,7 @@ function timeAgo(isoString) {
 }
 
 function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, showingHidden }) {
+  const feedUi = useFeedUi()      // T12: the optional "dim 50+ applicants" display setting
   return (
     <div>
       {jobs.map((job, i) => {
@@ -99,6 +102,9 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
         // T18: a row the feed let through because its TITLE is about tracking or a Google
         // Business Profile (and not Google Ads / SEO): shown, never hidden, but labelled.
         const tagBadges = feedTagBadges(job.feed_tag)
+        // T12 (record-only): the applicants band and when it was read; the optional dim is display only, never a filter
+        const applicants = applicantsChip(job)
+        const dimmed = shouldDim(job, feedUi)
         // "Enriched" = the extension scraped full detail. For API-sourced jobs,
         // `proposals` is provided natively by the API, so the old heuristic
         // would mark every API job enriched. Require an explicit enriched_at
@@ -126,7 +132,7 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
                 ? 'rgba(239,68,68,0.09)'
                 : isStarred ? 'rgba(0,208,112,0.07)'
                 : isSelected ? 'rgba(0,200,212,0.08)' : 'transparent',
-              opacity: isUsOnly ? 0.55 : 1,
+              opacity: isUsOnly ? 0.55 : dimmed ? 0.5 : 1,
               filter: isUsOnly ? 'grayscale(0.65)' : 'none',
               cursor: 'pointer',
               transition: 'background 0.1s, opacity 0.1s',
@@ -258,6 +264,12 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
               {rate && (
                 <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '3px 7px', borderRadius: 3, ...rateStyle }}>
                   {rate}
+                </span>
+              )}
+              {applicants && (
+                <span data-testid="applicants-chip" data-band={applicants.band} title={applicants.title}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '3px 7px', borderRadius: 3, color: applicants.color, border: '1px solid currentColor', cursor: 'help' }}>
+                  👥 {applicants.label} <span style={{ fontWeight: 400, opacity: 0.75 }}>· {applicants.read}</span>
                 </span>
               )}
               {isUsOnly && (

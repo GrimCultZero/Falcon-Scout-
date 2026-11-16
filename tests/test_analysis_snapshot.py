@@ -37,6 +37,7 @@ from sqlalchemy import create_engine                            # noqa: E402
 from sqlalchemy.orm import Session                              # noqa: E402
 import calibration as cal                                       # noqa: E402
 import generations as _gen                                    # noqa: E402
+import bid_signals as _bids                                    # noqa: E402
 from db import Base, Job, Proposal, Generation                  # noqa: E402
 
 bad = 0
@@ -72,7 +73,7 @@ fn[0].decorator_list = []
 engine = create_engine(f"sqlite:///{Path(tempfile.mkdtemp(prefix='fs_snap_')) / 'scratch.db'}")
 Base.metadata.create_all(engine)
 ns = {"Session": Session, "engine": engine, "Job": Job, "Proposal": Proposal, "HTTPException": HTTPException, "datetime": datetime,
-      "timezone": timezone, "_calibration": cal, "_generations": _gen, "Generation": Generation, "_is_invite_response": lambda t: False, "_serialize_proposal": lambda p: {"id": p.id},
+      "timezone": timezone, "_calibration": cal, "_generations": _gen, "_bid_signals": _bids, "Generation": Generation, "_is_invite_response": lambda t: False, "_serialize_proposal": lambda p: {"id": p.id},
       "_snapshot_job": lambda j: "{}"}
 exec(compile(ast.Module(body=fn, type_ignores=[]), "main_submitted", "exec"), ns)
 submit = ns["record_proposal_submitted"]
