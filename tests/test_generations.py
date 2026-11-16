@@ -129,6 +129,21 @@ submit(body_for(j4, None, T0))                                                  
 submit(body_for(j4, LETTER, T0))                                                                      # later notice with the text, update path
 check(row(g6)["edit_ratio"] == 0.0, "create then update: the ratio appears once the sent text is captured")
 
+# ── T22: the auto Digit Bomb is recorded with the letter ─────────────────────
+jb = add_job()
+gb = record({"job_id": jb, "kind": "generate", "text": LETTER, "digit_bomb_case": "skin-reboot", "digit_bomb_score": 100, "style_variant": "digit-bomb"})["id"]
+rb = row(gb)
+check(rb["digit_bomb_case"] == "skin-reboot" and rb["digit_bomb_score"] == 100 and rb["style_variant"] == "digit-bomb", "T22: an auto-bomb letter stores the case id, the match score and style_variant 'digit-bomb'")
+gh = record({"job_id": jb, "kind": "generate", "text": LETTER + " by hand", "digit_bomb_case": "fridgefix"})["id"]
+rh = row(gh)
+check(rh["digit_bomb_case"] == "fridgefix" and rh["digit_bomb_score"] is None and rh["style_variant"] == "digit-bomb", "a bomb armed by hand: case id and variant, no score")
+gn = record({"job_id": jb, "kind": "generate", "text": LETTER + " plain"})["id"]
+rn = row(gn)
+check(rn["digit_bomb_case"] is None and rn["digit_bomb_score"] is None and rn["style_variant"] is None, "a letter with no bomb leaves all three NULL")
+gj = record({"job_id": jb, "kind": "generate", "text": LETTER + " junk", "digit_bomb_case": "", "digit_bomb_score": "abc", "style_variant": "x"})["id"]
+check(row(gj)["digit_bomb_case"] is None and row(gj)["style_variant"] is None, "no case id -> no variant either (junk is ignored)")
+check(gen.clean_bomb({"digit_bomb_case": "atlant", "digit_bomb_score": "93"})["digit_bomb_score"] == 93, "the score is stored as a whole number")
+
 # ── the card's numbers ───────────────────────────────────────────────────────
 rows = [(datetime(2026, 11, 10, 9), 0.05)] * 3 + [(datetime(2026, 11, 11, 9), 0.30)] * 2 + [(datetime(2026, 11, 17, 9), 0.0)]
 st = gen.weekly_stats(rows)

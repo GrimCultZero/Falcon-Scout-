@@ -63,6 +63,20 @@ def clean_checks(checks) -> str:
     return json.dumps([str(c).strip() for c in checks if str(c).strip()][:200], ensure_ascii=False)
 
 
+def clean_bomb(data) -> dict:
+    """T22: the Digit Bomb facts of a generation: ledger case id, auto match score (None when armed by hand)
+    and the style variant. Anything missing or malformed is simply NULL."""
+    case = str((data or {}).get("digit_bomb_case") or "").strip()[:60] or None
+    try:
+        score = int((data or {}).get("digit_bomb_score"))
+    except (TypeError, ValueError):
+        score = None
+    if not case:
+        return {"digit_bomb_case": None, "digit_bomb_score": None, "style_variant": None}
+    variant = str((data or {}).get("style_variant") or "digit-bomb").strip()[:40] or "digit-bomb"
+    return {"digit_bomb_case": case, "digit_bomb_score": score, "style_variant": variant}
+
+
 def link_latest(session, Generation, proposal, submitted_at=None):
     """Link the latest generation for the proposal's job that was made before the submission,
     and compute its edit_ratio against the proposal's sent text. Returns the Generation or None.

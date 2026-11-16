@@ -56,7 +56,7 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n');
   const has = (re, msg) => assert(re.test(src), msg);
   has(/const _finalText = _blockPlaceholders\(text/, 'generator: final text passes the gate before it is shown or cached');
-  has(/const _t = _blockPlaceholders\(_gcShadow\(text, job\), job, 'chat'\);[^}]*setProposal\(_t\)/, 'chat rewrite passes the gate');
+  has(/const _t = _blockPlaceholders\(_gcShadow\((?:stripAdmissions\(text\)\.text|text), job\), job, 'chat'\);[^}]*setProposal\(_t\)/, 'chat rewrite passes the gate');
   has(/setProposal\(_blockPlaceholders\(cached\?\.proposal \|\| ''/, 'a restored draft passes the gate');
   has(/const _cleanForSend = /, 'send-side helper exists');
   assert((src.match(/_cleanForSend\(/g) || []).length >= 3, 'copy, apply and save all use the send-side gate');

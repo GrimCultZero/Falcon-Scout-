@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { geoVerdict, geoPromptValue } from '../lib/geoEvidence'
 import { testWeekActive, priceEvidence, testWeekRateLine, testWeekFlags, testWeekPromptBlock, testWeekGuard } from '../lib/priceEvidence'
 import { analyserHintsBlock } from '../lib/analyserHints'
@@ -13,7 +13,8 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions } from '../lib/letterGuards'
+import { findAutoBomb } from '../lib/digitBombMatch'
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RULE ROUTING (DESIGN.md §16 — hallucination mitigation, Phase 2)
@@ -3206,13 +3207,14 @@ const _INFO_ONLY_CODES = new Set([
 
 // T10, record-only: store every letter that lands in the textarea so the owner's edits can be
 // measured at submit time. Fire-and-forget: a failure here never touches the letter.
-function _recordGeneration(jobId, kind, text, model) {
+function _recordGeneration(jobId, kind, text, model, bomb = null) {
   if (jobId == null || !text || /^Error generating cover letter/.test(text)) return
   try {
     fetch('/generations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: jobId, kind, model: model || null, text, fired_checks: _getRunViolations() }),
+      body: JSON.stringify({ job_id: jobId, kind, model: model || null, text, fired_checks: _getRunViolations(),
+        ...(bomb ? { digit_bomb_case: bomb.case, digit_bomb_score: bomb.score, style_variant: 'digit-bomb' } : {}) }),
     }).catch(() => {})
   } catch (_) {}
 }
@@ -6253,6 +6255,10 @@ function ProposalColumn({
   // the bomb disarms after one use while the dropdown keeps its selection, so the
   // dropdown would still claim a case for a letter generated without one.
   const [lastDigitBombCase, setLastDigitBombCase] = useState(null)
+  // T22: the auto Digit Bomb's off switch, per letter (it comes back on for the next job).
+  const [autoBombOff, setAutoBombOff] = useState(false)
+  useEffect(() => { setAutoBombOff(false) }, [job?.id])
+  const autoBombPreview = useMemo(() => findAutoBomb(job), [job?.id, job?.title, job?.description_full, job?.description_snippet, job?.client_country])
   // Checks that fired on the letter currently in the box. With the enforcer deleted
   // (2026-09-02) a firing check no longer triggers a rewrite — it reports. Surfacing
   // the list under the letter is what replaces the rewrite: Artem sees what the
@@ -6551,7 +6557,13 @@ function ProposalColumn({
     // and Rescan & Re-write all pass it through when armed (confirmed bug,
     // 2026-08-18: Rescan & Re-write originally didn't, so arming and clicking
     // it silently produced a normal letter with no explanation — fixed).
-    const _digitBombCase = options.digitBombCaseId ? CASE_BY_ID[options.digitBombCaseId] : null
+    // T22 (owner, 2026-11-16): with no case picked by hand, a CLOSE match (service the same, niche matching,
+    // score >= the threshold in lib/digitBombConfig.js) arms the bomb automatically with that case's own
+    // ledger numbers. Below the threshold nothing changes. 'Turn off for this letter' (autoBombOff) is the disarm.
+    const _manualBombCase = options.digitBombCaseId ? CASE_BY_ID[options.digitBombCaseId] : null
+    const _autoBomb = (!_manualBombCase && !autoBombOff) ? findAutoBomb(job) : null
+    const _digitBombCase = _manualBombCase || (_autoBomb ? CASE_BY_ID[_autoBomb.caseId] : null)
+    if (_autoBomb) console.log(`[Falcon] Digit Bomb AUTO: ${_autoBomb.caseName}, match ${_autoBomb.score}%`)
     // Worked examples that never name the armed case (see _DIGIT_BOMB_EXAMPLE_SETS).
     const _dbEx = _digitBombCase ? _digitBombExamples(_digitBombCase.id) : null
     // Remember what was armed for THIS letter so the live note under the textarea
@@ -7249,6 +7261,9 @@ function ProposalColumn({
           model: 'claude-sonnet-4-5',
           max_tokens: 2000,
           system: `You write Upwork cover letters for Artem Yatsuk, a Google Ads/PPC/SEO and ecommerce web development specialist (12 years).
+═══════════════════════════════════════════════════════════════════
+NEVER STATE WHAT ARTEM LACKS (owner rule, 2026-11-16 — absolute):
+The letter must not volunteer missing proof, cases or experience. NEVER write sentences such as "I have no SaaS case", "none of my results are Meta results", "I don't have a visual proof / screenshot of that", "I haven't worked with X before", "I can't share ...", "unfortunately I don't have ...", "I don't have a case in this niche". If the posting asks for something Artem has no case for, SAY NOTHING about the gap: no apology, no disclaimer, no "I don't have". Use the closest REAL proof from the approved case list and introduce it normally (e.g. "Relevant Google Ads results:"). Omitting a gap is fine; CLAIMING a case, result, number, timeframe or experience Artem does not have is never fine — every existing rule against invented cases and figures still applies.
 ═══════════════════════════════════════════════════════════════════
 HOUSE STYLE — THE SHAPE THE OWNER WANTS (approved 2026-10-11, job 17985).
 He reviewed a draft written in this shape and said: "I like it a lot and I want
@@ -8000,6 +8015,18 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       const _postingTitleDescLower = [job?.title, job?.description_full || job?.description_snippet || job?.raw_message]
         .filter(Boolean).join('\n').toLowerCase()
       text = _fixCaseCountClaim(_restoreRequiredOpenerCasing(_ensureAuditSampleMention(_ensureManualAuditClaim(_stripRedundantTrailingCaseBlock(_stripDigitBombDuplicateCase(_gcShadow(_splitLongBodyParagraphs(_unwrapFilledPlaceholders(_humanizeCasing(_stripUnaskedRate(_stripDuplicateDifferentiator(_stripCallOffers(_stripKbLeak(_fixPdfCaseLabelMisattribution(_stripFabricatedVerticalOpener(_stripFabricatedOpener(_stripOffDomainWebDevCases(_stripDuplicateCaseBlockLabel(_stripGenericCaseParagraphs(_stripSeoAuditTurnaround(_stripDuplicateAuditSampleMention(_stripDuplicateAttachmentLabel(_ensureCaseStudyHighlightsLeadIn(_cleanPasteText(expandCasePlaceholders(_restoreProperNounCasing(_stripTopicNounLabelLines(_forceFixQuotedHourlyRate(_forceFixOngoingFee(text, _postingAsksRate), _hMaxForRateCheck)), _protectedProperNouns)).text))))), jobIsRegulatedForStrip)), _postingTitleDescLower, _webDevCasesOffForGoogleAds))))))), _postingAsksRate))).trim()), job), _digitBombCase))), _postingOnlyLowerForStrips), _requiredOpenerPhrase))
+
+      // ── Never state what Artem lacks (owner rule T22, 2026-11-16) ──
+      // Deterministic second layer behind the prompt rule: any sentence that admits a missing case, proof or
+      // experience is removed (lib/letterGuards.js stripAdmissions). It only deletes; it adds no claim.
+      {
+        const _adm = stripAdmissions(text)
+        if (_adm.removed.length || _adm.rewritten.length) {
+          console.log(`[Falcon] Removed ${_adm.removed.length + _adm.rewritten.length} admission(s) of a missing case/proof/experience.`)
+          _recordViolations('generator', job?.id, ['statedWhatArtemLacks'])
+          text = _adm.text
+        }
+      }
 
       // ── The closing audit offer on a running account (owner rule, 2026-09-29) ──
       // "I dont understand why generator stopped offering audits as CTA in the end
@@ -9756,7 +9783,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         // Already stripped above, before the checks ran. Kept as its own binding so
         // the stale-navigation branch below reads the same either way.
         const _finalText = _blockPlaceholders(text, job)
-        _recordGeneration(_jobIdAtCallTime ?? job?.id, coreOnly ? 'rescan' : 'generate', _finalText, 'claude-sonnet-4-5')
+        _recordGeneration(_jobIdAtCallTime ?? job?.id, coreOnly ? 'rescan' : 'generate', _finalText, 'claude-sonnet-4-5',
+          _digitBombCase ? { case: _digitBombCase.id, score: _autoBomb ? _autoBomb.score : null } : null)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
           if (_jobIdAtCallTime != null) {
@@ -9925,6 +9953,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         </>
       )}
 
+        {autoBombPreview && !digitBombArmed && (
+          <div data-testid="auto-bomb-note" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+            <span>{autoBombOff ? '💣 Digit Bomb: auto is off for this letter' : `💣 Digit Bomb: auto, case ${autoBombPreview.caseName}, match ${autoBombPreview.score}%`}</span>
+            <button onClick={() => setAutoBombOff(o => !o)} className="btn-ghost" style={{ padding: '1px 8px', fontSize: 10.5 }}
+              title={autoBombOff ? 'Let the next Generate open with this case' : 'Generate without the Digit Bomb for this letter'}>
+              {autoBombOff ? 'Turn on' : 'Turn off for this letter'}
+            </button>
+          </div>
+        )}
       {loading && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '32px 0' }}>
           <SpinningLogo />
@@ -10225,7 +10262,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           onMessagesChange={(msgs) => { chatMessagesRef.current = msgs; setChatHasMessages((msgs || []).length > 0) }}
           onRework={(msgs) => generate(buildAdjustments(msgs), digitBombArmed ? { digitBombCaseId } : {})}
           reworkLabel="↺ Rework letter"
-          onProposalRewrite={(text) => { const _t = _blockPlaceholders(_gcShadow(text, job), job, 'chat'); _recordGeneration(job?.id, 'chat', _t, 'claude-sonnet-4-5'); setProposal(_t) }}
+          onProposalRewrite={(text) => { const _t = _blockPlaceholders(_gcShadow(stripAdmissions(text).text, job), job, 'chat'); _recordGeneration(job?.id, 'chat', _t, 'claude-sonnet-4-5'); setProposal(_t) }}
           currentProposalText={proposal}
           fillHeight={true}
           droppedFiles={droppedFiles}

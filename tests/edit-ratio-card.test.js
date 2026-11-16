@@ -25,7 +25,7 @@ const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
   assert(/'\/generations': 'http:\/\/localhost:8000'/.test(vite), 'the dev proxy forwards /generations');
 
   // hooks: every way a letter lands in the textarea records it; none can break the letter
-  assert(/function _recordGeneration\(jobId, kind, text, model\)/.test(jd) && /fetch\('\/generations', \{\s*method: 'POST'/.test(jd) && /\.catch\(\(\) => \{\}\)/.test(jd.slice(jd.indexOf('function _recordGeneration'), jd.indexOf('function _recordViolations'))), 'the recorder is a fire-and-forget POST that swallows every failure');
+  assert(/function _recordGeneration\(jobId, kind, text, model(?:, bomb = null)?\)/.test(jd) && /fetch\('\/generations', \{\s*method: 'POST'/.test(jd) && /\.catch\(\(\) => \{\}\)/.test(jd.slice(jd.indexOf('function _recordGeneration'), jd.indexOf('function _recordViolations'))), 'the recorder is a fire-and-forget POST that swallows every failure');
   assert(/_recordGeneration\([^)]*coreOnly \? 'rescan' : 'generate', _finalText/.test(jd), 'generate and rescan are recorded where the finished letter is set');
   assert(/_recordGeneration\(job\?\.id, 'chat', _t/.test(jd), 'a chat rewrite is recorded as kind "chat"');
   assert(/\^Error generating cover letter/.test(jd), 'an error message is never recorded as a letter');

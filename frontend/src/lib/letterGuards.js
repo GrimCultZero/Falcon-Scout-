@@ -1119,3 +1119,94 @@ export function stripPlaceholders(text) {
   if (!/\n$/.test(text)) cleaned = cleaned.replace(/\n+$/, '')
   return { text: cleaned, removed }
 }
+
+
+// ── Never state what Artem lacks (owner rule T22, 2026-11-16) ────────────────
+// "The letter must not volunteer missing proof, cases or experience." A job that asks for something
+// Artem has no case for gets NOTHING about the gap: no apology, no disclaimer. The letter uses the
+// closest real proof and introduces it normally. Real examples:
+//   "I have no SaaS case, and none of my results are Meta results. These are the Google Ads proofs for ..."
+//   "I don't have a visual proof / screenshot of that, so I won't state that I have one."
+//
+// This only REMOVES words. It never adds a claim; every guard against invented cases, numbers and
+// timeframes stays as it was. Owner exception to the "freeze new regex guards" note (T10), on purpose.
+// A sentence is cut only when a CLAUSE of it admits a lack: "I haven't looked at your account yet"
+// (about the job) and "I have run Google Ads for 12 years" (a positive claim) are never touched.
+const _LACK_NOUN = '(?:case(?:s|\\s+stud(?:y|ies))?|examples?|proofs?|screenshots?|portfolio|experience|results?|track\\s+record|references?|samples?|visuals?|work\\s+to\\s+show|figures?|numbers|metrics)'
+// up to five words between "have" and the noun, but never "your": "I don't have your account data" is about the job
+const _MID = "(?:(?!your\\b)[\\w-]+\\s+){0,5}?"
+const _ADMISSION_RES = [
+  // "I don't have a (visual) proof / screenshot / case in this niche", "I don't have a documented ... reinstatement case"
+  new RegExp(`\\bI\\s+(?:do\\s*n[o'’]?t|do\\s+not|don['’]t)\\s+(?:currently\\s+|really\\s+|yet\\s+)?have\\s+(?:(?:any|a|an|much|direct|specific|relevant|real|visual|actual|exact|similar|documented)\\s+)*${_MID}${_LACK_NOUN}\\b`, 'i'),
+  // "I don't have a hospice redesign to show you"
+  /\bI\s+(?:do\s*n[o'’]?t|do\s+not|don['’]t)\s+have\b(?![^.!?]*\byour\b)[^.!?]{0,70}\bto\s+show(?:\s+you)?\b/i,
+  // "I have no SaaS case", "I have no YouTube CPA or ROAS figures at 8-figure scale", "I've no experience with ..."
+  new RegExp(`\\bI(?:\\s+have|['’]ve)\\s+no\\s+${_MID}${_LACK_NOUN}\\b`, 'i'),
+  // "none of my results are Meta results"
+  /\bnone\s+of\s+my\s+(?:[\w-]+\s+){0,2}?(?:cases?|results?|work|projects?|clients?|experience)\s+(?:are|is|were|involve[sd]?|include[sd]?|come\s+from)\b/i,
+  // "I haven't managed a hospitality brand", "I haven't PERSONALLY led a 100k+ recovery" (strong verbs: no tail needed)
+  /\bI\s+(?:haven['’]t|have\s+not)\s+(?:yet\s+|really\s+|actually\s+|personally\s+|directly\s+)?(?:worked|run|managed|handled|delivered|built|led|launched|scaled|owned|had\s+(?:any\s+)?experience)\b(?![^.!?]*\b(?:your|you|you['’]re)\b)/i,
+  // "I haven't done / used X before" (weaker verbs need a "before / yet / in this ..." tail)
+  /\bI\s+(?:haven['’]t|have\s+not)\s+(?:yet\s+|really\s+|actually\s+|personally\s+)?(?:done|used)\b(?![^.!?]*\b(?:your|you|you['’]re)\b)[^.!?]*\b(?:before|yet|directly|specifically|in\s+this|with\s+(?:a|an|any|this)\b)/i,
+  // "I can't share ...", "I'm not able to share ..."
+  /\b(?:I\s+(?:can['’]?t|cannot|can\s+not|am\s+unable\s+to)|I(?:['’]m|\s+am)\s+not\s+able\s+to)\s+share\b/i,
+  // "so I won't claim one", "I won't pretend otherwise", "I'm not going to pretend otherwise", "so I won't invent any"
+  /\b(?:I\s+(?:won['’]?t|will\s+not)|I(?:['’]m|\s+am)\s+not\s+going\s+to)\s+(?:(?:state|claim|say|pretend|invent|fake|fabricate|present)\s+(?:that\s+I\s+have\s+)?(?:one|any|anything|it|that|those|these|otherwise)|dress\s+(?:one|it|that)\s+up|make\s+(?:one|any|it|that)\s+up)\b/i,
+  // "Unfortunately I don't have ..." (any first-person lack)
+  new RegExp(`\\bunfortunately,?\\s+(?:I|my)\\b[^.!?]*\\b(?:don['’]t|do\\s+not|haven['’]t|have\\s+not|no|can['’]t|cannot|lack)\\b[^.!?]*\\b(?:${_LACK_NOUN}|worked|work\\s+with|niche|industry)\\b`, 'i'),
+  // "Neither is a Business Profile or AI-citation case"
+  /\b(?:neither|none)\s+(?:of\s+(?:them|these|those|the\s+\w+)\s+)?(?:is|are)\s+(?:a|an)\b[^.!?]*\b(?:case|proof|result)s?\b/i,
+  // "no case in this niche / industry"
+  /\bno\s+(?:[\w-]+\s+){0,2}?(?:case|cases|case\s+study|experience)\s+(?:in|for|with)\s+(?:this|that|your)\s+(?:niche|industry|vertical|space|sector)\b/i,
+  // "I lack experience in ..."
+  /\bI\s+(?:lack|am\s+lacking)\s+(?:[\w-]+\s+){0,3}?(?:experience|cases?|proof)\b/i,
+]
+const _CLAUSE_SPLIT_RE = /(,\s*(?:but|however|though|although|yet|while|and|so)\s+|;\s*|\s+[—–]\s+)/i
+const _LEAD_IN_RE = /^(?:that\s+said|that\s+being\s+said|however|but|still|instead|even\s+so|nevertheless|nonetheless|though|although|what\s+i\s+(?:do\s+)?have\s+is)\s*[,:]?\s+(?=\S)/i
+
+export function isAdmissionClause(clause) {
+  return _ADMISSION_RES.some(re => re.test(String(clause || '')))
+}
+
+const _capFirst = (s) => s.replace(/^(\W*)([a-z])/, (_, a, b) => a + b.toUpperCase())
+
+/** Remove every sentence (or clause) that admits a missing case, proof or experience. */
+export function stripAdmissions(text) {
+  const src = String(text || '')
+  const removed = [], rewritten = []
+  const outParas = src.split(/\n\s*\n/).map(para => {
+    const lines = para.split('\n').map(line => {
+      const pieces = _sentencePieces(line)
+      let touched = false
+      for (let i = 0; i < pieces.length; i++) {
+        const s = pieces[i].text
+        if (!isAdmissionClause(s)) continue
+        // split into clauses; keep the ones that do not admit anything
+        const parts = s.split(_CLAUSE_SPLIT_RE)             // [clause, sep, clause, sep, ...]
+        const clauses = parts.filter((_, k) => k % 2 === 0)
+        const kept = clauses.filter(c => !isAdmissionClause(c))
+        touched = true
+        if (kept.length && kept.join(' ').trim().split(/\s+/).length >= 4) {
+          let next = kept.map(c => c.trim().replace(/^[,;\s—–-]+/, '')).join(', ').replace(/[,;\s]+$/, '')
+          // a sentence that ended in ':' (a lead-in to a list) keeps it; one that ended in . ! ? keeps that
+          if (!/[.!?:]$/.test(next)) next += (s.trim().match(/[.!?:]+$/) || ['.'])[0]
+          next = _capFirst(next)
+          rewritten.push({ from: s.trim(), to: next })
+          pieces[i] = { text: next, sep: pieces[i].sep }
+        } else {
+          removed.push(s.trim())
+          // a lead-in left on the NEXT sentence ("That said, ...") goes with it
+          if (pieces[i + 1]) pieces[i + 1] = { text: _capFirst(pieces[i + 1].text.replace(_LEAD_IN_RE, '')), sep: pieces[i + 1].sep }
+          if (i === pieces.length - 1 && i > 0) pieces[i - 1] = { text: pieces[i - 1].text, sep: '' }
+          pieces.splice(i, 1)
+          i--
+        }
+      }
+      return touched ? pieces.map(p => p.text + p.sep).join('').trim() : line
+    }).filter((l, k, arr) => l !== '' || arr.length === 1)
+    return lines.join('\n')
+  }).filter(p => p.trim() !== '')
+  let cleaned = outParas.join('\n\n')
+  if (/\n$/.test(src) && !/\n$/.test(cleaned)) cleaned += '\n'
+  return { text: removed.length || rewritten.length ? cleaned : src, removed, rewritten }
+}

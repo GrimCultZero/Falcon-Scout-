@@ -333,8 +333,9 @@ class Generation(Base):
     provider        = Column(String, nullable=True)      # "api" | "cli", from the server's current setting
     text            = Column(Text, nullable=False)
     fired_checks    = Column(Text, nullable=True)        # JSON list of the rule checks that fired in that run
-    digit_bomb_case = Column(String, nullable=True)      # T13
-    style_variant   = Column(String, nullable=True)      # T22
+    digit_bomb_case = Column(String, nullable=True)      # T22: the ledger case id the letter opened with
+    digit_bomb_score = Column(Integer, nullable=True)    # T22: the auto match score (NULL = armed by hand, or no bomb)
+    style_variant   = Column(String, nullable=True)      # T22: "digit-bomb" when a Digit Bomb opened the letter
     proposal_id     = Column(Integer, nullable=True, index=True)
     edit_ratio      = Column(Float, nullable=True)
 

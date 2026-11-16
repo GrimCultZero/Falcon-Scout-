@@ -133,6 +133,9 @@ def _ensure_job_columns():
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_submitted_at ON proposals(submitted_at)")
         if "analysis_json" not in proposals_cols:
             conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN analysis_json TEXT")
+        gen_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(generations)").fetchall()}
+        if gen_cols and "digit_bomb_score" not in gen_cols:        # T22: the table predates the auto-bomb score
+            conn.exec_driver_sql("ALTER TABLE generations ADD COLUMN digit_bomb_score INTEGER")
         if "first_reply_at" not in proposals_cols:
             # When the client FIRST wrote back in this thread. Owner, 2026-10-16:
             # "we count a reply ONLY the 1st message from a NEW client … if someone
@@ -6423,7 +6426,8 @@ def record_generation(data: dict):
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
         g = Generation(job_id=job_id, kind=_generations.clean_kind(data.get("kind")),
                        model=(str(data.get("model") or "").strip() or None), provider=_get_ai_provider(),
-                       text=text, fired_checks=_generations.clean_checks(data.get("fired_checks")))
+                       text=text, fired_checks=_generations.clean_checks(data.get("fired_checks")),
+                       **_generations.clean_bomb(data))
         session.add(g)
         session.commit()
         return {"id": g.id}
