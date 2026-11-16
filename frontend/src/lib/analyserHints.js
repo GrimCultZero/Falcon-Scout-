@@ -21,6 +21,11 @@ const META = /\b(?:analy[sz]er|analysed|analyzed|scores?|scored|verdict|skip|app
 export const MAX_HINTS = 6
 export const MAX_HINT_CHARS = 240
 
+// Owner decision 2026-11-16: the credential is "Google Premier Partner" and nothing more: no percentile claim
+// ("top N percent", "globally"). Older stored analyses still carry one (written by the old analyser prompt); it must not reach a letter.
+const TOP_PERCENT_CLAIM = /\s*[\u2014\u2013-]?\s*\(?\s*\b(?:in\s+the\s+)?top[ -]?\d+\s?%(?:\s+(?:globally|worldwide|of\s+(?:all\s+)?(?:agencies|advertisers|partners)))?\s*\)?/gi
+export const withoutTopPercentClaim = (s) => String(s == null ? '' : s).replace(TOP_PERCENT_CLAIM, '')
+
 const tidy = (s) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f�]+/g, ' ').replace(/\s+/g, ' ').trim()
 
 /** Is this line safe and useful for the letter? (false = drop it) */
@@ -40,7 +45,7 @@ export function letterHintLines(analysis) {
   const seen = new Set()
   const out = []
   for (const raw of [...flags, ...reasons, ...summary]) {
-    const t = tidy(raw)
+    const t = tidy(withoutTopPercentClaim(raw))
     if (!isLetterHint(t)) continue
     const key = t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 60)
     if (seen.has(key)) continue

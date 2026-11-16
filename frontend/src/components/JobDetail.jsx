@@ -5193,7 +5193,7 @@ ARTEM'S UPWORK PROFILE (real, verified data — use this to assess fit):
 - Availability: 30+ hrs/week, response time 4-8 hours. Good signal for clients requiring responsiveness.
 - Languages: English (Fluent), Ukrainian (Native). No barrier for English-first clients.
 - Education: Master's degree (MCA), Kharkiv Polytechnic Institute.
-- Google Premier Partner 2026 — Top 3% globally. This credential is SPECIFIC TO GOOGLE ADS (PPC) — it is NOT an SEO credential and should NOT be cited as a differentiator on pure SEO jobs. On Google Ads / PPC jobs it is a major edge; on SEO-only jobs mention his SEO results instead.
+- Google Premier Partner 2026. This credential is SPECIFIC TO GOOGLE ADS (PPC) — it is NOT an SEO credential and should NOT be cited as a differentiator on pure SEO jobs. On Google Ads / PPC jobs it is a major edge; on SEO-only jobs mention his SEO results instead.
 
 CORE EXPERTISE (strong fit — score these 7-10 if scope matches):
 - Google Ads (PPC): Search, PMax, Shopping, Remarketing, LSA. Aggressive negative keyword hygiene, RSA A/B testing, competitor conquesting, closed-loop GA4/GTM tracking. Premier Partner status applies here — cite it on Ads jobs, not SEO jobs.
