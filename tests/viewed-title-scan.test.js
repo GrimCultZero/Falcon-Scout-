@@ -3,7 +3,7 @@
 // fuzzy fallback let the viewed job titled "Google ads" flag every title that
 // contains "google ads" on the same page. Lifted from proposal.js.
 const fs = require('fs');
-const src = fs.readFileSync(String.raw`C:\Users\syzov\upwork-cockpit\upwork-enricher\proposal.js`, 'utf8')
+const src = fs.readFileSync(require('path').join(__dirname, '..', 'upwork-enricher', 'proposal.js'), 'utf8')
   .replace(/\r\n/g, '\n');
 const a = src.indexOf('function _titleScanSaysViewed(');
 const b = src.indexOf('\n  }\n', a) + 4;

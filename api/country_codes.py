@@ -13,7 +13,7 @@ tests/test_country_codes.py checks every code there is known here.
 """
 ALPHA3_TO_NAME = {
     "AFG": "Afghanistan", "ALB": "Albania", "DZA": "Algeria", "AGO": "Angola", "ARG": "Argentina", "ARM": "Armenia",
-    "AUS": "Australia", "AUT": "Austria", "AZE": "Azerbaijan", "BHR": "Bahrain", "BGD": "Bangladesh", "BLR": "Belarus",
+    "ATG": "Antigua and Barbuda", "AUS": "Australia", "AUT": "Austria", "AZE": "Azerbaijan", "BHR": "Bahrain", "BGD": "Bangladesh", "BLR": "Belarus",
     "BEL": "Belgium", "BLZ": "Belize", "BOL": "Bolivia", "BIH": "Bosnia and Herzegovina", "BRA": "Brazil", "BGR": "Bulgaria",
     "KHM": "Cambodia", "CMR": "Cameroon", "CAN": "Canada", "CHL": "Chile", "CHN": "China", "COL": "Colombia",
     "CRI": "Costa Rica", "HRV": "Croatia", "CYP": "Cyprus", "CZE": "Czech Republic", "DNK": "Denmark",
@@ -23,7 +23,7 @@ ALPHA3_TO_NAME = {
     "IND": "India", "IDN": "Indonesia", "IRN": "Iran", "IRQ": "Iraq", "IRL": "Ireland", "ISR": "Israel", "ITA": "Italy",
     "JAM": "Jamaica", "JPN": "Japan", "JOR": "Jordan", "KAZ": "Kazakhstan", "KEN": "Kenya", "KWT": "Kuwait",
     "LVA": "Latvia", "LBN": "Lebanon", "LTU": "Lithuania", "LUX": "Luxembourg", "MYS": "Malaysia", "MLT": "Malta",
-    "MEX": "Mexico", "MDA": "Moldova", "MAR": "Morocco", "MMR": "Myanmar", "NPL": "Nepal", "NLD": "Netherlands",
+    "MUS": "Mauritius", "MEX": "Mexico", "MDA": "Moldova", "MAR": "Morocco", "MMR": "Myanmar", "NPL": "Nepal", "NLD": "Netherlands",
     "NZL": "New Zealand", "NIC": "Nicaragua", "NGA": "Nigeria", "MKD": "North Macedonia", "NOR": "Norway", "OMN": "Oman",
     "PAK": "Pakistan", "PAN": "Panama", "PRY": "Paraguay", "PER": "Peru", "PHL": "Philippines", "POL": "Poland",
     "PRT": "Portugal", "PRI": "Puerto Rico", "QAT": "Qatar", "ROU": "Romania", "RUS": "Russia", "SAU": "Saudi Arabia",

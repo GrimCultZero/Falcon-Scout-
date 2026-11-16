@@ -54,7 +54,7 @@ def verdict(r, now, cfg=CFG):
 head = json.loads(subprocess.run(["git", "show", "HEAD:feed_config.json"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8").stdout)
 check(LIVE.get("test_week") == {"from": "2026-11-10", "until": "2026-11-17"}, "feed_config.json has the test_week block (2026-11-10 .. 2026-11-17)")
 same = {k: v for k, v in LIVE.items() if k != "test_week"}
-check(all(same.get(k) == v for k, v in head.items()), "every other setting is exactly what it was at HEAD (keywords, stop words, floors, India, age limit)")
+check(all(same.get(k) == v for k, v in head.items() if k != "test_week"), "every other setting is exactly what it was at HEAD (keywords, stop words, floors, India, age limit)")
 check(LIVE["payment_verified_only"] is True and LIVE["min_hourly"] == 25 and LIVE["min_fixed"] == 100 and LIVE["exclude_countries"] == ["india"] and LIVE["max_posting_age_hours"] == 72,
       "the rules the week loosens are still configured (they are not removed)")
 check(upwork_api.DEFAULT_FEED_CONFIG["test_week"] is None, "the default has no test week")

@@ -1,0 +1,14 @@
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # tests/.letters.json (real client letters) is not in the repo: corpus sections skip.
+      - run: node tests/run_all.mjs
