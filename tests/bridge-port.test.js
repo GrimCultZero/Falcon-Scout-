@@ -15,7 +15,6 @@
 // Run: node tests/bridge-port.test.js
 const fs = require('fs');
 const os = require('os');
-const net = require('net');
 const path = require('path');
 const http = require('http');
 const { spawn, spawnSync } = require('child_process');
@@ -24,7 +23,7 @@ let bad = 0;
 const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`); };
 const ROOT = path.join(__dirname, '..');
 const { resolveBridgePortInfo, resolveBridgePort, DEFAULT_PORT } = require(path.join(ROOT, 'bridge-port.js'));
-const FORBIDDEN = new Set([27183, 27184, 8000, 5180]);
+const { getFreeBridgePort } = require('./freeBridgePort');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fs_bridge_port_'));
 const envWith = (text) => { const f = path.join(tmp, 'env_' + Math.random().toString(36).slice(2)); fs.writeFileSync(f, text); return f; };
@@ -111,27 +110,23 @@ const throwsWith = (fn, re) => { try { fn(); return false; } catch (e) { return 
   assert(badRun.status === 1 && /CLI bridge NOT started/.test(badRun.stderr) && /whole number/.test(badRun.stderr),
     `an invalid CLI_BRIDGE_PORT stops the bridge with a clear message instead of guessing (exit ${badRun.status})`);
 
-  const freePort = await new Promise((res) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
-  if (FORBIDDEN.has(freePort) || freePort < 40000) {
-    assert(false, `refusing to run the live-bridge test on port ${freePort}`);
-  } else {
-    // Since T3 the bridge will not start without a token (see bridge-lockdown.test.js).
-    fs.writeFileSync(path.join(scratch, '.env'), `CLI_BRIDGE_PORT=${freePort}\nCLI_BRIDGE_TOKEN=${'t'.repeat(40)}\n`);
-    const child = spawn(process.execPath, [path.join(scratch, 'cli-bridge.js')], { cwd: scratch });
-    let out = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { out += d; });
-    const ping = () => new Promise((res) => {
-      const rq = http.get({ host: '127.0.0.1', port: freePort, path: '/ping', timeout: 1500 }, (rs) => { rs.resume(); res(rs.statusCode); });
-      rq.on('error', () => res(0)); rq.on('timeout', () => { rq.destroy(); res(0); });
-    });
-    let code = 0;
-    for (let i = 0; i < 20 && code !== 200; i++) { await new Promise((r) => setTimeout(r, 300)); code = await ping(); }
-    assert(code === 200, `the real bridge, started with CLI_BRIDGE_PORT=${freePort} in its .env, answers /ping on THAT port`);
-    assert(new RegExp(`running at http://127\\.0\\.0\\.1:${freePort}\\s+\\(port from \\.env\\)`).test(out), 'and logs which port it took and from where');
-    // Windows will not delete a folder that a still-exiting process uses as its cwd.
-    await new Promise((res) => { child.once('exit', res); child.kill(); setTimeout(res, 5000); });
-  }
+  const freePort = await getFreeBridgePort();
+  // Since T3 the bridge will not start without a token (see bridge-lockdown.test.js).
+  fs.writeFileSync(path.join(scratch, '.env'), `CLI_BRIDGE_PORT=${freePort}\nCLI_BRIDGE_TOKEN=${'t'.repeat(40)}\n`);
+  const child = spawn(process.execPath, [path.join(scratch, 'cli-bridge.js')], { cwd: scratch });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { out += d; });
+  const ping = () => new Promise((res) => {
+    const rq = http.get({ host: '127.0.0.1', port: freePort, path: '/ping', timeout: 1500 }, (rs) => { rs.resume(); res(rs.statusCode); });
+    rq.on('error', () => res(0)); rq.on('timeout', () => { rq.destroy(); res(0); });
+  });
+  let code = 0;
+  for (let i = 0; i < 20 && code !== 200; i++) { await new Promise((r) => setTimeout(r, 300)); code = await ping(); }
+  assert(code === 200, `the real bridge, started with CLI_BRIDGE_PORT=${freePort} in its .env, answers /ping on THAT port`);
+  assert(new RegExp(`running at http://127\\.0\\.0\\.1:${freePort}\\s+\\(port from \\.env\\)`).test(out), 'and logs which port it took and from where');
+  // Windows will not delete a folder that a still-exiting process uses as its cwd.
+  await new Promise((res) => { child.once('exit', res); child.kill(); setTimeout(res, 5000); });
 
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* temp cleanup must never fail the test */ }
   console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
