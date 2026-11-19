@@ -62,10 +62,12 @@ function request(port, { method = 'GET', urlPath = '/ping', headers = {}, body =
   fs.copyFileSync(path.join(ROOT, 'bridge-port.js'), path.join(scratch, 'bridge-port.js'));
 
   // A stub "claude": call 1 prints the fixture auth error and exits 1; call 2 (and later)
-  // print a normal reply and exit 0 -- simulates the login being fixed in between.
+  // print a normal reply and exit 0 -- simulates the login being fixed in between. The
+  // shebang line lets this run as a direct executable on POSIX (see claudeBin below);
+  // Node has treated a leading #! line as a no-op since Node 10, so it is harmless here too.
   const counterFile = path.join(tmp, 'calls.txt');
   const stubPath = path.join(tmp, 'claude_stub.js');
-  fs.writeFileSync(stubPath, `
+  fs.writeFileSync(stubPath, `#!/usr/bin/env node
 const fs = require('fs');
 const counterFile = ${JSON.stringify(counterFile)};
 let n = 0;
@@ -83,9 +85,17 @@ if (n === 1) {
   process.exit(0);
 }
 `);
-  // spawn() on Windows runs the bridge with shell:true for its own `claude` spawn, which
-  // joins command + args with spaces -- "node <stub> " works the same way.
-  const claudeBin = `node ${JSON.stringify(stubPath).slice(1, -1)}`;
+  // cli-bridge.js spawns CLAUDE_BIN with shell:true ONLY on Windows (isWin), shell:false
+  // everywhere else -- a single "node <path>" string only gets split into command+args by
+  // a SHELL. Without one (Linux CI), spawn() tries to exec a file literally named "node
+  // <path>" (space and all), which does not exist -> ENOENT -> the bridge reports "`claude`
+  // command not found", even though the real bug is this test's own stub resolution, not a
+  // missing claude install. On POSIX the shebang above makes the script directly executable
+  // (chmod +x; the kernel reads #!/usr/bin/env node itself), so the bare path works with no
+  // shell needed, exactly like the real `claude` binary would.
+  const isWin = process.platform === 'win32';
+  if (!isWin) fs.chmodSync(stubPath, 0o755);
+  const claudeBin = isWin ? `node ${JSON.stringify(stubPath).slice(1, -1)}` : stubPath;
 
   const freePort = await getFreeBridgePort();
   fs.writeFileSync(path.join(scratch, '.env'), `CLI_BRIDGE_PORT=${freePort}\nCLI_BRIDGE_TOKEN=${GOOD}\n`);
