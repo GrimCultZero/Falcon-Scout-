@@ -8,8 +8,14 @@ While feed_config.json's `test_week` block is active:
   * India, the stop words, the 72 h age limit and no-keyword-in-text are UNCHANGED;
   * after the end date the block does nothing and the old rules are back, with no manual step.
 
-The clock is injected, so "after the week" is tested without waiting for it. The live
-upwork_jobs.db is never opened except read-only by the report tool test, which uses a scratch copy.
+The clock is injected (via an explicit `now`) wherever the function being tested takes one
+(`_row_passes`, `test_week_active`), so "after the week" is tested without waiting for it.
+`_apply_filter` takes no clock argument (production always uses real time, by design, and
+api/upwork_api.py is off limits to this test) - the handful of assertions that exercise it
+use CFG_NOW, a synthetic test_week window of "today +/- 1 day" instead of the owner's actual
+2026-11-10..17 dates, so they stay valid on whatever real date this test runs, not just
+during the week itself. The live upwork_jobs.db is never opened except read-only by the
+report tool test, which uses a scratch copy.
 
 Run: .venv\\Scripts\\python tests\\test_test_week.py
 """
@@ -42,6 +48,19 @@ IN_WEEK = utc(2026, 11, 12)
 AFTER = utc(2026, 11, 18)
 CFG = {**LIVE, "test_week": {"from": "2026-11-10", "until": "2026-11-17"}}
 NOW_ISO = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# `_apply_filter` (unlike `_row_passes` / `test_week_active`) takes no injectable clock -
+# by design, production always uses the real time, and api/upwork_api.py is off limits
+# here. The owner's actual test week (2026-11-10..17, above) is now in the past, so a
+# fixed window would make every _apply_filter-based assertion below fail from 2026-11-18
+# onward regardless of the code. CFG_NOW uses a window that is always "today ± 1 day",
+# so it is active on whatever real date this test runs, same as CFG is active for the
+# fixed dates passed to verdict()/act() via an explicit `now`.
+_today_utc = datetime.now(timezone.utc)
+CFG_NOW = {**LIVE, "test_week": {
+    "from": (_today_utc - timedelta(days=1)).strftime("%Y-%m-%d"),
+    "until": (_today_utc + timedelta(days=1)).strftime("%Y-%m-%d"),
+}}
 
 def row(title="Google Ads Specialist", desc="We need google ads help.", **kw):
     base = {"upwork_job_id": "~x", "title": title, "description_full": desc, "payment_verified": True, "posted_date": NOW_ISO}
@@ -80,13 +99,13 @@ CASES = [("unverified payment", row(payment_verified=False), "unverified-payment
 for name, r, old_reason, tag in CASES:
     check(verdict(r, AFTER) == old_reason, f"{name}: dropped as '{old_reason}' outside the week")
     check(verdict(r, IN_WEEK) is None, f"{name}: PASSES during the week")
-    kept, _ = upwork_api._apply_filter({"~x": dict(r)}, CFG, 1)
+    kept, _ = upwork_api._apply_filter({"~x": dict(r)}, CFG_NOW, 1)
     check(len(kept) == 1 and kept[0]["feed_tag"] == tag, f"{name}: kept with feed_tag '{tag}' (got {kept[0]['feed_tag'] if kept else None!r})")
-kept, _ = upwork_api._apply_filter({"~x": row(payment_verified=False, hourly_rate_max=10)}, CFG, 1)
+kept, _ = upwork_api._apply_filter({"~x": row(payment_verified=False, hourly_rate_max=10)}, CFG_NOW, 1)
 check(kept[0]["feed_tag"] == "test:unverified,test:low-hourly", f"a row that breaks two rules carries both tags ({kept[0]['feed_tag']})")
-kept, _ = upwork_api._apply_filter({"~x": row(fixed_budget="$300", hourly_rate_max=None)}, CFG, 1)
+kept, _ = upwork_api._apply_filter({"~x": row(fixed_budget="$300", hourly_rate_max=None)}, CFG_NOW, 1)
 check(kept[0]["feed_tag"] is None, "a row that breaks nothing carries no test tag")
-kept, _ = upwork_api._apply_filter({"~x": row(title="Google Business Profile bad review removal", desc="x", fixed_budget="$50")}, CFG, 1)
+kept, _ = upwork_api._apply_filter({"~x": row(title="Google Business Profile bad review removal", desc="x", fixed_budget="$50")}, CFG_NOW, 1)
 check(kept[0]["feed_tag"] == "gbp,test:low-fixed", f"the T18 marker and a test tag combine ({kept[0]['feed_tag']})")
 kept, _ = upwork_api._apply_filter({"~x": row(fixed_budget="$50")}, {**LIVE, "test_week": None}, 1)
 check(kept == [], "with no test week the same row is dropped by _apply_filter")
@@ -124,7 +143,7 @@ captured = []
 upwork_api.set_drop_sink(lambda rows: captured.extend(rows))
 seen = {"~w1": row(upwork_job_id="~w1", title="Shopify developer", desc="Build us a site."),
         "~w2": row(upwork_job_id="~w2", title="Shopify SEO Expert")}
-kept, stats = upwork_api._apply_filter(seen, CFG, 2)
+kept, stats = upwork_api._apply_filter(seen, CFG_NOW, 2)
 upwork_api.set_drop_sink(None)
 check([d["upwork_job_id"] for d in captured] == ["~w1"] and captured[0]["reason"] == "testweek:webdev" and [r["upwork_job_id"] for r in kept] == ["~w2"],
       "the hidden web-dev job reaches feed_drops with reason 'testweek:webdev'; the SEO one is kept")
