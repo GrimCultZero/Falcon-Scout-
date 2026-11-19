@@ -13,7 +13,8 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences } from '../lib/letterGuards'
+import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage } from '../lib/screeningQuestions'
 import { findAutoBomb } from '../lib/digitBombMatch'
 import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
 
@@ -3327,6 +3328,10 @@ function _gcShadow(finalText, jobObj, surface = 'generator') {
     const _enforce = surface === 'chat' ? GC_ENFORCE_CHAT : GC_ENFORCE
     const gc = groundingCheck(finalText, { postingText: posting, enforce: _enforce })
     if (gc.violations.length) _recordViolations(surface, jobObj && jobObj.id, gc.violations)
+    // print WHICH text each case-related flag matched (attachmentUnbacked, tooManyCaseStudies)
+    for (const code of ['attachmentUnbacked', 'tooManyCaseStudies']) {
+      for (const d of (gc.matches && gc.matches[code]) || []) console.warn(`[Falcon] ${code} matched: ${d.case ? `[${d.case}] ` : ''}${d.why || ''}${d.sentence ? ` :: "${d.sentence}"` : ''}${d.cases ? ` :: cases ${d.cases.join(', ')} (allowed ${d.allowed})` : ''}`)
+    }
     return _enforce ? gc.text : finalText
   } catch (_) { return finalText }
 }
@@ -6318,6 +6323,11 @@ function ProposalColumn({
   //                the chat wrote "$30/hr or $1,500/month"). A note, not a
   //                rewrite — a figure Artem chose on purpose stays his.
   const _liveOffStandardFee = proposal ? findOffStandardOngoingFee(proposal, { postingText: _postingForNotes }) : null
+  // Numbered application questions in the posting: which numbers the letter answers, and the facts NOT on record that
+  // the owner has to supply (the letter says nothing about them). A note, never a block.
+  const _screening = screeningFromJob(job, job?.description_full || job?.description_snippet || job?.raw_message || '')
+  const _screeningCov = proposal && _screening ? screeningCoverage(proposal, _screening) : null
+  const _screeningMissingFacts = _screening ? missingFactsNote(_screening) : ''
   // T13: what the client sees before opening is roughly the first 180 characters; they should hold 4+ words from THIS posting.
   // Same rule as the generation-time previewNotSpecific check. A note, never a block.
   const _livePreview = proposal && !proposal.startsWith('Error generating') ? previewCheck(proposal, [job?.title, job?.category, job?.keywords, job?.description_full || job?.description_snippet || job?.raw_message].filter(Boolean).join('\n').toLowerCase()) : null
@@ -7014,6 +7024,10 @@ function ProposalColumn({
       // real data — the model must NOT fabricate them; it answers from KB facts if
       // present, otherwise leaves that point out (no placeholders — see _blockPlaceholders).
       const applicationChecklist = extractApplicationChecklist(fullDescription)
+      // Numbered application questions written INSIDE the description (job 24349, 2026-11-17: 8 questions, the letter
+      // answered 2, the screening_questions field was empty). When found, they get their own prompt block and replace the
+      // generic checklist block, which tells the model never to label answers.
+      const inlineScreening = screeningFromJob(job, fullDescription)
 
       // ── Required literal opener phrase ("Start your proposal with 'X'") ──
       // Some postings use a literal quoted attention-check string the proposal
@@ -7205,8 +7219,8 @@ function ProposalColumn({
 - Reporting goes where the posting says ("reporting and recommendations to our team" → to their team). Mirror that; never upgrade it into client-ready white-label deliverables.
 - Otherwise it is an ordinary specialist letter: answer the posting's questions in its order, prove the exact skill with the right case study.`
           : `CLIENT TYPE: DIRECT end client. Address them as the business that will actually use the work. Do NOT frame yourself as a white-label provider, subcontractor, or someone "working behind another agency/developer," and do NOT describe this as a white-label engagement — EVEN IF the posting says they already have a developer/team or want an "additional person/resource." That just means you would join their team directly. White-label framing is ONLY correct when the posting explicitly asks for a white-label arrangement (white-label, under our brand, no contact with our clients, a subcontractor) — and this one does not.`,
-        applicationChecklist ? applicationChecklist.promptBlock : '',
-        (applicationChecklist || _PROOF_REQUEST_RE.test(fullDescription.replace(_CLIENT_OWN_PORTFOLIO_RE, '')))
+        inlineScreening ? screeningPromptBlock(inlineScreening) : (applicationChecklist ? applicationChecklist.promptBlock : ''),
+        (applicationChecklist || inlineScreening || _PROOF_REQUEST_RE.test(fullDescription.replace(_CLIENT_OWN_PORTFOLIO_RE, '')))
           ? buildArtemFactsBlock(`${job.title || ''}\n${fullDescription}`)
           : '',
         job.hire_rate ? `Client hire rate: ${job.hire_rate}%` : '',
@@ -8068,6 +8082,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         }
       }
 
+      // ── Numbered screening questions: did the letter answer every one? (record-only, never blocks) ──
+      if (inlineScreening) {
+        const _cov = screeningCoverage(text, inlineScreening)
+        if (_cov.missing.length) {
+          console.warn(`[Falcon] screening questions: the letter answers ${_cov.answered.length} of ${_cov.total}; missing numbers ${_cov.missing.join(', ')}`)
+          _recordViolations('generator', job?.id, ['screeningQuestionsUnanswered'])
+        }
+      }
+
       // ── Rule-compliance enforcement pass ────────────────────────────────
       // Prompt engineering alone has proven unreliable for hard rule
       // requirements (e.g. Rule 8: "audit takes 1 working day" — Claude
@@ -8122,6 +8145,10 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const draftTimings = (text.match(TIMING_RE) || []).map(norm)
             const timingCompliant = draftTimings.length === 0 ||
               draftTimings.every(t => allowedTimings.has(t))
+            // owner request 2026-11-17: say WHICH sentence made timingViolation fire
+            if (!timingCompliant) {
+              for (const h of timingViolationSentences(text, allowedTimings)) console.warn(`[Falcon] timingViolation matched: ${h.phrases.join(', ')} :: "${h.sentence}"`)
+            }
 
             // ── Cover-letter TIMELINE check (KB Rule 17) ─────────────────────
             // Rule 17: "...estimate SEO technical audit at 2 weeks in the scope
@@ -8476,7 +8503,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // appears near-verbatim in the draft, flag it for rephrasing.
             const _normEcho = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
             const _draftNorm = _normEcho(text)
-            const _echoedQuestions = (applicationChecklist?.items || [])
+            const _echoedQuestions = (inlineScreening ? [] : (applicationChecklist?.items || []))   // numbered answers deliberately carry the client's own titles
               .map(it => (it.text || '').trim())
               .filter(q => q.length >= 25)                 // only long questions, not short labels
               .filter(q => {
@@ -10032,6 +10059,16 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               <div style={{ marginTop: 4, fontFamily: 'ui-monospace, monospace', color: 'var(--text2)' }}>
                 {ruleFlags.join('  ·  ')}
               </div>
+            </div>
+          )}
+
+          {_screening && proposal && (
+            <div data-testid="screening-note" data-answered={_screeningCov ? _screeningCov.answered.length : 0} data-total={_screening.questions.length}
+              style={{ fontSize: 10.5, lineHeight: 1.55, padding: '6px 10px', borderRadius: 3, color: 'var(--text2)',
+                       background: _screeningCov && _screeningCov.missing.length ? 'rgba(245,158,11,0.08)' : 'rgba(0,200,212,0.06)',
+                       border: `1px solid ${_screeningCov && _screeningCov.missing.length ? 'rgba(245,158,11,0.35)' : 'rgba(0,200,212,0.25)'}` }}>
+              <div><b>Screening questions in the posting:</b> {_screening.questions.length} (from the {_screening.source === 'field' ? 'screening field' : 'job description'}). The letter answers {_screeningCov ? _screeningCov.answered.length : 0} of {_screening.questions.length}{_screeningCov && _screeningCov.missing.length ? <> — not answered: {_screeningCov.missing.join(', ')}</> : null}.</div>
+              {_screeningMissingFacts && <div data-testid="screening-missing-facts" style={{ marginTop: 3 }}><b>Facts not on record</b> (the letter says nothing about them; they are yours to supply): {_screeningMissingFacts}</div>}
             </div>
           )}
 

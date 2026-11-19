@@ -405,6 +405,21 @@ export function casesMentioned(text) {
   }).map(c => c.id)
 }
 
+// How many case studies / examples the POSTING explicitly asks for ("at least 5 detailed case studies", "give three
+// examples", "2 case studies"), 0 when it does not say. Only case studies, examples and references count: "20+ completed
+// projects" is a credential the client wants, not a number of cases to list. The caller caps it (5).
+const _NUM_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 }
+export function casesRequestedByPosting(text) {
+  const t = String(text || '').replace(/\*\*/g, '')
+  const re = /\b(?:at\s+least|minimum\s+of|min\.?|up\s+to|give\s+(?:us\s+)?|provide\s+|share\s+|send\s+|include\s+|list\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\+?\s+(?:[a-z-]+\s+){0,3}?(?:case\s+stud(?:y|ies)|examples?|references?)\b/gi
+  let best = 0, m
+  while ((m = re.exec(t))) {
+    const n = /^\d/.test(m[1]) ? Number(m[1]) : _NUM_WORDS[m[1].toLowerCase()]
+    if (n >= 1 && n <= 20) best = Math.max(best, n)
+  }
+  return best
+}
+
 // Sentence boundary: . ! ? followed by whitespace, except after a common
 // abbreviation or a dotted initialism ("U.S.", "e.g."). Decimals never split,
 // because the character after "693." is a digit, not whitespace.

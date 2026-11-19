@@ -1210,3 +1210,21 @@ export function stripAdmissions(text) {
   if (/\n$/.test(src) && !/\n$/.test(cleaned)) cleaned += '\n'
   return { text: removed.length || rewritten.length ? cleaned : src, removed, rewritten }
 }
+
+// ── timingViolation: WHICH sentence matched (owner request 2026-11-17) ───────────────────────────
+// The generator's timing pre-check collects every "N days" / "N working days" phrase in the draft and flags the
+// draft when one is not in the set the KB rules allow. The flag said "timingViolation" and nothing else. This
+// returns the sentences carrying the phrases that are NOT allowed. Same phrase regex as the pre-check in
+// JobDetail.jsx (a test keeps the two equal).
+export const TIMING_PHRASE_RE_SOURCE = String.raw`\d+\s*(?:-\s*\d+\s*)?(?:working\s+|business\s+)?days?\b`
+const _normTiming = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+export function timingViolationSentences(text, allowedTimings) {
+  const allowed = allowedTimings instanceof Set ? allowedTimings : new Set(allowedTimings || [])
+  const out = []
+  const sentences = String(text || '').split(/(?<=[.!?])\s+|\n+/)
+  for (const s of sentences) {
+    const hits = (s.match(new RegExp(TIMING_PHRASE_RE_SOURCE, 'gi')) || []).map(_normTiming).filter(t => !allowed.has(t))
+    if (hits.length) out.push({ phrases: hits, sentence: s.trim().slice(0, 240) })
+  }
+  return out
+}

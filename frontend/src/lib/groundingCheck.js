@@ -41,7 +41,7 @@
 //    model must emit {{case:id}} it can't write an anonymized fabricated story or relabel
 //    a vertical at all. The checker owns the NAMED-case classes.)
 
-import { CASE_LEDGER, CASE_BY_ID, findCaseFactConflicts, fixCaseGeoClaims } from './caseLedger'
+import { CASE_LEDGER, CASE_BY_ID, findCaseFactConflicts, fixCaseGeoClaims, casesRequestedByPosting } from './caseLedger'
 
 // ── case name matchers (mirror _CASE_META shapes) ──
 const _NAME_RES = {
@@ -186,11 +186,17 @@ function _removeEnclosingSentences(text, spans) {
 }
 
 // Main entry. `enforce:false` (default) = SHADOW: returns text unchanged, only reports.
+// The case sentence a violation matched, shortened for a log line.
+const _firstSentence = (p) => String(p || '').replace(/\s+/g, ' ').trim().slice(0, 220)
+
 export function groundingCheck(text, { postingText = '', enforce = false } = {}) {
   const violations = []
   if (!text || typeof text !== 'string') return { text: text || '', violations: [] }
   let out = text
   const record = (code) => violations.push(code)
+  // T-screening (owner, 2026-11-17): WHICH text matched, so a flag can be checked at a glance
+  const matches = {}
+  const noteMatch = (code, detail) => { (matches[code] = matches[code] || []).push(detail) }
   const posting = String(postingText || '').toLowerCase()
   const paras = out.split(/\n{2,}/)
 
@@ -214,7 +220,9 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
   // regex can't safely make; blindly stripping could remove the one case
   // that's actually on-point for this job.
   const _allCasesInLetter = _uniq(paraCases.flat())
-  if (_allCasesInLetter.length > 2) record('tooManyCaseStudies')
+  // A posting that explicitly asks for N case studies ("at least 5 detailed case studies") may get up to N, never more than 5.
+  const _casesAllowed = Math.max(2, Math.min(5, casesRequestedByPosting(postingText)))
+  if (_allCasesInLetter.length > _casesAllowed) { record('tooManyCaseStudies'); noteMatch('tooManyCaseStudies', { cases: _allCasesInLetter, allowed: _casesAllowed }) }
 
   // ── metricNotInLedger + attachmentUnbacked: scoped to case paragraphs ──
   const postingNums = _postingMetricNumbers(posting)
@@ -262,10 +270,11 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
       // in production by testing a clean, zero-violation letter and finding
       // the "text unchanged" check failed anyway.
       let attachBad = false
-      if (pdfN + phN > 1) { record('attachmentUnbacked'); attachBad = true } /* duplicate label */
-      if (want === 'pdf' && phN > 0) { record('attachmentUnbacked'); attachBad = true }          // should be PDF, labelled highlights
-      if (want === 'profile-highlights' && pdfN > 0) { record('attachmentUnbacked'); attachBad = true } // vice-versa
-      if (want === 'none' && (pdfN + phN) > 0) { record('attachmentUnbacked'); attachBad = true }
+      const _badAttach = (why) => { record('attachmentUnbacked'); attachBad = true; noteMatch('attachmentUnbacked', { case: ids[0], why, sentence: _firstSentence(p) }) }
+      if (pdfN + phN > 1) _badAttach('the attachment label appears more than once')               /* duplicate label */
+      if (want === 'pdf' && phN > 0) _badAttach('this case is a PDF but it is labelled "profile highlights"')         // should be PDF, labelled highlights
+      if (want === 'profile-highlights' && pdfN > 0) _badAttach('this case is in profile highlights but it is labelled as a PDF') // vice-versa
+      if (want === 'none' && (pdfN + phN) > 0) _badAttach('this case has no attachment but the paragraph labels one')
       // Guard against the sentence-removal above having deleted the case
       // name itself (e.g. the fabrication WAS the case's only sentence) —
       // don't try to re-insert a label onto a name that's no longer there.
@@ -346,5 +355,5 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
     record('seoAuditTurnaround')  // removal handled by the existing _stripSeoAuditTurnaround in the pile
   }
 
-  return { text: enforce ? out : text, violations: _uniq(violations) }
+  return { text: enforce ? out : text, violations: _uniq(violations), matches }
 }
