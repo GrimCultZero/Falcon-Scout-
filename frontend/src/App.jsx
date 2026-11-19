@@ -10,6 +10,7 @@ import SettingsTab from './components/SettingsTab'
 import BackupChip from './components/BackupChip'
 import HealthStrip from './components/HealthStrip'
 import { FEED_LIMIT } from './lib/feedLimit'
+import { aiProviderChipView, authReasonFromBridgeStatus } from './lib/aiProviderChip'
 import { getNotifySettings, notifyPermission, passesNotifyFilter, notifyNewJobs } from './lib/notifications'
 
 // ── Build-time debug: ring buffer of console errors/warnings + uncaught errors.
@@ -1370,6 +1371,12 @@ function AiProviderChip() {
   // Seed from localStorage for instant display (no flicker on reload)
   const [provider, setProvider] = useState(() => localStorage.getItem(_AI_PROVIDER_LS) || 'api')
   const [bridgeOk, setBridgeOk] = useState(false)
+  // Set only when the bridge is UP but its last real call hit a login/auth problem
+  // (e.g. "this login reached its time limit and cannot be renewed") -- the bridge's
+  // own Node server being reachable is a separate concern from `claude` actually being
+  // logged in, and the chip used to stay green through exactly this case until the
+  // next click surfaced the failure. Clears itself the next time /ping reports it fixed.
+  const [authReason, setAuthReason] = useState(null)
   const [saving, setSaving] = useState(false)
 
   // Confirm/correct from backend on mount (backend is authoritative)
@@ -1383,14 +1390,18 @@ function AiProviderChip() {
       .catch(() => {})  // backend down — keep localStorage value
   }, [])
 
-  // Ping bridge every 15s when in CLI mode
+  // Ping bridge every 15s when in CLI mode. Keeps polling unconditionally -- never stops on
+  // a failure -- so a login fixed outside this tab (another terminal, `claude auth login`)
+  // is picked up within one poll, with no click needed.
   useEffect(() => {
-    if (provider !== 'cli') { setBridgeOk(false); return }
+    if (provider !== 'cli') { setBridgeOk(false); setAuthReason(null); return }
     // Ask the BACKEND whether the bridge is up (it pings the port set by
     // CLI_BRIDGE_PORT). The page used to hardcode the bridge's port and fetch it
     // directly, which is how a port move got half-committed.
     const ping = () => fetch('/ai-provider/bridge-status', { signal: AbortSignal.timeout(3000) })
-      .then(r => (r.ok ? r.json() : { up: false })).then(d => setBridgeOk(!!d.up)).catch(() => setBridgeOk(false))
+      .then(r => (r.ok ? r.json() : { up: false }))
+      .then(d => { setBridgeOk(!!d.up); setAuthReason(authReasonFromBridgeStatus(d)) })
+      .catch(() => { setBridgeOk(false); setAuthReason(null) })
     ping()
     const id = setInterval(ping, 15000)
     return () => clearInterval(id)
@@ -1409,12 +1420,7 @@ function AiProviderChip() {
     setSaving(false)
   }
 
-  const isCli = provider === 'cli'
-  const dotColor = isCli ? (bridgeOk ? '#00e070' : '#ef4444') : 'rgba(255,255,255,0.30)'
-  const borderColor = isCli ? (bridgeOk ? 'rgba(0,224,112,0.35)' : 'rgba(239,68,68,0.35)') : 'rgba(255,255,255,0.15)'
-  const tip = isCli
-    ? (bridgeOk ? 'CLI Bridge online — using claude -p subscription (click to switch back to API)' : 'CLI Bridge OFFLINE — run: node cli-bridge.js  (click to switch back to API)')
-    : 'Using Anthropic API key (click to switch to CLI Bridge — uses your Claude subscription, no per-token cost)'
+  const { isCli, dotColor, borderColor, background, tip } = aiProviderChipView(provider, bridgeOk, authReason)
 
   return (
     <button
@@ -1423,7 +1429,7 @@ function AiProviderChip() {
       title={tip}
       style={{
         display: 'flex', alignItems: 'center', gap: 5,
-        background: isCli ? (bridgeOk ? 'rgba(0,224,112,0.08)' : 'rgba(239,68,68,0.10)') : 'rgba(255,255,255,0.05)',
+        background,
         border: `1px solid ${borderColor}`,
         borderRadius: 4, padding: '4px 8px',
         fontSize: 10, fontFamily: 'Inter, sans-serif',

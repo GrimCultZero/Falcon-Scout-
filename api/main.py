@@ -263,14 +263,27 @@ def _bridge_headers() -> dict:
 # next full relaunch. This makes the backend itself responsible: it checks
 # the bridge on its own startup, and self-heals (spawns + retries once) any
 # time a live CLI-mode call finds the bridge unreachable mid-session.
-async def _ping_cli_bridge() -> bool:
+async def _ping_cli_bridge():
+    """The bridge's /ping payload when reachable (always a truthy dict -- at
+    least {"ok": True}), or None when not. Callers that only need liveness can
+    still write `if await _ping_cli_bridge():` -- a dict and None are correctly
+    truthy/falsy either way (see also tools/health_report.py's own bool(...)).
+    A current bridge's /ping also carries authOk/authReason: whether `claude`'s
+    login is good (a cheap `claude auth status` check, cached -- never a paid
+    model call) and the error from its last real /ai call, whichever is worse.
+    An older bridge build's bare {"ok": true} just omits those two keys."""
     import httpx as _httpx_ping
     try:
         async with _httpx_ping.AsyncClient(timeout=1.0) as c:
             r = await c.get(_bridge_url("/ping"))
-        return r.status_code == 200
+        if r.status_code != 200:
+            return None
+        try:
+            return r.json()
+        except ValueError:
+            return {"ok": True}
     except Exception:
-        return False
+        return None
 
 def _spawn_cli_bridge() -> bool:
     """Launch cli-bridge.js in its own console window (mirrors falconscout.bat
@@ -1515,15 +1528,21 @@ def set_ai_provider_endpoint(data: dict):
 
 @app.get("/ai-provider/bridge-status")
 async def get_bridge_status():
-    """Is the CLI bridge reachable? The header chip asks THIS instead of fetching
-    the bridge from the browser, so the page never needs to know the port (it
-    used to hardcode it) and never talks to a local port directly.
-    An unusable CLI_BRIDGE_PORT is reported, not hidden -- see _bridge_port()."""
+    """Is the CLI bridge reachable, and is its claude login currently good? The
+    header chip asks THIS instead of fetching the bridge from the browser, so
+    the page never needs to know the port (it used to hardcode it) and never
+    talks to a local port directly. An unusable CLI_BRIDGE_PORT is reported,
+    not hidden -- see _bridge_port(). auth_ok / auth_reason come straight from
+    the bridge's own /ping payload (see _ping_cli_bridge); auth_ok is None
+    when the bridge is up but running a build too old to report it."""
     try:
         port = _bridge_port()
     except ValueError as exc:
         return {"up": False, "port": None, "error": str(exc)}
-    return {"up": await _ping_cli_bridge(), "port": port}
+    info = await _ping_cli_bridge()
+    if not info:
+        return {"up": False, "port": port}
+    return {"up": True, "port": port, "auth_ok": info.get("authOk"), "auth_reason": info.get("authReason")}
 
 
 @app.get("/jobs/latest-captured")

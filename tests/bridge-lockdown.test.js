@@ -68,7 +68,9 @@ function request(port, { method = 'GET', urlPath = '/ping', headers = {}, body =
     'claude -p is spawned with an empty --tools list and --permission-mode dontAsk');
   assert(/EMPTY_TOOL_LIST = process\.platform === 'win32' \? '""' : ''/.test(src),
     'on Windows the empty list is a literal "" so cmd.exe does not drop it');
-  assert(/spawn\('claude', \[\.\.\.CLAUDE_ARGS_BASE,/.test(src), 'the spawn uses CLAUDE_ARGS_BASE');
+  assert(/spawn\(CLAUDE_BIN, \[\.\.\.CLAUDE_ARGS_BASE,/.test(src), 'the spawn uses CLAUDE_ARGS_BASE');
+  assert(/CLAUDE_BIN = process\.env\.FALCON_BRIDGE_CLAUDE_BIN \|\| 'claude'/.test(src),
+    'CLAUDE_BIN defaults to the real claude CLI -- the test override is opt-in only, never set in a real launch');
 
   // ── the real bridge refuses to start without a usable token ──────────────
   const scratch = path.join(tmp, 'bridge');
@@ -100,7 +102,8 @@ function request(port, { method = 'GET', urlPath = '/ping', headers = {}, body =
     child.stderr.on('data', (d) => { out += d; });
     let ping = { status: 0 };
     for (let i = 0; i < 20 && ping.status !== 200; i++) { await new Promise((r) => setTimeout(r, 300)); ping = await request(freePort, {}); }
-    assert(ping.status === 200 && ping.body === '{"ok":true}', '/ping answers without a token and says nothing else');
+    assert(ping.status === 200 && ping.body === '{"ok":true,"authOk":true,"authReason":null}',
+      '/ping answers without a token, optimistic (no call has failed yet)');
     assert(!('access-control-allow-origin' in ping.headers), 'no CORS header at all when no browser Origin is sent');
 
     const json = { 'Content-Type': 'application/json' };

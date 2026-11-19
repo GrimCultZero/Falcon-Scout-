@@ -49,9 +49,10 @@ if got != (WANT_FUNCS | WANT_VARS):
 
 # stand-ins for what the route calls, so no socket is ever opened
 calls = {"pings": 0}
+ping_result = {"ok": True, "authOk": True, "authReason": None}
 async def _fake_ping():
     calls["pings"] += 1
-    return True
+    return ping_result
 ns = {"os": os, "_ping_cli_bridge": _fake_ping}
 exec(compile(ast.Module(body=nodes, type_ignores=[]), "main_helpers", "exec"), ns)
 bridge_port, bridge_url, get_status = ns["_bridge_port"], ns["_bridge_url"], ns["get_bridge_status"]
@@ -130,7 +131,27 @@ for v in ("abc", "80", "70000", "٢٧١٨٤", "²⁷"):
 os.environ["CLI_BRIDGE_PORT"] = "27184"
 calls["pings"] = 0
 res = asyncio.run(get_status())
-check(res == {"up": True, "port": 27184} and calls["pings"] == 1, f"valid setting -> pings once and reports it: {res}")
+check(res == {"up": True, "port": 27184, "auth_ok": True, "auth_reason": None} and calls["pings"] == 1,
+      f"valid setting, good login -> pings once and reports it: {res}")
+
+ping_result = {"ok": True, "authOk": False, "authReason": "login expired: run `claude` then /login"}
+calls["pings"] = 0
+res = asyncio.run(get_status())
+check(res == {"up": True, "port": 27184, "auth_ok": False, "auth_reason": "login expired: run `claude` then /login"},
+      f"bridge up but the login is bad -> up stays True, the reason passes through unchanged: {res}")
+
+ping_result = {"ok": True}  # an older bridge build, no auth fields at all
+calls["pings"] = 0
+res = asyncio.run(get_status())
+check(res == {"up": True, "port": 27184, "auth_ok": None, "auth_reason": None},
+      f"a bridge too old to report auth -> auth_ok/auth_reason are None, not False: {res}")
+
+ping_result = None  # the bridge is not reachable at all
+calls["pings"] = 0
+res = asyncio.run(get_status())
+check(res == {"up": False, "port": 27184}, f"unreachable bridge -> up: False, no auth fields at all: {res}")
+ping_result = {"ok": True, "authOk": True, "authReason": None}
+
 os.environ["CLI_BRIDGE_PORT"] = "nonsense"
 calls["pings"] = 0
 res = asyncio.run(get_status())

@@ -5,8 +5,18 @@
 //
 // Usage: node cli-bridge.js
 // Endpoints:
-//   GET  /ping  → { ok: true }                       (no token needed; says nothing)
+//   GET  /ping  → { ok: true, authOk: bool, authReason: string|null }   (no token needed)
 //   POST /ai    → { prompt: string } → { content: string }   (needs X-Falcon-Token)
+//
+// Auth visibility (owner report, 2026-11-19): the backend's bridge-status check used to
+// be a bare liveness ping, so the header chip stayed green even when `claude`'s login had
+// expired — the Node server was still up and happily answering /ping; only a real /ai call
+// (Analyse, Generate) hit the dead login and failed. There is no cheap way to PROVE the
+// login is good without spending a model call, so instead the bridge remembers whether its
+// LAST real /ai call's `claude` process failed with an authentication-shaped error (see
+// isAuthError below) and reports that on /ping. authOk starts true (optimistic: nothing has
+// failed yet) and flips back to true automatically the next time an /ai call succeeds — no
+// separate "recovery" check is needed.
 //
 // Lockdown (audit 2026-10-29, T3). The bridge runs `claude -p` on Artem's own
 // subscription, so before T3 any web page he had open could POST a prompt to it
@@ -77,6 +87,19 @@ function sendJson(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
+// Login-expiry / not-authenticated wording from `claude -p`'s own output, e.g.
+// "Failed to authenticate: this login reached its time limit and cannot be renewed.
+// Run `claude`...". Deliberately narrow to authentication itself -- a usage/session
+// limit ("You've hit your session limit") is a different, unrelated condition with a
+// different fix (wait), so it is not reported as a login problem here.
+const AUTH_ERROR_RE = /authenticat|not logged in|please\s+(?:log\s?in|run\s+`?claude\b)/i;
+function isAuthError(message) {
+  return AUTH_ERROR_RE.test(String(message || ''));
+}
+const AUTH_REASON = 'login expired: run `claude` then /login';
+// null = last real /ai call either succeeded or none has run yet (optimistic default).
+let lastAuthProblem = null;
+
 // Run `claude` from a neutral, empty directory so it does NOT auto-discover
 // and inject the project's large CLAUDE.md into every call's context (our
 // prompts already carry the KB — the dev CLAUDE.md is pure wasted tokens).
@@ -91,6 +114,11 @@ try { fs.mkdirSync(NEUTRAL_CWD, { recursive: true }); } catch (e) {}
 //   $env:CLAUDE_CONFIG_DIR = "<this path>"
 //   claude auth login --claudeai
 const ARTEM_CONFIG_DIR = path.join(os.homedir(), '.claude-artem');
+
+// Test-only seam: tests/cli-bridge-auth.test.js points this at a stub script so it can
+// drive isAuthError/lastAuthProblem with a fixed, fixture error string instead of
+// depending on the real `claude` CLI's actual login state. Never set in a real launch.
+const CLAUDE_BIN = process.env.FALCON_BRIDGE_CLAUDE_BIN || 'claude';
 
 const server = http.createServer((req, res) => {
   // Loopback Host only (see ALLOWED_HOSTS).
@@ -120,7 +148,7 @@ const server = http.createServer((req, res) => {
   // returns nothing else. Keeping it open means a token mismatch shows up as a
   // clear 401 on /ai instead of the backend respawning bridge windows forever.
   if (req.method === 'GET' && req.url === '/ping') {
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, authOk: lastAuthProblem === null, authReason: lastAuthProblem });
     return;
   }
 
@@ -184,7 +212,7 @@ const server = http.createServer((req, res) => {
       // --disable-slash-commands → skip skill discovery.
       // cwd = neutral dir → skip project CLAUDE.md auto-injection.
       // All pure text-in/text-out; no tools needed for analyse/generate.
-      const child = spawn('claude', [...CLAUDE_ARGS_BASE, '--model', modelAlias], {
+      const child = spawn(CLAUDE_BIN, [...CLAUDE_ARGS_BASE, '--model', modelAlias], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, CLAUDE_CONFIG_DIR: ARTEM_CONFIG_DIR },
         shell: isWin,
@@ -211,23 +239,25 @@ const server = http.createServer((req, res) => {
           // and this fell back to the useless generic "exited with code N",
           // hiding the real reason. Prefer stderr, then stdout, then generic.
           const message = (err && err.trim()) || (out && out.trim()) || `claude exited with code ${code}`;
+          lastAuthProblem = isAuthError(message) ? AUTH_REASON : lastAuthProblem;
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: message }));
           return;
         }
 
+        lastAuthProblem = null;  // a real call just succeeded -- the login is good
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ content: out.trim() }));
       });
 
       child.on('error', e => {
         console.error('[spawn error]', e.message);
+        const message = e.code === 'ENOENT'
+          ? '`claude` command not found — install Claude Code and make sure it is on PATH'
+          : e.message;
+        // ENOENT is "not installed", not "logged out" -- do not report it as an auth problem.
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          error: e.code === 'ENOENT'
-            ? '`claude` command not found — install Claude Code and make sure it is on PATH'
-            : e.message,
-        }));
+        res.end(JSON.stringify({ error: message }));
       });
     });
     return;
