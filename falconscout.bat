@@ -13,6 +13,12 @@ REM  There is no Telegram listener: the bot shut down on 2026-10-15,
 REM  the API feed replaced it, and the listener was removed on
 REM  2026-11-09.
 REM
+REM  The backend window runs tools\launcher\backend_watchdog.py, not uvicorn
+REM  directly: it sets WindowsSelectorEventLoopPolicy via run_backend.py (fix
+REM  for WinError 64 under ProactorEventLoop) and restarts the backend (only
+REM  that one process) if :8000 is listening but /health goes unresponsive
+REM  for 3 checks 10s apart.
+REM
 REM  If the provider is switched to CLI later, the backend starts
 REM  the bridge itself on the first CLI call.
 REM
@@ -24,7 +30,11 @@ title Falcon Scout - Launcher
 cd /d "%~dp0"
 
 set "RELOAD="
-if /i "%~1"=="dev" set "RELOAD= --reload"
+set "RELOAD_FLAG="
+if /i "%~1"=="dev" (
+  set "RELOAD= --reload"
+  set "RELOAD_FLAG= --reload"
+)
 
 REM The CLI bridge refuses to start without CLI_BRIDGE_TOKEN in .env (audit T3).
 REM This creates one if it is missing and leaves an existing one alone.
@@ -39,7 +49,7 @@ if exist "ai_provider.json" (
 )
 
 if defined START_BRIDGE call :launch "Falcon Scout - CLI Bridge" "%~dp0." "node cli-bridge.js"
-call :launch "Falcon Scout - Backend%RELOAD%" "%~dp0." ".\.venv\Scripts\uvicorn api.main:app --port 8000%RELOAD%"
+call :launch "Falcon Scout - Backend%RELOAD%" "%~dp0." ".\.venv\Scripts\python.exe tools\launcher\backend_watchdog.py --port 8000%RELOAD_FLAG%"
 call :launch "Falcon Scout - Frontend" "%~dp0frontend" "npm run dev"
 
 if defined FALCON_DRYRUN exit /b 0

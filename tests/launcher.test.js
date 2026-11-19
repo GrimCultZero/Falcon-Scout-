@@ -44,7 +44,7 @@ assert([...read('falconscout.bat')].every((c) => c < 128), 'falconscout.bat is p
 const bat = text('falconscout.bat').replace(/\r\n/g, '\n');
 const code = bat.split('\n').filter((l) => !/^\s*REM\b/i.test(l));          // executable lines only
 const codeText = code.join('\n');
-assert(!/--reload/.test(codeText.replace(/set "RELOAD= --reload"/, '')), 'the daily launcher never passes --reload (only the dev argument sets it)');
+assert(!/--reload/.test(codeText.replace(/set "RELOAD= --reload"/, '').replace(/set "RELOAD_FLAG= --reload"/, '')), 'the daily launcher never passes --reload (only the dev argument sets it)');
 assert(!/listener/i.test(codeText), 'no executable line mentions the Telegram listener');
 assert(/--port 8000/.test(codeText) && /npm run dev/.test(codeText) && /node cli-bridge\.js/.test(codeText), 'backend (explicit :8000), frontend and bridge commands are all there');
 const tokenAt = codeText.indexOf('ensure_bridge_token.py');
@@ -90,7 +90,7 @@ let r;
 setup({ provider: '{"provider": "cli"}', env: ENV_OK });
 r = run('falconscout.bat');
 assert(r.status === 0 && names(r) === 'CLI Bridge | Backend | Frontend', `provider cli -> bridge, backend, frontend, in that order (got: ${names(r)}; exit ${r.status})`);
-assert(r.launches[1] && r.launches[1].cmd === '.\\.venv\\Scripts\\uvicorn api.main:app --port 8000', `the backend command has no --reload: "${r.launches[1] && r.launches[1].cmd}"`);
+assert(r.launches[1] && r.launches[1].cmd === '.\\.venv\\Scripts\\python.exe tools\\launcher\\backend_watchdog.py --port 8000', `the backend command has no --reload: "${r.launches[1] && r.launches[1].cmd}"`);
 assert(r.launches[2] && /frontend$/.test(r.launches[2].dir) && r.launches[2].cmd === 'npm run dev', 'the frontend starts in frontend\\ with npm run dev');
 assert(r.launches[0] && r.launches[0].cmd === 'node cli-bridge.js', 'the bridge command is unchanged');
 assert(!/listener/i.test(r.out), 'nothing about the listener is launched or printed');
@@ -113,7 +113,7 @@ assert(names(run('falconscout.bat')) === 'Backend | Frontend', 'a value that mer
 // dev variant
 setup({ provider: '{"provider": "api"}', env: ENV_OK });
 r = run('falconscout-dev.bat');
-assert(r.status === 0 && r.launches.length === 2 && r.launches[0].cmd === '.\\.venv\\Scripts\\uvicorn api.main:app --port 8000 --reload', `falconscout-dev.bat -> backend WITH --reload ("${r.launches[0] && r.launches[0].cmd}")`);
+assert(r.status === 0 && r.launches.length === 2 && r.launches[0].cmd === '.\\.venv\\Scripts\\python.exe tools\\launcher\\backend_watchdog.py --port 8000 --reload', `falconscout-dev.bat -> backend WITH --reload ("${r.launches[0] && r.launches[0].cmd}")`);
 assert(/reload/i.test(r.launches[0].title), '…and its window title says so');
 setup({ provider: '{"provider": "cli"}', env: ENV_OK });
 assert(names(run('falconscout-dev.bat')) === 'CLI Bridge | Backend --reload | Frontend', 'the dev variant follows the same bridge rule');
