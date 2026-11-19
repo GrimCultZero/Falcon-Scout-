@@ -19,6 +19,13 @@ REM  for WinError 64 under ProactorEventLoop) and restarts the backend (only
 REM  that one process) if :8000 is listening but /health goes unresponsive
 REM  for 3 checks 10s apart.
 REM
+REM  The frontend window runs tools\launcher\frontend_watchdog.py, which builds
+REM  (npm run build) only when frontend\src is newer than frontend\dist, then
+REM  serves the production build with `vite preview` on :5180 (same proxy
+REM  settings as dev, including /generations) and restarts it the same way the
+REM  backend watchdog restarts the backend. falconscout-dev.bat still runs
+REM  `npm run dev` instead - for editing the frontend, not for daily use.
+REM
 REM  If the provider is switched to CLI later, the backend starts
 REM  the bridge itself on the first CLI call.
 REM
@@ -31,9 +38,15 @@ cd /d "%~dp0"
 
 set "RELOAD="
 set "RELOAD_FLAG="
+set "FRONTEND_DIR=%~dp0."
+set "FRONTEND_CMD=.\.venv\Scripts\python.exe tools\launcher\frontend_watchdog.py --port 5180"
+set "FRONTEND_TITLE=Falcon Scout - Frontend"
 if /i "%~1"=="dev" (
   set "RELOAD= --reload"
   set "RELOAD_FLAG= --reload"
+  set "FRONTEND_DIR=%~dp0frontend"
+  set "FRONTEND_CMD=npm run dev"
+  set "FRONTEND_TITLE=Falcon Scout - Frontend - dev"
 )
 
 REM The CLI bridge refuses to start without CLI_BRIDGE_TOKEN in .env (audit T3).
@@ -50,7 +63,7 @@ if exist "ai_provider.json" (
 
 if defined START_BRIDGE call :launch "Falcon Scout - CLI Bridge" "%~dp0." "node cli-bridge.js"
 call :launch "Falcon Scout - Backend%RELOAD%" "%~dp0." ".\.venv\Scripts\python.exe tools\launcher\backend_watchdog.py --port 8000%RELOAD_FLAG%"
-call :launch "Falcon Scout - Frontend" "%~dp0frontend" "npm run dev"
+call :launch "%FRONTEND_TITLE%" "%FRONTEND_DIR%" "%FRONTEND_CMD%"
 
 if defined FALCON_DRYRUN exit /b 0
 timeout /t 3 /nobreak >nul

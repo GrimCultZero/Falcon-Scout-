@@ -91,7 +91,7 @@ setup({ provider: '{"provider": "cli"}', env: ENV_OK });
 r = run('falconscout.bat');
 assert(r.status === 0 && names(r) === 'CLI Bridge | Backend | Frontend', `provider cli -> bridge, backend, frontend, in that order (got: ${names(r)}; exit ${r.status})`);
 assert(r.launches[1] && r.launches[1].cmd === '.\\.venv\\Scripts\\python.exe tools\\launcher\\backend_watchdog.py --port 8000', `the backend command has no --reload: "${r.launches[1] && r.launches[1].cmd}"`);
-assert(r.launches[2] && /frontend$/.test(r.launches[2].dir) && r.launches[2].cmd === 'npm run dev', 'the frontend starts in frontend\\ with npm run dev');
+assert(r.launches[2] && r.launches[2].dir.toLowerCase() === tmp.toLowerCase() && r.launches[2].cmd === '.\\.venv\\Scripts\\python.exe tools\\launcher\\frontend_watchdog.py --port 5180', `the daily frontend command is the production watchdog, started from the repo root: "${r.launches[2] && r.launches[2].cmd}" in "${r.launches[2] && r.launches[2].dir}"`);
 assert(r.launches[0] && r.launches[0].cmd === 'node cli-bridge.js', 'the bridge command is unchanged');
 assert(!/listener/i.test(r.out), 'nothing about the listener is launched or printed');
 
@@ -116,7 +116,9 @@ r = run('falconscout-dev.bat');
 assert(r.status === 0 && r.launches.length === 2 && r.launches[0].cmd === '.\\.venv\\Scripts\\python.exe tools\\launcher\\backend_watchdog.py --port 8000 --reload', `falconscout-dev.bat -> backend WITH --reload ("${r.launches[0] && r.launches[0].cmd}")`);
 assert(/reload/i.test(r.launches[0].title), '…and its window title says so');
 setup({ provider: '{"provider": "cli"}', env: ENV_OK });
-assert(names(run('falconscout-dev.bat')) === 'CLI Bridge | Backend --reload | Frontend', 'the dev variant follows the same bridge rule');
+r = run('falconscout-dev.bat');
+assert(names(r) === 'CLI Bridge | Backend --reload | Frontend - dev', 'the dev variant follows the same bridge rule');
+assert(r.launches[2] && /frontend$/.test(r.launches[2].dir) && r.launches[2].cmd === 'npm run dev', 'the dev variant still runs the Vite dev server directly, not the production watchdog');
 r = run('falconscout.bat', ['dev']);
 assert(/--reload$/.test(r.launches.find((l) => /Backend/.test(l.title)).cmd), '"falconscout.bat dev" is the same thing');
 
