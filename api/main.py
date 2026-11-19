@@ -979,7 +979,21 @@ def feed_drops(hours: int = Query(24, ge=1, le=24 * _FEED_DROP_RETENTION_DAYS), 
 
 def _upsert_api_jobs(rows):
     """Insert new API-sourced jobs (dedup on upwork_job_id). Shared by the
-    on-demand /api-fetch endpoint and the background auto-fetch loop."""
+    on-demand /api-fetch endpoint and the background auto-fetch loop.
+
+    2026-11-19..2026-12-03 SEO/GEO/Google Ads focus test (owner-approved, see
+    api/focus_filter.py): while feed_config.json's focus_test block is active, a
+    newly inserted job matching none of the keep signals is hidden (the SAME
+    hidden_at the manual "Hide from feed" button sets -- /jobs/{id}/unhide rescues
+    it exactly like any other hidden job, no new mechanism) and recorded in
+    feed_drops with reason "focus:<category>". The row is ALWAYS inserted either
+    way -- this never drops a posting the normal feed filter already decided to
+    keep, only hides it. Deliberately kept out of api/upwork_api.py and the fetch/
+    filter pipeline themselves (owner instruction)."""
+    import upwork_api
+    import focus_filter
+    focus_on = focus_filter.focus_test_active(upwork_api.load_feed_config())
+    now = datetime.now(timezone.utc)
     inserted, skipped = 0, 0
     with Session(engine) as session:
         for r in rows:
@@ -989,7 +1003,21 @@ def _upsert_api_jobs(rows):
             if existing:
                 skipped += 1
                 continue
-            session.add(Job(**r))
+            job = Job(**r)
+            if focus_on:
+                keep, category = focus_filter.classify_focus(job.title, job.description_full, job.keywords)
+                if not keep:
+                    job.hidden_at = now
+                    drop = session.query(FeedDrop).filter_by(upwork_job_id=uid).first() if uid else None
+                    if drop is not None:
+                        drop.reason, drop.fetched_at = f"focus:{category}", now
+                        if job.title:
+                            drop.title = job.title[:300]
+                        drop.posted_date = job.posted_date
+                    elif uid:
+                        session.add(FeedDrop(upwork_job_id=uid, title=(job.title or "")[:300],
+                                             reason=f"focus:{category}", posted_date=job.posted_date, fetched_at=now))
+            session.add(job)
             inserted += 1
         session.commit()
     return inserted, skipped
@@ -1622,6 +1650,28 @@ def latest_captured():
         return {"captured_at": job.captured_at.isoformat()}
 
 
+@app.get("/focus-test/status")
+def focus_test_status():
+    """For the header's "Hidden by focus: N" chip: is the SEO/GEO/Google Ads
+    focus test currently active, and how many jobs are CURRENTLY hidden by it
+    (jobs.hidden_at set AND a feed_drops row with reason LIKE 'focus:%') -- a job
+    the owner has since rescued via /unhide no longer counts, even though its
+    feed_drops record is kept, exactly as instructed. feed_drops is pruned after
+    7 days, so a job hidden more than a week ago and never rescued drops out of
+    this count too, same as every other feed_drops-based count in the app."""
+    import upwork_api
+    import focus_filter
+    active = focus_filter.focus_test_active(upwork_api.load_feed_config())
+    with Session(engine) as session:
+        count = (session.query(Job)
+                 .filter(Job.hidden_at.isnot(None))
+                 .filter(Job.upwork_job_id.in_(
+                     select(FeedDrop.upwork_job_id).where(FeedDrop.reason.like("focus:%"))
+                 ))
+                 .count())
+    return {"active": active, "hidden_count": count}
+
+
 def _effective_posted_dt(job: Job) -> datetime:
     """Best-effort REAL posting time for feed ordering — prefer the job's
     actual Upwork posted_date (parsed), fall back to captured_at when it's
@@ -1656,6 +1706,7 @@ def list_jobs(
     q: Optional[str] = Query(None),
     filter_type: Optional[str] = Query(None),
     source: Optional[str] = Query(None, description="Feed source filter: 'bot' | 'api' | None (all)"),
+    focus_hidden: Optional[bool] = Query(None, description="SEO/GEO/Google Ads focus test: only jobs this test hid (feed_drops reason LIKE 'focus:%'), so the 'Hidden by focus' chip can show exactly what IT hid, not every manually-hidden job too."),
     limit: int = Query(200, ge=1, le=2000, description="Max rows to return (most-recent first). Caps feed size so the UI stays responsive."),
 ):
     with Session(engine) as session:
@@ -1679,10 +1730,15 @@ def list_jobs(
         # Hidden visibility:
         #   filter_type == "hidden"  → only hidden jobs (for the Hidden tab)
         #   anything else            → exclude hidden jobs from the feed
-        if filter_type == "hidden":
+        if filter_type == "hidden" or focus_hidden:
             stmt = stmt.where(Job.hidden_at.isnot(None))
         else:
             stmt = stmt.where(Job.hidden_at.is_(None))
+
+        if focus_hidden:
+            stmt = stmt.where(Job.upwork_job_id.in_(
+                select(FeedDrop.upwork_job_id).where(FeedDrop.reason.like("focus:%"))
+            ))
 
         if q:
             term = f"%{q}%"

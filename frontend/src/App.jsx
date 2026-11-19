@@ -8,6 +8,7 @@ import Outcomes from './components/Outcomes'
 import FeedSettings from './components/FeedSettings'
 import SettingsTab from './components/SettingsTab'
 import BackupChip from './components/BackupChip'
+import FocusTestChip from './components/FocusTestChip'
 import HealthStrip from './components/HealthStrip'
 import { FEED_LIMIT } from './lib/feedLimit'
 import { aiProviderChipView, authReasonFromBridgeStatus } from './lib/aiProviderChip'
@@ -882,6 +883,7 @@ export default function App() {
 
         {/* Right side: usage chip + live indicator + dark mode toggle */}
         <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:'auto' }}>
+          <FocusTestChip onOpen={() => { setView('jobs'); setFilter('hidden') }} />
           <HealthStrip />
           <BackupChip />
           <AiProviderChip />

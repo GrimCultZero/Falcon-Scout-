@@ -42,6 +42,7 @@ const PROXY = {
   '/health': 'http://localhost:8000',
   '/feed-drops': 'http://localhost:8000',
   '/sync-runs': 'http://localhost:8000',
+  '/focus-test': 'http://localhost:8000',
 }
 
 export default defineConfig({

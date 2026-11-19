@@ -104,5 +104,10 @@
   "test_week": {
     "from": "2026-11-10",
     "until": "2026-11-17"
+  },
+  "focus_test": {
+    "from": "2026-11-19",
+    "until": "2026-12-03",
+    "note": "SEO/GEO/Google Ads focus test (owner, 2026-11-19). Expires automatically after 'until' (Europe/Kyiv, inclusive) -- no manual step needed. See api/focus_filter.py."
   }
 }
