@@ -50,6 +50,8 @@ export function pillText(key, item) {
       return item.age_minutes == null ? 'Inbox: never walked' : `Inbox ${ago(item.age_minutes)} ago`
     case 'bridge':
       return 'CLI bridge down'
+    case 'api_feed':
+      return item.last_success_at == null ? 'Feed fetch: never succeeded' : `Feed fetch failing (${item.consecutive_failures}x)`
     default:
       return item.label || key
   }

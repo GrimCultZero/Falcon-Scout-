@@ -53,6 +53,14 @@ MESSAGES_RED_HOURS = 72        # "no messages walk for 3 days"
 BACKUP_AMBER_HOURS = 30
 BACKUP_RED_HOURS = 48
 
+# The feed LOOP itself (did the last fetch attempt succeed at all, regardless of
+# whether it found anything new) -- distinct from "feed" above, which only asks the
+# DB when the last job landed and can't tell "quiet because nothing new was posted"
+# from "quiet because every attempt is failing". RED needs repeated failures, not one:
+# a single transient network blip (an ordinary occurrence, see API_FEED_NOT_FETCHING.md)
+# retries on its own 5 minutes later and should not page anyone.
+API_FEED_RED_FAILURES = 3
+
 # A sync run that reads 0 rows is flagged. These stages mean "the page was
 # opened but no sync was started" -- Artem browsing /nx/proposals/ by hand makes
 # the extension log one -- so they are amber, not red.
@@ -118,6 +126,30 @@ def _feed(data, now_utc, local_hour):
         out.update(level="amber", reason=f"No new job for {_ago(age)} (amber after {FEED_AMBER_MIN} min). The feed is bursty, so this can be a quiet spell.")
     else:
         out.update(level="ok", reason=f"Last new job {_ago(age)} ago.")
+    return out
+
+
+def _api_feed(data, now_utc):
+    """Is the feed LOOP's fetch ATTEMPT itself succeeding? See _api_feed_loop /
+    _API_FEED_STATE in api/main.py -- this never looks at what was fetched or how
+    it was filtered, only whether the attempt completed or raised/timed out."""
+    label = "Feed fetch"
+    last_success = data.get("last_success_at")
+    last_error = data.get("last_error")
+    last_error_at = data.get("last_error_at")
+    failures = int(data.get("consecutive_failures") or 0)
+    out = {"label": label, "last_success_at": _iso(last_success), "last_error": last_error,
+           "last_error_at": _iso(last_error_at), "consecutive_failures": failures}
+    if last_success is None and last_error is None:
+        out.update(level="info", reason="The feed loop has not completed a fetch attempt yet (just started, or auto-fetch is off).")
+        return out
+    success_ago = f"Last successful fetch {_ago(_minutes(now_utc, last_success))} ago." if last_success else "No fetch has ever succeeded."
+    if failures == 0:
+        out.update(level="ok", reason=success_ago)
+    elif failures >= API_FEED_RED_FAILURES:
+        out.update(level="red", reason=f"{failures} fetch attempts in a row have failed ({last_error}). {success_ago}")
+    else:
+        out.update(level="amber", reason=f"The last fetch attempt failed ({last_error}); retrying in 5 min. {success_ago}")
     return out
 
 
@@ -321,6 +353,7 @@ def build_report(inputs, now_utc, local_hour):
     every timestamp the database stores. local_hour: 0-23, machine local time."""
     items = {
         "feed": _feed(inputs.get("feed") or {}, now_utc, local_hour),
+        "api_feed": _api_feed(inputs.get("api_feed") or {}, now_utc),
         "proposals_sync": _proposals(inputs.get("proposals") or {}, now_utc, inputs.get("extension")),
         "messages_sync": _messages(inputs.get("messages") or {}, now_utc),
         "backup": _backup(inputs.get("backup") or {}),

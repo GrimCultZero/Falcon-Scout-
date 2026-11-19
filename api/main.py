@@ -775,6 +775,12 @@ def _health_inputs(now=None):
     except Exception as e:
         out["feed"] = {"error": f"{type(e).__name__}: {e}"}
 
+    # The feed LOOP itself (as opposed to "feed" above, which only asks the DB when
+    # the last job landed): did the last fetch ATTEMPT succeed, regardless of whether
+    # it found anything new. Distinguishes "quiet because nothing new was posted" from
+    # "quiet because every attempt is failing" -- see _api_feed_loop / _API_FEED_STATE.
+    out["api_feed"] = dict(_API_FEED_STATE)
+
     # Proposals sync: the latest run of any kind, the latest that read rows, and
     # how many empty runs there were today.
     try:
@@ -996,6 +1002,24 @@ def _feed_gap_hours() -> float:
 _CATCHUP_GAP_HOURS = 1.0
 _CATCHUP_MIN_INTERVAL_SEC = 30 * 60
 
+# Feed health (/health's api_feed item): last_success_at / last_error / last_error_at /
+# consecutive_failures, surfaced in the header chip tooltip. A `/health` item has no
+# fetch-loop visibility of its own, only what this loop tells it.
+_API_FEED_STATE = {"last_success_at": None, "last_error": None, "last_error_at": None, "consecutive_failures": 0}
+
+# Deadlines around the feed loop's own outbound calls (api/upwork_api.py's httpx calls
+# already carry their own 30-60s per-request timeouts; this is a second, OUTER ceiling
+# on a WHOLE pass, which a single bad network condition across many keywords could
+# otherwise exceed many times over with no log line in between -- exactly the "loop
+# started, then nothing for 30+ minutes" shape of the 2026-11-17 WinError 10060 incident,
+# see API_FEED_NOT_FETCHING.md). Hitting it cancels the in-flight thread-pool call (the
+# executor thread itself may keep running until its own httpx timeout fires, but the
+# event loop is freed immediately) and is treated as an ordinary pass failure: logged,
+# retried after the loop's normal 5-minute backoff. Never changes what is fetched or
+# how it is filtered.
+_FEED_PASS_TIMEOUT_SEC = 300      # one page per keyword (normal cycle, or catch-up's "newest page first")
+_FEED_DEEP_PASS_TIMEOUT_SEC = 900  # catch-up's full paging-back pass, several pages per keyword
+
 
 async def _api_feed_loop():
     import asyncio
@@ -1030,10 +1054,13 @@ async def _api_feed_loop():
                 # first and saved nothing until every keyword was done, so the feed
                 # sat empty for ~3.5 minutes after a launch that followed a long gap.
                 try:
-                    rows, stats = await loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg)
+                    rows, stats = await asyncio.wait_for(
+                        loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg), timeout=_FEED_PASS_TIMEOUT_SEC)
                     ins, skip = await loop.run_in_executor(None, _upsert_api_jobs, rows)
                     saved_early += ins
                     print(f"[api-feed/catchup] newest page first: {stats} inserted={ins} skipped={skip}")
+                except asyncio.TimeoutError:
+                    print(f"[api-feed/catchup] newest-page pass timed out after {_FEED_PASS_TIMEOUT_SEC}s, going straight to paging back")
                 except Exception as exc:
                     print(f"[api-feed/catchup] newest-page pass failed, going straight to paging back: {exc}")
 
@@ -1043,18 +1070,32 @@ async def _api_feed_loop():
                     saved_early += n
 
                 print(f"[api-feed/catchup] {gap:.1f}h gap — paging back through every keyword")
-                rows, stats = await loop.run_in_executor(
-                    None, lambda: upwork_api.fetch_and_filter_deep(cfg, on_keyword=_save_as_you_go))
+                rows, stats = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: upwork_api.fetch_and_filter_deep(cfg, on_keyword=_save_as_you_go)),
+                    timeout=_FEED_DEEP_PASS_TIMEOUT_SEC)
                 last_catchup = _time.time()
             else:
-                rows, stats = await loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg)
+                rows, stats = await asyncio.wait_for(
+                    loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg), timeout=_FEED_PASS_TIMEOUT_SEC)
             ins, skip = await loop.run_in_executor(None, _upsert_api_jobs, rows)
             print(f"[api-feed/{'catchup' if deep else 'auto'}] {stats} inserted={ins + saved_early} skipped={skip}")
+            _API_FEED_STATE["last_success_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
+            _API_FEED_STATE["consecutive_failures"] = 0
             await asyncio.sleep(mins * 60)
         except asyncio.CancelledError:
             break
+        except asyncio.TimeoutError:
+            msg = f"feed fetch timed out after {_FEED_DEEP_PASS_TIMEOUT_SEC if deep else _FEED_PASS_TIMEOUT_SEC}s"
+            print(f"[api-feed/auto] {msg} (retry in 5m)")
+            _API_FEED_STATE["last_error"] = msg
+            _API_FEED_STATE["last_error_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
+            _API_FEED_STATE["consecutive_failures"] += 1
+            await asyncio.sleep(300)
         except Exception as exc:
             print(f"[api-feed/auto] error (retry in 5m): {exc}")
+            _API_FEED_STATE["last_error"] = str(exc)
+            _API_FEED_STATE["last_error_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
+            _API_FEED_STATE["consecutive_failures"] += 1
             await asyncio.sleep(300)
 
 

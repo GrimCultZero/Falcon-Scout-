@@ -85,6 +85,8 @@ const lib = (f) => import(pathToFileURL(path.join(ROOT, 'frontend', 'src', 'lib'
   assert(pillText('feed', { age_minutes: 45 }) === 'Feed quiet 45 min' && pillText('feed', {}) === 'Feed: nothing yet', 'feed pill text');
   assert(pillText('feed', { connected: false, age_minutes: 5 }) === 'Feed: Upwork API disconnected', 'a disconnected API is named on the feed pill, not shown as "nothing yet"');
   assert(pillText('messages_sync', { age_minutes: 4320 }) === 'Inbox 3 d ago', 'inbox pill text in days');
+  assert(pillText('api_feed', { last_success_at: null, consecutive_failures: 1 }) === 'Feed fetch: never succeeded', 'api_feed pill text: never succeeded yet');
+  assert(pillText('api_feed', { last_success_at: '2026-11-19T10:00:00', consecutive_failures: 4 }) === 'Feed fetch failing (4x)', '…or failing N times in a row, once something HAS succeeded before');
 
   // ── the sync gate ─────────────────────────────────────────────────────────
   const run = (id, rows, extra = {}) => ({ id, ts: '2026-11-08T10:00:00', leg: 'proposals-list', rows_scraped: rows, header_count: extra.header_count ?? null, coverage: extra.coverage ?? null, scroll: extra.scroll ?? null });

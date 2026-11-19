@@ -47,6 +47,7 @@ GOOD_RUN = {"id": 10, "ts": ago(hours=1), "rows_scraped": 87, "header_count": 87
 def inputs(**over):
     base = {
         "feed": {"last_insert": ago(minutes=5), "auto_fetch_minutes": 5, "connected": True},
+        "api_feed": {"last_success_at": ago(minutes=5), "last_error": None, "last_error_at": None, "consecutive_failures": 0},
         "proposals": {"last_run": GOOD_RUN, "last_good": GOOD_RUN, "zero_row_runs_24h": 0},
         "messages": {"last_run_ts": ago(hours=1), "walks_24h": 5, "rooms_visited_24h": 3},
         "passive": {"last_at": ago(hours=3)},
@@ -63,8 +64,8 @@ def lvl(report, key):
 # ── all healthy ─────────────────────────────────────────────────────────────
 r = rep()
 check(r["overall"] == "ok" and r["problems"] == [], "everything fine -> overall ok, no problems")
-check({"feed", "proposals_sync", "messages_sync", "backup", "bridge", "passive_read", "rooms_visited"} == set(r["items"]),
-      "the report has every instrument the brief lists (feed, proposals, messages, passive read, rooms, backup, bridge + provider)")
+check({"feed", "api_feed", "proposals_sync", "messages_sync", "backup", "bridge", "passive_read", "rooms_visited"} == set(r["items"]),
+      "the report has every instrument the brief lists (feed, the feed loop's own fetch health, proposals, messages, passive read, rooms, backup, bridge + provider)")
 check(r["items"]["bridge"]["provider"] == "cli", "the provider is reported")
 
 # ── feed: > 30 min amber, > 120 min red, only 07-23 local ───────────────────
@@ -79,6 +80,20 @@ check(lvl(rep(feed={"last_insert": ago(hours=9), "auto_fetch_minutes": 0, "conne
 check(lvl(rep(feed={"last_insert": ago(minutes=5), "auto_fetch_minutes": 5, "connected": False}), "feed") == "red", "Upwork API not connected -> red, even with a fresh job")
 it = rep(feed={"last_insert": ago(minutes=5), "auto_fetch_minutes": 5, "connected": False})["items"]["feed"]
 check(it["connected"] is False and it["age_minutes"] == 5.0, "…and the item carries connected=False and the real age, so the pill can name the cause")
+
+# ── api_feed: the feed LOOP's own fetch health, independent of "feed" above ──
+check(lvl(rep(), "api_feed") == "ok", "a successful last fetch, no failures -> ok")
+check(lvl(rep(api_feed={"last_success_at": None, "last_error": None, "last_error_at": None, "consecutive_failures": 0}), "api_feed") == "info",
+      "never completed a fetch attempt yet (just started, or auto-fetch off) -> info, not an alarm")
+for fails, want in ((1, "amber"), (2, "amber"), (3, "red"), (10, "red")):
+    r2 = rep(api_feed={"last_success_at": ago(minutes=30), "last_error": "ConnectTimeout", "last_error_at": ago(minutes=5), "consecutive_failures": fails})
+    check(lvl(r2, "api_feed") == want, f"{fails} consecutive failure(s) -> {want}")
+r2 = rep(api_feed={"last_success_at": ago(minutes=30), "last_error": "ConnectTimeout", "last_error_at": ago(minutes=5), "consecutive_failures": 3})
+check("ConnectTimeout" in r2["items"]["api_feed"]["reason"], "the red reason names the actual last error, not just a generic failure count")
+check(r2["overall"] == "red" and "api_feed" in r2["problems"], "3+ failures makes it a REAL problem, not just an item nobody looks at")
+# A single transient blip never pages anyone -- this is the whole point of the threshold.
+r2 = rep(api_feed={"last_success_at": ago(minutes=6), "last_error": "ConnectTimeout", "last_error_at": ago(minutes=5), "consecutive_failures": 1})
+check(r2["overall"] != "red", "ONE failed attempt (ordinary, see API_FEED_NOT_FETCHING.md) is amber, not red -- it retries on its own in 5 min")
 
 # ── proposals sync: age, header_count/coverage, 0-row flag ──────────────────
 def prop(good=None, last=None, zero24=0):
@@ -201,7 +216,7 @@ from db import Base, Job, SyncRun                            # noqa: E402
 src = (ROOT / "api" / "main.py").read_text(encoding="utf-8")
 tree = ast.parse(src)
 WANT_FUNCS = {"_health_module", "_scroll_dict", "_health_inputs", "health"}
-WANT_VARS = {"_health_mod", "_PASSIVE_DEBUG_FILE", "_ext_contact", "_EXT_GAP_MIN"}
+WANT_VARS = {"_health_mod", "_PASSIVE_DEBUG_FILE", "_ext_contact", "_EXT_GAP_MIN", "_API_FEED_STATE"}
 nodes = []
 for n in tree.body:
     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in WANT_FUNCS:
