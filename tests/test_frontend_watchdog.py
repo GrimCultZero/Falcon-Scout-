@@ -24,6 +24,8 @@ sys.path.insert(0, str(ROOT / "tools" / "launcher"))
 import frontend_watchdog as fw  # noqa: E402
 from backend_watchdog import Watchdog  # noqa: E402
 
+REAL_BUILD_IS_STALE = fw.build_is_stale  # captured before any test below monkeypatches it
+
 bad = 0
 def check(ok, msg):
     global bad
@@ -140,6 +142,54 @@ fw.rebuild_if_stale(wd)
 check(len(started) == 1, "stale + FAILED rebuild -> no restart is attempted")
 check(not first.terminated, "…the still-running preview process (serving the old dist/) is left alone")
 check(wd.proc is first, "…wd still points at the same (old) process")
+
+# ── a failed build is remembered: no retry until something newer appears ───
+tmp2 = Path(tempfile.mkdtemp(prefix="fs_frontend_watchdog_retry_"))
+try:
+    fw.FRONTEND_DIR = tmp2
+    src2 = tmp2 / "src"
+    src2.mkdir()
+    fw.SRC_DIR, fw.DIST_DIR = src2, tmp2 / "dist"  # dist/ deliberately never created -> always stale
+    fw.build_is_stale = REAL_BUILD_IS_STALE
+    (src2 / "App.jsx").write_text("x", encoding="utf-8")
+
+    build_calls = {"n": 0}
+    fw.build = lambda: (build_calls.__setitem__("n", build_calls["n"] + 1), False)[1]  # always fails
+
+    started = []
+    wd = make_wd(started)
+    wd.start()
+    fw.rebuild_if_stale(wd)
+    check(build_calls["n"] == 1, "stale -> the first rebuild attempt runs")
+    check(len(started) == 1, "…and fails, so nothing restarts")
+
+    fw.rebuild_if_stale(wd)
+    fw.rebuild_if_stale(wd)
+    check(build_calls["n"] == 1, "still stale, source UNCHANGED since the failure -> no retry at all (the whole point of this feature)")
+
+    time.sleep(0.05)
+    (src2 / "App.jsx").write_text("y", encoding="utf-8")  # something newer than the failed attempt
+    fw.rebuild_if_stale(wd)
+    check(build_calls["n"] == 2, "source touched again AFTER the failed attempt -> retried exactly once")
+
+    fw.rebuild_if_stale(wd)
+    check(build_calls["n"] == 2, "…and then remembered again until the NEXT change")
+
+    # a successful build clears the memory, so a LATER failure starts counting fresh
+    fw.build = lambda: (build_calls.__setitem__("n", build_calls["n"] + 1), True)[1]
+    time.sleep(0.05)
+    (src2 / "App.jsx").write_text("z", encoding="utf-8")
+    fw.rebuild_if_stale(wd)
+    check(build_calls["n"] == 3 and len(started) == 2, "a successful rebuild restarts the server and clears the failure memory")
+
+    fw.build = lambda: (build_calls.__setitem__("n", build_calls["n"] + 1), False)[1]
+    time.sleep(0.05)
+    (src2 / "App.jsx").write_text("w", encoding="utf-8")
+    fw.rebuild_if_stale(wd)
+    check(build_calls["n"] == 4, "a fresh failure after a past success is retried immediately (nothing stale left over from before)")
+finally:
+    shutil.rmtree(tmp2, ignore_errors=True)
+    fw.build_is_stale = REAL_BUILD_IS_STALE
 
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)

@@ -98,6 +98,13 @@ def build() -> bool:
     return True
 
 
+# The source mtime (newest_source_mtime()) at the time of the LAST failed build, or None
+# if the last attempt (if any) succeeded. A broken build (a syntax error, say) would
+# otherwise be retried every --rebuild-check-interval forever on the exact same unchanged
+# source, for no reason -- the first attempt already said everything the tenth would.
+_last_failed_mtime = None
+
+
 def start_preview(port: int, reload: bool) -> subprocess.Popen:
     # `reload` is accepted (and unused) only so this matches the signature
     # Watchdog expects of `start` -- the frontend has no reload mode.
@@ -123,14 +130,26 @@ def page_ok(port: int, timeout: float = 5.0) -> bool:
 def rebuild_if_stale(wd: Watchdog) -> None:
     """Called periodically while the watchdog runs. A failed build is logged and
     changes nothing - the old dist/ keeps being served by the still-running
-    preview process. A successful build restarts ONLY the preview process this
-    script spawned, so the new build is actually served."""
+    preview process - and is NOT retried again until something newer than the
+    source that failed shows up (see _last_failed_mtime). A successful build
+    restarts ONLY the preview process this script spawned, so the new build is
+    actually served."""
+    global _last_failed_mtime
     if not build_is_stale():
+        _last_failed_mtime = None  # caught up (however that happened) - clear any memory of a past failure
         return
+
+    current_mtime = newest_source_mtime()
+    if _last_failed_mtime is not None and current_mtime is not None and current_mtime <= _last_failed_mtime:
+        return  # already tried and failed on exactly this source state; stay quiet until something newer appears
+
     if build():
+        _last_failed_mtime = None
         log("frontend watchdog: rebuild succeeded -- restarting the preview server to serve it")
         Watchdog._stop(wd.proc)
         wd.start()
+    else:
+        _last_failed_mtime = current_mtime
 
 
 def main():
