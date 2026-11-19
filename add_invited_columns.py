@@ -13,6 +13,12 @@ began, and it is true forever once true. It now lives in its own column.
 
 Safe to re-run: existing columns are skipped. Any row whose status is still
 'invited' is backfilled to is_invited = 1 before anything else can overwrite it.
+
+T7 pre-merge review (2026-11-19): the backend's own startup migration
+(api/main.py's _ensure_job_columns) now does the exact same thing automatically
+on every launch, so a fresh clone or restored backup self-heals without this
+script needing to be run by hand. This file is kept working standalone for a
+manual run against a DB with the backend not running (e.g. before a restore).
 """
 import sqlite3
 from pathlib import Path

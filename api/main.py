@@ -157,6 +157,25 @@ def _ensure_job_columns():
             # here retroactively so a fresh clone / restored backup self-heals too.
             conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN upwork_proposal_id TEXT")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_upwork_proposal_id ON proposals(upwork_proposal_id)")
+        if "is_invited" not in proposals_cols:
+            # 2026-10-11: "invited" used to be a value of status, where it lost every
+            # race (_STATUS_RANK ranks invited below replied and promotion never
+            # downgrades, so an invited client answering erased the fact that they
+            # had invited). Being invited is not a funnel stage — it is how the
+            # engagement began, true forever once true — so it now lives in its own
+            # column. Previously only a standalone script (add_invited_columns.py,
+            # kept working for a manual run) added this; wired in here (T7 pre-merge
+            # review) so a fresh clone / an old restored backup self-heals too,
+            # exactly like upwork_proposal_id above.
+            conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN is_invited BOOLEAN NOT NULL DEFAULT 0")
+            # Backfill BEFORE anything else can touch status: any row still sitting
+            # at status='invited' right now is, unambiguously, an invite. One already
+            # promoted to replied/hired lost that fact when 'invited' was overwritten
+            # in place — there is no history to recover it from.
+            conn.exec_driver_sql("UPDATE proposals SET is_invited = 1 WHERE status = 'invited'")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_proposals_is_invited ON proposals(is_invited)")
+        if "auto_captured" not in proposals_cols:
+            conn.exec_driver_sql("ALTER TABLE proposals ADD COLUMN auto_captured BOOLEAN NOT NULL DEFAULT 0")
 
         # sync_runs.header_count / coverage (audit 2026-10-29, T5). A DB too old to
         # have the table at all gets it, complete, from create_all instead.
