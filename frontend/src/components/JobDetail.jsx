@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, memo } from 'react'
 import { geoVerdict, geoPromptValue } from '../lib/geoEvidence'
 import { testWeekActive, priceEvidence, testWeekRateLine, testWeekFlags, testWeekPromptBlock, testWeekGuard } from '../lib/priceEvidence'
 import { analyserHintsBlock } from '../lib/analyserHints'
@@ -812,7 +812,7 @@ function Stars({ score, count }) {
   )
 }
 
-export default function JobDetail({
+function JobDetail({
   job, ahrefsResult = null, websiteText = null,
   droppedFiles = [], digitBombArmed = false, digitBombCaseId = '', setDigitBombArmed,
 }) {
@@ -10342,3 +10342,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
     </div>
   )
 }
+
+// The background poll re-fetches job detail every 10s; memoizing keeps this
+// (easily the heaviest component on the page) from re-rendering when its
+// props haven't actually changed.
+export default memo(JobDetail)

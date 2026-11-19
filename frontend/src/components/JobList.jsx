@@ -137,6 +137,10 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
               cursor: 'pointer',
               transition: 'background 0.1s, opacity 0.1s',
               position: 'relative',
+              // Off-screen cards skip layout/paint until scrolled into view (feeds run to
+              // hundreds of rows). The intrinsic size estimate keeps scrollbar height stable.
+              contentVisibility: 'auto',
+              containIntrinsicSize: '0 110px',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>

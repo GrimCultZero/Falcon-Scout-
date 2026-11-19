@@ -442,9 +442,12 @@ export default function App() {
     } catch {}
   }, [filter, query, selectedId])
 
-  const fetchJobs = useCallback(async (q, f) => {
-    setLoading(true)
-    setError(null)
+  // Raw JSON of the last /jobs response actually applied to state, so a background
+  // poll that comes back byte-identical can skip the setJobs() (and the re-render of
+  // every JobList row + JobDetail it would otherwise trigger).
+  const lastJobsPayloadRef = useRef(null)
+  const fetchJobs = useCallback(async (q, f, { background = false } = {}) => {
+    if (!background) { setLoading(true); setError(null) }
     try {
       const params = new URLSearchParams()
       if (q) params.set('q', q)
@@ -454,13 +457,18 @@ export default function App() {
       params.set('limit', String(FEED_LIMIT))
       const res = await fetch('/jobs?' + params.toString())
       if (!res.ok) throw new Error('API error ' + res.status)
-      const data = await res.json()
-      setJobs(data)
-      if (data.length > 0 && !selectedId) setSelectedId(data[0].id)
+      const raw = await res.text()
+      if (raw !== lastJobsPayloadRef.current) {
+        lastJobsPayloadRef.current = raw
+        const data = JSON.parse(raw)
+        setJobs(data)
+        if (data.length > 0 && !selectedId) setSelectedId(data[0].id)
+      }
+      if (!background) setError(null)
     } catch (e) {
-      setError(e.message)
+      if (!background) setError(e.message)
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }, [selectedId])
 
@@ -530,13 +538,22 @@ export default function App() {
     setTimeout(() => setDebugMsg(''), 4000)
   }, [jobs, view, filter, query, selectedId])
 
-  // Poll job list every 10 s; also refresh selected job detail
+  // Poll job list every 10 s; also refresh selected job detail. Paused while the tab
+  // is in the background (nothing to show, no point burning the quota) and caught up
+  // immediately when it becomes visible again.
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchJobs(query, filter)
+    const poll = () => {
+      if (document.hidden) return
+      fetchJobs(query, filter, { background: true })
       if (selectedId) fetchSelectedJob(selectedId)
-    }, 10000)
-    return () => clearInterval(interval)
+    }
+    const interval = setInterval(poll, 10000)
+    const onVisible = () => { if (!document.hidden) poll() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [query, filter, selectedId, fetchJobs, fetchSelectedJob])
 
   // Re-fetch detail immediately on selection change
@@ -1348,7 +1365,7 @@ function UsageChip() {
 const _AI_PROVIDER_LS = 'falcon_ai_provider'
 
 // Shows current AI provider (API / CLI) and lets the user toggle.
-// In CLI mode: asks the backend every 5s whether the bridge is up (online/offline).
+// In CLI mode: asks the backend every 15s whether the bridge is up (online/offline).
 function AiProviderChip() {
   // Seed from localStorage for instant display (no flicker on reload)
   const [provider, setProvider] = useState(() => localStorage.getItem(_AI_PROVIDER_LS) || 'api')
@@ -1366,7 +1383,7 @@ function AiProviderChip() {
       .catch(() => {})  // backend down — keep localStorage value
   }, [])
 
-  // Ping bridge every 5s when in CLI mode
+  // Ping bridge every 15s when in CLI mode
   useEffect(() => {
     if (provider !== 'cli') { setBridgeOk(false); return }
     // Ask the BACKEND whether the bridge is up (it pings the port set by
@@ -1375,7 +1392,7 @@ function AiProviderChip() {
     const ping = () => fetch('/ai-provider/bridge-status', { signal: AbortSignal.timeout(3000) })
       .then(r => (r.ok ? r.json() : { up: false })).then(d => setBridgeOk(!!d.up)).catch(() => setBridgeOk(false))
     ping()
-    const id = setInterval(ping, 5000)
+    const id = setInterval(ping, 15000)
     return () => clearInterval(id)
   }, [provider])
 

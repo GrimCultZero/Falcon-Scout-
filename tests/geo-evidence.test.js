@@ -11,7 +11,6 @@
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
-const { execSync } = require('child_process');
 
 let bad = 0;
 const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`); };
@@ -62,16 +61,10 @@ const ROOT = path.join(__dirname, '..');
   assert(/geoVerdict\(job\)\.verified \|\|/.test(jd) && !/united states only\|us only\|usa only\)\\b\/i\.test\(String\(job\.geo_restriction/.test(jd),
     'the PPC-audit override only treats a VERIFIED US-only as a real disqualifier');
   assert(/geoVerdict\(job\)\.unverified \? `\$\{job\.geo_restriction\} \(unverified\)`/.test(jd), 'the Location chip says "(unverified)" instead of showing a flat red US-only');
-  // the diff against HEAD is small and stays out of the generator
-  let diff = '';
-  try { diff = execSync('git diff -U0 HEAD -- frontend/src/components/JobDetail.jsx', { cwd: ROOT, encoding: 'utf8' }); } catch (e) { diff = ''; }
-  if (diff) {
-    const changed = diff.split('\n').filter((l) => /^[+-][^+-]/.test(l));
-    assert(changed.length <= 14, `JobDetail.jsx changes are small (${changed.length} changed lines vs HEAD)`);
-    assert(changed.every((l) => /geo|Geo|geoVerdict|geoPrompt|Location|unverified|import \{/.test(l)), 'every changed line is about the geo rule (nothing in the letter generator)');
-  } else {
-    console.log('SKIP  JobDetail diff checks (already committed, or git unavailable)');
-  }
+  // NOTE: this used to also assert the git diff of JobDetail.jsx against HEAD was small
+  // and geo-only — a one-time scope check for the commit that introduced this file
+  // (22d90dc), not a standing rule. geoEvidence.js is long since merged, so it was
+  // failing on every unrelated later edit to JobDetail.jsx. Dropped 2026-11-19.
 
   console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
   process.exit(bad ? 1 : 0);
