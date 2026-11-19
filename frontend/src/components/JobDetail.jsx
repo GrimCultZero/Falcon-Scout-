@@ -6350,6 +6350,17 @@ function ProposalColumn({
   // textarea now showing a DIFFERENT job's cover letter.
   const currentJobIdRef = useRef(job?.id)
   currentJobIdRef.current = job?.id
+  // Re-entrancy lock for generate() (confirmed bug, job 24303: two full `generate()`
+  // runs 91ms apart, recorded as two separate `generations` rows with different text,
+  // only the second linked to the proposal that was actually sent). None of the three
+  // buttons that call generate() (Generate Cover Letter, Redo, Rescan & Re-write) nor
+  // chat's "Rework letter" disable themselves against an ALREADY-RUNNING generate() --
+  // the main button in particular defers its own setLoading(true) by 480ms (a logo-flash
+  // animation), so a fast double-click schedules two independent, fully paid LLM calls
+  // before the first has even started setLoading. `loading` (React state) can't be
+  // read synchronously across two near-simultaneous invocations because of render
+  // batching; a ref can.
+  const generatingRef = useRef(false)
   const prevProposalJobIdRef = useRef(null) // tracks previous job id for save-before-reset
   const chatMessagesRef = useRef([])  // latest cover-letter chat transcript
   // Whether the cover-letter chat has any messages yet. When empty, the chat
@@ -6562,6 +6573,14 @@ function ProposalColumn({
   }
 
   const generate = async (adjustmentsArg, options = {}) => {
+    // A generate() already in flight wins; this call is dropped before it does
+    // anything (including the paid Claude call) -- see generatingRef's comment.
+    if (generatingRef.current) {
+      console.warn('[Falcon] generate() called while one is already running — ignored (no double calls)')
+      return
+    }
+    generatingRef.current = true
+
     // If not explicitly passed, pull the latest chat transcript so any "Redo" picks up the user's notes.
     const adjustments = typeof adjustmentsArg === 'string'
       ? adjustmentsArg
@@ -9842,6 +9861,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       if (!_isStaleGenerate()) setProposal(`Error generating cover letter: ${e.message}`)
     } finally {
       setLoading(false)
+      generatingRef.current = false
     }
   }
 
