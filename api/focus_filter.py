@@ -70,15 +70,18 @@ STRONG_PATTERNS = {
         r"\bgeo\b\s*(?:optimi[sz]ation|visibility)|(?:aeo|seo)\s*/\s*geo\b|\bgeo\s*/\s*aeo\b",
         re.I,
     ),
-    # "google ad(s)" / "adwords" / "ad words" moved to STRONG 2026-11-20 (recall-test
-    # gaps #2078 "Google Ad Management and Editing", singular "ad", and #22138
-    # "Google Adwords Specialist", the product's old name -- both real Google Ads
-    # jobs that the weak-mention rules hid). "Google Ad Manager" (GAM, a separate
-    # ad-serving product, unrelated to Google Ads/PPC -- a keyword on a real job
-    # the owner does NOT want swept in) is excluded via the negative lookahead.
+    # Role-shaped Google Ads / Adwords phrases (owner correction, 2026-11-20): a
+    # BARE "google ads"/"adwords" mention is WEAK (below) -- only a phrase that
+    # names the ROLE itself (management/manager/specialist/expert/campaign) is
+    # unambiguous enough to keep a job anywhere it appears. "manager(s)" requires
+    # the PLURAL "ads" -- singular "Google Ad Manager" is GAM, a real Upwork skill
+    # TAG, not a job title ("Google Ads Manager" plural IS a job title); the
+    # management/specialist/expert/campaign words stay ambiguous-ad-count safe.
     "google_ads": re.compile(
         r"\bppc\b|paid search|performance\s*max\b|\bpmax\b|google shopping|merchant center|"
-        r"\bgoogle\s*ads?\b(?!\s*manager)|\bad\s*words\b",
+        r"\bgoogle\s*ads\s*managers?\b|"
+        r"\bgoogle\s*ads?\s*(?:management|specialists?|experts?|campaigns?)\b|"
+        r"\badwords\s*(?:management|managers?|specialists?|experts?|campaigns?)\b",
         re.I,
     ),
     "analytics": re.compile(
@@ -88,17 +91,24 @@ STRONG_PATTERNS = {
 }
 
 # WEAK: a single bare mention with no supporting context -- exactly the replay's
-# false-positive shape (a one-word "SEO"/"GA4"/"Backlink" buried in an unrelated
-# job's description). A weak match ONLY counts as a keep if one of:
+# false-positive shape (a one-word "SEO"/"GA4"/"Google Ads"/"Backlink" buried in an
+# unrelated job's description). A weak match ONLY counts as a keep if one of:
 #   1. it ALSO appears in the title or keywords (not just the description);
 #   2. the job's TITLE itself reads as a marketing/ads role (MARKETING_TITLE_RE);
 #   3. a SECOND, independent weak category also matched somewhere (two distinct
 #      weak mentions together are a real signal, even without a strong phrase).
 # A bare mention in a description alone, under a web-dev/design/engineering/admin/
 # VA/data-entry/sales-setter title, satisfies none of these and is HIDDEN.
-# (No "google_ads" entry here: every "google ad(s)"/"adwords" mention is STRONG now.)
+#
+# "google_ads" here (owner correction, 2026-11-20) covers bare "Google Ad"
+# (singular or plural), "Adwords" and "Ad Words" with no role word attached --
+# the role-shaped phrases above are STRONG, this is everything else, including
+# "Google Ad Manager" (GAM -- an Upwork skill TAG on real Google Ads jobs, not a
+# distinct product in practice here; rule 1 above rescues it whenever it's a
+# keyword/title tag, same as any other weak mention).
 WEAK_PATTERNS = {
     "seo": re.compile(r"\bseo\b|\bbacklinks?\b", re.I),
+    "google_ads": re.compile(r"\bgoogle\s*ads?\b|\badwords\b|\bad\s*words\b", re.I),
     "analytics": re.compile(r"\bga4\b", re.I),
 }
 
@@ -152,6 +162,15 @@ def classify_focus(title: str, text: str, keywords: "str | None" = None):
     title = title or ""
     text = text or ""
     keywords = keywords or ""
+
+    # Fail-open (owner, 2026-11-20): a posting with no description text at all has
+    # nothing here to classify from -- there's no text to tell a real off-lane job
+    # from a real on-lane one that just lost its description (e.g. a chat-only
+    # auto-captured record). Hiding on no evidence risks losing a real job, so it
+    # is always kept instead.
+    if not text.strip():
+        return True, "no-description"
+
     blob = " ".join(p for p in (title, text, keywords) if p)
 
     for cat, pat in STRONG_PATTERNS.items():

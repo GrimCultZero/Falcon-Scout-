@@ -82,35 +82,77 @@ check(not keep and cat == "no-signal",
       f'a job titled only "Analytics Setup Needed", with just a bare GA4 mention and nothing else -> now HIDDEN: got keep={keep} cat={cat!r}')
 
 # Two distinct bare WEAK mentions together are accepted as a real signal even with
-# a plain title ("SEO" + "GA4" here -- "Google Ads" moved to STRONG 2026-11-20, so
-# it would short-circuit this test before the weak two-signal logic ever ran).
+# a plain title ("SEO" + "GA4" here).
 keep, cat = ff.classify_focus(
     "Analytics Setup Needed",
     "Need someone to set up GA4 tracking and also do some basic SEO cleanup.",
 )
 check(keep, f'SEO + GA4 together (two independent weak signals) -> KEPT even with a plain title: got keep={keep} cat={cat!r}')
 
-# A bare "Google Ads" / singular "Google Ad" / "Adwords" mention is STRONG now
-# (2026-11-20) -- it keeps the job anywhere, no title/keywords/second-signal rescue
-# needed, closing two real recall-test gaps (#2078, #22138).
+# ── Google Ads / Adwords: role-shaped phrases are STRONG, bare mentions are WEAK
+# (owner correction, 2026-11-20, reverting the previous commit's blanket STRONG) ──
+# A phrase that names the ROLE itself keeps a job anywhere, same as PPC/Performance
+# Max/Merchant Center.
+keep, cat = ff.classify_focus("Hiring: Google Ads Manager", "Own our paid search accounts day to day.", None)
+check(keep and cat == "google_ads", f'"Google Ads Manager" (plural, a job title) -> STRONG, KEPT: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus("Need a Google Ads Specialist", "General help with our accounts.", None)
+check(keep and cat == "google_ads", f'"Google Ads Specialist" -> STRONG, KEPT: got keep={keep} cat={cat!r}')
+
+# A BARE mention (no role word) is WEAK -- the recall test's two real gaps
+# (#2078 singular "Google ad", #22138 "Adwords") are rescued because the bare word
+# is in the TITLE itself (rule 1), not because it's unconditionally strong anymore.
 keep, cat = ff.classify_focus(
     "Google Ad Management and Editing",
     "I need help to track and manage our Google ad. I'd like professional help in editing it and understanding how it is working for us.",
     "google ad",
 )
-check(keep and cat == "google_ads", f'#2078 "Google Ad Management and Editing" (singular "Google ad") -> now KEPT: got keep={keep} cat={cat!r}')
+check(keep and cat == "google_ads", f'#2078 "Google Ad Management and Editing" ("Management" makes this phrase STRONG) -> KEPT: got keep={keep} cat={cat!r}')
 
 keep, cat = ff.classify_focus(
     "Google Adwords Specialist",
     "We need a freelancer to help improve our Google Ads campaigns while also supporting website visibility on Google and Google Business Profile.",
     None,
 )
-check(keep and cat == "google_ads", f'#22138 "Google Adwords Specialist" -> now KEPT: got keep={keep} cat={cat!r}')
+check(keep and cat == "google_ads", f'#22138 "Google Adwords Specialist" ("Specialist" makes this phrase STRONG too) -> KEPT: got keep={keep} cat={cat!r}')
 
-# "Google Ad Manager" (GAM, a different ad-serving product, unrelated to Google
-# Ads/PPC) must NOT be swept in by the new broad "google ad(s)" pattern.
-keep, cat = ff.classify_focus("Google Ad Manager Setup", "Configure our Google Ad Manager account for programmatic display inventory.", None)
-check(not keep, f'"Google Ad Manager" (a different product) is not a Google Ads keep signal: got keep={keep} cat={cat!r}')
+# A bare "Google Ads"/"Adwords" mention buried ONLY in the description, under a
+# plain non-marketing title, with no second signal, is HIDDEN -- the weak-mention
+# shape this whole split exists to catch, same as bare "SEO"/"GA4".
+keep, cat = ff.classify_focus(
+    "Bookkeeper Wanted",
+    "Need help managing our Google Ad Manager tag inventory for display ads.",
+    None,
+)
+check(not keep and cat == "no-signal",
+      f'a bare "Google Ad Manager" buried in the description of an unrelated job -> still HIDDEN: got keep={keep} cat={cat!r}')
+
+# "Google Ad Manager" (GAM) is a real Upwork skill TAG on real Google Ads jobs
+# (confirmed against the live DB: every occurrence found was alongside "Google
+# Ads"/"Pay Per Click Advertising" on a real ads job) -- when it's in the title or
+# KEYWORDS, rule 1 rescues it like any other weak mention, same as the owner asked.
+keep, cat = ff.classify_focus(
+    "Looking for a good designer.",
+    "We need a freelancer to help with our display campaigns and creative assets.",
+    "Google Ad Manager",
+)
+check(keep and cat == "google_ads", f'"Google Ad Manager" as a KEYWORD tag rescues the job: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus("Google Ad Manager Setup", "Configure our account for programmatic display inventory.", None)
+check(keep and cat == "google_ads", f'"Google Ad Manager" in the TITLE itself also rescues the job: got keep={keep} cat={cat!r}')
+
+# ── fail-open: a posting with no description text at all is never hidden ───────
+keep, cat = ff.classify_focus("Shopify Developer Wanted", "", None)
+check(keep and cat == "no-description", f'empty description text -> always KEPT (fail-open), never classified as webdev: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus("Virtual Assistant", "   ", "data entry")
+check(keep and cat == "no-description", f'whitespace-only description text also counts as empty -> KEPT: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus("Virtual Assistant", None, None)
+check(keep and cat == "no-description", f'description text of None also counts as empty -> KEPT: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus("Shopify Developer Wanted", "We need a Shopify developer to rebuild our theme.", None)
+check(not keep and cat == "webdev", f'a real (non-empty) description is classified normally -- fail-open only covers truly empty text: got keep={keep} cat={cat!r}')
 
 # ── bare weak mentions in the TITLE itself (not just description) still keep ────
 keep, cat = ff.classify_focus("SEO Specialist Wanted", "General help needed for our online store, details on request.", None)
