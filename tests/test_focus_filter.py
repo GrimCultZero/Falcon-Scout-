@@ -81,14 +81,36 @@ keep, cat = ff.classify_focus(
 check(not keep and cat == "no-signal",
       f'a job titled only "Analytics Setup Needed", with just a bare GA4 mention and nothing else -> now HIDDEN: got keep={keep} cat={cat!r}')
 
-# The practical fix for a real analytics+ads job like that one: it almost always carries
-# a SECOND weak signal too (here, "Google Ads" alongside "GA4") -- two distinct weak
-# mentions together are accepted as a real signal even with a plain title.
+# Two distinct bare WEAK mentions together are accepted as a real signal even with
+# a plain title ("SEO" + "GA4" here -- "Google Ads" moved to STRONG 2026-11-20, so
+# it would short-circuit this test before the weak two-signal logic ever ran).
 keep, cat = ff.classify_focus(
     "Analytics Setup Needed",
-    "Need someone to set up GA4 tracking and also manage our Google Ads account.",
+    "Need someone to set up GA4 tracking and also do some basic SEO cleanup.",
 )
-check(keep, f'GA4 + Google Ads together (two independent weak signals) -> KEPT even with a plain title: got keep={keep} cat={cat!r}')
+check(keep, f'SEO + GA4 together (two independent weak signals) -> KEPT even with a plain title: got keep={keep} cat={cat!r}')
+
+# A bare "Google Ads" / singular "Google Ad" / "Adwords" mention is STRONG now
+# (2026-11-20) -- it keeps the job anywhere, no title/keywords/second-signal rescue
+# needed, closing two real recall-test gaps (#2078, #22138).
+keep, cat = ff.classify_focus(
+    "Google Ad Management and Editing",
+    "I need help to track and manage our Google ad. I'd like professional help in editing it and understanding how it is working for us.",
+    "google ad",
+)
+check(keep and cat == "google_ads", f'#2078 "Google Ad Management and Editing" (singular "Google ad") -> now KEPT: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus(
+    "Google Adwords Specialist",
+    "We need a freelancer to help improve our Google Ads campaigns while also supporting website visibility on Google and Google Business Profile.",
+    None,
+)
+check(keep and cat == "google_ads", f'#22138 "Google Adwords Specialist" -> now KEPT: got keep={keep} cat={cat!r}')
+
+# "Google Ad Manager" (GAM, a different ad-serving product, unrelated to Google
+# Ads/PPC) must NOT be swept in by the new broad "google ad(s)" pattern.
+keep, cat = ff.classify_focus("Google Ad Manager Setup", "Configure our Google Ad Manager account for programmatic display inventory.", None)
+check(not keep, f'"Google Ad Manager" (a different product) is not a Google Ads keep signal: got keep={keep} cat={cat!r}')
 
 # ── bare weak mentions in the TITLE itself (not just description) still keep ────
 keep, cat = ff.classify_focus("SEO Specialist Wanted", "General help needed for our online store, details on request.", None)

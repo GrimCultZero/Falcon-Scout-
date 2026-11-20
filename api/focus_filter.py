@@ -70,8 +70,15 @@ STRONG_PATTERNS = {
         r"\bgeo\b\s*(?:optimi[sz]ation|visibility)|(?:aeo|seo)\s*/\s*geo\b|\bgeo\s*/\s*aeo\b",
         re.I,
     ),
+    # "google ad(s)" / "adwords" / "ad words" moved to STRONG 2026-11-20 (recall-test
+    # gaps #2078 "Google Ad Management and Editing", singular "ad", and #22138
+    # "Google Adwords Specialist", the product's old name -- both real Google Ads
+    # jobs that the weak-mention rules hid). "Google Ad Manager" (GAM, a separate
+    # ad-serving product, unrelated to Google Ads/PPC -- a keyword on a real job
+    # the owner does NOT want swept in) is excluded via the negative lookahead.
     "google_ads": re.compile(
-        r"\bppc\b|paid search|performance\s*max\b|\bpmax\b|google shopping|merchant center",
+        r"\bppc\b|paid search|performance\s*max\b|\bpmax\b|google shopping|merchant center|"
+        r"\bgoogle\s*ads?\b(?!\s*manager)|\bad\s*words\b",
         re.I,
     ),
     "analytics": re.compile(
@@ -81,17 +88,17 @@ STRONG_PATTERNS = {
 }
 
 # WEAK: a single bare mention with no supporting context -- exactly the replay's
-# false-positive shape (a one-word "SEO"/"GA4"/"Google Ads"/"Backlink" buried in an
-# unrelated job's description). A weak match ONLY counts as a keep if one of:
+# false-positive shape (a one-word "SEO"/"GA4"/"Backlink" buried in an unrelated
+# job's description). A weak match ONLY counts as a keep if one of:
 #   1. it ALSO appears in the title or keywords (not just the description);
 #   2. the job's TITLE itself reads as a marketing/ads role (MARKETING_TITLE_RE);
 #   3. a SECOND, independent weak category also matched somewhere (two distinct
 #      weak mentions together are a real signal, even without a strong phrase).
 # A bare mention in a description alone, under a web-dev/design/engineering/admin/
 # VA/data-entry/sales-setter title, satisfies none of these and is HIDDEN.
+# (No "google_ads" entry here: every "google ad(s)"/"adwords" mention is STRONG now.)
 WEAK_PATTERNS = {
     "seo": re.compile(r"\bseo\b|\bbacklinks?\b", re.I),
-    "google_ads": re.compile(r"google ads\b", re.I),
     "analytics": re.compile(r"\bga4\b", re.I),
 }
 
