@@ -1295,8 +1295,21 @@ export const VAPE_FABRICATION_NEAR_RES = [
   /\bstore\s+visits?\b/i,
   /\bin-?store\b/i,
 ]
-const _VAPE_NAME_RE = /,?\s*Vape\s*Shop\b(?:\s*\([^)]*\))?/gi
-/** Strike "Vape Shop" from the letter if it's ever cited near local-SEO / multi-location language (KB Rule 437). */
+/**
+ * Strike "Vape Shop" from the letter if it's ever cited near local-SEO /
+ * multi-location language (KB Rule 437). Two real shapes seen in practice
+ * (job 24349, two separate generations):
+ *   - a comma LIST with other cases ("Golden State Trailers, Vape Shop,
+ *     Luxury Parfums") -- remove just its clause, keep the rest of the list.
+ *   - its OWN sentence, "Name (attachment): stats." style ("Vape Shop
+ *     (attached in profile highlights): restricted ecommerce new site, 7,000
+ *     monthly visitors, ...") -- removing only the name token here orphans the
+ *     stats ("(attached in profile highlights), restricted ecommerce new
+ *     site, ..." with no subject), so the WHOLE sentence goes instead.
+ * `casesMentioned` on the sentence tells the two apart: Vape Shop alone in its
+ * sentence -> whole-sentence removal; Vape Shop alongside other named cases ->
+ * clause removal only.
+ */
 export function stripVapeNearLocalSeo(text) {
   const src = String(text || '')
   if (!/\bvape\b/i.test(src)) return { text: src, removed: [] }
@@ -1309,10 +1322,36 @@ export function stripVapeNearLocalSeo(text) {
     idx = lower.indexOf('vape', idx + 1)
   }
   if (!flagged) return { text: src, removed: [] }
-  const removed = []
-  let out = src.replace(_VAPE_NAME_RE, (m) => { removed.push(m.trim()); return '' })
-  out = out.replace(/,\s*,/g, ',').replace(/,\s*\./g, '.').replace(/,\s*\)/g, ')').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ')
-  return { text: removed.length ? out : src, removed }
+
+  const removed = [], rewritten = []
+  const outLines = src.split('\n').map(line => {
+    const pieces = _sentencePieces(line)
+    let touched = false
+    for (let i = 0; i < pieces.length; i++) {
+      const s = pieces[i].text
+      if (!/\bvape\s*shop\b/i.test(s)) continue
+      touched = true
+      if (casesMentioned(s).length <= 1) {
+        // Vape Shop is the ONLY named case in this sentence -- it IS the
+        // sentence (its own "Name (attachment): stats." entry); remove it whole.
+        removed.push(s.trim())
+        pieces.splice(i, 1)
+        i--
+      } else {
+        // shares the sentence with other named cases (a comma list) -- drop
+        // just its clause.
+        const clauses = s.split(/,\s*/)
+        const kept = clauses.filter(c => !/\bvape\s*shop\b/i.test(c))
+        let next = kept.map(c => c.trim().replace(/^[,;\s]+/, '')).join(', ').replace(/[,;\s]+$/, '')
+        if (!/[.!?:]$/.test(next)) next += (s.trim().match(/[.!?:]+$/) || ['.'])[0]
+        rewritten.push({ from: s.trim(), to: next })
+        pieces[i] = { text: next, sep: pieces[i].sep }
+      }
+    }
+    return touched ? pieces.map(p => p.text + p.sep).join('').trim() : line
+  }).filter((l, k, arr) => l !== '' || arr.length === 1)
+  const cleaned = outLines.join('\n')
+  return { text: removed.length || rewritten.length ? cleaned : src, removed, rewritten }
 }
 
 // ── unledgered case-competitiveness qualifier (owner, 2026-11-20) ───────────

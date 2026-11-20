@@ -73,12 +73,22 @@ const SRC = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'compo
   const vapeNear = 'Core strengths: local SEO (multi-location service-area businesses, GBP/Map Pack optimization). Strongest case studies: Golden State Trailers, Vape Shop, Luxury Parfums.';
   const vape = G.stripVapeNearLocalSeo(vapeNear);
   assert(!/Vape\s*Shop/i.test(vape.text), `"Vape Shop" is struck when cited near local-SEO/multi-location language: got ${JSON.stringify(vape.text)}`);
-  assert(vape.removed.length === 1, 'reported as removed');
+  assert(vape.rewritten.length === 1, 'reported as a rewrite (clause dropped, sentence kept)');
   assert(!/,\s*,/.test(vape.text) && !/,\s*\./.test(vape.text), 'no stray double-comma or ", ." left behind by the removal');
   // Vape Shop cited on its own, nowhere near local-SEO language, is untouched
   const vapeAlone = 'Vape Shop: a restricted-niche e-commerce brand, 7,000 monthly visitors, 54 keywords in Top 1.';
   assert(G.stripVapeNearLocalSeo(vapeAlone).text === vapeAlone, 'Vape Shop cited on its own (no local-SEO language nearby) is left untouched');
   assert(VAPE_FABRICATION_NEAR_RES_EXPORTED(G), 'VAPE_FABRICATION_NEAR_RES is exported so JobDetail.jsx\'s record-only flag and this strip share one definition');
+
+  // ── 4c. Vape Shop in its OWN "Name (attachment): stats." sentence (the real
+  // second-generation shape for job 24349 -- removing only the name token
+  // orphaned the stats with no subject: "(attached in profile highlights),
+  // restricted ecommerce new site, ..."). The whole sentence must go instead.
+  const headerStyle = 'Golden State Trailers (attached in profile highlights): USA B2B manufacturer, +350% organic traffic, 72 city pages ranking, 67 keywords Top 3. Vape Shop (attached in profile highlights): restricted ecommerce new site, 7,000 monthly visitors, 54 keywords Top 1, 80 referring domains, local pack visibility nearby. Luxury Parfums (attached in profile highlights): ecommerce scents, +79% visits, +143% revenue, 33 keywords Top 1.';
+  const vapeHeader = G.stripVapeNearLocalSeo(headerStyle);
+  assert(vapeHeader.text === 'Golden State Trailers (attached in profile highlights): USA B2B manufacturer, +350% organic traffic, 72 city pages ranking, 67 keywords Top 3. Luxury Parfums (attached in profile highlights): ecommerce scents, +79% visits, +143% revenue, 33 keywords Top 1.',
+    `Vape Shop's whole "Name (attachment): stats" sentence is removed, no orphaned fragment, Golden State Trailers and Luxury Parfums untouched: got ${JSON.stringify(vapeHeader.text)}`);
+  assert(!/\(attached in profile highlights\),\s*restricted/.test(vapeHeader.text), 'no orphaned "(attached in profile highlights), restricted ..." fragment left behind (the actual bug seen on job 24349\'s second generation)');
 
   // ── 5. timingViolation: the owner-confirmed 60-90-day SEO window ──────
   assert(/const OWNER_CONFIRMED_TIMINGS = \['60-90 days'\]/.test(SRC), 'the 60-90-day SEO window is in the hardcoded allow-list');
