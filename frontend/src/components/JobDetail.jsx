@@ -249,7 +249,7 @@ const ARTEM_PORTFOLIO = {
 // "add ongoing support fees", it wrote "$30/hr", then "$30/hr or $1,500/month".
 // The sent letters agree: "$700 for the first month …, then $600/month" in 7,
 // "$600/month" in 12, nothing else quoted as Artem's own management fee.
-const ARTEM_FIXED_FEES = 'Google Ads audit: $300 flat, delivered within 1 working day, credited back if management follows. ONGOING Google Ads management after it: a FIXED monthly fee — $700 for the first month (implementing the audit\'s fixes), then $600/month — never an hourly rate, never a range. Technical SEO audit: $700, included in the $1,050/month SEO optimization retainer.'
+const ARTEM_FIXED_FEES = 'Google Ads audit: $300 flat, delivered within 1 working day, credited back if management follows. ONGOING Google Ads management after it: a FIXED monthly fee — $700 for the first month (full setup, delivered within 5 working days; implementing the audit\'s fixes), then a 3-week included support window, then $600/month — never an hourly rate, never a range. Technical SEO: $1,050/month, all inclusive (includes the $700 technical audit). White-label pricing is the SAME as direct pricing — never a markup or a discount for white-label work.'
 // Fires the facts block when a posting/question asks for proof, portfolio, team
 // size, turnaround, or pricing.
 const _PROOF_REQUEST_RE = /\b(portfolio|examples?\b|case\s+stud|\bproof\b|sites?\s+you(?:'?ve)?\s*(?:manage|run|built|worked|maintain)|websites?\s+you|links?\s+to|show\s+(?:us|me)|references?|team\s+size|how\s+many\s+(?:people|staff)|retainer|turn[-\s]?around|monthly\s+(?:budget|fee|rate|retainer))\b/i
@@ -264,6 +264,40 @@ const _PROOF_REQUEST_RE = /\b(portfolio|examples?\b|case\s+stud|\bproof\b|sites?
 // (casaeleganza.com, paramusmegafurniture.com) — even though the client
 // never asked to see Artem's proof/portfolio anywhere in the posting.
 const _CLIENT_OWN_PORTFOLIO_RE = /\b(?:run|runs|running|manage|manages|managing|own|owns|owning|have|has|having|operate|operates|operating|maintain|maintains|maintaining)\s+a\s+portfolio\s+of\b/gi
+
+// ── Additional standing facts (owner instruction, 2026-11-20) ───────────────
+// Single number for experience everywhere a letter states it — "12 years",
+// never "since 2015" or "11 years" (those were earlier, inconsistent phrasings
+// that drifted across LinkedIn copy / corrections; this is the one the owner
+// confirmed as current and permanent).
+const ARTEM_EXPERIENCE_YEARS = '12 years'
+// Project counts: real, approximate — always stated as "about", never as an
+// exact count the client could later ask to verify line by line.
+const ARTEM_PROJECT_COUNTS = 'about 50 completed projects for US clients, about 20 for Canadian clients'
+// Delivery model: WHO actually does the work, and how it's framed, depends
+// entirely on whether the posting is white-label. On a normal (direct) posting
+// there is no agency/IT Force framing at all — Artem answers as a freelancer.
+const ARTEM_DELIVERY_MODEL = 'On WHITE-LABEL postings: Artem leads every engagement personally, his team at IT Force executes the work — no subcontractors, ever. On a NORMAL (non-white-label) posting: Artem answers as an individual freelancer; do not mention IT Force, an agency, team size, or white-label framing at all unless the posting itself is white-label.'
+// Timing: the only two time-to-result figures Artem will state, and the
+// explicit ceiling — no 12-month promise, ever, however the client phrases
+// the question ("after 3, 6, and 12 months", "realistic timeline", etc.).
+const ARTEM_TIMELINE_FACTS = 'Google Ads: measurable results typically show up about 1–2 weeks after the algorithms learn the account (post-setup/optimization). SEO: visible results in 60–90 days. Never promise a 12-month outcome or frame results in 12-month terms — if asked for a 3/6/12-month breakdown, answer with the real 60–90-day figure and stop there; do not invent 6-month or 12-month numbers to fill out the pattern.'
+// Capacity: never volunteered. Only stated, and only as a number, when the
+// posting/question explicitly asks how many clients/projects Artem can take on.
+const ARTEM_CAPACITY_FACT = 'Up to about 5 new projects per month. NEVER volunteer this — most letters should say nothing about capacity at all. When a posting directly asks how many new clients/accounts can be taken on (a number), answer in boutique/handcrafted-agency terms — "we take on a limited number of projects at a time, as a boutique, handcrafted agency" — and give the number only because the posting asked for a number.'
+// GEO/AEO (AI-search / answer-engine optimization): there is NO case study, no
+// measured result, and no client-specific number on record for this anywhere
+// in the KB or the case ledger (CASE_LEDGER has zero entries with service
+// 'geo' or 'aeo') — unlike SEO/PPC, which have years of real, ledger-backed
+// figures. A posting that asks "have you produced measurable results in AI
+// search" is the single highest-risk invention trap in the whole prompt: the
+// natural move is to invent a plausible-sounding citation/visibility number.
+// Never do that. Describe the APPROACH only (entity clarity, schema markup,
+// E-E-A-T signals, how results would be measured going forward) and say
+// NOTHING about a past result — no apology, no "we don't have data yet", no
+// placeholder, no invented number. Silence on the results half of the
+// question is the correct, complete answer.
+const ARTEM_GEO_AEO_FACT = 'GEO/AEO (generative/answer-engine optimization — AI search visibility): describe the APPROACH only — entity clarity, structured data/schema, E-E-A-T signals, and how visibility in AI answers would be measured. There is NO measured result and NO confirmed case on record for GEO/AEO — never state, imply, or hint at a past result, a win, or a case for it. If the posting asks directly for a GEO/AEO result or example, say NOTHING about results: no apology, no disclaimer, no placeholder — just answer with the approach and move on.'
 
 function buildArtemFactsBlock(contextText) {
   const t = (contextText || '').toLowerCase()
@@ -287,6 +321,18 @@ function buildArtemFactsBlock(contextText) {
     `    ${portfolioLines}`,
     ``,
     `• TEAM SIZE: 20 people. ⚠️ State this ONLY when the client EXPLICITLY asks about team size, company size, or headcount. NEVER volunteer it otherwise — most letters should not mention team size at all.`,
+    ``,
+    `• EXPERIENCE: ${ARTEM_EXPERIENCE_YEARS}. State this figure, and only this figure, in every letter — never "since 2015", never "11 years", never any other number.`,
+    ``,
+    `• PROJECTS COMPLETED: ${ARTEM_PROJECT_COUNTS}. Always say "about" — never an exact count.`,
+    ``,
+    `• DELIVERY MODEL: ${ARTEM_DELIVERY_MODEL}`,
+    ``,
+    `• TIME TO RESULTS: ${ARTEM_TIMELINE_FACTS}`,
+    ``,
+    `• GEO/AEO (AI search): ${ARTEM_GEO_AEO_FACT}`,
+    ``,
+    `• CAPACITY: ${ARTEM_CAPACITY_FACT}`,
     ``,
     `• FIXED FEES — exactly these when pricing is asked for: ${ARTEM_FIXED_FEES}`,
     ``,
@@ -3329,7 +3375,7 @@ function _gcShadow(finalText, jobObj, surface = 'generator') {
     const gc = groundingCheck(finalText, { postingText: posting, enforce: _enforce })
     if (gc.violations.length) _recordViolations(surface, jobObj && jobObj.id, gc.violations)
     // print WHICH text each case-related flag matched (attachmentUnbacked, tooManyCaseStudies)
-    for (const code of ['attachmentUnbacked', 'tooManyCaseStudies']) {
+    for (const code of ['attachmentUnbacked', 'tooManyCaseStudies', 'geoResultFabricated']) {
       for (const d of (gc.matches && gc.matches[code]) || []) console.warn(`[Falcon] ${code} matched: ${d.case ? `[${d.case}] ` : ''}${d.why || ''}${d.sentence ? ` :: "${d.sentence}"` : ''}${d.cases ? ` :: cases ${d.cases.join(', ')} (allowed ${d.allowed})` : ''}`)
     }
     return _enforce ? gc.text : finalText
@@ -7313,6 +7359,9 @@ function ProposalColumn({
 NEVER STATE WHAT ARTEM LACKS (owner rule, 2026-11-16 — absolute):
 The letter must not volunteer missing proof, cases or experience. NEVER write sentences such as "I have no SaaS case", "none of my results are Meta results", "I don't have a visual proof / screenshot of that", "I haven't worked with X before", "I can't share ...", "unfortunately I don't have ...", "I don't have a case in this niche". If the posting asks for something Artem has no case for, SAY NOTHING about the gap: no apology, no disclaimer, no "I don't have". Use the closest REAL proof from the approved case list and introduce it normally (e.g. "Relevant Google Ads results:"). Omitting a gap is fine; CLAIMING a case, result, number, timeframe or experience Artem does not have is never fine — every existing rule against invented cases and figures still applies.
 ═══════════════════════════════════════════════════════════════════
+GEO/AEO (AI SEARCH) — APPROACH ONLY, NEVER A RESULT (owner rule, 2026-11-20 — absolute):
+There is NO measured result and NO confirmed case on record for GEO/AEO (generative/answer-engine optimization — visibility in ChatGPT, AI Overviews, Perplexity, Gemini) anywhere in the KB or the case ledger. This is the single highest-risk invention trap in this prompt — a posting asking "have you produced measurable results in AI search?" invites exactly the kind of plausible-sounding fabricated number (a citation count, a visibility %, a ranking claim) every other rule here exists to prevent. When GEO/AEO comes up, describe the APPROACH only: entity clarity, structured data/schema markup, E-E-A-T signals, and how visibility would be measured going forward. Do not state, imply, or hint at a past GEO/AEO result, win, or case — ever. If the posting asks directly for a GEO/AEO result or example, say NOTHING about results: no apology, no "we're still gathering data", no disclaimer, no placeholder — answer with the approach and stop.
+═══════════════════════════════════════════════════════════════════
 HOUSE STYLE — THE SHAPE THE OWNER WANTS (approved 2026-10-11, job 17985).
 He reviewed a draft written in this shape and said: "I like it a lot and I want
 falcon scout to use this style for future cover letters". Follow it whenever the
@@ -7663,7 +7712,7 @@ The client has a running Google Ads account with campaigns already live. Signals
   • If the posting explicitly says this is a ONE-TIME / one-off audit with NO ongoing work after it ("one-time project", "audit only", "not looking for ongoing help", "no retainer needed"), the price is the plain "$300 flat, delivered within 1 working day" — do NOT add any complimentary/credit language; there is no future engagement to credit it toward.
   • If the posting signals POSSIBLE ongoing cooperation after the audit (e.g. "could lead to ongoing management", "if this works out we'd like to continue", "potential for a long-term partnership", mentions monthly management/retainer as a next step), you MUST ALSO convey — in your own natural phrasing, not verbatim boilerplate — "if we end up working together on ongoing management, this audit fee is credited back / the audit becomes complimentary." This is an ADDITION to the $300/1-day offer, never a replacement, and it lowers the client's risk of trying the audit at zero cost to Artem unless they actually convert to ongoing work.
   • If the posting is genuinely silent on future work either way, default to the plain $300 (no complimentary language) — only add the credit offer when the posting actually signals ongoing potential.
-  • If you quote a rate for the ONGOING work that follows the audit, it is a FIXED TWO-TIER MONTHLY FEE — $700 for the first (setup) month, $600/month after that — NEVER a scope-sized range and NEVER an hourly rate. State it plainly, e.g. "$700 for the first month to implement the fixes, then $600/month for ongoing management." Do not invent any other figure (never "$800-$2,500/month" or similar) and do NOT apply the RATE ANCHOR (posted-ceiling-based hourly figure) to this quote — that mechanism is for a direct hourly engagement, not the fixed post-audit management fee, and the posting's raw hourly range is frequently a capture artifact (e.g. an implausible $5-$155/hr spread) that produces a nonsensical number when mirrored back as an hourly rate for a small local business.
+  • If you quote a rate for the ONGOING work that follows the audit, it is a FIXED TWO-TIER MONTHLY FEE — $700 for the first (setup) month, $600/month after that — NEVER a scope-sized range and NEVER an hourly rate. State it plainly, e.g. "$700 for the first month to implement the fixes, then $600/month for ongoing management." The $700 setup is delivered within 5 working days; there are then 3 weeks of included support before the $600/month billing starts — mention this timing only if the client asked for a timeline or turnaround. Do not invent any other figure (never "$800-$2,500/month" or similar) and do NOT apply the RATE ANCHOR (posted-ceiling-based hourly figure) to this quote — that mechanism is for a direct hourly engagement, not the fixed post-audit management fee, and the posting's raw hourly range is frequently a capture artifact (e.g. an implausible $5-$155/hr spread) that produces a nonsensical number when mirrored back as an hourly rate for a small local business. White-label pricing is the SAME as direct pricing for every fee above — never a markup, never a discount for white-label work.
 
 WHEN NOT TO OFFER AN AUDIT (zero-pixel / launch from scratch):
 The client has NO existing account — they want to build and launch from scratch. Signals: "launch", "from scratch", "new brand", "starting from zero", "no existing campaigns", "build and launch", "zero pixel data", "set up a Google Ads/PPC campaign", "campaign setup" (a client asking you to SET UP campaigns/tracking has nothing running yet to audit — treat "set up" the same as "launch from scratch" even if they never use that exact phrase, and even when they mention already having OTHER tools/infrastructure in place, e.g. GTM, GA4, a CRM — that's context, not an existing ad account to diagnose). A NEGATED mention is the opposite signal and does NOT make a launch: "we're not starting from scratch", "rather than rebuilding from scratch", "this is not a new account" all mean the account EXISTS — offer the audit. In these cases:

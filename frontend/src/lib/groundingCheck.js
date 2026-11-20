@@ -40,6 +40,17 @@
 //   (*#1/#2/#3's ANONYMIZED/relabeled forms are killed by the ledger at 21-C — once the
 //    model must emit {{case:id}} it can't write an anonymized fabricated story or relabel
 //    a vertical at all. The checker owns the NAMED-case classes.)
+//   geoResultFabricated — a GEO/AEO (AI-search) sentence stating a RESULT number
+//                        (owner, 2026-11-20): CASE_LEDGER has ZERO entries for
+//                        GEO/AEO — no measured result and no confirmed case exists
+//                        on record for it at all, unlike SEO/PPC. metricNotInLedger
+//                        above only checks paragraphs that NAME a ledger case, so a
+//                        GEO/AEO sentence with an invented number but no case name
+//                        ("our GEO work lifted AI citations by 40%") would slip
+//                        through untouched — this check scans the WHOLE letter,
+//                        case name or not. Ships record-only (new claim class, owner
+//                        rule #14, GENERATOR_REBUILD_HANDOFF.md §7) — never stripped
+//                        here; approach-only GEO/AEO prose with no metric is untouched.
 
 import { CASE_LEDGER, CASE_BY_ID, findCaseFactConflicts, fixCaseGeoClaims, casesRequestedByPosting } from './caseLedger'
 
@@ -76,6 +87,11 @@ const _METRIC_RES = [
   /\broas\s+\d[\d.,]*/gi,                                                     // ROAS 17.51
   /\b\d[\d.,]*\+?\s?(?:referring\s+domains?|keywords?|conversions?|clicks|visits?|visitors|sku'?s?|impressions?|users|sessions|leads)\b/gi,
 ]
+// GEO/AEO (AI-search) usage — deliberately mirrors api/focus_filter.py's
+// geo_ai_search STRONG pattern so bare "geo" (geo-targeting/geography, routine
+// in an ad-agency letter) is never mistaken for generative-engine-optimization
+// usage. Only the real AI-search phrasing counts.
+const _GEO_AI_RE = /generative\s+engine\s+optimi[sz]ation|answer\s+engine\s+optimi[sz]ation|\baeo\b|\bllm\b\s*(?:seo|visibility|search|optimi[sz]ation)|ai[\s-]?search(?:\s+optimi[sz]ation|\s+visibility)?|ai\s+overview|chatgpt\s*(?:visibility|search|optimi[sz]ation)?|\bgeo\b\s*(?:optimi[sz]ation|visibility)|(?:aeo|seo)\s*\/\s*geo\b|\bgeo\s*\/\s*aeo\b/i
 // the bare numeric value inside a metric token, e.g. "+693.8% revenue" -> "693.8"
 const _numOf = (tok) => (String(tok).match(/\d[\d.,]*/) || [''])[0].replace(/,/g, '').replace(/\.$/, '')
 // the set of numeric values approved for a case (from its ledger metrics)
@@ -353,6 +369,17 @@ export function groundingCheck(text, { postingText = '', enforce = false } = {})
   const _turnLabel = /\btimeline\s*:\s*\n?\s*full\s+audit\b[^.\n]{0,40}?\b\d+\s*(?:working\s+|business\s+)?days?\b/i
   if ((_turn.test(out) || _turnLabel.test(out)) && !/\b(google\s*ads?|adwords|ppc|paid[-\s]?(?:media|search|ads?))\b[^.\n]{0,20}\baudit\b/i.test(out)) {
     record('seoAuditTurnaround')  // removal handled by the existing _stripSeoAuditTurnaround in the pile
+  }
+
+  // ── geoResultFabricated: a GEO/AEO sentence carrying a RESULT number (see
+  // header) — scans the WHOLE letter, not just case-named paragraphs, since no
+  // GEO/AEO case exists in CASE_LEDGER for any paragraph to name. Record-only.
+  for (const sent of out.split(/(?<=[.!?])\s+/)) {
+    if (!_GEO_AI_RE.test(sent)) continue
+    if (_METRIC_RES.some(re => new RegExp(re.source, re.flags).test(sent))) {
+      record('geoResultFabricated')
+      noteMatch('geoResultFabricated', { sentence: _firstSentence(sent) })
+    }
   }
 
   return { text: enforce ? out : text, violations: _uniq(violations), matches }
