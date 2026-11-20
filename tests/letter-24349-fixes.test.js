@@ -70,25 +70,53 @@ const SRC = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'compo
   assert(G.stripUnledgeredCaseQualifiers(noCaseSent).text === noCaseSent, 'a competitiveness claim with no named ledger case is left alone (nothing to check it against)');
 
   // ── 4b. Vape Shop near local-SEO / multi-location language (KB Rule 437) ──
-  const vapeNear = 'Core strengths: local SEO (multi-location service-area businesses, GBP/Map Pack optimization). Strongest case studies: Golden State Trailers, Vape Shop, Luxury Parfums.';
-  const vape = G.stripVapeNearLocalSeo(vapeNear);
-  assert(!/Vape\s*Shop/i.test(vape.text), `"Vape Shop" is struck when cited near local-SEO/multi-location language: got ${JSON.stringify(vape.text)}`);
-  assert(vape.rewritten.length === 1, 'reported as a rewrite (clause dropped, sentence kept)');
-  assert(!/,\s*,/.test(vape.text) && !/,\s*\./.test(vape.text), 'no stray double-comma or ", ." left behind by the removal');
+  // Correction, item 6 (owner, 2026-11-20): KB Rule 437's own anti-fabrication
+  // clause is about a CLAIM MADE ABOUT the case, not mere proximity to the
+  // words elsewhere in the letter. Detection is scoped to the SAME SENTENCE.
+
+  // A list that cites Vape Shop alongside other cases, where the local-SEO
+  // language is in a DIFFERENT (earlier) sentence -- the real job-24349 shape
+  // this was over-stripping before the fix -- is now left alone.
+  const vapeListNoCoOccurrence = 'Core strengths: local SEO (multi-location service-area businesses, GBP/Map Pack optimization). Strongest case studies: Golden State Trailers, Vape Shop, Luxury Parfums.';
+  assert(G.stripVapeNearLocalSeo(vapeListNoCoOccurrence).text === vapeListNoCoOccurrence,
+    'Vape Shop in a case list, with local-SEO language only in a DIFFERENT sentence, is no longer stripped (item 6 correction)');
+
+  // A list sentence that ITSELF pairs Vape Shop with local-SEO language IS a
+  // genuine same-sentence claim -- still caught, clause dropped.
+  const vapeListCoOccurrence = 'Case studies for our local SEO (GBP, map pack) work: Golden State Trailers, Vape Shop, Luxury Parfums.';
+  const vapeListStripped = G.stripVapeNearLocalSeo(vapeListCoOccurrence);
+  assert(!/Vape\s*Shop/i.test(vapeListStripped.text), `Vape Shop IS struck when its own sentence makes the local-SEO claim: got ${JSON.stringify(vapeListStripped.text)}`);
+  assert(vapeListStripped.rewritten.length === 1, 'reported as a rewrite (clause dropped, sentence kept)');
+  assert(!/,\s*,/.test(vapeListStripped.text) && !/,\s*\./.test(vapeListStripped.text), 'no stray double-comma or ", ." left behind by the removal');
+
   // Vape Shop cited on its own, nowhere near local-SEO language, is untouched
   const vapeAlone = 'Vape Shop: a restricted-niche e-commerce brand, 7,000 monthly visitors, 54 keywords in Top 1.';
   assert(G.stripVapeNearLocalSeo(vapeAlone).text === vapeAlone, 'Vape Shop cited on its own (no local-SEO language nearby) is left untouched');
   assert(VAPE_FABRICATION_NEAR_RES_EXPORTED(G), 'VAPE_FABRICATION_NEAR_RES is exported so JobDetail.jsx\'s record-only flag and this strip share one definition');
 
-  // ── 4c. Vape Shop in its OWN "Name (attachment): stats." sentence (the real
-  // second-generation shape for job 24349 -- removing only the name token
-  // orphaned the stats with no subject: "(attached in profile highlights),
-  // restricted ecommerce new site, ..."). The whole sentence must go instead.
-  const headerStyle = 'Golden State Trailers (attached in profile highlights): USA B2B manufacturer, +350% organic traffic, 72 city pages ranking, 67 keywords Top 3. Vape Shop (attached in profile highlights): restricted ecommerce new site, 7,000 monthly visitors, 54 keywords Top 1, 80 referring domains, local pack visibility nearby. Luxury Parfums (attached in profile highlights): ecommerce scents, +79% visits, +143% revenue, 33 keywords Top 1.';
-  const vapeHeader = G.stripVapeNearLocalSeo(headerStyle);
+  // ── 4c. Vape Shop in its OWN "Name (attachment): stats." sentence, cited
+  // ACCURATELY as a new-site ramp-up example (the real job-24349 second-
+  // generation shape, no local-SEO words in this sentence at all) -- must be
+  // left COMPLETELY untouched now (item 6). Before the fix, a wide ±500-char
+  // window reaching into the NEXT question's unrelated "Map Pack" discussion
+  // falsely stripped this and orphaned its stats.
+  const headerStyleRampUp = 'Golden State Trailers (attached in profile highlights): USA B2B manufacturer, +350% organic traffic, 72 city pages ranking, 67 keywords Top 3. Vape Shop (attached in profile highlights): restricted ecommerce new site, 7,000 monthly visitors, 54 keywords Top 1, 80 referring domains. Luxury Parfums (attached in profile highlights): ecommerce scents, +79% visits, +143% revenue, 33 keywords Top 1. 2. Brand-New Website SEO: an HVAC company in one metro can break into Map Pack and page-one local organic in that window.';
+  assert(G.stripVapeNearLocalSeo(headerStyleRampUp).text === headerStyleRampUp,
+    'Vape Shop\'s own ramp-up sentence has no local-SEO words in it -- untouched even though "Map Pack" appears two sentences later (the exact over-reach that broke job 24349\'s second generation)');
+
+  // The real genuine-fabrication shape: Vape Shop's OWN "Name (attachment):
+  // stats." sentence DOES make a local-SEO claim -- the whole sentence goes,
+  // no orphaned fragment, and the surrounding cases are untouched.
+  const headerStyleFabricated = 'Golden State Trailers (attached in profile highlights): USA B2B manufacturer, +350% organic traffic, 72 city pages ranking, 67 keywords Top 3. Vape Shop (attached in profile highlights): 5 locations, GBP dialed in, local pack rankings across all stores. Luxury Parfums (attached in profile highlights): ecommerce scents, +79% visits, +143% revenue, 33 keywords Top 1.';
+  const vapeHeader = G.stripVapeNearLocalSeo(headerStyleFabricated);
   assert(vapeHeader.text === 'Golden State Trailers (attached in profile highlights): USA B2B manufacturer, +350% organic traffic, 72 city pages ranking, 67 keywords Top 3. Luxury Parfums (attached in profile highlights): ecommerce scents, +79% visits, +143% revenue, 33 keywords Top 1.',
-    `Vape Shop's whole "Name (attachment): stats" sentence is removed, no orphaned fragment, Golden State Trailers and Luxury Parfums untouched: got ${JSON.stringify(vapeHeader.text)}`);
-  assert(!/\(attached in profile highlights\),\s*restricted/.test(vapeHeader.text), 'no orphaned "(attached in profile highlights), restricted ..." fragment left behind (the actual bug seen on job 24349\'s second generation)');
+    `Vape Shop's whole "Name (attachment): stats" sentence is removed when it IS the fabrication, no orphaned fragment, Golden State Trailers and Luxury Parfums untouched: got ${JSON.stringify(vapeHeader.text)}`);
+  assert(!/\(attached in profile highlights\),\s*restricted/.test(vapeHeader.text) && !/:\s*,/.test(vapeHeader.text), 'no orphaned fragment or stray ":," left behind');
+
+  // The real job-24349 Q3 "Example: Vape Shop, a restricted niche new site..."
+  // citation -- also a correct ramp-up example, also must survive untouched.
+  const q3Example = 'Example: Vape Shop, a restricted niche new site, hit 54 Top-1 keywords within months because paid was blocked, competitors were thin, and we moved fast on semantic core plus link building.';
+  assert(G.stripVapeNearLocalSeo(q3Example).text === q3Example, 'the real Q3 "Example: Vape Shop, a restricted niche new site..." citation is left untouched (no local-SEO words in it)');
 
   // ── 5. timingViolation: the owner-confirmed 60-90-day SEO window ──────
   assert(/const OWNER_CONFIRMED_TIMINGS = \['60-90 days'\]/.test(SRC), 'the 60-90-day SEO window is in the hardcoded allow-list');

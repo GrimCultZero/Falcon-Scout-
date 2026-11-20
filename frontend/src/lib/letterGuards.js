@@ -1167,6 +1167,13 @@ const _ADMISSION_RES = [
   // data/metric/figure/track record> is/are (currently) on record / documented
   // / available", whoever the subject is.
   /\b(?:no|not\s+any)\s+(?:[\w-]+\s+){0,3}?(?:results?|cases?|proof|data|measurements?|metrics?|figures?|track\s+record|numbers?)\s+(?:is|are)\s+(?:currently\s+)?(?:on\s+record|documented|available)\b/i,
+  // "I'm not claiming a measured AI-search result" (job 24349, the SECOND
+  // generation's exact Q5 sentence — a different impersonal-admission shape
+  // than the "no X is on record" pattern above, same violation: it states
+  // outright that Artem has no result to show). Also covers "I'm not saying
+  // I have ..." / "I don't claim ...".
+  /\bI(?:'?m|\s+am)\s+not\s+(?:claiming|saying\s+(?:I\s+have|there'?s))\s+(?:a|an|any)\b[^.!?]*\b(?:result|results|case|proof|win|track\s+record)\b/i,
+  /\bI\s+(?:don'?t|do\s+not)\s+claim\s+(?:a|an|any)\b[^.!?]*\b(?:result|results|case|proof|win|track\s+record)\b/i,
 ]
 const _CLAUSE_SPLIT_RE = /(,\s*(?:but|however|though|although|yet|while|and|so)\s+|;\s*|\s+[—–]\s+)/i
 const _LEAD_IN_RE = /^(?:that\s+said|that\s+being\s+said|however|but|still|instead|even\s+so|nevertheless|nonetheless|though|although|what\s+i\s+(?:do\s+)?have\s+is)\s*[,:]?\s+(?=\S)/i
@@ -1276,13 +1283,27 @@ export function stripOffStandardYearsClaim(text) {
 }
 
 // ── Vape Shop misrepresented as local/multi-location SEO (KB Rule 437) ──────
-// Vape Shop is a restricted-niche e-commerce case (vertical: 'ecom-restricted')
-// — never multi-location or local-SEO work. Job 24349's draft listed it right
-// after "local SEO (multi-location service-area businesses, GBP/Map Pack
-// optimization)" among a set of "strongest case studies". JobDetail.jsx's
-// vapeFabrication detector (same window, same signal list — exported here so
-// both share one definition) only RECORDED this; the owner asked for it
-// struck from the letter too.
+// KB Rule 437's own text: the Vape Shop case (KB #1, case #3) is a NEW-SITE
+// e-commerce build -- "It is NOT a multi-location retail chain. It did NOT
+// involve Google Business Profile work, local citations, map pack rankings,
+// multi-location landing pages, or any local-SEO work." The rule's own
+// anti-fabrication clause is about a CLAIM MADE ABOUT the case, not mere
+// proximity to the words elsewhere in the letter -- citing it correctly as a
+// new-site ramp-up example ("restricted ecommerce new site, 7,000 monthly
+// visitors, 54 keywords Top 1, 80 referring domains") is exactly what the
+// rule wants and must never be touched.
+//
+// 2026-11-20 correction: the original detector used a WIDE ±100/+500-char
+// window around "vape", so an unrelated local-SEO discussion two sentences
+// later (job 24349, Q2's "Map Pack" mention) falsely flagged a correct,
+// ledger-accurate ramp-up citation in Q1 AND a correct "Example: Vape Shop, a
+// restricted niche new site, hit 54 Top-1 keywords..." in Q3 -- the strip then
+// cascaded across the WHOLE letter from that one false trigger, leaving
+// "Example:," and ".: (attached in profile highlights), restricted ecommerce
+// new site, ..." orphans. Detection is now scoped to the SAME SENTENCE as
+// "vape": only a sentence that ITSELF makes a local-SEO/multi-location claim
+// about Vape Shop is fabrication; one that doesn't is left alone regardless of
+// what the rest of the letter discusses.
 export const VAPE_FABRICATION_NEAR_RES = [
   /\d+\s*[-\s]?\s*locations?\b/i,
   /\bmulti-?location\b/i,
@@ -1295,33 +1316,34 @@ export const VAPE_FABRICATION_NEAR_RES = [
   /\bstore\s+visits?\b/i,
   /\bin-?store\b/i,
 ]
+/** Sentences where "vape" and a local-SEO/multi-location claim (KB Rule 437) co-occur IN THE SAME SENTENCE -- never a wider window. */
+export function vapeFabricationSentences(text) {
+  const out = []
+  for (const line of String(text || '').split('\n')) {
+    for (const { text: s } of _sentencePieces(line)) {
+      if (/\bvape\b/i.test(s) && VAPE_FABRICATION_NEAR_RES.some(re => re.test(s))) out.push(s)
+    }
+  }
+  return out
+}
 /**
- * Strike "Vape Shop" from the letter if it's ever cited near local-SEO /
- * multi-location language (KB Rule 437). Two real shapes seen in practice
- * (job 24349, two separate generations):
+ * Strike "Vape Shop" from the letter wherever ITS OWN sentence makes a
+ * local-SEO/multi-location claim about it (KB Rule 437) -- never merely
+ * because such language appears elsewhere in the letter. Two real shapes seen
+ * in practice (job 24349, two separate generations):
  *   - a comma LIST with other cases ("Golden State Trailers, Vape Shop,
  *     Luxury Parfums") -- remove just its clause, keep the rest of the list.
- *   - its OWN sentence, "Name (attachment): stats." style ("Vape Shop
- *     (attached in profile highlights): restricted ecommerce new site, 7,000
- *     monthly visitors, ...") -- removing only the name token here orphans the
- *     stats ("(attached in profile highlights), restricted ecommerce new
- *     site, ..." with no subject), so the WHOLE sentence goes instead.
+ *   - its OWN sentence, "Name (attachment): stats." style -- removing only the
+ *     name token orphans the stats with no subject, so the WHOLE sentence goes
+ *     instead.
  * `casesMentioned` on the sentence tells the two apart: Vape Shop alone in its
  * sentence -> whole-sentence removal; Vape Shop alongside other named cases ->
  * clause removal only.
  */
 export function stripVapeNearLocalSeo(text) {
   const src = String(text || '')
-  if (!/\bvape\b/i.test(src)) return { text: src, removed: [] }
-  const lower = src.toLowerCase()
-  let idx = lower.indexOf('vape')
-  let flagged = false
-  while (idx !== -1) {
-    const window = src.slice(Math.max(0, idx - 100), idx + 500)
-    if (VAPE_FABRICATION_NEAR_RES.some(re => re.test(window))) { flagged = true; break }
-    idx = lower.indexOf('vape', idx + 1)
-  }
-  if (!flagged) return { text: src, removed: [] }
+  const bad = new Set(vapeFabricationSentences(src))
+  if (!bad.size) return { text: src, removed: [], rewritten: [] }
 
   const removed = [], rewritten = []
   const outLines = src.split('\n').map(line => {
@@ -1329,7 +1351,7 @@ export function stripVapeNearLocalSeo(text) {
     let touched = false
     for (let i = 0; i < pieces.length; i++) {
       const s = pieces[i].text
-      if (!/\bvape\s*shop\b/i.test(s)) continue
+      if (!bad.has(s)) continue
       touched = true
       if (casesMentioned(s).length <= 1) {
         // Vape Shop is the ONLY named case in this sentence -- it IS the
@@ -1362,21 +1384,40 @@ export function stripVapeNearLocalSeo(text) {
 // is. Strips just the unverified qualifier phrase from a sentence that also
 // names a ledger case, when that exact wording isn't in the case's own
 // one_liner (a case whose one_liner DOES say e.g. "a saturated niche" keeps it).
-const _COMPETITIVE_QUALIFIER_RE = /\b(?:with\s+|in\s+a\s+)?(?:low|moderate|medium|high|fierce|intense|heavy|light|minimal)[\s-]?competition\b|\b(?:easy|hard|difficult|saturated|crowded|uncompetitive)\s+(?:niche|market|vertical|category|space)\b/gi
-/** Strip an invented competitive-intensity claim about a named case (e.g. "with moderate competition") that isn't in its ledger record. */
+// Two distinct shapes, handled differently so neither one ever breaks grammar
+// (item 5, owner 2026-11-20: strips must never leave a broken fragment):
+//   - a PREPOSITIONAL PHRASE ("with moderate competition") -- safely removable
+//     whole, it's a trailing/leading modifier with nothing else depending on it.
+//   - a bare ADJECTIVE in front of a noun phrase that is otherwise TRUE
+//     ("a competitive B2B manufacturing vertical" -- "B2B manufacturing
+//     vertical" is real, per Golden State Trailers' own ledger vertical; only
+//     the competitive-intensity judgment is invented). Removing the whole noun
+//     phrase up to "vertical" breaks the sentence ("ranking across a required
+//     steady authority building" — confirmed on job 24349's real Q3 sentence);
+//     removing just the adjective word does not.
+const _COMPETITION_PHRASE_RE = /\b(?:with\s+|in\s+a\s+)?(?:low|moderate|medium|high|fierce|intense|heavy|light|minimal)[\s-]?competition\b/gi
+const _COMPETITIVE_ADJECTIVE_RE = /\b(?:easy|hard|difficult|saturated|crowded|uncompetitive|competitive)\b(?=\s+(?:[\w-]+\s+){0,3}(?:niche|market|vertical|category|space)\b)/gi
+/** Strip an invented competitive-intensity claim about a named case (e.g. "with moderate competition", "a competitive ... vertical") that isn't in its ledger record. */
 export function stripUnledgeredCaseQualifiers(text) {
   const src = String(text || '')
   const removed = []
   const outParas = src.split(/\n\s*\n/).map(para => {
     const ids = casesMentioned(para)
     if (!ids.length) return para
-    return para.replace(_COMPETITIVE_QUALIFIER_RE, (m) => {
+    let p = para.replace(_COMPETITION_PHRASE_RE, (m) => {
       const bare = m.toLowerCase().replace(/^(?:with|in\s+a)\s+/, '')
       const inLedger = ids.some(id => String(CASE_BY_ID[id]?.one_liner || '').toLowerCase().includes(bare))
       if (inLedger) return m
       removed.push(m.trim())
       return ''
     })
+    p = p.replace(_COMPETITIVE_ADJECTIVE_RE, (m) => {
+      const inLedger = ids.some(id => String(CASE_BY_ID[id]?.one_liner || '').toLowerCase().includes(m.toLowerCase()))
+      if (inLedger) return m
+      removed.push(m.trim())
+      return ''
+    })
+    return p
   })
   let cleaned = outParas.join('\n\n').replace(/\s+,/g, ',').replace(/,\s*,/g, ',').replace(/[ \t]{2,}/g, ' ')
   return { text: removed.length ? cleaned : src, removed }
@@ -1398,4 +1439,39 @@ export function timingViolationSentences(text, allowedTimings) {
     if (hits.length) out.push({ phrases: hits, sentence: s.trim().slice(0, 240) })
   }
   return out
+}
+
+// ── final cleanup guard (owner, 2026-11-20) ──────────────────────────────────
+// Every deterministic strip in this file is designed to remove a whole
+// sentence or a comma-bounded clause, never a bare name/word token with no
+// regard for what's left around it (item 5) — but job 24349's second
+// generation shipped exactly that failure anyway ("Golden State Trailers
+// (...):, USA...", "...67 keywords Top 3.: (attached in profile highlights),
+// restricted ecommerce new site...", "Example:, a restricted niche new
+// site..."): a bare name-token removal left the surrounding colon/comma
+// structure stranded with nothing to attach to. This is the safety net for
+// that failure mode specifically — and for any future one shaped like it —
+// not a substitute for writing each strip correctly in the first place.
+export const ORPHAN_PUNCTUATION_RE = /:\s*,|\.\s*:|\(\s*\)|,\s*,|,\s*\.|\bExample\s*:\s*,/i
+export function hasOrphanPunctuation(text) {
+  return ORPHAN_PUNCTUATION_RE.test(String(text || ''))
+}
+
+// ── "12 years" must be in every letter, deterministically (owner, 2026-11-20) ──
+// KB Rule 439 and the system prompt both already tell the model to state it
+// early — job 24349's second generation simply didn't, in favor of an IT Force
+// team-size opener instead (missingYearsExperience fired). Rather than rely on
+// the model a third time, insert the one standing figure into the first
+// paragraph outright when it's missing. A literal fact insert, same spirit as
+// ensureRunningAccountAuditCta — it only adds the one sentence Artem's facts
+// already guarantee, never anything generated.
+export function ensureExperienceYearsStated(text) {
+  const src = String(text || '')
+  if (/\b12\s+years\b/i.test(src)) return { text: src, inserted: false }
+  const idx = src.indexOf('\n\n')
+  const firstPara = idx === -1 ? src : src.slice(0, idx)
+  const rest = idx === -1 ? '' : src.slice(idx)
+  const sentence = '12 years in SEO/PPC and ecommerce web development.'
+  const newFirstPara = firstPara ? `${sentence} ${firstPara}` : sentence
+  return { text: newFirstPara + rest, inserted: true }
 }

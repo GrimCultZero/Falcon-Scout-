@@ -13,8 +13,8 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, VAPE_FABRICATION_NEAR_RES } from '../lib/letterGuards'
-import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage } from '../lib/screeningQuestions'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, vapeFabricationSentences, hasOrphanPunctuation, ensureExperienceYearsStated } from '../lib/letterGuards'
+import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage, ensureLocalSeoResultsAnswer, ensurePricingFigureWhenAsked } from '../lib/screeningQuestions'
 import { findAutoBomb } from '../lib/digitBombMatch'
 import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
 
@@ -8125,6 +8125,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         }
       }
 
+      // Baseline for the final cleanup guard below (item 5, owner 2026-11-20):
+      // if any of the next three strips leaves orphan punctuation behind, we
+      // revert to exactly this text rather than ship a visibly broken sentence.
+      const _preDeterministicStripsText = text
+
       // ── Years-experience guard (owner, 2026-11-20) ──
       // Artem's ONE experience figure is "12 years" — never "since <year>",
       // never any other number. Job 24349 invented "US and Canada work since
@@ -8141,8 +8146,8 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       // ── Vape Shop never cited near local-SEO / multi-location language (KB Rule 437) ──
       {
         const _vape = stripVapeNearLocalSeo(text)
-        if (_vape.removed.length) {
-          console.log('[Falcon] Removed Vape Shop citation near local-SEO language (KB Rule 437):', _vape.removed)
+        if (_vape.removed.length || _vape.rewritten.length) {
+          console.log('[Falcon] Removed/rewrote Vape Shop citation near local-SEO language (KB Rule 437):', _vape.removed, _vape.rewritten)
           _recordViolations('generator', job?.id, ['vapeFabricationStripped'])
           text = _vape.text
         }
@@ -8159,6 +8164,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
           _recordViolations('generator', job?.id, ['unledgeredCaseQualifier'])
           text = _qual.text
         }
+      }
+
+      // ── Final cleanup guard (owner, 2026-11-20, item 5) ──
+      // If the three strips above left orphan punctuation behind (":,", ".:",
+      // "Example:,", "(...):," — the exact shapes job 24349's second
+      // generation shipped, all since fixed at the source), the strip chain
+      // did more harm than good: revert to the pre-strip text and flag it
+      // rather than ship a visibly broken sentence. The specific claim the
+      // reverted strip would have caught stays unfixed for this run, but a
+      // broken sentence is worse than an unstripped (if imperfect) one.
+      if (hasOrphanPunctuation(text)) {
+        console.warn('[Falcon] A deterministic strip left orphan punctuation behind — reverted to the pre-strip text.', { before: _preDeterministicStripsText, after: text })
+        _recordViolations('generator', job?.id, ['stripChainOrphanPunctuation'])
+        text = _preDeterministicStripsText
       }
 
       // ── The closing audit offer on a running account (owner rule, 2026-09-29) ──
@@ -8186,12 +8205,57 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         }
       }
 
-      // ── Numbered screening questions: did the letter answer every one? (record-only, never blocks) ──
+      // Minimal local classification for the pricing-figure insert below — the
+      // fuller SEO_JOB_KEYWORDS/PPC_JOB_KEYWORDS classification used by the
+      // compliance checks further down isn't computed until later in this
+      // function; duplicating a small, purpose-specific version here (same
+      // posting text, _postingTitleDescLower) is lower-risk than reordering
+      // the existing, heavily-tested check block to compute it earlier.
+      const SEO_JOB_KEYWORDS_FOR_PRICING = /\b(?:seo\b|search\s+engine\s+optimi[sz]ation|organic\s+(?:traffic|search)|technical\s+seo|aeo|geo\s+(?:seo|search))\b/i
+      const PPC_JOB_KEYWORDS_FOR_PRICING = /\b(?:google\s+ads|google\s+ppc|ppc|p(?:erformance)?\s*max|pmax|adwords|paid\s+ads?|ad\s+spend|meta\s+ads|facebook\s+ads)\b/i
+
+      // ── Numbered screening questions: did the letter answer every one? ──
+      // Two gaps are now ENFORCED (owner, 2026-11-20, items 1 & 3), not just
+      // recorded: both have a FIXED, known-correct answer that can be inserted
+      // as a literal template (Golden State Trailers' own ledger figures;
+      // Artem's own fixed fee) — no generation, no judgment call, so none of
+      // the three failure modes that killed the 2026-09-02 rewrite-enforcer
+      // (job 14169/14177/14178, GENERATOR_REBUILD_HANDOFF.md §4) apply here.
+      // Any OTHER missing question (freeform content with no fixed source to
+      // template from) still only records screeningQuestionsUnanswered — that
+      // lesson stands.
       if (inlineScreening) {
+        const _seoLSA = ensureLocalSeoResultsAnswer(text, inlineScreening)
+        if (_seoLSA.inserted) {
+          text = _seoLSA.text
+          console.log('[Falcon] A numbered question asked for local SEO results and the letter never answered it — inserted Golden State Trailers\' ledger figures.')
+          _recordViolations('generator', job?.id, ['screeningAnswerAutoInserted'])
+        }
+        const _isSeoForPricing = SEO_JOB_KEYWORDS_FOR_PRICING.test(_postingTitleDescLower)
+        const _isPpcForPricing = PPC_JOB_KEYWORDS_FOR_PRICING.test(_postingTitleDescLower)
+        const _price = ensurePricingFigureWhenAsked(text, inlineScreening, { isSeoJob: _isSeoForPricing, isPpcJob: _isPpcForPricing })
+        if (_price.inserted) {
+          text = _price.text
+          console.log('[Falcon] A numbered question asked for pricing and the letter stated no real figure — appended the real fixed fee.')
+          _recordViolations('generator', job?.id, ['pricingFigureAutoInserted'])
+        }
         const _cov = screeningCoverage(text, inlineScreening)
         if (_cov.missing.length) {
           console.warn(`[Falcon] screening questions: the letter answers ${_cov.answered.length} of ${_cov.total}; missing numbers ${_cov.missing.join(', ')}`)
           _recordViolations('generator', job?.id, ['screeningQuestionsUnanswered'])
+        }
+      }
+
+      // ── "12 years" must be in every letter (owner, 2026-11-20, item 4) ──
+      // A deterministic fact insert, not a rewrite: if the model never stated
+      // the one standing experience figure anywhere, add it to the first
+      // paragraph outright rather than rely on the model a third time.
+      {
+        const _yrsStated = ensureExperienceYearsStated(text)
+        if (_yrsStated.inserted) {
+          text = _yrsStated.text
+          console.log('[Falcon] "12 years" was missing from the letter entirely — added it to the opening paragraph.')
+          _recordViolations('generator', job?.id, ['experienceYearsAutoInserted'])
         }
       }
 
@@ -9011,21 +9075,15 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             const missingYearsExperience = !draftHasYears
             const ppcMissingPremierPartner = jobIsPaidMedia && !draftHasPremier
 
-            // Vape-case fabrication detector: look around any "vape" mention
-            // for local-SEO / multi-location language that isn't in the real
-            // KB description. VAPE_FABRICATION_NEAR_RES is shared with
-            // lib/letterGuards.js's stripVapeNearLocalSeo (KB Rule 437) so the
-            // record-only flag below and the actual strip can never drift apart.
-            let vapeFabrication = false
-            if (draftMentionsVape) {
-              const textLower = text.toLowerCase()
-              const vapeIdx = textLower.indexOf('vape')
-              if (vapeIdx !== -1) {
-                // Check ±400 chars around the first "vape" mention.
-                const window = text.slice(Math.max(0, vapeIdx - 100), vapeIdx + 500)
-                vapeFabrication = VAPE_FABRICATION_NEAR_RES.some(re => re.test(window))
-              }
-            }
+            // Vape-case fabrication detector: a SENTENCE containing "vape" that
+            // itself makes a local-SEO / multi-location claim (KB Rule 437).
+            // vapeFabricationSentences is shared with lib/letterGuards.js's
+            // stripVapeNearLocalSeo so the record-only flag below and the actual
+            // strip use the exact same definition and can never drift apart.
+            // Scoped to the SAME SENTENCE, not a wide character window (2026-11-20
+            // correction — a window let an unrelated local-SEO discussion two
+            // sentences later falsely flag a correct new-site ramp-up citation).
+            const vapeFabrication = draftMentionsVape && vapeFabricationSentences(text).length > 0
 
             // ── PDF-attachment check (KB Rule 407) ───────────────────────────
             // Derma Solution and Skin Reboot MUST be described as "attached as

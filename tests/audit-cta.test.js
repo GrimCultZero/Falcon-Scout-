@@ -86,11 +86,14 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   // ── wiring in JobDetail.jsx ─────────────────────────────────────────────
   const chainAt = src.indexOf('_postingOnlyLowerForStrips), _requiredOpenerPhrase))');
   const ctaAt = src.indexOf('const _cta = ensureRunningAccountAuditCta(text, { postingText: _postingTitleDesc, asksRate: _postingAsksRate })');
-  // Threshold bumped 2026-11-20: stripAdmissions, stripOffStandardYearsClaim,
-  // stripVapeNearLocalSeo and stripUnledgeredCaseQualifiers all run in this gap
-  // now (still strictly BEFORE the CTA insert, so none of them can remove it —
-  // the property this test checks still holds, there's just more code between).
-  assert(chainAt !== -1 && ctaAt > chainAt && ctaAt - chainAt < 3500, 'the insert runs right after the strip chain (plus the deterministic lack/years/case-claim strips), so no strip can remove it');
+  // Threshold bumped twice now (2026-11-20): stripAdmissions,
+  // stripOffStandardYearsClaim, stripVapeNearLocalSeo,
+  // stripUnledgeredCaseQualifiers, the orphan-punctuation fallback guard, and
+  // the screening-question/pricing/years ensure-inserts all run in this gap
+  // (still strictly BEFORE the CTA insert, so none of them can remove it — the
+  // ORDER is what this test actually checks; the distance is a loose proxy
+  // that will keep growing as more deterministic fixes land here).
+  assert(chainAt !== -1 && ctaAt > chainAt && ctaAt - chainAt < 6000, 'the insert runs after the strip chain (plus the deterministic lack/years/case-claim strips and ensure-inserts), so none of them can remove it');
   assert(/_recordViolations\('generator', job\?\.id, \['auditCtaAutoInserted'\]\)/.test(src), '…and is recorded as auditCtaAutoInserted');
   // _newAccountNote (2026-10-07) sits between them: it is RUNNING ACCOUNT's mirror
   // image for a from-scratch build, and the two are mutually exclusive by gate.

@@ -13,7 +13,7 @@
 //   screeningCoverage(letter, sq)  which numbers the letter actually answers
 //
 // Pure functions, no React. Record-only apart from the prompt: nothing here blocks or rewrites a letter.
-import { casesRequestedByPosting } from './caseLedger.js'
+import { casesRequestedByPosting, CASE_BY_ID } from './caseLedger.js'
 
 // A heading that introduces the questions. Markdown (## ...), bold (**...**) or a plain line, optional colon.
 const HEADING_RE = /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:required\s+application\s+questions?|application\s+questions?|screening\s+questions?|questions?\s+for\s+(?:applicants|freelancers)|please\s+answer\s+(?:the\s+)?following(?:\s+questions?)?[^\n]{0,60}|answer\s+the\s+following(?:\s+questions?)?[^\n]{0,60}|to\s+apply,?\s+(?:please\s+)?answer[^\n]{0,60})\s*:?\s*(?:\*\*)?\s*\.?\s*$/i
@@ -134,4 +134,85 @@ export function screeningCoverage(letter, sq) {
   }
   const all = (sq && sq.questions ? sq.questions : []).map(q => q.n)
   return { answered: all.filter(n => answered.has(n)), missing: all.filter(n => !answered.has(n)), total: all.length }
+}
+
+// ── deterministic enforcement (owner, 2026-11-20): "record it" wasn't enough ──
+// screeningQuestionsUnanswered and the missing-pricing-figure case both used to
+// only RECORD a gap, same mistake the deleted rewrite-enforcer made for every
+// OTHER kind of defect (GENERATOR_REBUILD_HANDOFF.md §4: three real letters,
+// each one worse after a Claude "fix" than before, because free-form rewrites
+// are not reliably correct and the rewrite was never re-checked). The
+// difference here: both of these gaps have a FIXED, KNOWN-CORRECT answer
+// (Golden State Trailers' own ledger figures; Artem's own fixed fee) that can
+// be inserted as a literal template — no generation, no judgment call, so
+// none of the three failure modes that killed the rewrite-enforcer apply.
+
+// Job 24349 Q4's exact shape: "Describe a local SEO project...". Golden State
+// Trailers is the only ledger case with real local/geo-expansion SEO work.
+const LOCAL_SEO_RESULTS_Q_RE = /\blocal\s+seo\s+results?\b|\bgoogle\s+maps?\s+visibility\b|\blocal\s+organic\s+rankings?\b|\bmap[\s-]?pack\b/i
+
+/**
+ * If a numbered question asks for local-SEO results and the letter never
+ * answered it, insert a templated answer built ONLY from Golden State
+ * Trailers' ledger record (name, attachment, one_liner, metrics) at the
+ * correct numeric position. Never fires if the question IS answered, or if
+ * the ledger case is missing (nothing to template from).
+ */
+export function ensureLocalSeoResultsAnswer(text, sq) {
+  const src = String(text || '')
+  if (!sq || !sq.questions || !sq.questions.length) return { text: src, inserted: false }
+  const q = sq.questions.find(q => LOCAL_SEO_RESULTS_Q_RE.test(q.text) || LOCAL_SEO_RESULTS_Q_RE.test(q.title || ''))
+  if (!q) return { text: src, inserted: false }
+  if (!screeningCoverage(src, sq).missing.includes(q.n)) return { text: src, inserted: false }
+  const c = CASE_BY_ID['golden-state-trailers']
+  if (!c) return { text: src, inserted: false }
+  const attachment = c.attachment === 'pdf' ? 'attached as PDF' : 'attached in profile highlights'
+  const answer = `${q.n}. ${q.title || 'Local SEO Results'}: Golden State Trailers (${attachment}), ${c.one_liner}. Results: ${(c.metrics || []).join(', ')}.`
+  const paras = src.split(/\n{2,}/)
+  const numOf = (p) => { const m = p.match(/^\s*(?:\*\*)?(\d{1,2})\s*[.)]/); return m ? Number(m[1]) : null }
+  let insertAt = paras.length
+  for (let i = 0; i < paras.length; i++) {
+    const n = numOf(paras[i])
+    if (n != null && n > q.n) { insertAt = i; break }
+  }
+  paras.splice(insertAt, 0, answer)
+  return { text: paras.join('\n\n'), inserted: true }
+}
+
+// Mirrors screeningQuestions.js's own 'pricing' MISSING key — a question
+// asking for a wholesale/per-service pricing BREAKDOWN Artem doesn't have.
+// Artem's REAL fixed fees (kept in sync by hand with JobDetail.jsx's
+// ARTEM_FIXED_FEES — the operative copy; this is a literal, deterministic
+// insert, never a generated figure) still answer the PART of the question
+// that's real: what a single service actually costs.
+const _PRICING_Q_RE = /\b(?:wholesale|white-?label)\b[^.?]{0,40}\bpricing\b|\bmonthly\s+pricing\b|\bpricing\s+for\b|\bwhat\s+(?:do\s+you|is\s+your)\s+charge\b/i
+/**
+ * If a numbered question asks for pricing and the letter's answer states NO
+ * real figure anywhere ($1,050 / $700 / $600), append the one real figure
+ * that applies to this job's service (SEO and/or Google Ads) to that
+ * question's existing paragraph. Never invents a per-service breakdown Artem
+ * doesn't have — only states what IS on record.
+ */
+export function ensurePricingFigureWhenAsked(text, sq, { isSeoJob = false, isPpcJob = false } = {}) {
+  const src = String(text || '')
+  if (!sq || !sq.questions || !sq.questions.length) return { text: src, inserted: false }
+  if (/\$1,050|\$700\b|\$600\b/.test(src)) return { text: src, inserted: false }
+  const q = sq.questions.find(q => _PRICING_Q_RE.test(q.text))
+  if (!q) return { text: src, inserted: false }
+  const fact = isSeoJob && !isPpcJob
+    ? 'For SEO, the flat rate is $1,050/month, all inclusive.'
+    : (isPpcJob && !isSeoJob
+        ? 'For Google Ads, it is $700 for the first month (full setup), then $600/month.'
+        : 'SEO is $1,050/month, all inclusive; Google Ads is $700 for the first month (full setup), then $600/month.')
+  const paras = src.split(/\n{2,}/)
+  const startRe = new RegExp(`^\\s*(?:\\*\\*)?${q.n}\\s*[.)]`)
+  const idx = paras.findIndex(p => startRe.test(p))
+  let out
+  if (idx !== -1) {
+    paras[idx] = paras[idx].replace(/\s*$/, '') + ' ' + fact
+    out = paras.join('\n\n')
+  } else {
+    out = src.trim() + '\n\n' + fact
+  }
+  return { text: out, inserted: true }
 }
