@@ -46,24 +46,23 @@ def focus_test_active(cfg: dict, now: "datetime | None" = None) -> bool:
     return (start is None or today >= start) and today <= until
 
 
-# ── keep signals: ANY one match keeps the job, whatever else is in it ───────────
-# A posting that mixes a keep signal with anything else (e.g. "Shopify developer +
-# SEO") is KEPT -- these are checked first and short-circuit before any hide check.
+# ── keep signals, split strong / weak (owner, 2026-11-20, after the 14-day replay
+# found ~30% of kept jobs riding on a single incidental word -- e.g. "SEO" once in
+# an Engineering Manager posting's migration checklist) ─────────────────────────
 #
-# "a generic digital/ecommerce marketing manager role that mentions Google Ads or
-# SEO" needs no pattern of its own: GOOGLE_ADS / SEO below already match on any
-# mention anywhere in the text, title included, regardless of what the role is
-# titled -- a title pattern would be strictly redundant with the text-wide match.
-KEEP_PATTERNS = {
+# STRONG: a specific, multi-word (or otherwise unambiguous) phrase. Keeps the job
+# ANYWHERE it appears -- title, keywords or description -- same as before. A
+# posting that mixes a strong signal with anything else (e.g. "Shopify developer +
+# technical SEO") is KEPT.
+STRONG_PATTERNS = {
     "seo": re.compile(
-        r"\bseo\b|search engine optimi[sz]ation|link[\s-]?building|\bbacklinks?\b|seo audit",
+        r"search engine optimi[sz]ation|technical seo|local seo|e-?commerce seo|seo audit|link[\s-]?building",
         re.I,
     ),
     # Bare "geo" is deliberately NOT matched on its own -- it is overwhelmingly
     # "geo-targeting" / "geography" in ordinary ad-agency postings, which would
     # falsely keep a plain Meta/TikTok-ads job. Only the real AI-search usage
-    # (the acronym pair, or "GEO/AEO" next to an optimization/visibility word)
-    # counts.
+    # (the full phrase, or "GEO/AEO" next to an optimization/visibility word) counts.
     "geo_ai_search": re.compile(
         r"generative engine optimi[sz]ation|answer engine optimi[sz]ation|\baeo\b|"
         r"\bllm\b\s*(?:seo|visibility|search|optimi[sz]ation)|ai[\s-]?search(?:\s+optimi[sz]ation|\s+visibility)?|"
@@ -72,14 +71,43 @@ KEEP_PATTERNS = {
         re.I,
     ),
     "google_ads": re.compile(
-        r"google ads|\bppc\b|paid search|performance\s*max\b|\bpmax\b|google shopping|merchant center",
+        r"\bppc\b|paid search|performance\s*max\b|\bpmax\b|google shopping|merchant center",
         re.I,
     ),
     "analytics": re.compile(
-        r"\bga4\b|google analytics|google tag manager|\bgtm\b|search console|\blooker\b",
+        r"google analytics|google tag manager|search console|\blooker\b",
         re.I,
     ),
 }
+
+# WEAK: a single bare mention with no supporting context -- exactly the replay's
+# false-positive shape (a one-word "SEO"/"GA4"/"Google Ads"/"Backlink" buried in an
+# unrelated job's description). A weak match ONLY counts as a keep if one of:
+#   1. it ALSO appears in the title or keywords (not just the description);
+#   2. the job's TITLE itself reads as a marketing/ads role (MARKETING_TITLE_RE);
+#   3. a SECOND, independent weak category also matched somewhere (two distinct
+#      weak mentions together are a real signal, even without a strong phrase).
+# A bare mention in a description alone, under a web-dev/design/engineering/admin/
+# VA/data-entry/sales-setter title, satisfies none of these and is HIDDEN.
+WEAK_PATTERNS = {
+    "seo": re.compile(r"\bseo\b|\bbacklinks?\b", re.I),
+    "google_ads": re.compile(r"google ads\b", re.I),
+    "analytics": re.compile(r"\bga4\b", re.I),
+}
+
+# A title that itself reads as a marketing/ads/growth role -- the owner's own list.
+MARKETING_TITLE_RE = re.compile(
+    r"\bmarketing\b|\bads\b|\bgrowth\b|\bcmo\b|\bdigital\b|\bppc\b|\btraffic\b|"
+    r"lead\s*gen|e-?commerce marketing|\bperformance\b|\bsearch\b",
+    re.I,
+)
+
+# A title containing "marketing" (etc.) isn't always a marketing ROLE -- e.g. a
+# compliance auditor hired to audit someone else's marketing content. Replay example
+# #23042: "FinTech & Trading Compliance Auditor ... FINRA & CFPB Marketing Content
+# Audit" is an audit job, not a marketing job, so the bare "Backlink" in its body
+# must not be rescued by the marketing-title exception.
+NON_MARKETING_ROLE_RE = re.compile(r"\bauditor\b|\baudit\b|\bcompliance\b", re.I)
 
 # ── hide categories: only used to LABEL the feed_drops reason once NO keep signal
 # matched. A job matching one of these AND a keep signal was already kept above. ──
@@ -110,14 +138,28 @@ HIDE_PATTERNS = {
 
 
 def classify_focus(title: str, text: str, keywords: "str | None" = None):
-    """(keep: bool, category: str). category is which KEEP pattern matched when
-    keep is True, or which HIDE pattern (or "no-signal" if none) matched when
-    keep is False -- "no-signal" is the feed_drops reason for a posting that is
-    off-lane but doesn't fit any of the owner's named examples either."""
+    """(keep: bool, category: str). category is which pattern matched when keep is
+    True (a STRONG or WEAK key), or which HIDE pattern (or "no-signal" if none)
+    matched when keep is False -- "no-signal" is the feed_drops reason for a
+    posting that is off-lane but doesn't fit any of the owner's named examples."""
+    title = title or ""
+    text = text or ""
+    keywords = keywords or ""
     blob = " ".join(p for p in (title, text, keywords) if p)
-    for cat, pat in KEEP_PATTERNS.items():
+
+    for cat, pat in STRONG_PATTERNS.items():
         if pat.search(blob):
             return True, cat
+
+    title_kw_blob = " ".join(p for p in (title, keywords) if p)
+    weak_hits = {cat: pat for cat, pat in WEAK_PATTERNS.items() if pat.search(blob)}
+    if weak_hits:
+        is_marketing_title = bool(MARKETING_TITLE_RE.search(title)) and not NON_MARKETING_ROLE_RE.search(title)
+        two_signals = len(weak_hits) >= 2
+        for cat, pat in weak_hits.items():
+            if pat.search(title_kw_blob) or is_marketing_title or two_signals:
+                return True, cat
+
     for cat, pat in HIDE_PATTERNS.items():
         if pat.search(blob):
             return False, cat

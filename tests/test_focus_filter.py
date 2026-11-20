@@ -51,21 +51,51 @@ check(not keep and cat == "design", f"pure design job -> hidden (design): got ke
 
 keep, cat = ff.classify_focus(
     "Shopify Developer Needed",
+    "We need a Shopify developer to rebuild our theme AND handle ongoing technical SEO for the store.",
+)
+check(keep, f'"Shopify developer + SEO" -> KEPT (a mix is kept, here via a STRONG phrase, "technical SEO"): got keep={keep} cat={cat!r}')
+
+# 2026-11-20 tightening (owner-approved, after the 14-day replay): a BARE "SEO" mention
+# -- no stronger phrase, no marketing title, no second signal -- under a web-dev title is
+# now the thing this fix exists to catch. "an explicit SEO deliverable" (above) still
+# keeps it; a throwaway word does not.
+keep, cat = ff.classify_focus(
+    "Shopify Developer Needed",
     "We need a Shopify developer to rebuild our theme AND handle ongoing SEO for the store.",
 )
-check(keep, f'"Shopify developer + SEO" -> KEPT (a mix is kept): got keep={keep} cat={cat!r}')
+check(not keep and cat == "webdev",
+      f'…but a bare, undecorated "SEO" mention (no stronger phrase) under the SAME web-dev title is now HIDDEN: got keep={keep} cat={cat!r}')
 
 keep, cat = ff.classify_focus(
     "Digital Marketing Manager",
     "We're hiring a marketing manager to oversee our digital presence, including running Google Ads campaigns.",
 )
-check(keep, f'"marketing manager, mentions Google Ads" -> KEPT: got keep={keep} cat={cat!r}')
+check(keep, f'"marketing manager, mentions Google Ads" -> KEPT (title itself reads as a marketing role): got keep={keep} cat={cat!r}')
 
+# Bare "GA4" with a non-marketing title and no second signal is also now HIDDEN --
+# the exact single-bare-mention shape the 2026-11-20 tightening targets.
 keep, cat = ff.classify_focus(
     "Analytics Setup Needed",
     "Need someone to set up GA4 tracking and conversion events for our e-commerce site.",
 )
-check(keep, f'"GA4 setup" -> KEPT: got keep={keep} cat={cat!r}')
+check(not keep and cat == "no-signal",
+      f'a job titled only "Analytics Setup Needed", with just a bare GA4 mention and nothing else -> now HIDDEN: got keep={keep} cat={cat!r}')
+
+# The practical fix for a real analytics+ads job like that one: it almost always carries
+# a SECOND weak signal too (here, "Google Ads" alongside "GA4") -- two distinct weak
+# mentions together are accepted as a real signal even with a plain title.
+keep, cat = ff.classify_focus(
+    "Analytics Setup Needed",
+    "Need someone to set up GA4 tracking and also manage our Google Ads account.",
+)
+check(keep, f'GA4 + Google Ads together (two independent weak signals) -> KEPT even with a plain title: got keep={keep} cat={cat!r}')
+
+# ── bare weak mentions in the TITLE itself (not just description) still keep ────
+keep, cat = ff.classify_focus("SEO Specialist Wanted", "General help needed for our online store, details on request.", None)
+check(keep and cat == "seo", f'a bare "SEO" in the TITLE keeps the job even with no other detail at all: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus("GA4 Expert", "Help us with our analytics.", None)
+check(keep and cat == "analytics", f'a bare "GA4" in the TITLE keeps it too: got keep={keep} cat={cat!r}')
 
 keep, cat = ff.classify_focus(
     "Facebook & Instagram Ads Manager",
@@ -94,6 +124,71 @@ check(not keep and cat == "data_entry", f'pure data-entry job -> hidden (data_en
 
 keep, cat = ff.classify_focus("Technical SEO Audit", "We need a technical SEO audit of our ecommerce site, focused on local SEO and link building.", None)
 check(keep and cat == "seo", f'technical/local/ecommerce SEO + link building -> KEPT (seo): got keep={keep} cat={cat!r}')
+
+# ── the 2026-11-20 replay's 8 named verification jobs, real titles/descriptions/
+# keywords (trimmed), confirmed against the live DB before this fix shipped ───────
+keep, cat = ff.classify_focus(
+    "Ads expert for local businesses", "You will use a platform called Tryfullhouse.com to run ads. "
+    "You must have: 3+ years running Meta and Google Ads, TikTok Ads, LinkedIn Ads...",
+    "Pay Per Click Advertising",
+)
+check(keep, f'#23075 "Ads expert for local businesses" (title matches the marketing-title exception) -> stays KEPT: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus(
+    "Digital Marketing Strategist / Growth Marketer for Virtual Menopause Clinic Launch (Ontario, Canada)",
+    "We're looking for a results-driven marketer to own our launch strategy... build and run a 90-day launch "
+    "marketing plan... SEO basics for the new site.",
+    "Marketing Strategy, Market Analysis, Facebook, Social Media Marketing",
+)
+check(keep, f'#23085 "Digital Marketing Strategist / Growth Marketer..." (title is a marketing role) -> stays KEPT: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus(
+    "Marketing Help - Home Services Businesses",
+    "I need an individual who can manage, grow, and scale our facebook, instagram, and tik tok page... "
+    "I also need a Google my business page set up, Google ads, Meta ads, etc.",
+    "Social Media Marketing, Social Media Content Creation, Instagram, TikTok",
+)
+check(keep, f'#23079 "Marketing Help - Home Services Businesses" (title is a marketing role) -> stays KEPT: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus(
+    "Fractional CMO for Baby Industry",
+    "We're looking for a hands-on fractional CMO who will own our marketing end to end: set the strategy, "
+    "run paid acquisition on Google Ads and Meta, and take over our social content.",
+    "Internet Marketing, Marketing Strategy, Social Media Marketing, Facebook",
+)
+check(keep, f'#23029 "Fractional CMO for Baby Industry" (title contains CMO, a marketing role) -> stays KEPT: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus(
+    "Engineering Manager, E-commerce Platform and AI",
+    "We need a hands-on engineering manager who leads a remote team... Own the migration end to end: data, "
+    "integrations, URLs and SEO, cut-over and rollback.",
+    "Total Quality Management, Performance Management, Product Management",
+)
+check(not keep, f'#22995 "Engineering Manager, E-commerce Platform and AI" (bare SEO only, engineering title) -> now HIDDEN: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus(
+    "Senior Android Developer | Kotlin, Utility Apps, Ad SDKs, Firebase, MMP & AI Assisted Development",
+    "We are building a lean Android utility app studio... understands monetization integrations... "
+    "reporting through GA4 and Firebase.",
+    "Android SDK, In-App Purchases, Android, Kotlin",
+)
+check(not keep, f'#23058 "Senior Android Developer..." (bare GA4 only, dev title) -> now HIDDEN: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus(
+    "FinTech & Trading Compliance Auditor (CFP® / CFA / JD / CPA) – FINRA & CFPB Marketing Content Audit",
+    "We deliver high-stakes content governance and regulatory risk audits... line-by-line verification of "
+    "public-facing copy, performance advertising claims and backlink disclosures.",
+    "Financial Analysis, Regulatory Compliance",
+)
+check(not keep, f'#23042 "FinTech & Trading Compliance Auditor..." (bare Backlink only, compliance title) -> now HIDDEN: got keep={keep} cat={cat!r}')
+
+keep, cat = ff.classify_focus(
+    "Website Outreach Specialist – Appointment Setter",
+    "We are looking for an experienced cold caller to contact local U.S. businesses... identifying "
+    "opportunities to improve website design, mobile presentation, performance, SEO, and keep up with newer technology.",
+    "Sales & Marketing, Lead Generation, Cold Calling, Scheduling",
+)
+check(not keep, f'#23021 "Website Outreach Specialist – Appointment Setter" (bare SEO only, sales-setter title; keywords mention marketing but the TITLE does not) -> now HIDDEN: got keep={keep} cat={cat!r}')
 
 keep, cat = ff.classify_focus("PPC Specialist", "Manage our Performance Max and Shopping campaigns via Google Ads, with Merchant Center setup.", None)
 check(keep and cat == "google_ads", f'PPC / Performance Max / Shopping / Merchant Center -> KEPT (google_ads): got keep={keep} cat={cat!r}')

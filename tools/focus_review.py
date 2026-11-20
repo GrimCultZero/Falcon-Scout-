@@ -25,6 +25,8 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "api"))
+import focus_filter as ff  # noqa: E402
 
 # Deliberately broader than focus_filter.py's strict KEEP_PATTERNS -- bare "geo" and
 # "marketing manager" etc. count here even though the strict classifier would not
@@ -91,6 +93,34 @@ def build_sample(con, since_iso, top_n):
     return scored[:top_n], len(rows)
 
 
+def build_marketing_no_signal(con, since_iso):
+    """Jobs hidden with NO keep signal at all (reason "focus:no-signal") whose TITLE
+    itself reads as a marketing/ads role -- these stay hidden, per the owner's
+    2026-11-20 decision (a marketing-titled job with zero matched keyword is still
+    off-lane), but are worth a glance since the title alone suggests fit. Owner
+    example: #24860 "E-commerce Marketing Manager"."""
+    rows = con.execute(
+        """
+        SELECT j.id, j.title, j.url, j.fixed_budget, j.client_spend,
+               j.hourly_rate_min, j.hourly_rate_max, j.captured_at
+        FROM jobs j
+        JOIN feed_drops fd ON fd.upwork_job_id = j.upwork_job_id
+        WHERE j.hidden_at IS NOT NULL AND fd.reason = 'focus:no-signal' AND j.captured_at >= ?
+        """,
+        (since_iso,),
+    ).fetchall()
+    out = []
+    for (jid, title, url, fixed, spend, hmin, hmax, captured_at) in rows:
+        title = title or ""
+        if ff.MARKETING_TITLE_RE.search(title) and not ff.NON_MARKETING_ROLE_RE.search(title):
+            out.append({
+                "id": jid, "title": title, "url": url,
+                "rate": (f"${hmin or '?'}-${hmax or '?'}/hr" if (hmin or hmax) else (fixed or "-")),
+                "client_spend": spend or "-", "captured_at": captured_at,
+            })
+    return out
+
+
 def render(sample, total, days):
     lines = [f"FOCUS-TEST REVIEW SAMPLE  (read-only, last {days} day(s))  -- {len(sample)} of {total} hidden-by-focus jobs shown", ""]
     if not sample:
@@ -106,6 +136,23 @@ def render(sample, total, days):
     return "\n".join(lines)
 
 
+def render_marketing_no_signal(rows, days):
+    lines = ["", "=" * 70,
+             f"MARKETING-TITLED JOBS, NO SIGNAL AT ALL  (read-only, last {days} day(s))  -- "
+             f"{len(rows)} shown (stay hidden; title alone suggests a look)",
+             "=" * 70, ""]
+    if not rows:
+        lines.append("None in this window.")
+        return "\n".join(lines)
+    for i, j in enumerate(rows, 1):
+        lines.append(f"{i:2}. {j['title']}  (job #{j['id']})")
+        lines.append(f"      rate: {j['rate']}  |  client spend: {j['client_spend']}  |  captured: {j['captured_at']}")
+        if j["url"]:
+            lines.append(f"      {j['url']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(ROOT / "upwork_jobs.db"))
@@ -117,9 +164,11 @@ def main():
     con = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     try:
         sample, total = build_sample(con, since, args.top)
+        marketing_no_signal = build_marketing_no_signal(con, since)
     finally:
         con.close()
     print(render(sample, total, args.days))
+    print(render_marketing_no_signal(marketing_no_signal, args.days))
 
 
 if __name__ == "__main__":
