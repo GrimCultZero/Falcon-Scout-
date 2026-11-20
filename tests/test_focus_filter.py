@@ -206,13 +206,23 @@ keep, cat = ff.classify_focus(
 )
 check(keep, f'#23085 "Digital Marketing Strategist / Growth Marketer..." (title is a marketing role) -> stays KEPT: got keep={keep} cat={cat!r}')
 
+# CONFLICT, flagged for the owner (Task 0.3, 2026-11-20): the original recall
+# test approved #23079 staying KEPT because its title contained bare
+# "Marketing". The 0.3 tightening deliberately removes bare "marketing" from
+# the rescue list (it was the exact mechanism rescuing junk like "Claude Figma
+# Friendly Designer for ... Trades Marketing Agency" and "AI Automation
+# Engineer -- Custom Marketing Content"). "Marketing Help" doesn't contain any
+# of the new specific phrases (manager/specialist/strategist/consultant, CMO,
+# growth marketer, SEO/PPC/Google Ads/paid search/search engine/SEM), so it is
+# now HIDDEN (Meta/TikTok ads only, no Google Ads/SEO signal at all) -- a
+# deliberate behavior change the owner should confirm, not a bug.
 keep, cat = ff.classify_focus(
     "Marketing Help - Home Services Businesses",
     "I need an individual who can manage, grow, and scale our facebook, instagram, and tik tok page... "
     "I also need a Google my business page set up, Google ads, Meta ads, etc.",
     "Social Media Marketing, Social Media Content Creation, Instagram, TikTok",
 )
-check(keep, f'#23079 "Marketing Help - Home Services Businesses" (title is a marketing role) -> stays KEPT: got keep={keep} cat={cat!r}')
+check(not keep and cat == "meta_tiktok_ads", f'#23079 "Marketing Help - Home Services Businesses": bare "Marketing" no longer rescues (Task 0.3) -> now HIDDEN, a confirmed conflict with the earlier recall-test approval: got keep={keep} cat={cat!r}')
 
 keep, cat = ff.classify_focus(
     "Fractional CMO for Baby Industry",
@@ -260,6 +270,46 @@ check(keep and cat == "google_ads", f'PPC / Performance Max / Shopping / Merchan
 # ── the keywords field also counts toward the blob (Upwork's own skill tags) ──
 keep, cat = ff.classify_focus("Freelance Specialist Needed", "General help wanted for our online store.", "Google Ads, PPC, Shopping Campaigns")
 check(keep, f'a keep signal in the keywords/skills field alone still keeps the job: got keep={keep} cat={cat!r}')
+
+# ── Task 0.3 (2026-11-20): the tightened marketing-title rescue, real titles ──
+# All titles below were ACTUALLY VISIBLE in the feed on 2026-11-20, kept ONLY
+# via the old bare-word marketing-title rescue (confirmed by re-running
+# classify_focus against each over a scratch DB copy, read-only). None of them
+# is an ads/search role. The owner's own named bad examples, verbatim:
+for title, desc, kw in [
+    ("Digital Project Manager", "We need a project manager to coordinate our digital initiatives across teams.", None),
+    ("Lead Generation Specialist", "Looking for someone to run our lead generation campaigns, SEO is a plus.", None),
+    ("Lead Developer", "Senior developer to lead our engineering team, SEO-friendly code a bonus.", None),
+    ("WordPress Developer", "Build our WordPress site, SEO-friendly theme preferred.", None),
+    ("Full Stack Developer", "Full stack engineer needed, some SEO awareness a plus.", None),
+    ("Graphic Designer for Social Media", "Design social posts, SEO-adjacent captions a bonus.", None),
+    ("Content Writer", "Write SEO-optimized blog posts for our site.", None),
+    ("Virtual Assistant", "Admin tasks, some light SEO reporting.", None),
+    ("Appointment Setter", "Cold-call leads, mention SEO services we offer.", None),
+]:
+    keep, cat = ff.classify_focus(title, desc, kw)
+    check(not keep, f'Task 0.3: "{title}" (bare weak mention only) is no longer rescued -> HIDDEN: got keep={keep} cat={cat!r}')
+
+# Real visible-feed titles, bare-word rescue removed -- confirmed junk, now hidden:
+for title in [
+    "Podcast Virtual Assistant – Guest Booking, Marketing & Growth",
+    "Claude Figma Friendly Designer for Australian Trades Marketing Agency",
+    "AI Automation Engineer – Custom Marketing Content & Scheduling Platform",
+    "Video Editor for Paid Social Ads (TikTok, Meta, YouTube Shorts): Ecommerce & Retail Brands",
+    "Senior Direct Response & Conversion Copywriter – Premium Brand | Emails, Landing Pages & Ads",
+]:
+    keep, cat = ff.classify_focus(title, "General help wanted, SEO mentioned once in passing.", None)
+    check(not keep, f'Task 0.3: real visible-feed junk title no longer rescued -- "{title}": got keep={keep} cat={cat!r}')
+
+# The owner's own named GOOD examples, verbatim -- these must keep rescuing:
+for title in [
+    "SEO Specialist Wanted", "PPC Manager Needed", "Google Ads Expert",
+    "Marketing Manager for SaaS", "Marketing Specialist", "Marketing Strategist for Agency",
+    "Marketing Consultant", "CMO for Fintech Startup", "Growth Marketer for B2B SaaS",
+    "Performance Marketing Lead",
+]:
+    keep, cat = ff.classify_focus(title, "General help wanted, SEO mentioned once in passing.", None)
+    check(keep, f'Task 0.3: a real ads/search-role title still rescues -- "{title}": got keep={keep} cat={cat!r}')
 
 # ── focus_test_active: Kyiv-time, inclusive, malformed dates never loosen it ──
 CFG = {"focus_test": {"from": "2026-11-19", "until": "2026-12-03"}}

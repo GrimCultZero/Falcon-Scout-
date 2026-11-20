@@ -112,10 +112,25 @@ WEAK_PATTERNS = {
     "analytics": re.compile(r"\bga4\b", re.I),
 }
 
-# A title that itself reads as a marketing/ads/growth role -- the owner's own list.
+# A title that itself reads as a marketing/ads/growth role -- the owner's own
+# list, TIGHTENED 2026-11-20 (Task 0.3) after the 14-day replay showed the old
+# bare-word list ("digital", "growth", "traffic", "lead gen", "performance",
+# "search", bare "ads") rescuing titles that are not marketing/ads roles at
+# all: "Digital Project Manager" (bare "digital"), "Podcast Virtual Assistant
+# ... Marketing & Growth" (bare "growth"), "Claude Figma Friendly Designer for
+# ... Trades Marketing Agency" (bare "marketing" on a design job), "Video
+# Editor for Paid Social Ads" (bare "ads"), "AI Automation Engineer -- Custom
+# Marketing Content" (bare "marketing" on an engineering job), "Senior ...
+# Copywriter ... Ads" (bare "ads" on a copywriting job) -- all real jobs
+# visible in the feed on 2026-11-20, none of them an ads/search role. Rescue
+# now requires a SPECIFIC ads/search phrase or a named marketing ROLE TITLE,
+# never a bare generic word: SEO, PPC, Google Ads, paid search, search engine,
+# SEM, ads manager, marketing manager/specialist/strategist/consultant, CMO,
+# growth marketer/marketing, performance marketing.
 MARKETING_TITLE_RE = re.compile(
-    r"\bmarketing\b|\bads\b|\bgrowth\b|\bcmo\b|\bdigital\b|\bppc\b|\btraffic\b|"
-    r"lead\s*gen|e-?commerce marketing|\bperformance\b|\bsearch\b",
+    r"\bseo\b|\bppc\b|google\s*ads\b|paid\s*search|search\s*engine|\bsem\b|"
+    r"ads\s*(?:manager|expert|specialist)\b|marketing\s*(?:manager|specialist|strategist|consultant)\b|"
+    r"\bcmo\b|growth\s*market(?:er|ing)\b|performance\s*marketing\b",
     re.I,
 )
 
