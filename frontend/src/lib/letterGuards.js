@@ -1160,6 +1160,13 @@ const _ADMISSION_RES = [
   /\bno\s+(?:[\w-]+\s+){0,2}?(?:case|cases|case\s+study|experience)\s+(?:in|for|with)\s+(?:this|that|your)\s+(?:niche|industry|vertical|space|sector)\b/i,
   // "I lack experience in ..."
   /\bI\s+(?:lack|am\s+lacking)\s+(?:[\w-]+\s+){0,3}?(?:experience|cases?|proof)\b/i,
+  // IMPERSONAL admission of lack ("No measured AI-search result is on record
+  // yet", job 24349 Q5, GEO/AEO) — every pattern above is first-person ("I
+  // don't have..."), so this phrasing slipped past all of them even though it
+  // states exactly what Artem lacks. Catches "no/not any <result/case/proof/
+  // data/metric/figure/track record> is/are (currently) on record / documented
+  // / available", whoever the subject is.
+  /\b(?:no|not\s+any)\s+(?:[\w-]+\s+){0,3}?(?:results?|cases?|proof|data|measurements?|metrics?|figures?|track\s+record|numbers?)\s+(?:is|are)\s+(?:currently\s+)?(?:on\s+record|documented|available)\b/i,
 ]
 const _CLAUSE_SPLIT_RE = /(,\s*(?:but|however|though|although|yet|while|and|so)\s+|;\s*|\s+[—–]\s+)/i
 const _LEAD_IN_RE = /^(?:that\s+said|that\s+being\s+said|however|but|still|instead|even\s+so|nevertheless|nonetheless|though|although|what\s+i\s+(?:do\s+)?have\s+is)\s*[,:]?\s+(?=\S)/i
@@ -1211,13 +1218,138 @@ export function stripAdmissions(text) {
   return { text: removed.length || rewritten.length ? cleaned : src, removed, rewritten }
 }
 
+// ── years-experience guard (owner, 2026-11-20) ───────────────────────────────
+// Artem's ONE standing experience figure is "12 years" (ARTEM_EXPERIENCE_YEARS
+// in JobDetail.jsx), stated as that number, never as a start year. Job 24349
+// invented "US and Canada work since 2016" out of nothing — not drawn from any
+// fact or KB entry, the same shape of fabrication every other strip here
+// exists to catch, just for Artem's own tenure instead of a case's metrics.
+// Removes the CLAUSE (comma-split, including a bare comma — these ride in as
+// a second half of the same sentence as the real "12 years" claim, e.g. "12
+// years in technical SEO, US and Canada work since 2016.") rather than the
+// whole sentence, so a valid "12 years" claim sharing a sentence with the
+// fabrication survives.
+const _OFF_STANDARD_YEARS_RES = [
+  /\bsince\s+(?:19|20)\d{2}\b/i,
+  // any "<N> years" where N isn't 12 — the negative lookahead lets "12 years" through
+  /\b(?!12\b)\d{1,2}\+?\s*years?\b/i,
+]
+// A sentence about the CLIENT's own history ("your 5-year-old business") is
+// left alone — this guard is about Artem's claimed tenure, not theirs.
+const _CLIENT_OWNED_HISTORY_RE = /\byour\b/i
+export function isOffStandardYearsClaim(s) {
+  const t = String(s || '')
+  if (_CLIENT_OWNED_HISTORY_RE.test(t)) return false
+  return _OFF_STANDARD_YEARS_RES.some(re => re.test(t))
+}
+
+/** Remove any "since <year>" or "<N> years" (N != 12) claim about Artem's own tenure. */
+export function stripOffStandardYearsClaim(text) {
+  const src = String(text || '')
+  const removed = [], rewritten = []
+  const outLines = src.split('\n').map(line => {
+    const pieces = _sentencePieces(line)
+    let touched = false
+    for (let i = 0; i < pieces.length; i++) {
+      const s = pieces[i].text
+      if (!isOffStandardYearsClaim(s)) continue
+      const clauses = s.split(/,\s*/)
+      const kept = clauses.filter(c => !isOffStandardYearsClaim(c))
+      if (kept.length === clauses.length) continue
+      touched = true
+      if (kept.length && kept.join(' ').trim().split(/\s+/).length >= 3) {
+        let next = kept.map(c => c.trim().replace(/^[,;\s—–-]+/, '')).join(', ').replace(/[,;\s]+$/, '')
+        if (!/[.!?:]$/.test(next)) next += (s.trim().match(/[.!?:]+$/) || ['.'])[0]
+        next = _capFirst(next)
+        rewritten.push({ from: s.trim(), to: next })
+        pieces[i] = { text: next, sep: pieces[i].sep }
+      } else {
+        removed.push(s.trim())
+        pieces.splice(i, 1)
+        i--
+      }
+    }
+    return touched ? pieces.map(p => p.text + p.sep).join('').trim() : line
+  }).filter((l, k, arr) => l !== '' || arr.length === 1)
+  const cleaned = outLines.join('\n')
+  return { text: removed.length || rewritten.length ? cleaned : src, removed, rewritten }
+}
+
+// ── Vape Shop misrepresented as local/multi-location SEO (KB Rule 437) ──────
+// Vape Shop is a restricted-niche e-commerce case (vertical: 'ecom-restricted')
+// — never multi-location or local-SEO work. Job 24349's draft listed it right
+// after "local SEO (multi-location service-area businesses, GBP/Map Pack
+// optimization)" among a set of "strongest case studies". JobDetail.jsx's
+// vapeFabrication detector (same window, same signal list — exported here so
+// both share one definition) only RECORDED this; the owner asked for it
+// struck from the letter too.
+export const VAPE_FABRICATION_NEAR_RES = [
+  /\d+\s*[-\s]?\s*locations?\b/i,
+  /\bmulti-?location\b/i,
+  /\bgoogle\s+business\s+profile/i,
+  /\bGBP\b/,
+  /\bmap\s+pack\b/i,
+  /\blocal\s+(?:pack|citations?|seo)\b/i,
+  /\bretail\s+chain\b/i,
+  /\bfoot\s+traffic\b/i,
+  /\bstore\s+visits?\b/i,
+  /\bin-?store\b/i,
+]
+const _VAPE_NAME_RE = /,?\s*Vape\s*Shop\b(?:\s*\([^)]*\))?/gi
+/** Strike "Vape Shop" from the letter if it's ever cited near local-SEO / multi-location language (KB Rule 437). */
+export function stripVapeNearLocalSeo(text) {
+  const src = String(text || '')
+  if (!/\bvape\b/i.test(src)) return { text: src, removed: [] }
+  const lower = src.toLowerCase()
+  let idx = lower.indexOf('vape')
+  let flagged = false
+  while (idx !== -1) {
+    const window = src.slice(Math.max(0, idx - 100), idx + 500)
+    if (VAPE_FABRICATION_NEAR_RES.some(re => re.test(window))) { flagged = true; break }
+    idx = lower.indexOf('vape', idx + 1)
+  }
+  if (!flagged) return { text: src, removed: [] }
+  const removed = []
+  let out = src.replace(_VAPE_NAME_RE, (m) => { removed.push(m.trim()); return '' })
+  out = out.replace(/,\s*,/g, ',').replace(/,\s*\./g, '.').replace(/,\s*\)/g, ')').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ')
+  return { text: removed.length ? out : src, removed }
+}
+
+// ── unledgered case-competitiveness qualifier (owner, 2026-11-20) ───────────
+// A case's record names its vertical, metrics, location and timeframe — never
+// a competitive-intensity assessment. Job 24349 invented "a B2B manufacturing
+// niche with moderate competition" for Golden State Trailers; nothing in its
+// ledger entry (vertical, one_liner, metrics) says how competitive its niche
+// is. Strips just the unverified qualifier phrase from a sentence that also
+// names a ledger case, when that exact wording isn't in the case's own
+// one_liner (a case whose one_liner DOES say e.g. "a saturated niche" keeps it).
+const _COMPETITIVE_QUALIFIER_RE = /\b(?:with\s+|in\s+a\s+)?(?:low|moderate|medium|high|fierce|intense|heavy|light|minimal)[\s-]?competition\b|\b(?:easy|hard|difficult|saturated|crowded|uncompetitive)\s+(?:niche|market|vertical|category|space)\b/gi
+/** Strip an invented competitive-intensity claim about a named case (e.g. "with moderate competition") that isn't in its ledger record. */
+export function stripUnledgeredCaseQualifiers(text) {
+  const src = String(text || '')
+  const removed = []
+  const outParas = src.split(/\n\s*\n/).map(para => {
+    const ids = casesMentioned(para)
+    if (!ids.length) return para
+    return para.replace(_COMPETITIVE_QUALIFIER_RE, (m) => {
+      const bare = m.toLowerCase().replace(/^(?:with|in\s+a)\s+/, '')
+      const inLedger = ids.some(id => String(CASE_BY_ID[id]?.one_liner || '').toLowerCase().includes(bare))
+      if (inLedger) return m
+      removed.push(m.trim())
+      return ''
+    })
+  })
+  let cleaned = outParas.join('\n\n').replace(/\s+,/g, ',').replace(/,\s*,/g, ',').replace(/[ \t]{2,}/g, ' ')
+  return { text: removed.length ? cleaned : src, removed }
+}
+
 // ── timingViolation: WHICH sentence matched (owner request 2026-11-17) ───────────────────────────
 // The generator's timing pre-check collects every "N days" / "N working days" phrase in the draft and flags the
 // draft when one is not in the set the KB rules allow. The flag said "timingViolation" and nothing else. This
 // returns the sentences carrying the phrases that are NOT allowed. Same phrase regex as the pre-check in
 // JobDetail.jsx (a test keeps the two equal).
 export const TIMING_PHRASE_RE_SOURCE = String.raw`\d+\s*(?:-\s*\d+\s*)?(?:working\s+|business\s+)?days?\b`
-const _normTiming = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+const _normTiming = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').replace(/\s*-\s*/g, '-').trim()
 export function timingViolationSentences(text, allowedTimings) {
   const allowed = allowedTimings instanceof Set ? allowedTimings : new Set(allowedTimings || [])
   const out = []

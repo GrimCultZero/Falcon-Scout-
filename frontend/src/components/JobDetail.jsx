@@ -13,7 +13,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, VAPE_FABRICATION_NEAR_RES } from '../lib/letterGuards'
 import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage } from '../lib/screeningQuestions'
 import { findAutoBomb } from '../lib/digitBombMatch'
 import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
@@ -213,7 +213,7 @@ function extractApplicationChecklist(text) {
     classified.map((c, i) => `  ${i + 1}. ${c.text}${c.factual ? '   ← FACTUAL: answer from ARTEM\'S BUSINESS FACTS below if it covers this; otherwise OMIT that point from the letter entirely — never invent an unknown number, price, URL, or claim, and never write a bracketed placeholder or a blank to fill in.' : ''}`).join('\n') +
     `\n\nANSWER IN YOUR OWN VOICE — NEVER ECHO THE QUESTIONS (mandatory, highest-priority on wording): Do NOT paste or restate the client's question text as a heading before answering it. Copying their exact wording — e.g. "1. Your experience with local service business campaigns (with a quick example or result)" then an answer — is the #1 tell of a mechanical AI form-fill and it reads terribly. Instead: answer the points in Artem's own words, woven into natural, flowing prose the way a person actually writes. If a light structure genuinely helps readability, use a SHORT self-authored label of 2–4 words in Artem's voice ("Local results:", "First thing I'd check:", "Rate & availability:") — NEVER the client's full question echoed back. The client can see their own questions; repeating them wastes space and signals a template. Prefer flowing paragraphs over any numbered list; a numbered list is acceptable ONLY when the client explicitly numbered the questions AND you keep the labels to a few of your own words.` +
     (hasFactual
-      ? `\n\nFACTUAL ITEMS RULE (critical): for team size, portfolio/site URLs, landing-page turnaround, and monthly retainer, use the values in "ARTEM'S BUSINESS FACTS" below. For anything factual NOT covered there (e.g. a specific client name, an exact metric you don't have), do NOT fabricate, and do NOT leave a bracketed placeholder or a blank to fill in: leave that point out of the letter entirely and answer the rest. A letter must be sendable exactly as written.`
+      ? `\n\nFACTUAL ITEMS RULE (critical): for team size, portfolio/site URLs, landing-page turnaround, monthly retainer, experience, project counts, delivery model, timing, and capacity, use the values in "ARTEM'S BUSINESS FACTS" below. For anything factual NOT covered there (e.g. a specific client name, an exact metric you don't have), do NOT fabricate, and do NOT leave a bracketed placeholder or a blank to fill in: leave that point out of the letter entirely and answer the rest. A letter must be sendable exactly as written.\n\nPARTIAL PRICING COVERAGE (owner, 2026-11-20, job 24349): if a pricing question asks for MORE breakdown than ARTEM'S BUSINESS FACTS gives you (e.g. a separate wholesale figure per service tier — local/national/ecommerce/GEO — when only one blended SEO figure exists), state the ONE real figure you DO have (e.g. "$1,050/month, all inclusive" for SEO) rather than omitting pricing altogether. Only the parts you genuinely have no figure for get left out — never drop a real number just because the question asked for more detail than you have.`
       : ``) +
     `\n\nNO BODY↔ANSWERS DUPLICATION (mandatory structure): do NOT cover the same point twice — once in a body section and again where you address the checklist. Pick one home for each piece of content. The right shape: a SHORT hook (the client's core problem + the credentials + ONE sharp differentiating insight), then address their points once, in your own words. Do NOT write full body sections ("here's my approach…", "here's how I'd build the pages…") that you then repeat almost verbatim when answering the questions — that doubles the length and reads as padding.` +
     `\n\nTIMELINE/DURATION QUESTIONS (mandatory): if any checklist item asks "how long", "rough timeline", "turnaround", "ETA", "when can you complete/start", or similar, the answer MUST contain a CONCRETE time estimate (e.g. "3–5 business days", "about a week", "2–3 days once I have access"). Describing the deliverable or the steps is NOT an answer to a timeline question — give an actual duration. (This is the one case where stating a timeline in the letter is REQUIRED, overriding the usual omit-timeline rule.)` +
@@ -8125,6 +8125,42 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         }
       }
 
+      // ── Years-experience guard (owner, 2026-11-20) ──
+      // Artem's ONE experience figure is "12 years" — never "since <year>",
+      // never any other number. Job 24349 invented "US and Canada work since
+      // 2016" out of nothing.
+      {
+        const _yrs = stripOffStandardYearsClaim(text)
+        if (_yrs.removed.length || _yrs.rewritten.length) {
+          console.log(`[Falcon] Removed/rewrote ${_yrs.removed.length + _yrs.rewritten.length} off-standard years-experience claim(s):`, _yrs.removed, _yrs.rewritten)
+          _recordViolations('generator', job?.id, ['offStandardYearsClaim'])
+          text = _yrs.text
+        }
+      }
+
+      // ── Vape Shop never cited near local-SEO / multi-location language (KB Rule 437) ──
+      {
+        const _vape = stripVapeNearLocalSeo(text)
+        if (_vape.removed.length) {
+          console.log('[Falcon] Removed Vape Shop citation near local-SEO language (KB Rule 437):', _vape.removed)
+          _recordViolations('generator', job?.id, ['vapeFabricationStripped'])
+          text = _vape.text
+        }
+      }
+
+      // ── Unledgered case-competitiveness qualifier (owner, 2026-11-20) ──
+      // A case's record names its vertical/metrics/location/timeframe, never a
+      // competitive-intensity assessment. Job 24349 invented "a B2B
+      // manufacturing niche with moderate competition" for Golden State Trailers.
+      {
+        const _qual = stripUnledgeredCaseQualifiers(text)
+        if (_qual.removed.length) {
+          console.log('[Falcon] Removed unledgered case-competitiveness claim(s):', _qual.removed)
+          _recordViolations('generator', job?.id, ['unledgeredCaseQualifier'])
+          text = _qual.text
+        }
+      }
+
       // ── The closing audit offer on a running account (owner rule, 2026-09-29) ──
       // "I dont understand why generator stopped offering audits as CTA in the end
       // where the job posting explicitly states that accounts are already running."
@@ -8206,10 +8242,20 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
             // Tone/structure rules still go through Claude — they're not
             // pattern-detectable.
             const TIMING_RE = /\d+\s*(?:-\s*\d+\s*)?(?:working\s+|business\s+)?days?\b/gi
-            const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
-            const allowedTimings = new Set(
-              rules.flatMap(r => (String(r.content || '').match(TIMING_RE) || []).map(norm))
-            )
+            // Collapses incidental spacing around the hyphen ("60 - 90 days" and
+            // "60-90 days" are the same claim) so a KB rule and a draft phrased
+            // slightly differently still match as the same allowed timing.
+            const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').replace(/\s*-\s*/g, '-').trim()
+            // Owner-confirmed standing timing (2026-11-20): SEO shows visible
+            // results in 60-90 days (ARTEM_TIMELINE_FACTS) — not a KB-rule
+            // "N working days" turnaround phrase, so the KB-content scan below
+            // would never allow it on its own. Google Ads' "1-2 weeks" doesn't
+            // need an entry here: TIMING_RE only matches "days", never "weeks".
+            const OWNER_CONFIRMED_TIMINGS = ['60-90 days']
+            const allowedTimings = new Set([
+              ...OWNER_CONFIRMED_TIMINGS,
+              ...rules.flatMap(r => (String(r.content || '').match(TIMING_RE) || []).map(norm)),
+            ])
             const draftTimings = (text.match(TIMING_RE) || []).map(norm)
             const timingCompliant = draftTimings.length === 0 ||
               draftTimings.every(t => allowedTimings.has(t))
@@ -8967,27 +9013,17 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
 
             // Vape-case fabrication detector: look around any "vape" mention
             // for local-SEO / multi-location language that isn't in the real
-            // KB description.
+            // KB description. VAPE_FABRICATION_NEAR_RES is shared with
+            // lib/letterGuards.js's stripVapeNearLocalSeo (KB Rule 437) so the
+            // record-only flag below and the actual strip can never drift apart.
             let vapeFabrication = false
             if (draftMentionsVape) {
-              const VAPE_FABRICATION_NEAR = [
-                /\d+\s*[-\s]?\s*locations?\b/i,
-                /\bmulti-?location\b/i,
-                /\bgoogle\s+business\s+profile/i,
-                /\bGBP\b/,
-                /\bmap\s+pack\b/i,
-                /\blocal\s+(?:pack|citations?|seo)\b/i,
-                /\bretail\s+chain\b/i,
-                /\bfoot\s+traffic\b/i,
-                /\bstore\s+visits?\b/i,
-                /\bin-?store\b/i,
-              ]
               const textLower = text.toLowerCase()
               const vapeIdx = textLower.indexOf('vape')
               if (vapeIdx !== -1) {
                 // Check ±400 chars around the first "vape" mention.
                 const window = text.slice(Math.max(0, vapeIdx - 100), vapeIdx + 500)
-                vapeFabrication = VAPE_FABRICATION_NEAR.some(re => re.test(window))
+                vapeFabrication = VAPE_FABRICATION_NEAR_RES.some(re => re.test(window))
               }
             }
 
