@@ -360,6 +360,36 @@ check(keep and cat == "google_ads", f'"Merchant Center" in the keywords field al
 keep, cat = ff.classify_focus("PPC Specialist", "Manage our Performance Max and Shopping campaigns via Google Ads, with Merchant Center setup.", None)
 check(keep and cat == "google_ads", f'PPC / Performance Max / Shopping / Merchant Center (PPC-titled) -> still KEPT: got keep={keep} cat={cat!r}')
 
+# ── Task 0c/D4 (owner, 2026-11-21): bare "Google Analytics" downgraded STRONG -> WEAK.
+# Real job #25357 "Fractional Digital Marketing Manager - B2B Fintech / Loyalty"
+# (Switzerland, $0 spent) was kept ONLY by a bare "Google Analytics" in its keywords
+# field ("Content Marketing, Retargeting, Google Analytics, Lead Generation"), a
+# general marketing-manager role with no other Google Ads/SEO/PPC signal anywhere.
+keep, cat = ff.classify_focus(
+    "Fractional Digital Marketing Manager - B2B Fintech / Loyalty",
+    "We need a fractional marketing leader for our fintech loyalty platform. Own strategy, "
+    "content calendars, and reporting across channels.",
+    "Content Marketing, Retargeting, Google Analytics, Lead Generation",
+)
+check(not keep, f'D4: #25357 (bare "Google Analytics" in keywords, general marketing-manager title) is now HIDDEN: got keep={keep} cat={cat!r}')
+
+# ...but a real analytics-ROLE title, or "Google Analytics" paired with another
+# weak signal, or in the TITLE itself, still keeps the job -- same rules as any
+# other weak mention. "google tag manager" and "search console" are UNCHANGED (still STRONG).
+keep, cat = ff.classify_focus("Google Analytics Specialist", "Set up GA4 tracking and dashboards.", None)
+check(keep and cat == "analytics", f'a real "Google Analytics" ROLE title still keeps the job: got keep={keep} cat={cat!r}')
+# "analytics" is narrower than the other weak categories: keywords-field co-location
+# does NOT rescue it on its own (Upwork auto-tags "Google Analytics" on nearly every
+# marketing job) -- only an actual TITLE mention, or a second independent weak signal, does.
+keep, cat = ff.classify_focus("Freelancer Needed", "Set up Google Analytics for our site.", "Google Analytics, Reporting")
+check(not keep, f'bare "Google Analytics" in the keywords field alone (no title mention) does NOT rescue: got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("Freelancer Needed", "We use Google Analytics and also need basic SEO cleanup.", None)
+check(keep, f'"Google Analytics" + a second independent weak signal (SEO) together still keep the job: got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("General VA Needed", "Some reporting work, familiar with Google Tag Manager a plus.", None)
+check(keep and cat == "analytics", f'"Google Tag Manager" is UNCHANGED -- still STRONG anywhere: got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("General VA Needed", "Some reporting work, familiar with Search Console a plus.", None)
+check(keep and cat == "analytics", f'"Search Console" is UNCHANGED -- still STRONG anywhere: got keep={keep} cat={cat!r}')
+
 # ── focus_test_active: Kyiv-time, inclusive, malformed dates never loosen it ──
 CFG = {"focus_test": {"from": "2026-11-19", "until": "2026-12-03"}}
 check(not ff.focus_test_active(CFG, utc(2026, 11, 18, 21)), "Nov 18, 23:00 Kyiv: not yet")

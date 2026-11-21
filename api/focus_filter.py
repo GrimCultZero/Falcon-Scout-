@@ -84,8 +84,17 @@ STRONG_PATTERNS = {
         r"\badwords\s*(?:management|managers?|specialists?|experts?|campaigns?)\b",
         re.I,
     ),
+    # Bare "google analytics" DOWNGRADED to WEAK below (D4, owner 2026-11-21): it's
+    # near-universal boilerplate on general marketing-manager postings (an Upwork
+    # auto-tag as often as a real ask), exactly the replay's false-positive shape --
+    # #25357 "Fractional Digital Marketing Manager" was kept ONLY by this bare
+    # mention in its keywords field, with no other Google Ads/SEO signal anywhere.
+    # "google tag manager" and "search console" stay STRONG -- they're role-shaped
+    # product names a generic marketing posting doesn't casually namedrop the way
+    # it does "Google Analytics" (practically every marketing job lists GA as a
+    # skill; far fewer mention Tag Manager or Search Console specifically).
     "analytics": re.compile(
-        r"google analytics|google tag manager|search console|\blooker\b",
+        r"google tag manager|search console|\blooker\b",
         re.I,
     ),
 }
@@ -121,7 +130,7 @@ STRONG_PATTERNS = {
 WEAK_PATTERNS = {
     "seo": re.compile(r"\bseo\b|\bbacklinks?\b", re.I),
     "google_ads": re.compile(r"\bgoogle\s*ads?\b|\badwords\b|\bad\s*words\b|google shopping|merchant center", re.I),
-    "analytics": re.compile(r"\bga4\b", re.I),
+    "analytics": re.compile(r"\bga4\b|google analytics", re.I),
 }
 
 # A title that itself reads as a marketing/ads/growth role -- the owner's own
@@ -215,6 +224,21 @@ def classify_focus(title: str, text: str, keywords: "str | None" = None):
         is_marketing_title = bool(MARKETING_TITLE_RE.search(title)) and not NON_MARKETING_ROLE_RE.search(title)
         two_signals = len(weak_hits) >= 2
         for cat, pat in weak_hits.items():
+            # "analytics" (bare GA4/Google Analytics) is narrower than the other weak
+            # categories (D4, owner 2026-11-21): Upwork's own auto-generated skill
+            # TAGS list "Google Analytics" in the keywords field on nearly every
+            # marketing job regardless of scope, and a "marketing manager" TITLE
+            # names a role, not an ads/SEO scope -- neither is real evidence the job
+            # needs analytics work. #25357 "Fractional Digital Marketing Manager"
+            # was kept only by "Google Analytics" sitting in its keywords field. So
+            # for "analytics" only: the KEYWORDS half of rule 1 and the marketing-
+            # title rescue (rule 2) are dropped -- only an actual TITLE mention
+            # (rule 1's title half) or a second independent weak signal (rule 3)
+            # still rescues it, same as any other weak mention.
+            if cat == "analytics":
+                if pat.search(title) or two_signals:
+                    return True, cat
+                continue
             if pat.search(title_kw_blob) or is_marketing_title or two_signals:
                 return True, cat
 
