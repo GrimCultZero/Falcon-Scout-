@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import create_engine                     # noqa: E402
 from sqlalchemy.orm import Session                        # noqa: E402
-from db import Base, Job, Proposal                         # noqa: E402
+from db import Base, Job, Proposal, FeedDrop                # noqa: E402
 
 bad = 0
 def check(ok, msg):
@@ -52,7 +52,7 @@ tmpdir = Path(tempfile.mkdtemp(prefix="fs_prune_"))
 engine = create_engine(f"sqlite:///{tmpdir / 'scratch.db'}")
 Base.metadata.create_all(engine)
 
-ns = {"engine": engine, "print": print, "_JOB_RETAIN_RECENT": 2000}
+ns = {"engine": engine, "print": print, "_JOB_RETAIN_RECENT": 2000, "_JOB_PRUNE_FOCUS_HIDDEN_AGE_DAYS": 45}
 exec(compile(ast.Module(body=nodes, type_ignores=[]), "main_helpers", "exec"), ns)
 prune_jobs = ns["_prune_jobs"]
 
@@ -96,6 +96,33 @@ deleted2 = prune_jobs(keep_recent=0)
 with Session(engine) as session:
     still_there = session.query(Job).filter_by(upwork_job_id="~hidden_no_proposal").first() is not None
 check(still_there and deleted2 == 0, "a job with a proposal row is protected regardless of hidden/starred state")
+
+# ── D1 (owner, 2026-11-21): focus-hidden jobs age out after 45 days ──────────
+VERY_OLD = NOW - timedelta(days=46)
+JUST_OLD = NOW - timedelta(days=44)
+
+seed(
+    focus_hidden_old=dict(hidden_at=VERY_OLD),       # focus-hidden, past the 45-day limit -> prunable
+    focus_hidden_young=dict(hidden_at=JUST_OLD),      # focus-hidden, still inside the limit -> protected
+    manually_hidden_old=dict(hidden_at=VERY_OLD),     # hidden, past the limit, but NOT by the focus test -> protected forever
+    focus_hidden_old_starred=dict(hidden_at=VERY_OLD, starred_at=VERY_OLD),  # focus-hidden + starred -> protected regardless of age
+)
+with Session(engine) as session:
+    session.add(FeedDrop(upwork_job_id="~focus_hidden_old", title="x", reason="focus:no-signal"))
+    session.add(FeedDrop(upwork_job_id="~focus_hidden_young", title="x", reason="focus:webdev"))
+    session.add(FeedDrop(upwork_job_id="~focus_hidden_old_starred", title="x", reason="focus:design"))
+    # manually_hidden_old has NO feed_drops "focus:*" row -- a real manual hide leaves none.
+    session.commit()
+
+deleted3 = prune_jobs(keep_recent=0)
+with Session(engine) as session:
+    remaining3 = {j.upwork_job_id[1:] for j in session.query(Job).all()}
+
+check("focus_hidden_old" not in remaining3, "D1: a focus-hidden job past the 45-day limit, no proposal, not starred, IS pruned")
+check("focus_hidden_young" in remaining3, "D1: a focus-hidden job still within 45 days survives")
+check("manually_hidden_old" in remaining3, "D1: a MANUALLY hidden job (no focus:* feed_drops row) survives past 45 days -- only starring/a proposal ages it out, same as before")
+check("focus_hidden_old_starred" in remaining3, "D1: a focus-hidden job past 45 days but STARRED still survives")
+check(deleted3 == 1, f"D1: exactly the one aged-out focus-hidden row was deleted (got {deleted3})")
 
 print()
 print("all pass" if bad == 0 else f"{bad} FAILURES")

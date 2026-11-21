@@ -643,6 +643,16 @@ _auto_ghost_proposals()
 #     Hiding must never be allowed to silently become deleting.
 # Everything else (old, never-actioned, dismissed, and never hidden) is removed.
 #
+# Owner decision D1 (2026-11-21): the 669 jobs deleted by the 0b.8a bug are NOT
+# restored -- they were junk by the filter's own verdict. But hidden jobs must
+# not grow the DB forever either, so a narrower exception: a job hidden BY THE
+# FOCUS TEST (feed_drops has a "focus:<category>" row for it) that is still
+# hidden after _JOB_PRUNE_FOCUS_HIDDEN_AGE_DAYS days, has no proposal and isn't
+# starred, is pruned after all -- a hidden job's title/reason stays in feed_drops
+# for audit either way. A MANUALLY hidden job (no focus:* feed_drops row) is
+# never aged out this way; only starring/a proposal protects it, same as before.
+_JOB_PRUNE_FOCUS_HIDDEN_AGE_DAYS = 45
+#
 # NOTE: this does NOT affect app responsiveness — that's already handled by the
 # 200-row feed cap + composite index. Pruning only keeps the .db file small.
 # Raised 200 → 2000 on 2026-10-15. At 200 the API feed's ~100 postings/day gave
@@ -651,10 +661,13 @@ _auto_ghost_proposals()
 # roughly three weeks. Jobs with a proposal are never pruned at any setting.
 _JOB_RETAIN_RECENT = 2000
 
-def _prune_jobs(keep_recent: int = _JOB_RETAIN_RECENT) -> int:
-    """Delete old job postings, preserving recent + responded/hired/starred.
+def _prune_jobs(keep_recent: int = _JOB_RETAIN_RECENT,
+                 focus_hidden_age_days: int = _JOB_PRUNE_FOCUS_HIDDEN_AGE_DAYS) -> int:
+    """Delete old job postings, preserving recent + responded/hired/starred (+ hidden,
+    unless it's focus-hidden and older than focus_hidden_age_days -- see D1 above).
     Idempotent and safe to run repeatedly."""
     n = int(keep_recent)
+    age_days = int(focus_hidden_age_days)
     try:
         with engine.begin() as conn:
             result = conn.exec_driver_sql(
@@ -668,7 +681,13 @@ def _prune_jobs(keep_recent: int = _JOB_RETAIN_RECENT) -> int:
                 )
                 AND id NOT IN (SELECT job_id FROM proposals WHERE job_id IS NOT NULL)
                 AND starred_at IS NULL
-                AND hidden_at IS NULL
+                AND (
+                    hidden_at IS NULL
+                    OR (
+                        hidden_at < datetime('now', '-{age_days} days')
+                        AND upwork_job_id IN (SELECT upwork_job_id FROM feed_drops WHERE reason LIKE 'focus:%')
+                    )
+                )
                 """
             )
             deleted = result.rowcount or 0
