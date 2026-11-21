@@ -25,6 +25,7 @@ from pathlib import Path
 import httpx
 
 from country_codes import normalize_country
+import focus_filter
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN_FILE = ROOT / ".upwork_token.json"
@@ -515,8 +516,20 @@ def load_feed_config() -> dict:
 
 
 def save_feed_config(cfg: dict) -> dict:
+    """Persist feed_config.json. Known settings (DEFAULT_FEED_CONFIG's keys) come from
+    `cfg`, same as always. Any OTHER key -- focus_test, focus_test_paused_keywords, or
+    anything a future task adds before this function learns about it -- is preserved
+    too: from `cfg` if the caller supplied a value for it, otherwise from the file as
+    it already was. Before this (Task 0c/D5, owner 2026-11-21), a save from code that
+    doesn't know about a given key -- the Feed Settings UI, say -- silently dropped it,
+    which is exactly the failure mode flagged in the Task 0b report for
+    focus_test_paused_keywords."""
+    cfg = cfg or {}
+    current = load_feed_config()
     merged = dict(DEFAULT_FEED_CONFIG)
-    merged.update({k: v for k, v in (cfg or {}).items() if k in DEFAULT_FEED_CONFIG})
+    merged.update({k: v for k, v in cfg.items() if k in DEFAULT_FEED_CONFIG})
+    for k in (set(current) | set(cfg)) - set(DEFAULT_FEED_CONFIG):
+        merged[k] = cfg[k] if k in cfg else current[k]
     FEED_CONFIG_FILE.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     return merged
 
@@ -701,12 +714,58 @@ def _floor_failures(row: dict, cfg: dict) -> list:
     return out
 
 
+def _focus_floor_failures(row: dict, cfg: dict) -> list:
+    """The soft rules this row breaks, as focus-test tags (empty = none). Task 0c.2
+    (owner, 2026-11-21) -- same shape as _floor_failures' test:* tags, but only two
+    tags: "focus:unverified" (payment not verified) and "focus:lowbudget" (hourly OR
+    fixed under the floor -- a job can be low on one and fine on the other, still one
+    tag). Safe to call on every kept row regardless of whether it needed relaxing:
+    a verified, well-budgeted row's floors naturally all pass, so this returns []."""
+    out = []
+    if cfg.get("payment_verified_only") and row.get("payment_verified") is not True:
+        out.append("focus:unverified")
+    min_h = cfg.get("min_hourly") or 0
+    hmax = row.get("hourly_rate_max") or row.get("hourly_rate_min")
+    low_hourly = bool(min_h and hmax is not None and hmax < min_h)
+    min_f = cfg.get("min_fixed") or 0
+    fixed = row.get("fixed_budget")
+    low_fixed = False
+    if min_f and fixed:
+        try:
+            low_fixed = float(str(fixed).lstrip("$").replace(",", "")) < min_f
+        except ValueError:
+            pass
+    if low_hourly or low_fixed:
+        out.append("focus:lowbudget")
+    return out
+
+
 def _row_passes(row: dict, cfg: dict, now: "datetime | None" = None) -> "str | None":
     """Return a drop-reason string if the row should be filtered out, else None."""
     title = (row.get("title") or "").lower()
     desc = (row.get("description_full") or "").lower()
     blob = title + " " + desc
     testing = test_week_active(cfg, now)
+
+    # Task 0c.2 (owner, 2026-11-21): DURING the focus test, a job that carries a
+    # focus keep-signal (classify_focus() keep=True -- the SAME check api/main.py
+    # uses post-insertion to hide off-lane jobs) has its soft floors relaxed
+    # instead of dropped: payment-unverified, the hourly floor, the fixed-price
+    # floor. The focus filter already hides everything off-lane, so these floors
+    # no longer need to protect against junk -- they were only ever a proxy for
+    # "is this a serious inquiry", and a brand-new, payment-unverified client
+    # posting a real Google Ads/SEO job is still a real Google Ads/SEO job (the
+    # owner's own examples: #22123749679594725830 "Google Ads Specialist Needed
+    # for Campaign Audit & Optimisation", UK, unverified, $0 spent). Country
+    # rules, stop words, the keyword gate and the 72h age limit are UNCHANGED --
+    # a job still has to pass those first (see below), and a job this relaxes
+    # still goes through the SAME classify_focus() check again post-insertion
+    # (api/main.py's _upsert_api_jobs), so an off-lane job is never admitted by
+    # this. _apply_filter tags a relaxed row "focus:unverified" / "focus:lowbudget"
+    # (see _focus_floor_failures) so it's visibly marked in the feed, same
+    # pattern as test_week's test:* tags.
+    focus_relax = (focus_filter.focus_test_active(cfg, now)
+                   and focus_filter.classify_focus(row.get("title"), row.get("description_full"), row.get("keywords"))[0])
 
     # Stop words match the TITLE ONLY, on whole words (2026-10-15).
     # Matching the whole blob meant one passing mention killed a job that was
@@ -738,12 +797,12 @@ def _row_passes(row: dict, cfg: dict, now: "datetime | None" = None) -> "str | N
     # and tags it (test:low-hourly / test:low-fixed), so they show in the feed with a badge.
     min_h = cfg.get("min_hourly") or 0
     hmax = row.get("hourly_rate_max") or row.get("hourly_rate_min")
-    if not testing and min_h and hmax is not None and hmax < min_h:
+    if not testing and not focus_relax and min_h and hmax is not None and hmax < min_h:
         return f"hourly<{min_h}"
 
     min_f = cfg.get("min_fixed") or 0
     fixed = row.get("fixed_budget")
-    if not testing and min_f and fixed:
+    if not testing and not focus_relax and min_f and fixed:
         try:
             fval = float(str(fixed).lstrip("$").replace(",", ""))
             if fval < min_f:
@@ -757,7 +816,7 @@ def _row_passes(row: dict, cfg: dict, now: "datetime | None" = None) -> "str | N
     if excl and country and any(c in country for c in excl):
         return f"country:{country}"
 
-    if not testing and cfg.get("payment_verified_only") and row.get("payment_verified") is not True:
+    if not testing and not focus_relax and cfg.get("payment_verified_only") and row.get("payment_verified") is not True:
         return "unverified-payment"
 
     max_age_h = cfg.get("max_posting_age_hours") or 0
@@ -789,7 +848,8 @@ def set_drop_sink(fn) -> None:
 def _apply_filter(seen: dict, cfg: dict, fetched: int, extra: dict | None = None,
                   record_drops: bool = True):
     """Shared tail of both fetch paths: post-filter the merged rows and build
-    the stats block. Kept rows carry `feed_tag` ('tracking' / 'gbp' / None)."""
+    the stats block. Kept rows carry `feed_tag` ('tracking' / 'gbp' / 'test:*' /
+    'focus:unverified' / 'focus:lowbudget' / None, comma-joined, any combination)."""
     kept, drops, dropped_rows = [], {}, []
     for r in seen.values():
         reason = _row_passes(r, cfg)
@@ -803,6 +863,8 @@ def _apply_filter(seen: dict, cfg: dict, fetched: int, extra: dict | None = None
             tags = [t for t in [feed_tag_for(r, cfg)] if t]
             if test_week_active(cfg):
                 tags += _floor_failures(r, cfg)
+            if focus_filter.focus_test_active(cfg):
+                tags += _focus_floor_failures(r, cfg)
             r["feed_tag"] = ",".join(tags) or None
             kept.append(r)
 

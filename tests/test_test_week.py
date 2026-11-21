@@ -61,14 +61,19 @@ CFG = {**LIVE, "test_week": {"from": "2026-11-10", "until": "2026-11-17"}}
 NOW_ISO = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # `_apply_filter` (unlike `_row_passes` / `test_week_active`) takes no injectable clock -
-# by design, production always uses the real time, and api/upwork_api.py is off limits
-# here. The owner's actual test week (2026-11-10..17, above) is now in the past, so a
-# fixed window would make every _apply_filter-based assertion below fail from 2026-11-18
-# onward regardless of the code. CFG_NOW uses a window that is always "today ± 1 day",
-# so it is active on whatever real date this test runs, same as CFG is active for the
-# fixed dates passed to verdict()/act() via an explicit `now`.
+# by design, production always uses the real time. The owner's actual test week
+# (2026-11-10..17, above) is now in the past, so a fixed window would make every
+# _apply_filter-based assertion below fail from 2026-11-18 onward regardless of the
+# code. CFG_NOW uses a window that is always "today ± 1 day", so it is active on
+# whatever real date this test runs, same as CFG is active for the fixed dates
+# passed to verdict()/act() via an explicit `now`.
+# focus_test: None here (Task 0c.2, owner 2026-11-21) -- LIVE's real focus_test block
+# (2026-11-19..2026-12-03) is independently active on "today" too, which would stack
+# focus:unverified/focus:lowbudget tags onto these test_week-only assertions. This
+# file is about test_week's OWN mechanism in isolation; 0c.2's focus-relax tagging has
+# its own coverage in test_feed_filter.py.
 _today_utc = datetime.now(timezone.utc)
-CFG_NOW = {**LIVE, "test_week": {
+CFG_NOW = {**LIVE, "focus_test": None, "test_week": {
     "from": (_today_utc - timedelta(days=1)).strftime("%Y-%m-%d"),
     "until": (_today_utc + timedelta(days=1)).strftime("%Y-%m-%d"),
 }}
@@ -121,8 +126,8 @@ kept, _ = upwork_api._apply_filter({"~x": row(fixed_budget="$300", hourly_rate_m
 check(kept[0]["feed_tag"] is None, "a row that breaks nothing carries no test tag")
 kept, _ = upwork_api._apply_filter({"~x": row(title="Google Business Profile bad review removal", desc="x", fixed_budget="$50")}, CFG_NOW, 1)
 check(kept[0]["feed_tag"] == "gbp,test:low-fixed", f"the T18 marker and a test tag combine ({kept[0]['feed_tag']})")
-kept, _ = upwork_api._apply_filter({"~x": row(fixed_budget="$50")}, {**LIVE, "test_week": None}, 1)
-check(kept == [], "with no test week the same row is dropped by _apply_filter")
+kept, _ = upwork_api._apply_filter({"~x": row(fixed_budget="$50")}, {**LIVE, "test_week": None, "focus_test": None}, 1)
+check(kept == [], "with no test week (and no focus test) the same row is dropped by _apply_filter")
 
 # ── what the week must NOT change ───────────────────────────────────────────
 check(verdict(row(client_country="India"), IN_WEEK) == "country:india", "India is still excluded during the week")

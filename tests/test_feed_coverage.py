@@ -31,7 +31,7 @@ def check(ok, msg):
         bad += 1
     print(("PASS" if ok else "FAIL") + "  " + msg)
 
-CFG = {**upwork_api.load_feed_config(), "test_week": None}  # the base rules; the owner's test week (feed_config test_week) is tested in test_test_week.py
+CFG = {**upwork_api.load_feed_config(), "test_week": None, "focus_test": None}  # the base rules; the owner's test week and focus test (feed_config test_week/focus_test) are tested in test_test_week.py / test_feed_filter.py -- this file pins feed_coverage.py's bucketing logic against the STANDING floors, not a temporary, date-bound relaxation
 now = datetime.now(timezone.utc)
 def iso(hours_ago):
     return (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")

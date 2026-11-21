@@ -27,6 +27,7 @@ Three behaviours are pinned here:
 Run: .venv\\Scripts\\python tests\\test_feed_filter.py
 """
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -316,6 +317,85 @@ assert_(tag("Local Search Ranking Improvement") is None and tag("Link insertion 
 assert_("google review" not in CFG["keywords"] and "google review" not in upwork_api.DEFAULT_FEED_CONFIG["keywords"], "OWNER: no review-removal keyword in the config or the defaults")
 for t in ("Google Review Removal Expert", "Amazon Negative Review Removal Specialist - Pay Per Removed Review", "Online Reputation Management: remove bad reviews"):
     assert_(not passes(t, "Remove reviews."), f"review removal is dropped: {t}")
+
+# ── Task 0c.2 (owner, 2026-11-21): soft-floor relaxation for on-lane jobs
+# DURING the focus test. A job carrying a focus keep-signal (classify_focus()
+# keep=True) has payment-unverified/hourly-floor/fixed-floor relaxed instead of
+# dropped, and is tagged focus:unverified / focus:lowbudget instead. Country
+# rules, stop words, the keyword gate and the 72h age limit are UNCHANGED.
+FOCUS_CFG = {**CFG, "focus_test": {"from": "2026-11-19", "until": "2026-12-03"}}
+FOCUS_IN_WINDOW = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
+FOCUS_AFTER = datetime(2026, 12, 4, 12, 0, tzinfo=timezone.utc)
+
+
+def focus_row(title="Google Ads Specialist", desc="We run Google Ads campaigns.", **kw):
+    base = {"upwork_job_id": "~focus", "title": title, "description_full": desc, "payment_verified": True}
+    base.update(kw)
+    return base
+
+
+def focus_verdict(r, now=FOCUS_IN_WINDOW, cfg=None):
+    return upwork_api._row_passes(r, cfg or FOCUS_CFG, now)
+
+
+# unverified + Google Ads title -> admitted (not dropped)
+assert_(focus_verdict(focus_row(payment_verified=False)) is None,
+        "0c.2: unverified payment + Google Ads title is ADMITTED during the focus test")
+# $20 fixed + Google Ads -> admitted
+assert_(focus_verdict(focus_row(fixed_budget="$20")) is None,
+        "0c.2: $20 fixed + Google Ads title is ADMITTED during the focus test")
+# hourly under the floor + Google Ads -> admitted
+assert_(focus_verdict(focus_row(hourly_rate_max=10)) is None,
+        "0c.2: hourly $10 + Google Ads title is ADMITTED during the focus test")
+# either + web dev title -> still dropped (classify_focus keep=False for a pure web-dev title)
+assert_(focus_verdict(focus_row(title="Shopify Developer Needed", desc="Build our store.", payment_verified=False)) == "unverified-payment",
+        "0c.2: unverified + a pure web-dev title (no focus signal) is STILL dropped")
+assert_(focus_verdict(focus_row(title="Shopify Developer Needed", desc="Build our store.", fixed_budget="$20")) == "fixed<100",
+        "0c.2: low fixed + a pure web-dev title (no focus signal) is STILL dropped")
+# verified, high-budget job: unchanged (passes either way)
+assert_(focus_verdict(focus_row()) is None, "0c.2: a verified, well-budgeted on-lane job is unaffected")
+# India still excluded even with a focus signal
+assert_(focus_verdict(focus_row(client_country="India")) == "country:india",
+        "0c.2: India is still excluded regardless of the focus signal")
+# stop words still apply
+assert_(focus_verdict(focus_row(title="Facebook Ads Manager", desc="google ads", payment_verified=False) ) != None and
+        (focus_verdict(focus_row(title="Facebook Ads Manager", desc="google ads", payment_verified=False)) or "").startswith("stopword"),
+        "0c.2: stop words still drop a title with no lane rescue, focus signal or not")
+# after the end date, every rule is back (no relax)
+assert_(focus_verdict(focus_row(payment_verified=False), now=FOCUS_AFTER) == "unverified-payment",
+        "0c.2: after focus_test ends, unverified-payment drops again with no manual step")
+assert_(focus_verdict(focus_row(fixed_budget="$20"), now=FOCUS_AFTER) == "fixed<100",
+        "0c.2: ...and the fixed floor is back too")
+
+# ── feed_tag: focus:unverified / focus:lowbudget, via _apply_filter (today's real clock) ──
+_today = datetime.now(timezone.utc)
+FOCUS_CFG_NOW = {**CFG, "test_week": None, "focus_test": {
+    "from": (_today - timedelta(days=1)).strftime("%Y-%m-%d"),
+    "until": (_today + timedelta(days=1)).strftime("%Y-%m-%d"),
+}}
+kept, _ = upwork_api._apply_filter({"~a": focus_row(payment_verified=False)}, FOCUS_CFG_NOW, 1)
+assert_(len(kept) == 1 and kept[0]["feed_tag"] == "focus:unverified", f"0c.2: unverified row tagged focus:unverified (got {kept[0]['feed_tag'] if kept else None!r})")
+
+kept, _ = upwork_api._apply_filter({"~b": focus_row(fixed_budget="$20")}, FOCUS_CFG_NOW, 1)
+assert_(len(kept) == 1 and kept[0]["feed_tag"] == "focus:lowbudget", f"0c.2: low-fixed row tagged focus:lowbudget (got {kept[0]['feed_tag'] if kept else None!r})")
+
+kept, _ = upwork_api._apply_filter({"~c": focus_row(hourly_rate_max=10)}, FOCUS_CFG_NOW, 1)
+assert_(len(kept) == 1 and kept[0]["feed_tag"] == "focus:lowbudget", f"0c.2: low-hourly row ALSO tagged focus:lowbudget (shared tag, not a separate one): got {kept[0]['feed_tag'] if kept else None!r}")
+
+kept, _ = upwork_api._apply_filter({"~d": focus_row(fixed_budget="$20", hourly_rate_max=10)}, FOCUS_CFG_NOW, 1)
+assert_(len(kept) == 1 and kept[0]["feed_tag"] == "focus:lowbudget", f"0c.2: BOTH floors broken -> still one focus:lowbudget tag, not duplicated: got {kept[0]['feed_tag'] if kept else None!r}")
+
+kept, _ = upwork_api._apply_filter({"~e": focus_row(payment_verified=False, fixed_budget="$20")}, FOCUS_CFG_NOW, 1)
+assert_(len(kept) == 1 and kept[0]["feed_tag"] == "focus:unverified,focus:lowbudget", f"0c.2: unverified + low budget together carry BOTH tags: got {kept[0]['feed_tag'] if kept else None!r}")
+
+kept, _ = upwork_api._apply_filter({"~f": focus_row()}, FOCUS_CFG_NOW, 1)
+assert_(len(kept) == 1 and kept[0]["feed_tag"] is None, "0c.2: a verified, well-budgeted row carries no focus tag")
+
+kept, _ = upwork_api._apply_filter({"~g": focus_row(title="Shopify Developer Needed", desc="Build our store.", payment_verified=False)}, FOCUS_CFG_NOW, 1)
+assert_(kept == [], "0c.2: a pure web-dev title with no focus signal is still dropped by _apply_filter, not admitted")
+
+kept, _ = upwork_api._apply_filter({"~h": focus_row(payment_verified=False)}, {**FOCUS_CFG_NOW, "focus_test": None}, 1)
+assert_(kept == [], "0c.2: with focus_test off, the same unverified row is dropped as before (no manual step needed)")
 
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)
