@@ -13,8 +13,8 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, vapeFabricationSentences, hasOrphanPunctuation, ensureExperienceYearsStated } from '../lib/letterGuards'
-import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage, ensureLocalSeoResultsAnswer, ensurePricingFigureWhenAsked } from '../lib/screeningQuestions'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, vapeFabricationSentences, hasOrphanPunctuation, ensureExperienceYearsStated, stripRecordLeakSentences, stripResultsComingSentences, repairDoubleParenOrphan } from '../lib/letterGuards'
+import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage, ensureLocalSeoResultsAnswer, ensurePricingFigureWhenAsked, insertNumberedAnswers } from '../lib/screeningQuestions'
 import { findAutoBomb } from '../lib/digitBombMatch'
 import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
 
@@ -3501,6 +3501,12 @@ function _humanizeCasing(s) {
   t = t.replace(/\bi\b/g, 'I')
   // 2) The name. Always capital A.
   t = t.replace(/\bartem\b/g, 'Artem')
+  // 2b) Task 1 item 5 (owner, 2026-11-21): a real letter (job 24349) capitalized
+  // "predictable Capacity" mid-sentence -- the prompt's own phrase is lowercase
+  // ("predictable capacity, easy to brief", below). Narrow, literal fix for this
+  // exact phrase only, never a general mid-sentence lowercase rule (that would
+  // risk breaking a real proper noun the client's own posting capitalizes).
+  t = t.replace(/\bpredictable Capacity\b/g, 'predictable capacity')
   // 3) Sentence/line starts → capitalise the first letter, unless the word is a
   //    known lowercase-initial token (iOS, eCommerce…). Triggers: start of text,
   //    after . ! ? (with optional closing quote/paren) + whitespace, or after a
@@ -8166,9 +8172,46 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         }
       }
 
+      // ── Task 1 item 3 (owner, 2026-11-21): a meta sentence about the KB/
+      // ledger ITSELF leaking into the letter ("Timeline not documented in the
+      // case record.", job 24349 Q4) ──
+      {
+        const _leak = stripRecordLeakSentences(text)
+        if (_leak.removed.length) {
+          console.log('[Falcon] Removed meta sentence(s) referencing the record/ledger/KB itself:', _leak.removed)
+          _recordViolations('generator', job?.id, ['recordLeakStripped'])
+          text = _leak.text
+        }
+      }
+
+      // ── Task 1 item 4 (owner, 2026-11-21): implied-future-result admission
+      // ("measured results in AI Search are still being gathered as the
+      // platforms mature.", job 24349 Q5) — Q5 describes the approach and stops. ──
+      {
+        const _coming = stripResultsComingSentences(text)
+        if (_coming.removed.length) {
+          console.log('[Falcon] Removed implied-future-result sentence(s):', _coming.removed)
+          _recordViolations('generator', job?.id, ['resultsComingStripped'])
+          text = _coming.text
+        }
+      }
+
+      // ── Task 1 item 5 (owner, 2026-11-21): repair the "): (" orphan shape
+      // directly ("Derma Solution (attached as PDF): (USA medical aesthetics):
+      // +1,861%...") rather than let the final cleanup guard below revert the
+      // whole strip chain over it. ──
+      {
+        const _dbl = repairDoubleParenOrphan(text)
+        if (_dbl.repaired.length) {
+          console.log('[Falcon] Repaired "): (" orphan punctuation:', _dbl.repaired)
+          _recordViolations('generator', job?.id, ['doubleParenOrphanRepaired'])
+          text = _dbl.text
+        }
+      }
+
       // ── Final cleanup guard (owner, 2026-11-20, item 5) ──
-      // If the three strips above left orphan punctuation behind (":,", ".:",
-      // "Example:,", "(...):," — the exact shapes job 24349's second
+      // If the strips above left orphan punctuation behind (":,", ".:",
+      // "Example:,", "(...):," "): (" — the exact shapes job 24349's second
       // generation shipped, all since fixed at the source), the strip chain
       // did more harm than good: revert to the pre-strip text and flag it
       // rather than ship a visibly broken sentence. The specific claim the
@@ -8243,6 +8286,60 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
         if (_cov.missing.length) {
           console.warn(`[Falcon] screening questions: the letter answers ${_cov.answered.length} of ${_cov.total}; missing numbers ${_cov.missing.join(', ')}`)
           _recordViolations('generator', job?.id, ['screeningQuestionsUnanswered'])
+
+          // ── Task 1 item 1 (owner, 2026-11-21): ONE targeted repair call ──
+          // "Never accept a letter with a missing question." A narrow, isolated
+          // call that writes ONLY the missing answer(s) — never the full-letter
+          // rewrite the deleted enforcer attempted (see "ENFORCER DELETED"
+          // below in this file): that failed on every real letter it was tried
+          // on because its own output was never re-checked and could damage
+          // text it wasn't asked to touch. This call can't do that — it only
+          // ever produces new paragraphs, inserted by number, never touching
+          // the existing letter text. Counted like any other paid call
+          // (kind "proposal_repair" in the usage chip).
+          try {
+            const _missingQs = inlineScreening.questions.filter(q => _cov.missing.includes(q.n))
+            const _missingList = _missingQs.map(q => `  ${q.n}. ${q.title ? q.title + ': ' : ''}${q.text.slice(0, 600)}`).join('\n')
+            const _repairRes = await fetch('/claude', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                _kind: 'proposal_repair',
+                model: 'claude-sonnet-4-5',
+                max_tokens: 500,
+                system: `You write ONLY the MISSING numbered answer paragraph(s) for an Upwork cover letter already drafted for Artem Yatsuk (${ARTEM_EXPERIENCE_YEARS}, Google Ads/PPC/SEO and ecommerce web development).
+FACTS (non-negotiable): use ONLY the approved case ledger (names, metrics, places and periods exactly as given) and ARTEM'S BUSINESS FACTS below. Never invent a number, count, duration, client name, URL, result or timeframe. When a question needs a figure that is NOT on record, write NOTHING about that figure — answer the rest of the question from what IS on record, and never apologise, say you lack it, promise to send it, or leave a placeholder.
+FORMAT: for EACH question below, write ONE paragraph, 2-3 sentences max, beginning with its number and (if given) its short title, exactly like "${_missingQs[0]?.n ?? 8}. ${_missingQs[0]?.title || 'Pricing'}:". Output ONLY the numbered paragraph(s), one per line with a blank line between — no preamble, no closing, no signature, nothing else.
+MISSING QUESTIONS TO ANSWER:
+${_missingList}
+${buildArtemFactsBlock(_postingTitleDesc)}${renderCaseFactsBlock()}`,
+                messages: [{ role: 'user', content: 'Write the missing answer(s) now.' }],
+              }),
+            })
+            const _repairData = await _repairRes.json()
+            if (_repairRes.ok) {
+              const _repairText = (_repairData.content || []).map(b => b.text || '').join('').trim()
+              const _answered = []
+              for (const para of _repairText.split(/\n{2,}/)) {
+                const m = para.match(/^\s*(?:\*\*)?(\d{1,2})\s*[.)]/)
+                if (m && _cov.missing.includes(Number(m[1]))) _answered.push({ n: Number(m[1]), text: para.trim() })
+              }
+              if (_answered.length) {
+                text = insertNumberedAnswers(text, _answered)
+                console.log(`[Falcon] Repair call wrote ${_answered.length} missing answer(s): ${_answered.map(a => a.n).join(', ')}`)
+                _recordViolations('generator', job?.id, ['screeningAnswerRepairCallInserted'])
+              }
+              const _covAfter = screeningCoverage(text, inlineScreening)
+              if (_covAfter.missing.length) {
+                console.warn(`[Falcon] Repair call still left question(s) missing: ${_covAfter.missing.join(', ')}`)
+                _recordViolations('generator', job?.id, ['screeningQuestionsStillUnansweredAfterRepair'])
+              }
+            } else {
+              console.warn('[Falcon] Repair call for missing screening question(s) failed:', _repairData)
+            }
+          } catch (repairErr) {
+            console.warn('[Falcon] Repair call for missing screening question(s) threw:', repairErr)
+          }
         }
       }
 

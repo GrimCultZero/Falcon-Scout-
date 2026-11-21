@@ -1225,6 +1225,62 @@ export function stripAdmissions(text) {
   return { text: removed.length || rewritten.length ? cleaned : src, removed, rewritten }
 }
 
+// Shared whole-sentence strip: remove every sentence matched by `isBad`, never
+// a clause or a token. Used by the two Task 1 (owner, 2026-11-21) guards below.
+function _stripWholeSentences(text, isBad) {
+  const src = String(text || '')
+  const removed = []
+  const outLines = src.split('\n').map(line => {
+    const pieces = _sentencePieces(line)
+    let touched = false
+    for (let i = 0; i < pieces.length; i++) {
+      const s = pieces[i].text
+      if (!isBad(s)) continue
+      touched = true
+      removed.push(s.trim())
+      pieces.splice(i, 1)
+      i--
+    }
+    return touched ? pieces.map(p => p.text + p.sep).join('').trim() : line
+  }).filter((l, k, arr) => l !== '' || arr.length === 1)
+  const cleaned = outLines.join('\n')
+  return { text: removed.length ? cleaned : src, removed }
+}
+
+// ── Task 1 item 3 (owner, 2026-11-21): a meta sentence about the KB/ledger
+// ITSELF leaking into the letter. Job 24349 Q4: "Timeline not documented in
+// the case record." — the client reads about Falcon Scout's own internal
+// bookkeeping, not about Artem's work. Distinct from the impersonal "no X is
+// on record" admission above (which states what Artem lacks, in the client's
+// own terms, and is itself stripped by _ADMISSION_RES): this is specifically
+// about the record-keeping MECHANISM, named outright. Whole-sentence strip —
+// a sentence whose entire point is to reference internal bookkeeping has no
+// safe partial rewrite.
+const _RECORD_LEAK_RE = /\bnot\s+documented\b|\bin\s+(?:the\s+)?case\s+record\b|\bon\s+record\b|\bin\s+the\s+(?:ledger|kb|knowledge\s+base)\b/i
+export function isRecordLeakSentence(s) {
+  return _RECORD_LEAK_RE.test(String(s || ''))
+}
+/** Remove any sentence that talks about the record/ledger/KB/documentation itself. */
+export function stripRecordLeakSentences(text) {
+  return _stripWholeSentences(text, isRecordLeakSentence)
+}
+
+// ── Task 1 item 4 (owner, 2026-11-21): an implied-future-result admission.
+// Job 24349 Q5 ended: "The strategy is in place; measured results in AI
+// Search are still being gathered as the platforms mature." This promises a
+// result is coming — exactly the GEO/AEO claim the owner's standing rule
+// forbids (no measured result and no confirmed case exist; describe the
+// approach only, never invent, never imply one is on its way). Whole-sentence
+// strip — Q5 should describe the approach and stop.
+const _RESULTS_COMING_RE = /\bresults?\s+(?:are\s+|is\s+)?(?:still\s+being\s+gathered|coming\b|on\s+(?:the|their)\s+way)|\bstill\s+(?:being\s+)?gather(?:ed|ing)\b|\bearly\s+results?\b|\bwe(?:'re|\s+are)\s+(?:currently\s+)?tracking\s+(?:the\s+)?(?:results?|progress|this|it)\b/i
+export function isResultsComingSentence(s) {
+  return _RESULTS_COMING_RE.test(String(s || ''))
+}
+/** Remove any sentence implying a measured result is coming / in progress (never invent, never imply "on its way"). */
+export function stripResultsComingSentences(text) {
+  return _stripWholeSentences(text, isResultsComingSentence)
+}
+
 // ── years-experience guard (owner, 2026-11-20) ───────────────────────────────
 // Artem's ONE standing experience figure is "12 years" (ARTEM_EXPERIENCE_YEARS
 // in JobDetail.jsx), stated as that number, never as a start year. Job 24349
@@ -1452,7 +1508,10 @@ export function timingViolationSentences(text, allowedTimings) {
 // structure stranded with nothing to attach to. This is the safety net for
 // that failure mode specifically — and for any future one shaped like it —
 // not a substitute for writing each strip correctly in the first place.
-export const ORPHAN_PUNCTUATION_RE = /:\s*,|\.\s*:|\(\s*\)|,\s*,|,\s*\.|\bExample\s*:\s*,/i
+// Task 1 item 5 (owner, 2026-11-21): added `\):\s*\(` -- "): (" -- the shape
+// repairDoubleParenOrphan (below) targets directly; this is the safety net for
+// any case that repair doesn't fully normalize (e.g. a THIRD stacked clause).
+export const ORPHAN_PUNCTUATION_RE = /:\s*,|\.\s*:|\(\s*\)|,\s*,|,\s*\.|\bExample\s*:\s*,|\):\s*\(/i
 export function hasOrphanPunctuation(text) {
   return ORPHAN_PUNCTUATION_RE.test(String(text || ''))
 }
@@ -1474,4 +1533,70 @@ export function ensureExperienceYearsStated(text) {
   const sentence = '12 years in SEO/PPC and ecommerce web development.'
   const newFirstPara = firstPara ? `${sentence} ${firstPara}` : sentence
   return { text: newFirstPara + rest, inserted: true }
+}
+
+// ── Task 1 item 2 (owner, 2026-11-21): never append anything after the
+// signature. Job 24349's regeneration dumped "For SEO, the flat rate is
+// $1,050/month, all inclusive." AFTER "Artem" because the pricing fallback
+// branch just did `src.trim() + '\n\n' + fact` with no idea where the letter
+// actually ends. A trailing sign-off ("Best,\nArtem" / "Regards, Artem" / a
+// bare "Artem" as the letter's last line) is detected here so any fallback
+// insert can land in the last paragraph of the BODY instead.
+const TRAILING_SIGNOFF_RE = /\n+\s*(?:(?:best|kind)\s+regards?|regards|thanks|thank\s+you|cheers|sincerely|best)?\s*[,.]?\s*\n*\s*artem\s*[.!]?\s*$/i
+
+/** Does `text` end with a detectable "Artem" sign-off (with or without a closer line)? */
+export function hasTrailingSignoff(text) {
+  return TRAILING_SIGNOFF_RE.test(String(text || ''))
+}
+
+/**
+ * Split `text` into { body, signoff } at the trailing "Artem" sign-off, on
+ * the WHOLE STRING (never just "is the last paragraph exactly the sign-off?"
+ * — real letters often run the sign-off onto the SAME paragraph as the
+ * previous sentence with a single newline, e.g. "...all inclusive.\nArtem",
+ * which a paragraph-boundary check misses entirely). `signoff` is '' when
+ * none is detectable, in which case `body` is the whole, right-trimmed text.
+ * The one shared primitive insertBeforeSignature and insertNumberedAnswers
+ * (screeningQuestions.js) both build on, so neither can drift from the other.
+ */
+export function splitSignoff(text) {
+  const src = String(text || '')
+  const m = src.match(TRAILING_SIGNOFF_RE)
+  if (!m) return { body: src.replace(/\s+$/, ''), signoff: '' }
+  return { body: src.slice(0, m.index).replace(/\s+$/, ''), signoff: src.slice(m.index) }
+}
+
+/**
+ * Insert `addition` into the LAST PARAGRAPH of the letter BODY, never after
+ * the signature. Falls back to appending at the very end only when no
+ * sign-off is detectable at all (nothing to protect against).
+ */
+export function insertBeforeSignature(text, addition) {
+  const add = String(addition || '').trim()
+  if (!add) return String(text || '')
+  const { body, signoff } = splitSignoff(text)
+  if (!signoff) return body ? `${body}\n\n${add}` : add
+  const newBody = body ? `${body} ${add}` : add
+  return newBody + signoff
+}
+
+// ── Task 1 item 5 (owner, 2026-11-21): the orphan guard missed one shape ────
+// "Derma Solution (attached as PDF): (USA medical aesthetics): +1,861%..." and
+// "Vape Shop (attached in profile highlights): (restricted ecommerce):" — a
+// case-label colon immediately followed by a second, parenthetical colon
+// clause. Earlier strips only ever reverted the WHOLE chain when this shape
+// slipped through (hasOrphanPunctuation below); this repairs the shape
+// directly, merging the two clauses with a comma: "(attached as PDF), USA
+// medical aesthetics: +1,861%..." -- the exact repair the owner specified.
+const DOUBLE_PAREN_ORPHAN_RE = /\):\s*\(([^()]+)\):/g
+
+/** Merge a "): (CLAUSE):" orphan into "), CLAUSE:" wherever it appears. */
+export function repairDoubleParenOrphan(text) {
+  const src = String(text || '')
+  const repaired = []
+  const cleaned = src.replace(DOUBLE_PAREN_ORPHAN_RE, (m, clause) => {
+    repaired.push(m)
+    return `), ${clause.trim()}:`
+  })
+  return { text: repaired.length ? cleaned : src, repaired }
 }

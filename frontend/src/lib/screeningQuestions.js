@@ -14,6 +14,7 @@
 //
 // Pure functions, no React. Record-only apart from the prompt: nothing here blocks or rewrites a letter.
 import { casesRequestedByPosting, CASE_BY_ID } from './caseLedger.js'
+import { insertBeforeSignature, splitSignoff } from './letterGuards.js'
 
 // A heading that introduces the questions. Markdown (## ...), bold (**...**) or a plain line, optional colon.
 const HEADING_RE = /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:required\s+application\s+questions?|application\s+questions?|screening\s+questions?|questions?\s+for\s+(?:applicants|freelancers)|please\s+answer\s+(?:the\s+)?following(?:\s+questions?)?[^\n]{0,60}|answer\s+the\s+following(?:\s+questions?)?[^\n]{0,60}|to\s+apply,?\s+(?:please\s+)?answer[^\n]{0,60})\s*:?\s*(?:\*\*)?\s*\.?\s*$/i
@@ -212,7 +213,45 @@ export function ensurePricingFigureWhenAsked(text, sq, { isSeoJob = false, isPpc
     paras[idx] = paras[idx].replace(/\s*$/, '') + ' ' + fact
     out = paras.join('\n\n')
   } else {
-    out = src.trim() + '\n\n' + fact
+    // Task 1 item 2 (owner, 2026-11-21): never append after the signature.
+    // The question paragraph wasn't found (e.g. its number line didn't match
+    // exactly) -- fall back to the LAST PARAGRAPH BEFORE THE SIGNATURE, never
+    // a raw append that can land after "Artem" if that's the trimmed text's
+    // last line.
+    out = insertBeforeSignature(src, fact)
   }
   return { text: out, inserted: true }
+}
+
+// ── Task 1 item 1 (owner, 2026-11-21): insert the repair call's answers ──────
+/**
+ * Insert several already-formatted "N. ..." answer paragraphs into `text` at
+ * their correct numeric position (relative to the existing numbered
+ * paragraphs) -- same splice-by-number logic ensureLocalSeoResultsAnswer uses
+ * for its one templated insert, generalized to any number of entries from the
+ * ONE targeted repair call JobDetail.jsx makes when screeningCoverage() finds
+ * a numbered question the letter never answered.
+ */
+export function insertNumberedAnswers(text, entries) {
+  const src = String(text || '')
+  if (!entries || !entries.length) return src
+  // Split the sign-off off the WHOLE string first (never just "is the last
+  // paragraph exactly the sign-off?" — a real letter often runs the sign-off
+  // onto the SAME paragraph as the previous sentence with a single newline,
+  // e.g. "...all inclusive.\nArtem", confirmed on a real job-24349
+  // regeneration: Q8's repaired answer landed after "Artem" because the old
+  // paragraph-boundary check never saw a signoff-only paragraph to protect).
+  const { body, signoff } = splitSignoff(src)
+  const paras = body ? body.split(/\n{2,}/) : []
+  const numOf = (p) => { const m = p.match(/^\s*(?:\*\*)?(\d{1,2})\s*[.)]/); return m ? Number(m[1]) : null }
+  for (const { n, text: answer } of [...entries].sort((a, b) => a.n - b.n)) {
+    let insertAt = paras.length
+    for (let i = 0; i < paras.length; i++) {
+      const pn = numOf(paras[i])
+      if (pn != null && pn > n) { insertAt = i; break }
+    }
+    paras.splice(insertAt, 0, answer)
+  }
+  const newBody = paras.join('\n\n')
+  return signoff ? newBody + signoff : newBody
 }
