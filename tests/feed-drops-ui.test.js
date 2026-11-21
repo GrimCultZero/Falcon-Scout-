@@ -52,6 +52,15 @@ const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
   assert(feedTagBadges(null).length === 0 && feedTagBadges('').length === 0 && feedTagBadges('nonsense,').length === 0, 'no tag / unknown tag -> no badge');
   assert(describeReason('testweek:webdev') === 'Test week: pure web development / design job hidden' && reasonKind('testweek:webdev') === 'text', "'testweek:webdev' drops are labelled and shown with the word-rule groups (so they get audited)");
 
+  // ── Task 0c.2 (2026-11-19 .. 2026-12-03): focus test soft-floor relaxation badges ──
+  for (const [tag, label] of [['focus:unverified', 'UNVERIFIED PAYMENT'], ['focus:lowbudget', 'LOW STATED BUDGET']]) {
+    const b = feedTagBadge(tag);
+    assert(b && b.label === label && /Focus test/.test(b.title) && /Normally dropped/.test(b.title), `${tag} -> a "${label}" badge that says what it is`);
+  }
+  assert(feedTagBadge('focus:unverified').color === feedTagBadge('focus:lowbudget').color, 'the two focus badges share a colour');
+  const focusMany = feedTagBadges('focus:unverified,focus:lowbudget');
+  assert(focusMany.length === 2 && focusMany[0].tag === 'focus:unverified' && focusMany[1].tag === 'focus:lowbudget', 'a row with both focus tags gets both badges');
+
   // ── wiring ────────────────────────────────────────────────────────────────
   const settings = read('frontend', 'src', 'components', 'FeedSettings.jsx');
   const drops = read('frontend', 'src', 'components', 'FeedDrops.jsx');

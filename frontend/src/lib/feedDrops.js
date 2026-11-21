@@ -55,6 +55,17 @@ export function feedTagBadge(tag) {
   if (test) {
     return { label: test[0], title: test[1], color: '#6d28d9', bg: 'rgba(139,92,246,0.14)', border: 'rgba(139,92,246,0.5)' }
   }
+  // Task 0c.2 (owner, 2026-11-21): focus test soft-floor relaxation. A job that carries
+  // a focus keep-signal (Google Ads/SEO/GEO) had its unverified-payment / hourly-floor /
+  // fixed-floor check relaxed instead of dropped -- same purple family as the test:* tags,
+  // since it's the same "normally dropped, now admitted and marked" idea.
+  const focus = {
+    'focus:unverified': ['UNVERIFIED PAYMENT', 'Focus test: the client\'s payment is not verified. Normally dropped. A brand-new account can still be a real job; check before applying.'],
+    'focus:lowbudget': ['LOW STATED BUDGET', 'Focus test: the hourly rate or fixed price is under the usual floor. Normally dropped. A stated budget is not always what the client really pays.'],
+  }[tag]
+  if (focus) {
+    return { label: focus[0], title: focus[1], color: '#6d28d9', bg: 'rgba(168,85,247,0.14)', border: 'rgba(168,85,247,0.5)' }
+  }
   return null
 }
 

@@ -265,6 +265,12 @@ export default function App() {
   const [filter, setFilter] = useState(() => _restored.filter ?? 'all')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  // Task 0c.2 (owner, 2026-11-21, optional toggle): hide focus:unverified/focus:lowbudget-
+  // tagged jobs if they get noisy. Client-side only -- the backend still admits + tags them.
+  const [hideFocusTagged, setHideFocusTagged] = useState(false)
+  const visibleJobs = hideFocusTagged
+    ? jobs.filter(j => !String(j.feed_tag || '').includes('focus:'))
+    : jobs
 
   // The All / Bot / API source toggle is gone (2026-11-09): the Telegram bot is
   // shut down, so the feed has one live source. Drop the old persisted choice.
@@ -878,8 +884,8 @@ export default function App() {
         <div style={{ width:1, height:22, background:'rgba(0,185,210,0.18)' }} />
 
         <span style={{ fontSize:11, color:'rgba(255,255,255,0.42)', fontFamily:'Inter, sans-serif' }}>
-          <strong style={{ color:'#00c8d4', fontWeight:700 }}>{jobs.length}</strong>
-          <span style={{ marginLeft:4 }}>{jobs.length === 1 ? 'job' : 'jobs'}</span>
+          <strong style={{ color:'#00c8d4', fontWeight:700 }}>{visibleJobs.length}</strong>
+          <span style={{ marginLeft:4 }}>{visibleJobs.length === 1 ? 'job' : 'jobs'}</span>
         </span>
 
         {/* Right side: usage chip + live indicator + dark mode toggle */}
@@ -985,7 +991,7 @@ export default function App() {
                   <span style={{ fontSize:9.5, color: debugMsg.startsWith('✗') ? '#ef4444' : '#00d070' }}>{debugMsg}</span>
                 )}
               </div>
-              <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+              <div style={{ display:'flex', gap:5, flexWrap:'wrap', alignItems:'center' }}>
                 {filters.map(({ key, label }) => (
                   <button
                     key={key}
@@ -993,6 +999,11 @@ export default function App() {
                     onClick={() => setFilter(key)}
                   >{label}</button>
                 ))}
+                <button
+                  className={hideFocusTagged ? 'btn-filter active' : 'btn-filter'}
+                  onClick={() => setHideFocusTagged(v => !v)}
+                  title="Focus test: hide jobs admitted only via the soft-floor relaxation (unverified payment / low stated budget), if they get noisy. They're still captured and tagged either way — this only hides them from this view."
+                >hide tagged</button>
               </div>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                 {feedScrolled ? (
@@ -1020,16 +1031,16 @@ export default function App() {
               </div>
             </div>
             <div ref={feedListRef} style={{ flex:1, overflowY:'auto' }}>
-              {jobs.length === 0 && !loading && (
+              {visibleJobs.length === 0 && !loading && (
                 <div style={{ padding:'48px 16px', textAlign:'center' }}>
                   <div style={{ fontSize:24, marginBottom:12, opacity:0.3 }}>📡</div>
                   <p style={{ fontSize:11, color:'var(--text3)', lineHeight:1.6 }}>
-                    {query || filter !== 'all' ? 'No jobs match filters.' : 'Listening for new jobs...'}
+                    {query || filter !== 'all' || hideFocusTagged ? 'No jobs match filters.' : 'Listening for new jobs...'}
                   </p>
                 </div>
               )}
               <JobList
-                jobs={jobs}
+                jobs={visibleJobs}
                 selectedId={selectedId}
                 onSelect={handleSelect}
                 onToggleHidden={toggleHidden}
