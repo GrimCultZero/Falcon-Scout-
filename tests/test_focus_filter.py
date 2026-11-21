@@ -336,6 +336,30 @@ keep, cat = ff.classify_focus(
 )
 check(not keep and cat == "meta_tiktok_ads", f'Task 0b.5: #23079 "Marketing Help" is still NOT rescued (owner: leave it hidden): got keep={keep} cat={cat!r}')
 
+# ── Task 0b.8b (2026-11-21): "google shopping"/"merchant center" downgraded
+# STRONG -> WEAK. Real job #25354 ("E-commerce/AI Expert Viritual Assistant
+# A-Z", an Amazon Seller Central / online-store VA role) was wrongly KEPT by a
+# single bare "Google Merchant Center skills" bullet buried in a generic skills
+# list, with no other ads/SEO signal anywhere and an admin/VA-shaped title.
+keep, cat = ff.classify_focus(
+    "E-commerce/AI Expert  Viritual Assistant A-Z",
+    "We're Hiring: Amazon + Online Store Manager (Remote). You should have: Proven Amazon account "
+    "management experience, Hands-on Google Ads and Google Merchant Center skills, Strong Excel and "
+    "Word skills, A marketing background, Social media know-how.",
+    "Amazon Listing Optimization, Amazon Seller Central",
+)
+check(not keep, f'Task 0b.8b: #25354 (bare "Merchant Center" bullet, Amazon VA title) is now HIDDEN: got keep={keep} cat={cat!r}')
+
+# ...but a real Merchant Center/Shopping job (phrase in the TITLE/keywords, or
+# paired with another ads signal) is still kept -- same rules as any other weak mention.
+keep, cat = ff.classify_focus("Google Shopping / Merchant Center Specialist", "Manage our product feed.", None)
+check(keep and cat == "google_ads", f'a real "Merchant Center" ROLE title still keeps the job: got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("Freelancer Needed", "Set up Google Merchant Center.", "Merchant Center, Google Shopping")
+check(keep and cat == "google_ads", f'"Merchant Center" in the keywords field also still rescues: got keep={keep} cat={cat!r}')
+# the existing "PPC Specialist" example (line ~267) is unaffected: "PPC" alone is still STRONG.
+keep, cat = ff.classify_focus("PPC Specialist", "Manage our Performance Max and Shopping campaigns via Google Ads, with Merchant Center setup.", None)
+check(keep and cat == "google_ads", f'PPC / Performance Max / Shopping / Merchant Center (PPC-titled) -> still KEPT: got keep={keep} cat={cat!r}')
+
 # ── focus_test_active: Kyiv-time, inclusive, malformed dates never loosen it ──
 CFG = {"focus_test": {"from": "2026-11-19", "until": "2026-12-03"}}
 check(not ff.focus_test_active(CFG, utc(2026, 11, 18, 21)), "Nov 18, 23:00 Kyiv: not yet")

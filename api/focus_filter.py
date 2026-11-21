@@ -78,7 +78,7 @@ STRONG_PATTERNS = {
     # TAG, not a job title ("Google Ads Manager" plural IS a job title); the
     # management/specialist/expert/campaign words stay ambiguous-ad-count safe.
     "google_ads": re.compile(
-        r"\bppc\b|paid search|performance\s*max\b|\bpmax\b|google shopping|merchant center|"
+        r"\bppc\b|paid search|performance\s*max\b|\bpmax\b|"
         r"\bgoogle\s*ads\s*managers?\b|"
         r"\bgoogle\s*ads?\s*(?:management|specialists?|experts?|campaigns?)\b|"
         r"\badwords\s*(?:management|managers?|specialists?|experts?|campaigns?)\b",
@@ -106,9 +106,21 @@ STRONG_PATTERNS = {
 # "Google Ad Manager" (GAM -- an Upwork skill TAG on real Google Ads jobs, not a
 # distinct product in practice here; rule 1 above rescues it whenever it's a
 # keyword/title tag, same as any other weak mention).
+#
+# "google shopping"/"merchant center" DOWNGRADED from STRONG to WEAK here (Task
+# 0b.8b, owner 2026-11-21): job #25354 ("E-commerce/AI Expert Viritual Assistant
+# A-Z", an Amazon Seller Central / online-store VA role, category admin_support)
+# was kept only because its skills bullet list included one bare line -- "Hands-on
+# Google Ads and Google Merchant Center skills" -- among many unrelated asks. A
+# feature/product name mentioned once in a generic skills list is exactly the
+# replay's false-positive shape (same as bare "Google Ads"/GA4), not the
+# unambiguous-anywhere signal STRONG is for -- "merchant center"/"google shopping"
+# are features a job post CAN casually namedrop without being a Google Ads job,
+# unlike "performance max"/"ppc"/"paid search" which essentially never appear
+# outside dedicated ads work.
 WEAK_PATTERNS = {
     "seo": re.compile(r"\bseo\b|\bbacklinks?\b", re.I),
-    "google_ads": re.compile(r"\bgoogle\s*ads?\b|\badwords\b|\bad\s*words\b", re.I),
+    "google_ads": re.compile(r"\bgoogle\s*ads?\b|\badwords\b|\bad\s*words\b|google shopping|merchant center", re.I),
     "analytics": re.compile(r"\bga4\b", re.I),
 }
 
