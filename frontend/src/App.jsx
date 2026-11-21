@@ -453,7 +453,8 @@ export default function App() {
     try {
       const params = new URLSearchParams()
       if (q) params.set('q', q)
-      if (f && f !== 'all') params.set('filter_type', f)
+      if (f === 'focus_hidden') { params.set('filter_type', 'hidden'); params.set('focus_hidden', 'true') }
+      else if (f && f !== 'all') params.set('filter_type', f)
       // The backend default is 200 rows, about a day of API volume. Ask for enough to
       // cover the 72 h the feed keeps (peak 72 h so far: ~565 jobs), with headroom (T21).
       params.set('limit', String(FEED_LIMIT))
@@ -883,7 +884,7 @@ export default function App() {
 
         {/* Right side: usage chip + live indicator + dark mode toggle */}
         <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:'auto' }}>
-          <FocusTestChip onOpen={() => { setView('jobs'); setFilter('hidden') }} />
+          <FocusTestChip onOpen={() => { setView('jobs'); setFilter('focus_hidden') }} />
           <HealthStrip />
           <BackupChip />
           <AiProviderChip />
@@ -1033,7 +1034,7 @@ export default function App() {
                 onSelect={handleSelect}
                 onToggleHidden={toggleHidden}
                 onToggleStar={toggleStar}
-                showingHidden={filter === 'hidden'}
+                showingHidden={filter === 'hidden' || filter === 'focus_hidden'}
               />
             </div>
           </aside>

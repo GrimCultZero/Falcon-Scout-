@@ -5,8 +5,10 @@ import { focusTestChipState } from '../lib/focusTestChip'
 // renders only while feed_config.json's focus_test block is active (GET
 // /focus-test/status says so — it checks the Kyiv-time window itself, same rule as
 // test_week, so this chip disappears on its own once the block expires, no manual
-// step). Click opens the existing Hidden tab (every hidden job, focus-hidden ones
-// included) so the owner can review and /unhide (rescue) any of them.
+// step). Click opens the Hidden tab filtered to ONLY focus-hidden jobs (Task 0b.8a,
+// owner 2026-11-21: "Clicking it must open the list of ALL focus-hidden jobs" — not
+// mixed in with manually-hidden ones) via App.jsx's filter='focus_hidden', so the
+// owner can review and /unhide (rescue) any of them.
 export default function FocusTestChip({ onOpen }) {
   const [status, setStatus] = useState(null)
 

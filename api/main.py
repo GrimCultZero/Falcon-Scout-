@@ -632,7 +632,16 @@ _auto_ghost_proposals()
 #   • it has a proposal row (applied / viewed / replied / invited / hired) —
 #     this is the Outcomes/stats history, never deleted
 #   • it's starred (Artem flagged it to return to)
-# Everything else (old, never-actioned, dismissed) is removed.
+#   • it's HIDDEN (Task 0b.8a bugfix, 2026-11-21): hidden_at being set is not
+#     "old and dismissed", it's "removed from the feed, reversible via /unhide" —
+#     the same promise starring makes. Before this fix the "keep" subquery only
+#     selected hidden_at IS NULL rows, so EVERY hidden job with no proposal and
+#     not starred was a deletion candidate; the 669 jobs Task 0.4 retroactively
+#     hid on 2026-11-21 were wiped from the table entirely by the next prune run
+#     (confirmed: feed_drops still had all 669+ "focus:<category>" rows, but
+#     jobs.hidden_at count had collapsed from 678 to 10 by ~20:00 the same day).
+#     Hiding must never be allowed to silently become deleting.
+# Everything else (old, never-actioned, dismissed, and never hidden) is removed.
 #
 # NOTE: this does NOT affect app responsiveness — that's already handled by the
 # 200-row feed cap + composite index. Pruning only keeps the .db file small.
@@ -659,6 +668,7 @@ def _prune_jobs(keep_recent: int = _JOB_RETAIN_RECENT) -> int:
                 )
                 AND id NOT IN (SELECT job_id FROM proposals WHERE job_id IS NOT NULL)
                 AND starred_at IS NULL
+                AND hidden_at IS NULL
                 """
             )
             deleted = result.rowcount or 0
