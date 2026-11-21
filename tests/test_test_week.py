@@ -41,7 +41,7 @@ def check(ok, msg):
         bad += 1
     print(("PASS" if ok else "FAIL") + "  " + msg)
 
-LIVE = upwork_api.load_feed_config()
+LIVE_RAW = upwork_api.load_feed_config()
 def utc(y, m, d, h=12, mi=0):
     return datetime(y, m, d, h, mi, tzinfo=timezone.utc)
 IN_WEEK = utc(2026, 11, 12)
@@ -50,9 +50,13 @@ AFTER = utc(2026, 11, 18)
 # feed_config.json for the focus test (moved to "focus_test_paused_keywords",
 # restored 2026-12-03 -- see WORKLOG.md). This file tests the bot's STANDING
 # keyword-matching mechanism, not "what's active during a temporary pause", so
-# merge the paused keywords back into every CFG built from LIVE below.
-if "focus_test_paused_keywords" in LIVE:
-    LIVE = {**LIVE, "keywords": [*LIVE["keywords"], *LIVE["focus_test_paused_keywords"]["keywords"]]}
+# merge the paused keywords back into every CFG built below -- but keep LIVE_RAW
+# (unmerged) for the HEAD-comparison check just below, which must compare the
+# live file as committed, pause included, against HEAD, not a merged variant.
+if "focus_test_paused_keywords" in LIVE_RAW:
+    LIVE = {**LIVE_RAW, "keywords": [*LIVE_RAW["keywords"], *LIVE_RAW["focus_test_paused_keywords"]["keywords"]]}
+else:
+    LIVE = LIVE_RAW
 CFG = {**LIVE, "test_week": {"from": "2026-11-10", "until": "2026-11-17"}}
 NOW_ISO = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -78,16 +82,12 @@ def verdict(r, now, cfg=CFG):
 
 # ── the live config ─────────────────────────────────────────────────────────
 head = json.loads(subprocess.run(["git", "show", "HEAD:feed_config.json"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8").stdout)
-check(LIVE.get("test_week") == {"from": "2026-11-10", "until": "2026-11-17"}, "feed_config.json has the test_week block (2026-11-10 .. 2026-11-17)")
-same = {k: v for k, v in LIVE.items() if k != "test_week"}
-# "keywords" is compared as a set: Task 0b.4's pause-and-merge-back (above) appends
-# the paused keywords at the END rather than restoring their original positions, so
-# the merged list is the same SET as HEAD's but not the same ORDER -- order was
-# never a meaningful setting here.
-def _same_setting(k, v):
-    got = same.get(k)
-    return sorted(got) == sorted(v) if k == "keywords" else got == v
-check(all(_same_setting(k, v) for k, v in head.items() if k != "test_week"), "every other setting is exactly what it was at HEAD (keywords, stop words, floors, India, age limit)")
+check(LIVE_RAW.get("test_week") == {"from": "2026-11-10", "until": "2026-11-17"}, "feed_config.json has the test_week block (2026-11-10 .. 2026-11-17)")
+# Compared against LIVE_RAW (the file as committed, pause included), not the
+# merged-back LIVE used for CFG/CFG_NOW below -- HEAD itself carries Task 0b.4's
+# paused keywords now that it's committed, so the two must match as-is.
+same = {k: v for k, v in LIVE_RAW.items() if k != "test_week"}
+check(all(same.get(k) == v for k, v in head.items() if k != "test_week"), "every other setting is exactly what it was at HEAD (keywords, stop words, floors, India, age limit)")
 check(LIVE["payment_verified_only"] is True and LIVE["min_hourly"] == 25 and LIVE["min_fixed"] == 100 and LIVE["exclude_countries"] == ["india"] and LIVE["max_posting_age_hours"] == 72,
       "the rules the week loosens are still configured (they are not removed)")
 check(upwork_api.DEFAULT_FEED_CONFIG["test_week"] is None, "the default has no test week")
