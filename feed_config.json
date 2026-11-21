@@ -10,7 +10,6 @@
     "google ad",
     "google search",
     "google ads expert",
-    "ecommerce website",
     "google ads",
     "google ads audit",
     "google ads management",
@@ -27,15 +26,6 @@
     "seo strategy",
     "local seo",
     "technical seo",
-    "shopify developer",
-    "shopify store",
-    "shopify",
-    "wordpress developer",
-    "wordpress website",
-    "woocommerce",
-    "opencart",
-    "ecommerce website development",
-    "ecommerce store development",
     "google tag manager",
     "ga4",
     "google analytics",
@@ -109,5 +99,20 @@
     "from": "2026-11-19",
     "until": "2026-12-03",
     "note": "SEO/GEO/Google Ads focus test (owner, 2026-11-19). Expires automatically after 'until' (Europe/Kyiv, inclusive) -- no manual step needed. See api/focus_filter.py."
+  },
+  "focus_test_paused_keywords": {
+    "note": "Removed from \"keywords\" for the duration of the focus test (Task 0b.4, owner 2026-11-21) -- these are web-dev/ecommerce-platform terms, not SEO/GEO/Google Ads, and were pulling in web-dev postings at the FETCH stage that only the post-capture focus filter then had to hide. Restore to \"keywords\" on 2026-12-03 evening, after focus_test ends. See WORKLOG.md.",
+    "keywords": [
+      "shopify developer",
+      "shopify store",
+      "shopify",
+      "wordpress developer",
+      "wordpress website",
+      "woocommerce",
+      "opencart",
+      "ecommerce website development",
+      "ecommerce store development",
+      "ecommerce website"
+    ]
   }
 }
