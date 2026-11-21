@@ -129,8 +129,13 @@ WEAK_PATTERNS = {
 # growth marketer/marketing, performance marketing.
 MARKETING_TITLE_RE = re.compile(
     r"\bseo\b|\bppc\b|google\s*ads\b|paid\s*search|search\s*engine|\bsem\b|"
-    r"ads\s*(?:manager|expert|specialist)\b|marketing\s*(?:manager|specialist|strategist|consultant)\b|"
-    r"\bcmo\b|growth\s*market(?:er|ing)\b|performance\s*marketing\b",
+    r"ads\s*(?:manager|expert|specialist)\b|marketing\s*(?:manager|director|specialist|strategist|consultant)\b|"
+    r"\bcmo\b|growth\s*market(?:er|ing)\b|performance\s*marketing\b|"
+    # Task 0b.5 (owner, 2026-11-21): these still only RESCUE a job that already
+    # has a weak Google Ads/SEO mention elsewhere (the rule that bare words
+    # never rescue on their own, Task 0.3, is unchanged) -- they just widen
+    # WHICH marketing-role titles count as the rescuing title.
+    r"head\s*of\s*marketing\b|growth\s*manager\b|digital\s*marketing\s*(?:manager|specialist|expert|consultant)\b",
     re.I,
 )
 

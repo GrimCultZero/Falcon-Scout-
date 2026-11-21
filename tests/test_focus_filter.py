@@ -311,6 +311,31 @@ for title in [
     keep, cat = ff.classify_focus(title, "General help wanted, SEO mentioned once in passing.", None)
     check(keep, f'Task 0.3: a real ads/search-role title still rescues -- "{title}": got keep={keep} cat={cat!r}')
 
+# ── Task 0b.5 (2026-11-21): the 4 borderline titles the owner asked to add.
+# Each still only rescues a job that ALSO has a weak Google Ads/SEO mention
+# elsewhere (both directions tested); #23079 "Marketing Help" stays hidden.
+for title in ["Marketing Director for Growing Agency", "Head of Marketing for B2B SaaS",
+              "Growth Manager", "Digital Marketing Manager", "Digital Marketing Specialist",
+              "Digital Marketing Expert", "Digital Marketing Consultant"]:
+    keep, cat = ff.classify_focus(title, "General help wanted, SEO mentioned once in passing.", None)
+    check(keep, f'Task 0b.5: the new borderline title rescues a weak mention -- "{title}": got keep={keep} cat={cat!r}')
+
+# ...but with NO weak Google Ads/SEO mention anywhere, the same titles are still hidden
+# (the title alone is never enough -- the "a weak mention stays required" rule holds).
+for title in ["Marketing Director for Growing Agency", "Head of Marketing for B2B SaaS",
+              "Growth Manager", "Digital Marketing Manager"]:
+    keep, cat = ff.classify_focus(title, "General marketing help wanted, no ads or search work at all.", None)
+    check(not keep, f'Task 0b.5: the new titles do NOT rescue on their own, with no weak mention present -- "{title}": got keep={keep} cat={cat!r}')
+
+# #23079 stays hidden: "Marketing Help" is still not one of the rescuing phrases
+keep, cat = ff.classify_focus(
+    "Marketing Help - Home Services Businesses",
+    "I need an individual who can manage, grow, and scale our facebook, instagram, and tik tok page... "
+    "I also need a Google my business page set up, Google ads, Meta ads, etc.",
+    "Social Media Marketing, Social Media Content Creation, Instagram, TikTok",
+)
+check(not keep and cat == "meta_tiktok_ads", f'Task 0b.5: #23079 "Marketing Help" is still NOT rescued (owner: leave it hidden): got keep={keep} cat={cat!r}')
+
 # ── focus_test_active: Kyiv-time, inclusive, malformed dates never loosen it ──
 CFG = {"focus_test": {"from": "2026-11-19", "until": "2026-12-03"}}
 check(not ff.focus_test_active(CFG, utc(2026, 11, 18, 21)), "Nov 18, 23:00 Kyiv: not yet")

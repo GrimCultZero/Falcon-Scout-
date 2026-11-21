@@ -35,6 +35,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "api"))
 import upwork_api  # noqa: E402
 
 CFG = {**upwork_api.load_feed_config(), "test_week": None}  # the base rules; the owner's test week (feed_config test_week) is tested in test_test_week.py
+# Task 0b.4 (owner, 2026-11-21): the web-dev/ecommerce-platform keywords
+# (shopify, wordpress developer, ecommerce website, ...) are PAUSED in the live
+# feed_config.json for the duration of the focus test (moved to
+# "focus_test_paused_keywords", restored 2026-12-03 -- see WORKLOG.md). This
+# file tests the bot's STANDING keyword-matching mechanism, not "what's active
+# during a temporary 2-week pause", so merge the paused keywords back in here.
+if "focus_test_paused_keywords" in CFG:
+    CFG = {**CFG, "keywords": [*CFG["keywords"], *CFG["focus_test_paused_keywords"]["keywords"]]}
 
 bad = 0
 

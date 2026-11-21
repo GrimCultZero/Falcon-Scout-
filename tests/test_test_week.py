@@ -46,6 +46,13 @@ def utc(y, m, d, h=12, mi=0):
     return datetime(y, m, d, h, mi, tzinfo=timezone.utc)
 IN_WEEK = utc(2026, 11, 12)
 AFTER = utc(2026, 11, 18)
+# Task 0b.4 (owner, 2026-11-21): web-dev/ecommerce keywords are PAUSED in the live
+# feed_config.json for the focus test (moved to "focus_test_paused_keywords",
+# restored 2026-12-03 -- see WORKLOG.md). This file tests the bot's STANDING
+# keyword-matching mechanism, not "what's active during a temporary pause", so
+# merge the paused keywords back into every CFG built from LIVE below.
+if "focus_test_paused_keywords" in LIVE:
+    LIVE = {**LIVE, "keywords": [*LIVE["keywords"], *LIVE["focus_test_paused_keywords"]["keywords"]]}
 CFG = {**LIVE, "test_week": {"from": "2026-11-10", "until": "2026-11-17"}}
 NOW_ISO = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -73,7 +80,14 @@ def verdict(r, now, cfg=CFG):
 head = json.loads(subprocess.run(["git", "show", "HEAD:feed_config.json"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8").stdout)
 check(LIVE.get("test_week") == {"from": "2026-11-10", "until": "2026-11-17"}, "feed_config.json has the test_week block (2026-11-10 .. 2026-11-17)")
 same = {k: v for k, v in LIVE.items() if k != "test_week"}
-check(all(same.get(k) == v for k, v in head.items() if k != "test_week"), "every other setting is exactly what it was at HEAD (keywords, stop words, floors, India, age limit)")
+# "keywords" is compared as a set: Task 0b.4's pause-and-merge-back (above) appends
+# the paused keywords at the END rather than restoring their original positions, so
+# the merged list is the same SET as HEAD's but not the same ORDER -- order was
+# never a meaningful setting here.
+def _same_setting(k, v):
+    got = same.get(k)
+    return sorted(got) == sorted(v) if k == "keywords" else got == v
+check(all(_same_setting(k, v) for k, v in head.items() if k != "test_week"), "every other setting is exactly what it was at HEAD (keywords, stop words, floors, India, age limit)")
 check(LIVE["payment_verified_only"] is True and LIVE["min_hourly"] == 25 and LIVE["min_fixed"] == 100 and LIVE["exclude_countries"] == ["india"] and LIVE["max_posting_age_hours"] == 72,
       "the rules the week loosens are still configured (they are not removed)")
 check(upwork_api.DEFAULT_FEED_CONFIG["test_week"] is None, "the default has no test week")
