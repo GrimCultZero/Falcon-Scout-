@@ -553,6 +553,13 @@ def save_feed_config(cfg: dict) -> dict:
     return merged
 
 
+# Task 10.3 (owner, 2026-11-24): the ONLY thing that may still rescue a stop word
+# in the title — the title literally names Google (or AdWords, Google Ads' old
+# name). Deliberately narrower than the old _LANE_RE (which also fired on generic
+# "ppc"/"sem"/"seo"/"shopify"/etc. with no Google mention at all — that genericness
+# is exactly what let an Amazon-only "PPC" job through). See _row_passes.
+_GOOGLE_MENTION_RE = re.compile(r"(?<!\w)(?:google|adwords)(?!\w)", re.I)
+
 _STOP_RE_CACHE: dict[str, "re.Pattern"] = {}
 
 
@@ -788,21 +795,30 @@ def _row_passes(row: dict, cfg: dict, now: "datetime | None" = None) -> "str | N
     # fetch, nearly all Google Ads roles that happen to say the client also
     # runs Meta.
     #
-    # Task 10.3 (owner, 2026-11-24): until today, a title that ALSO matched the
-    # (now-removed) _LANE_RE lane-rescue ("google", "ppc", "seo", "shopify", ...)
-    # survived a stop word anyway — meant for "Google & Meta Ads Specialist"-style
-    # mixed postings, but it was never scoped to platform words specifically, so
-    # "Amazon PPC Campaign Audit & Performance Optimization" (#25711-#25713) leaked
-    # past the "amazon" stop word purely because its title also says "PPC". Owner's
-    # rule: stop words are absolute, no exceptions, including this rescue. A stop
-    # word in the title now ALWAYS drops the row.
-    # NOTE, disclosed (not silently dropped): this also reverses the 2026-10-15
-    # decision's own measured upside — 5 real jobs Artem applied to anyway (3 on
-    # "bing", 1 "hubspot", 1 "editor"), 2 of which got replies, relied on this same
-    # rescue (their titles contain "google"/"ga4"/"seo" alongside the stop word).
-    # Flagged in the report for the owner to confirm or narrow next time.
+    # Task 10.3 (owner, 2026-11-24): the old lane-rescue (_LANE_RE: "google",
+    # "ppc", "sem", "seo", "shopify", ... — ANY of those saved a stop word) let
+    # "Amazon PPC Campaign Audit & Performance Optimization" (#25711-#25713)
+    # leak past the "amazon" stop word purely because "PPC" is generic enough
+    # to appear on an Amazon-only job with zero Google content. Owner's rule:
+    # stop words are absolute, no exceptions, including a rescue that isn't
+    # actually about Google.
+    #
+    # NARROWED, not removed (measured before shipping, not assumed): a full,
+    # unconditional removal was tried first and checked against the last 14
+    # days of captured titles — it also would have dropped 98 genuinely mixed
+    # Google+other-platform postings ("Google & Meta Ads Specialist", "PPC
+    # Expert for Google and Microsoft Ads", "Facebook and Google Ads Specialist
+    # for Gutter Cleaning"), on top of the 129 real off-lane leaks (Amazon-only,
+    # SEO content-writer gigs, etc.) — far beyond the 3-job symptom reported,
+    # and squarely the volume the 2026-10-15 decision was protecting (5 real
+    # applied-to jobs, 2 replies). So the rescue now requires the title to
+    # LITERALLY say "Google" or "AdWords" — not just a generic lane word like
+    # "ppc"/"seo"/"shopify" that says nothing about which platform. This closes
+    # the Amazon leak (no "google" in that title) while keeping every
+    # genuinely Google-mixed posting. Full before/after counts in the
+    # 2026-11-24 report.
     hit = _stop_word_hit(title, cfg.get("stop_words") or [])
-    if hit:
+    if hit and not _GOOGLE_MENTION_RE.search(title):
         return f"stopword:{hit}"
 
     if cfg.get("require_keyword_in_text"):
