@@ -42,7 +42,10 @@ def row(uid, title, desc="Please see the details below.", hours_ago=3, **kw):
 rows = [
     row("~in", "Google Ads Specialist"),                                              # passes, stored
     row("~new", "SEO Backlink Specialist"),                                           # passes, never stored
-    row("~miss1", "Marketing Specialist for Instagram and Google Campaigns Expert"),  # google near campaigns: passes via the proximity rule
+    # Task 10.3 (owner, 2026-11-24): stop words are now absolute -- "instagram" in the
+    # title drops this even though "google" is also there (the old lane-rescue that
+    # used to let this pass via the proximity rule is gone, on purpose).
+    row("~miss1", "Marketing Specialist for Instagram and Google Campaigns Expert"),
     row("~miss2", "Paid Ads Specialist Needed for Two Upcoming Campaigns"),           # no Google in the title: a known gap
     row("~miss3", "Semrush report for a few companies", "Need a report."),            # 'sem' is not a whole word here
     row("~lane", "SEM specialist wanted", "Need a person."),                          # no feed keyword, SEM is a lane word -> suspect
@@ -54,24 +57,30 @@ rows = [
 rep = fc.analyse(rows, CFG, {"~in"})
 ids = lambda items: {i["upwork_job_id"] for i in items}
 check(ids(rep["in_feed"]) == {"~in"}, "a passing posting that is stored is 'in feed' (and only that one)")
-check({"~new", "~miss1"} <= ids(rep["passes_not_stored"]), "'Instagram and Google Campaigns' now passes (proximity) but was never stored")
-check({"~miss2", "~miss3"} <= ids(sum(rep["dropped_words"].values(), [])) and not ({"~miss2", "~miss3"} & ids(rep["suspect_misses"])), "known limits, not suspects: no Google in the title ('Paid Ads Specialist'), 'Semrush' is not the word SEM")
+check(ids(rep["passes_not_stored"]) == {"~new"}, "'SEO Backlink Specialist' passes but was never stored")
+check({"~miss1", "~miss2", "~miss3"} <= ids(sum(rep["dropped_words"].values(), [])) and not ({"~miss1", "~miss2", "~miss3"} & ids(rep["suspect_misses"])), "known limits, not suspects: 'instagram' is an absolute stop word (Task 10.3), no Google in the title ('Paid Ads Specialist'), 'Semrush' is not the word SEM")
 check("~new" in ids(rep["passes_not_stored"]), "a passing posting the feed never stored is 'passes, not stored'")
 check(set(rep["dropped_floors"]) == {"hourly<25", "posted>72h"} and ids(rep["dropped_floors"]["hourly<25"]) == {"~low"}, "rate and age drops are the floors, not words")
-check(any(r.startswith("stopword:") for r in rep["dropped_words"]) and "~stop" in ids(sum(rep["dropped_words"].values(), [])), "a stop-word drop is a words drop")
+check(any(r.startswith("stopword:") for r in rep["dropped_words"]) and {"~stop", "~miss1"} <= ids(sum(rep["dropped_words"].values(), [])), "a stop-word drop is a words drop (including the now-absolute 'instagram' case)")
 sus = ids(rep["suspect_misses"])
 check("~lane" in sus, "a words-dropped posting whose TITLE has a lane word ('SEM') is a SUSPECT MISS")
-check("~off" not in sus and "~stop" not in sus and "~low" not in sus, "off-lane, stop-word and floor drops are not suspects")
+check("~off" not in sus and "~stop" not in sus and "~low" not in sus and "~miss1" not in sus, "off-lane, stop-word and floor drops are not suspects")
 check(rep["fetched"] == len(rows) and sum(len(v) for v in rep["dropped_words"].values()) + sum(len(v) for v in rep["dropped_floors"].values()) + len(rep["in_feed"]) + len(rep["passes_not_stored"]) == len(rows),
       "every fetched posting lands in exactly one bucket")
 
-# the audit's own examples, against the T18 rules: these used to be suspects, now they pass
-aud = fc.analyse([row("~1", "Google and Instagram Ads Expert"), row("~2", "GEO/AEO Optimization Specialist"), row("~3", "Google Page indexing Task"),
+# the audit's own examples, against the T18 rules: these used to be suspects, now they pass.
+# "~1" is excluded from this group as of Task 10.3 (owner, 2026-11-24): "instagram" is
+# now an absolute stop word, so it is correctly dropped (stopword:instagram) instead of
+# passing — a disclosed, deliberate behavior change, not a regression in this check.
+aud = fc.analyse([row("~2", "GEO/AEO Optimization Specialist"), row("~3", "Google Page indexing Task"),
                   row("~4", "Usercentrics + GTM + Google Consent Mode v2")], CFG, set())
-check(len(aud["suspect_misses"]) == 0 and len(aud["passes_not_stored"]) == 4, "the five-shape leak from the 2026-10-29 audit is no longer reported as a miss")
+check(len(aud["suspect_misses"]) == 0 and len(aud["passes_not_stored"]) == 3, "the five-shape leak from the 2026-10-29 audit is no longer reported as a miss")
+aud_stop = fc.analyse([row("~1", "Google and Instagram Ads Expert")], CFG, set())
+check(aud_stop["suspect_misses"] == [] and "stopword:instagram" in aud_stop["dropped_words"],
+      "Task 10.3: 'Google and Instagram Ads Expert' is now dropped outright (absolute stop word), not a suspect miss")
 old_cfg = {**CFG, "keywords": [k for k in CFG["keywords"] if k not in ("google tag manager", "ga4", "google analytics", "conversion tracking", "consent mode", "search console", "indexing", "aeo", "geo", "ai search", "llm seo", "local citation", "citation building", "guest post", "youtube ads", "google business profile", "gbp")], "google_proximity": False}
-aud_old = fc.analyse([row("~1", "Google and Instagram Ads Expert"), row("~2", "GEO/AEO Optimization Specialist")], old_cfg, set())
-check(len(aud_old["suspect_misses"]) == 2, "…and WOULD have been reported under the old rules (the check catches this kind of leak)")
+aud_old = fc.analyse([row("~2", "GEO/AEO Optimization Specialist")], old_cfg, set())
+check(len(aud_old["suspect_misses"]) == 1, "…and WOULD have been reported under the old rules (the check catches this kind of leak)")
 
 text = fc.render(rep, 48)
 check("SUSPECT MISSES" in text and "SEM specialist wanted" in text and "https://www.upwork.com/jobs/~lane" in text, "the printed report lists each suspect with its Upwork link")

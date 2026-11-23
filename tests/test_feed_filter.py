@@ -18,11 +18,16 @@ Three behaviours are pinned here:
    "PlumBING", which is the real reason "Google Ads Expert for Plumbing
    Campaign" was filtered as a Bing job. Artem applied to it anyway.
 
-3. A stop word in the title only disqualifies a title that offers nothing from
-   Artem's lane. Moving to title-only let Meta-only jobs through, so
-   "meta ads"/"instagram"/"social media" went into the stop list — and without
-   this rescue those would bin every mixed Google+Meta posting, of which one
-   live fetch held three.
+3. Task 10.3 (owner, 2026-11-24): stop words are now ABSOLUTE — a stop word in
+   the title drops the row no matter what else the title says. Until this task
+   a "lane rescue" kept a title that ALSO mentioned google/ppc/seo/shopify/etc.
+   alongside a stop word (meant for "Google & Meta Ads Specialist"-style mixed
+   postings), but it was never scoped to platform words specifically, so
+   "Amazon PPC Campaign Audit & Performance Optimization" leaked past the
+   "amazon" stop word purely because its title also says "PPC". The rescue is
+   removed entirely, per the owner's explicit "nothing may override a stop
+   word" rule — this also means a genuinely mixed Google+Meta title is dropped
+   now (a real, disclosed behavior change — see the 2026-11-24 report).
 
 Run: .venv\\Scripts\\python tests\\test_feed_filter.py
 """
@@ -83,7 +88,7 @@ assert_(not dropped("Google Ads Specialist for Home Services",
 assert_(dropped("Facebook Ads Manager for DTC Brand"),
         "a stop word in the TITLE still drops the job")
 
-# ── 3. the lane rescue ───────────────────────────────────────────────────────
+# ── 3. stop words are absolute (Task 10.3, owner 2026-11-24) ────────────────
 for t in ("Meta Ads Specialist for Boutique Bali Villa Developer",
           "Experienced Meta Ads Lead Generation Specialist",
           "Senior Social Media & Performance Marketing Manager | Jewelry",
@@ -91,20 +96,37 @@ for t in ("Meta Ads Specialist for Boutique Bali Villa Developer",
           "Bookkeeper (full-time, remote)"):
     assert_(dropped(t), f"off-lane: {t[:52]}")
 
-# None of these contain "google ads" as a contiguous phrase, which is why the
-# rescue tests a looser set of lane words than the feed keywords do.
+# The old "lane rescue" (google/ppc/seo/shopify/... in the title saves a stop
+# word) is REMOVED: these all contain "google" yet are still correctly
+# dropped now that stop words have no exception. This is the exact mechanism
+# that let "Amazon PPC Campaign Audit & Performance Optimization" (#25711-
+# #25713) leak past the "amazon" stop word (Task 10.3's reported symptom).
 for t in ("Google & Meta Ads Specialist for Local Music Academy",
-          "Expert Healthcare Ad Campaign Manager - Google, Meta & ChatGPT Ads",
-          "Social Media & Marketing Manager (Meta + Google Ads, FR/EN)"):
-    assert_(not dropped(t), f"mixed Google+Meta survives: {t[:46]}")
+          "Google & Facebook Ads Specialist for Boutique Agency",
+          "Social Media & Marketing Manager (Meta + Google Ads, FR/EN)",
+          "Amazon PPC Campaign Audit & Performance Optimization"):
+    assert_(dropped(t), f"a stop word in the title now ALWAYS drops the row, no rescue: {t[:52]}")
+assert_((upwork_api._row_passes({"title": "Amazon PPC Campaign Audit & Performance Optimization",
+                                 "description_full": "google ads seo audit", "payment_verified": True}, CFG)
+         == "stopword:amazon"),
+        "Task 10.3: the exact symptom title is dropped with reason stopword:amazon")
 
-# ── the five jobs the old rule blocked and Artem sent anyway (2 replied) ─────
+# ── jobs that relied on the now-removed rescue (disclosed behavior change) ──
+# Before Task 10.3 these survived a title stop word ("bing"/"hubspot") because
+# the title also said "google"/"seo"/"ga4" — the owner's measured 2026-10-15
+# evidence for keeping them (5 real applied-to jobs, 2 replies) is real, but
+# "stop words are absolute, no rescue" is the owner's explicit 2026-11-24
+# instruction and takes priority; flagged, not silently kept.
+for t in ("Google Ads, GA4, GTM, HubSpot & CallRail Attribution Audit",):
+    assert_(dropped(t), f"Task 10.3 regression (disclosed, intentional): {t[:46]} no longer survives")
+
+# These three do NOT contain a whole-word stop word at all (no lane rescue
+# needed), so they are unaffected by removing the rescue:
 for t in ("Google Ads Expert for Plumbing Campaign",
           "Google Ads, SEO & Website Specialist to Manage and Grow Our Plumbing Business",
-          "Google Ads, GA4, GTM, HubSpot & CallRail Attribution Audit",
           "Google Ads Specialist for Home Services",
           "International Technical SEO Architect for Multi-Market iGaming"):
-    assert_(not dropped(t), f"applied-to job survives: {t[:46]}")
+    assert_(not dropped(t), f"no stop word present, still survives: {t[:46]}")
 
 # ── the keyword restoration the bot's shutdown forced ────────────────────────
 # Recovered from the 226 bot postings still on disk: the terms
@@ -167,13 +189,18 @@ def passes(title, desc=PLAIN, cfg=None):
     return upwork_api._row_passes(row(title, desc), cfg or CFG) is None
 
 
-for t in ("Google and Instagram Ads Expert",
-          "Google and Social Ads Expert Needed",
+for t in ("Google and Social Ads Expert Needed",
           "GEO/AEO Optimization Specialist",
           "Google Page indexing Task",
           "Usercentrics + GTM + Google Consent Mode v2"):
     assert_(passes(t), f"ACCEPTANCE: passes the filter: {t}")
     assert_(not passes(t, cfg=OLD_CFG), f"…and was dropped by the old rules (this is the leak): {t}")
+
+# "Google and Instagram Ads Expert" is EXCLUDED from the group above as of Task 10.3
+# (owner, 2026-11-24): "instagram" is now an absolute stop word with no rescue, so
+# this title is correctly dropped (stopword:instagram) rather than passing — a
+# disclosed, deliberate behavior change, not a regression of the T18 keyword widening.
+assert_(not passes("Google and Instagram Ads Expert"), "Task 10.3: 'instagram' drops this outright now, no exception for the T18 widening")
 
 assert_(all(k in CFG["keywords"] for k in NEW_KW), "all 17 new keywords are in the live feed_config.json")
 assert_(all(k in upwork_api.DEFAULT_FEED_CONFIG["keywords"] for k in NEW_KW), "…and in the defaults, so a reset config is not weaker")

@@ -553,18 +553,6 @@ def save_feed_config(cfg: dict) -> dict:
     return merged
 
 
-# Single words that mean the title is offering work Artem actually does. Used
-# only to rescue a title that also tripped a stop word — deliberately looser
-# than the feed keywords, because "Google & Meta Ads Specialist" contains
-# neither "google ads" nor "google ad" as a contiguous phrase, yet is plainly
-# a Google Ads job.
-_LANE_RE = re.compile(
-    r"(?<!\w)(?:google|adwords|ppc|sem|seo|aeo|geo|shopping|pmax|"
-    r"performance\s+max|merchant\s+center|shopify|woocommerce|wordpress|"
-    r"opencart|magento|ecommerce|e-commerce)(?!\w)",
-    re.I,
-)
-
 _STOP_RE_CACHE: dict[str, "re.Pattern"] = {}
 
 
@@ -798,18 +786,23 @@ def _row_passes(row: dict, cfg: dict, now: "datetime | None" = None) -> "str | N
     # Matching the whole blob meant one passing mention killed a job that was
     # squarely in the lane: "facebook" alone dropped 28 postings in a single
     # fetch, nearly all Google Ads roles that happen to say the client also
-    # runs Meta. Measured against the real corpus, the old behaviour blocked 5
-    # jobs Artem applied to anyway since 2026-08-01 (3 on "bing", 1 "hubspot",
-    # 1 "editor") — two of which got replies. A job genuinely ABOUT the wrong
-    # platform says so in its title, so the title is the honest signal.
+    # runs Meta.
+    #
+    # Task 10.3 (owner, 2026-11-24): until today, a title that ALSO matched the
+    # (now-removed) _LANE_RE lane-rescue ("google", "ppc", "seo", "shopify", ...)
+    # survived a stop word anyway — meant for "Google & Meta Ads Specialist"-style
+    # mixed postings, but it was never scoped to platform words specifically, so
+    # "Amazon PPC Campaign Audit & Performance Optimization" (#25711-#25713) leaked
+    # past the "amazon" stop word purely because its title also says "PPC". Owner's
+    # rule: stop words are absolute, no exceptions, including this rescue. A stop
+    # word in the title now ALWAYS drops the row.
+    # NOTE, disclosed (not silently dropped): this also reverses the 2026-10-15
+    # decision's own measured upside — 5 real jobs Artem applied to anyway (3 on
+    # "bing", 1 "hubspot", 1 "editor"), 2 of which got replies, relied on this same
+    # rescue (their titles contain "google"/"ga4"/"seo" alongside the stop word).
+    # Flagged in the report for the owner to confirm or narrow next time.
     hit = _stop_word_hit(title, cfg.get("stop_words") or [])
-    if hit and not _LANE_RE.search(title):
-        # A stop word in the title only disqualifies a job when the title
-        # offers nothing from Artem's own lane. "Meta Ads Specialist for a
-        # Bali Villa" is off-lane and goes; "Google & Meta Ads Specialist"
-        # names the work he does and stays. Without this, adding the platform
-        # terms below would throw away every mixed Google+Meta posting, of
-        # which a single live fetch held three.
+    if hit:
         return f"stopword:{hit}"
 
     if cfg.get("require_keyword_in_text"):
