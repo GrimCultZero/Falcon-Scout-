@@ -1600,3 +1600,66 @@ export function repairDoubleParenOrphan(text) {
   })
   return { text: repaired.length ? cleaned : src, repaired }
 }
+
+// ── Task 7.5 (owner, 2026-11-23, job 25615): record-only deliverable checks ──
+// warnings shown to the owner, never rewritten (consistent with the project's
+// "ENFORCER DELETED" lesson above). Non-global copies for a single .test()/
+// .exec() each — NEVER share a `g`-flagged regex's lastIndex across these,
+// a stateful bug that would silently skip matches on a later call.
+const _AUDIT_ATTACH_MENTION_SRC = String.raw`attach(?:ing|ed)?\b[^.?!]{0,60}\b(?:technical\s+seo\s+)?audit\s+samples?\b|samples?\s+of\s+(?:recent\s+)?audits?\b|audit\s+samples?\s+(?:are|is)\s+attached\b|attaching\s+a\s+sample\s+(?:of\s+a\s+recent\s+)?(?:technical\s+seo\s+)?audit\b`
+const _PLAN_ATTACH_MENTION_SRC = String.raw`attach(?:ing|ed)?\b[^.?!]{0,60}\b(?:seo\s+promotion\s+)?plan\s+samples?\b|sample\s+seo\s+promotion\s+plan\b`
+const _AUDIT_COMMITMENT_RE = /\bI(?:'ll|'d|\s+will|\s+would|\s+can)\b[^.?!]{0,60}\b(?:run|do|perform|prepare|handle|conduct|deliver)\b[^.?!]{0,40}\baudit\b/i
+const _PLAN_COMMITMENT_RE = /\bI(?:'ll|'d|\s+will|\s+would|\s+can)\b[^.?!]{0,60}\b(?:run|do|perform|prepare|handle|conduct|deliver)\b[^.?!]{0,40}\bplan\b/i
+
+/**
+ * An audit or plan sample is attached (mentioned) but no commitment sentence
+ * ("I'll/I'd/I would/I can" + run/do/perform/prepare/handle/conduct/deliver +
+ * audit/plan) appears BEFORE that mention — the attachment with no preceding
+ * offer, job 25615's core defect in both correction drafts.
+ */
+export function offerMissingBeforeAttachment(text) {
+  const src = String(text || '')
+  const checks = [
+    { attachRe: new RegExp(_AUDIT_ATTACH_MENTION_SRC, 'i'), commitRe: _AUDIT_COMMITMENT_RE },
+    { attachRe: new RegExp(_PLAN_ATTACH_MENTION_SRC, 'i'), commitRe: _PLAN_COMMITMENT_RE },
+  ]
+  for (const { attachRe, commitRe } of checks) {
+    const m = attachRe.exec(src)
+    if (!m) continue
+    if (!commitRe.test(src.slice(0, m.index))) return true
+  }
+  return false
+}
+
+/** The same sample type (audit, or plan) is attached/mentioned in two separate sentences. */
+export function duplicateAttachment(text) {
+  const src = String(text || '')
+  const countMatches = (source) => {
+    const re = new RegExp(source, 'gi')
+    let n = 0
+    while (re.exec(src)) n++
+    return n
+  }
+  return countMatches(_AUDIT_ATTACH_MENTION_SRC) >= 2 || countMatches(_PLAN_ATTACH_MENTION_SRC) >= 2
+}
+
+const _PLAN_MENTION_RE = /\b(?:seo\s+(?:promotion\s+)?plan|seo\s+roadmap|promotion\s+plan)\b/i
+const _AUDIT_SAMPLE_MENTION_RE = new RegExp(_AUDIT_ATTACH_MENTION_SRC, 'i')
+
+/**
+ * The wrong deliverable for this job's scope: the 3-month SEO plan offered on
+ * an audit-only job (no ongoing work asked for), or a technical SEO audit
+ * sample offered on a growth/retainer job that never asked for an audit.
+ * Returns a reason string, or null. `isAuditJob` / `wantsOngoingWork` are the
+ * SAME classifier-first, regex-fallback values JobDetail.jsx computes for the
+ * generation prompt — pass them through so this check and the prompt can
+ * never disagree about what the job asked for.
+ */
+export function wrongDeliverableForScope(text, { wantsOngoingWork = false, isAuditJob = false } = {}) {
+  const src = String(text || '')
+  const hasPlanMention = _PLAN_MENTION_RE.test(src)
+  const hasAuditSampleMention = _AUDIT_SAMPLE_MENTION_RE.test(src)
+  if (hasPlanMention && isAuditJob && !wantsOngoingWork) return 'plan-on-audit-only'
+  if (hasAuditSampleMention && !isAuditJob && wantsOngoingWork) return 'audit-on-growth-retainer'
+  return null
+}

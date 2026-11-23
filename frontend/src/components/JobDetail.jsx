@@ -13,7 +13,7 @@ import { expandCasePlaceholders, CASE_LEDGER, CASE_BY_ID, renderCaseLine, render
 import { groundingCheck } from '../lib/groundingCheck'
 // Owner rules made certain rather than re-asked of the model (2026-09-24):
 // no call offers, and an offered audit always mentions its sample.
-import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, vapeFabricationSentences, hasOrphanPunctuation, ensureExperienceYearsStated, stripRecordLeakSentences, stripResultsComingSentences, repairDoubleParenOrphan } from '../lib/letterGuards'
+import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, vapeFabricationSentences, hasOrphanPunctuation, ensureExperienceYearsStated, stripRecordLeakSentences, stripResultsComingSentences, repairDoubleParenOrphan, offerMissingBeforeAttachment, duplicateAttachment, wrongDeliverableForScope } from '../lib/letterGuards'
 import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage, ensureLocalSeoResultsAnswer, ensurePricingFigureWhenAsked, insertNumberedAnswers } from '../lib/screeningQuestions'
 import { findAutoBomb } from '../lib/digitBombMatch'
 import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
@@ -264,6 +264,31 @@ const _PROOF_REQUEST_RE = /\b(portfolio|examples?\b|case\s+stud|\bproof\b|sites?
 // (casaeleganza.com, paramusmegafurniture.com) — even though the client
 // never asked to see Artem's proof/portfolio anywhere in the posting.
 const _CLIENT_OWN_PORTFOLIO_RE = /\b(?:run|runs|running|manage|manages|managing|own|owns|owning|have|has|having|operate|operates|operating|maintain|maintains|maintaining)\s+a\s+portfolio\s+of\b/gi
+
+// ── Does the posting ask for CONTINUING work after the first deliverable? ───
+// Task 7.2 (owner, 2026-11-23, job 25615): regex fallback for the
+// classifier's `wants_ongoing_work` field, and the single source of truth
+// both the generation prompt and the post-generation deliverable checks use
+// (so they can never disagree). Deliberately narrow to an ACTUAL continuing
+// engagement, not a deliverable phrase — "roadmap", "growth foundation",
+// "link building strategy" describe what ONE audit/report covers or
+// recommends, not a second engagement. Mirrors the shape of the existing
+// in-block _RETAINER_SIGNAL_RE (JobDetail.jsx's SEO-plan check), kept here as
+// the one shared copy.
+const _WANTS_ONGOING_WORK_RE = /\b(retainer|ongoing\s+(?:seo|work|management|support|optimi|improvement|help|maintenance|implementation|campaigns?)|monthly\s+(?:seo|retainer|management|work|support|hours?)|recurring|continue\s+improving|long.?term\s+(?:engagement|partnership|work|management|contract|support|collaboration|retainer|relationship|role|help|assistance|basis|commitment|maintenance))\b/i
+
+// ── Offer-structure rule (Task 7.3, owner 2026-11-23, job 25615) ───────────
+// ANY deliverable offer (technical SEO audit, Google Ads audit, SEO
+// promotion plan) is written OFFER -> CONTENT -> PROOF, never a lone
+// attachment sentence with no preceding commitment. Shared verbatim between
+// the generation prompt and the chat revision path (Task 7.4) so neither can
+// drift from the other — job 25615's chat draft never offered the audit at
+// all, jumping straight to "I'm attaching two samples...".
+const DELIVERABLE_OFFER_STRUCTURE_RULE = `OFFER STRUCTURE — every deliverable offer (technical SEO audit, Google Ads audit, SEO promotion plan) follows this order, no exceptions:
+(1) OFFER: one sentence where Artem COMMITS to doing it for THIS client, in the client's own terms ("I'd handle this as one manual SEO audit covering the five areas you listed" / "I'll audit your Google Ads account first"). Never skip straight to the attachment.
+(2) CONTENT: what it covers, mapped to the client's own scope items in their words, and what they RECEIVE (e.g. "prioritized tickets your developer can implement", "a keyword-to-page map", "a safe off-page plan"). For a technical SEO audit, state here that it is done entirely by hand.
+(3) PROOF: ONE sentence attaching the sample, tied to what the client gets (e.g. "I'm attaching two recent technical SEO audit samples so you can see exactly what your developer would receive."). Describe the sample in at most a short clause — NEVER a whole sentence about the sample's origin site(s) or vertical; that is about Artem's samples, not about this client. NEVER mention the same attachment twice anywhere in the letter.
+NEVER write an attachment/sample sentence for a deliverable the letter has not first OFFERED (step 1). An attachment with no preceding commitment sentence is the single most common failure here — check this before emitting.`
 
 // ── Additional standing facts (owner instruction, 2026-11-20) ───────────────
 // Single number for experience everywhere a letter states it — "12 years",
@@ -1544,6 +1569,52 @@ async function checkRuleConflict(newRuleText) {
 // "small mechanical JSON call" pattern already proven in this file. Returns
 // null on ANY failure so callers always fall back to the regex — this must
 // never become a hard dependency that blocks generation.
+// ── Deliverable rules (Task 7.4, owner 2026-11-23, job 25615) ──────────────
+// Extracted out of the generation system prompt so the chat revision path
+// (InlineChat's proposal-chat system suffix, below) can inject the EXACT
+// same attachment inventory + offer-structure rule + deliverable decision —
+// job 25615's chat revision had none of this and improvised, dropping real
+// credentials and inventing sample-origin details.
+function buildDeliverableRulesBlock(wantsOngoingWork) {
+  return `ATTACHMENTS & SAMPLES RULE (non-negotiable): Artem has exactly these attachable materials:
+1. Derma Solution case study — PDF. When mentioned, say "attached as a PDF" in the same or next sentence.
+2. Skin Reboot case study — PDF. Same rule.
+3. Google Ads / PPC audit sample — real document Artem attaches ONLY to proposals for jobs that involve auditing an EXISTING account (optimise / fix / review running campaigns). Mention it as: "attaching a sample of a recent Google Ads audit so you can see the format and depth." DO NOT offer or attach this on LAUNCH / from-scratch / zero-pixel jobs — there is no account to audit, and offering one signals you didn't read the brief (see WHEN NOT TO OFFER AN AUDIT above). This item is required ONLY when the AUDIT OFFER RULES say an audit applies.
+4. SEO promotion plan sample — real document for SEO proposals. Mention as: "attaching a sample SEO promotion plan so you can see the format." NEVER write "attaching a sample so you can see the format" without naming the type — always name it: "SEO promotion plan", "Google Ads audit", "technical SEO audit". An unnamed "sample" confuses the client and signals you copy-pasted the line.
+5. Technical SEO audit sample — a real 36-page technical SEO audit PDF Artem delivered (lemoos.com, a bilingual e-commerce site: glossary + a 4-tier priority framework, crawl/indexation/redirects/canonicals/schema/Core Web Vitals findings). Attach this when the SEO job involves a technical AUDIT / DIAGNOSIS / site review / migration recovery / crawl / indexation work (i.e. the client wants you to FIND and FIX issues on an existing site — NOT a from-scratch build). Mention it as: "attaching a sample technical SEO audit so you can see the format and depth." This is the SEO counterpart to the Google Ads audit sample — when the SEO job is audit/diagnosis-driven, attaching it is REQUIRED.
+6. Every other case study — use the block format below. Each non-PDF case carries its OWN "(attached in profile highlights)" label right after its name — the lead-in sentence introducing the block stays PLAIN, with no attachment label on it (a shared lead-in can't correctly describe a block that later mixes in a PDF case, which carries a different label).
+That is the complete inventory. There are NO schema implementation samples, NO AI visibility breakdowns, NO entity mapping examples, NO separate SEO reports beyond the plan sample and the technical SEO audit sample, NO additional work examples beyond what is listed. Do not invent materials, do not promise to send things that are not on this list, do not say "profile highlights" contains anything that isn't an approved case study from the list. This covers everything — case studies, audit samples, schema examples, AI visibility breakdowns, reports, screenshots, or any other work example. If you say "i'm attaching X" or "happy to send X" or "here are samples of X", X must be in the approved list. If it is not listed, do not mention it. Inventing promised materials destroys credibility when the client asks for them and they don't exist.
+
+${DELIVERABLE_OFFER_STRUCTURE_RULE}
+
+SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually wants (mandatory):
+
+DELIVERABLE DECISION FOR THIS JOB (computed from the posting, not a suggestion): wants_ongoing_work = ${wantsOngoingWork}. ${wantsOngoingWork
+  ? 'The posting asks for CONTINUING work (a retainer, ongoing/monthly management, or a long-term engagement) in addition to any one-time deliverable — both an audit offer AND the 3-month plan CTA may belong in this letter if the posting itself describes both phases (see the AUDIT + RETAINER exception in (A) below).'
+  : 'The posting asks for a ONE-TIME deliverable only (no retainer, no ongoing/monthly work, no long-term engagement asked for). Offer EXACTLY ONE deliverable in this letter — the audit (A) or the plan (B), never both. Words like "growth", "roadmap", "foundation", "link building strategy" or "plan" in the posting intro or scope items describe what the ONE audit/report covers or recommends, NOT a second, ongoing engagement — they do NOT flip this to the plan. If the scope is a set of audit/review/check/verify/recommendations deliverables, the one offer is the audit.'}
+
+(A) TECHNICAL-AUDIT / DIAGNOSIS / MIGRATION-RECOVERY SEO jobs — the client wants you to FIND and FIX issues on an EXISTING site (signals: "audit", "technical audit", "site review", "crawl", "GSC / Search Console", "indexation", "redirect chains", "canonicals", "Core Web Vitals", "migration", "recover traffic", "diagnose", "why did rankings drop"). For these you MUST:
+  - attach the TECHNICAL SEO AUDIT SAMPLE (inventory item 5). WEAVE the mention into the letter tied to what you diagnosed — do NOT drop it as an isolated boilerplate line floating before the signoff (out-of-context orphan = current failure). Keep it recognizable and named ("sample technical SEO audit … see the format and depth"), but connect it to a surrounding sentence, e.g. "That crawl/indexation matrix is exactly what my audit maps — I've attached a recent technical SEO audit sample so you can see the format and depth." NOT a lone trailing "I'm attaching a sample technical SEO audit so you can see the format and depth."
+  - offer the concrete diagnostic deliverable but state NO turnaround time for it (e.g. "i can run a full diagnostic crawl covering redirects, indexation, canonicals, schema and Core Web Vitals, then hand you a prioritized findings doc"). CRITICAL: a technical SEO audit is NOT a 1–2 day job — NEVER attach a day-count to it ("audit in 2 working days", "audit within 2 days", "deliver the audit in 1 working day" are all FORBIDDEN). The "1 working day" turnaround is the GOOGLE ADS audit only; the "2 working days" turnaround is the SEO PROMOTION PLAN only (option B). The technical SEO audit's timeline is OMITTED from the cover letter entirely (internal estimate ~2 weeks; that figure never goes in the letter).
+  - ALWAYS convey that the audit itself is performed entirely manually — no automated crawlers spitting out a templated report, every site gone through by hand. State it plainly, woven into the audit description rather than as a standalone line — e.g. "every audit I run is done entirely by hand — no automated tools, no templated report."
+  EXCEPTION — AUDIT + RETAINER JOBS: if the client mentions BOTH an initial audit AND ongoing/retainer/long-term work ("audit project, followed by a retainer", "initial audit then monthly SEO", "audit and ongoing improvements", "audit followed by a 90-day roadmap, with the opportunity for ongoing implementation"), the (A) "do not push the plan" rule does NOT apply. For audit+retainer jobs you MUST include BOTH: (1) the audit sample attachment, AND (2) the 3-month SEO promotion plan CTA. The plan covers the retainer phase — if the client's own word for it is "roadmap" rather than "plan", still offer Artem's 3-month SEO promotion plan as the concrete deliverable that IS that roadmap; do not silently drop the CTA because the client used a different noun for it.
+  EXCEPTION — ALREADY-AUDITED / IMPLEMENTATION-ONLY JOBS (mandatory — common on "review and fix" jobs): if the posting explicitly states the client ALREADY completed a technical SEO audit (e.g. "we already have done a technical SEO audit", "we've already had an audit completed", "based on our existing audit", "already identified the issues") and is asking you to review the current setup / validate / implement the fixes — do NOT offer or mention the technical SEO audit sample. The client isn't buying an audit; saying "here's a sample audit so you can see the format" when they just told you they already have one reads as if you didn't read the posting. Skip the audit-sample line entirely and lean on case studies that demonstrate IMPLEMENTATION results (fixed canonicals/schema/redirects/site speed, etc.) as your proof instead. Describe the review-then-fix process directly — no separate audit deliverable to attach or time.
+
+(B) GROWTH / RANKINGS / ONGOING-SEO jobs — the posting asks for ongoing/monthly/retainer work, or explicitly asks for a plan or proposal for ongoing SEO (wants_ongoing_work = true above, OR the posting itself asks for "a plan", "a proposal", "a strategy document" for continuing SEO). Growth WORDS in the intro alone ("growth", "roadmap", "foundation") are NOT this signal when wants_ongoing_work is false — see the DELIVERABLE DECISION above. For jobs that qualify here, you MUST offer the custom 3-month SEO Promotion Plan in 2 working days (deliverables, costs, link building budget, basic site check, competitor overview) and attach the SEO promotion plan sample:
+"i can prepare a custom 3-month SEO promotion plan within 2 working days — covers deliverables, costs, link building budget, a basic site check, and competitor overview. i'm attaching a sample SEO promotion plan so you can see the format."
+
+A job offers BOTH the audit and the plan ONLY when the posting ITSELF states an audit phase AND ongoing work after it — this is exactly the AUDIT + RETAINER exception in (A) above, not a separate rule. Outside that exception, ONE deliverable per letter, always.
+
+(C) WEBSITE-BUILD / WEB-DEVELOPMENT jobs where the client wants a site BUILT (not SEO campaigns run) — signals: "WordPress developer", "Shopify developer", "build a website", "develop our site", "create our online store", "website development". Even when the posting includes "SEO-friendly design" or "basic on-page SEO setup", that is a BUILD requirement (architecture and structure are SEO-ready from day one), NOT an ongoing SEO campaign deliverable. For these jobs:
+  - Do NOT offer the 3-month SEO promotion plan — it is an ongoing-campaign document and will confuse a client who hired a developer, not an SEO agency.
+  - Do NOT attach the SEO promotion plan sample.
+  - If you want a closing deliverable offer, frame it as: "happy to put together a project scope with build timeline and tech stack before we start" — or simply close with the sign-off and your name.
+  - The differentiator DEPENDS ON SCOPE — match it, don't force the SEO angle:
+    • NEW BUILD / from-scratch / launch (signals: "build a website", "create our store", "develop our new site", "from scratch", "launch"): LEAD with "IT Force wires SEO architecture, schema, GA4 conversion tracking, and Core Web Vitals INTO the build itself — the site ranks from launch, not six months after a separate SEO contractor." Here the ranks-from-launch USP is on-target.
+    • MAINTENANCE / CHANGES / FIX / adjust-existing (signals: "changes", "adjust", "adjustments", "existing", "fix", "minor issues", "update sections", "tweaks", "ongoing changes", "improve the store", "modify", "theme customization on our store"): the store ALREADY EXISTS — there is no launch, so do NOT lead with "ranks from launch" (it's aimed at the wrong scenario and the client hired a DEVELOPER, not an SEO). LEAD instead with DEV RELIABILITY: careful theme/Liquid work, testing every change in a duplicate/preview before pushing live, clean scoped delivery, and NOT breaking existing functionality. Demote SEO/tracking to at most ONE reassurance line — "changes won't break your rankings, schema, or GA4 tracking" — never a ranking pitch. Pitching an SEO service they didn't ask for reads as not listening.
+  - STATE THE DIFFERENTIATOR ONCE (mandatory — no self-echo): make your core differentiating point in ONE place, then move on. Do NOT establish it in the opening/body ("I build production-ready with GA4/GTM/schema wired in at launch") and then RESTATE the same idea in a separate closing paragraph ("The unique part:" / "The differentiator:" / "What sets me apart:" → "I wire the technical SEO and GA4 into the build so it ranks from day one"). That is the same claim twice — it reads as padding and as if you're trying to convince yourself. Pick the single strongest framing, say it once, and cut the duplicate. In particular, if the "tracking/SEO wired into the build" point is already in the letter, do NOT add a second "The unique part:"/"The differentiator:" paragraph repeating it.`
+}
+
 async function classifyJobShape(jobTitle, jobDescription, model) {
   try {
     const res = await fetch('/claude', {
@@ -1553,7 +1624,7 @@ async function classifyJobShape(jobTitle, jobDescription, model) {
         _kind: 'job_classify',
         model: model || 'claude-haiku-4-5-20251001',
         max_tokens: 150,
-        system: 'You classify Upwork job postings for a freelance proposal tool. Answer exactly three yes/no questions about what the posting ITSELF says — do not infer or guess beyond the text. Respond ONLY with valid JSON, no markdown: {"asks_for_rate":true/false,"is_audit_request":true/false,"client_is_agency":true/false}\n\nasks_for_rate: does the posting explicitly ask the freelancer to state their rate, price, budget, or a quote?\nis_audit_request: does the posting ask for a one-time audit, analysis, review, or diagnostic engagement (as opposed to ongoing hands-on management)? A posting that rejects a "generic" or "templated" audit but still wants a custom/bespoke one still counts as true — it is asking for audit-shaped work, just not a canned version of it.\nclient_is_agency: is the BUYER an agency, reseller, or marketing team hiring a delivery partner to work on THEIR OWN CLIENTS\' properties? True only when the work is for the buyer\'s clients — "we are a digital agency", "our clients", "white-label for our roster", "you would work under our brand". FALSE when the buyer wants work on their OWN site or account, even if the posting mentions the word agency as a REQUIREMENT ON THE APPLICANT — "agency background required", "previous agency experience is a must", "you have worked at an agency" all describe the freelancer\'s CV, not the buyer. If the posting says "our website" or "our account", the answer is false no matter how often the word agency appears.',
+        system: 'You classify Upwork job postings for a freelance proposal tool. Answer exactly four yes/no questions about what the posting ITSELF says — do not infer or guess beyond the text. Respond ONLY with valid JSON, no markdown: {"asks_for_rate":true/false,"is_audit_request":true/false,"client_is_agency":true/false,"wants_ongoing_work":true/false}\n\nasks_for_rate: does the posting explicitly ask the freelancer to state their rate, price, budget, or a quote?\nis_audit_request: does the posting ask for a one-time audit, analysis, review, or diagnostic engagement (as opposed to ongoing hands-on management)? A posting that rejects a "generic" or "templated" audit but still wants a custom/bespoke one still counts as true — it is asking for audit-shaped work, just not a canned version of it.\nclient_is_agency: is the BUYER an agency, reseller, or marketing team hiring a delivery partner to work on THEIR OWN CLIENTS\' properties? True only when the work is for the buyer\'s clients — "we are a digital agency", "our clients", "white-label for our roster", "you would work under our brand". FALSE when the buyer wants work on their OWN site or account, even if the posting mentions the word agency as a REQUIREMENT ON THE APPLICANT — "agency background required", "previous agency experience is a must", "you have worked at an agency" all describe the freelancer\'s CV, not the buyer. If the posting says "our website" or "our account", the answer is false no matter how often the word agency appears.\nwants_ongoing_work: does the posting ask for CONTINUING work after the initial deliverable — a retainer, monthly management, an ongoing campaign, recurring work, or a long-term engagement/partnership/role? A posting that asks ONLY for a one-time audit, review, check, setup, or report is false, even if it mentions "roadmap", "plan", "growth", "foundation" or "link building" as part of what that ONE deliverable covers or recommends — those words describe the CONTENT of a single audit/report, not a second, continuing engagement. True requires an explicit continuing-work signal: "retainer", "ongoing", "monthly", "recurring", "long-term partnership/management/contract", or an audit explicitly followed by continuing work ("audit then ongoing SEO", "initial review, then monthly management").',
         messages: [{ role: 'user', content: `Job title: ${jobTitle || '(none)'}\n\nJob description:\n${(jobDescription || '').slice(0, 4000)}` }],
       }),
     })
@@ -1568,6 +1639,9 @@ async function classifyJobShape(jobTitle, jobDescription, model) {
     // discarding a classification whose other two fields are fine, and let the
     // caller fall back to the regex for just that field.
     if (typeof parsed.client_is_agency !== 'boolean') parsed.client_is_agency = null
+    // wants_ongoing_work (Task 7.2, owner 2026-11-23): same tolerant pattern —
+    // added later, so a model that omits it still returns a usable classification.
+    if (typeof parsed.wants_ongoing_work !== 'boolean') parsed.wants_ongoing_work = null
     return parsed
   } catch {
     return null
@@ -4003,6 +4077,22 @@ function InlineChat({ job, systemSuffix, extraContext, onMessagesChange, onRewor
         effectiveSuffix += '\n\n' + (_chatRequiredOpener
           ? `VERIFICATION PHRASE (KB #427): this posting asks the letter to start with "${_chatRequiredOpener}". Keep it as the very first words, exactly as written.`
           : 'VERIFICATION PHRASE (KB #427): this posting asks for NONE. A letter that opens with a lone capitalised code word ("SCALE", "BUILD") is an error copied from another posting\'s request: remove it, and if Artem asks about it, say exactly that.')
+        // Task 7.4 (owner, 2026-11-23, job 25615): the chat revision path must
+        // receive the SAME deliverable rules, attachment inventory, offer-
+        // structure rule, case ledger and facts block as generation — job
+        // 25615's chat had none of this, improvised a weak audit offer, and
+        // invented sample-origin descriptions. Regex-fallback only here (no
+        // extra paid classification call for a chat turn).
+        {
+          const _chatPostingText = `${job?.title || ''}\n${job?.description_full || job?.description_snippet || job?.raw_message || ''}`
+          const _chatWantsOngoingWork = _WANTS_ONGOING_WORK_RE.test(_chatPostingText)
+          effectiveSuffix += '\n\n' + buildDeliverableRulesBlock(_chatWantsOngoingWork)
+          effectiveSuffix += '\n\n' + renderCaseFactsBlock()
+          effectiveSuffix += '\n\n' + buildArtemFactsBlock(_chatPostingText)
+          effectiveSuffix += '\n\n' + [
+            'OWNER CORRECTIONS (mandatory): apply Artem\'s correction as the SMALLEST edit that satisfies it. Do NOT remove a credential, a case study, or any other content Artem did not mention, unless it is now factually WRONG for this posting. Judge relevance against the POSTING TEXT, not against which deliverable this turn is about: if the posting mentions Google Ads anywhere, Google Ads credentials (e.g. "Google Premier Partner") and Ads/tracking case studies (e.g. FridgeFix) stay relevant and stay in the letter even when the correction is about the SEO deliverable specifically.',
+          ].join('\n')
+        }
       }
       if (droppedFiles.length > 0) {
         effectiveSuffix += (effectiveSuffix ? '\n\n' : '') +
@@ -6742,7 +6832,7 @@ function ProposalColumn({
       // Test PRESENCE, not type: a model that genuinely answers null has been asked
       // and its answer should stick, whereas requiring a boolean would re-classify
       // on every single generation whenever a model omits the field.
-      const _CLASSIFICATION_FIELDS = ['asks_for_rate', 'is_audit_request', 'client_is_agency']
+      const _CLASSIFICATION_FIELDS = ['asks_for_rate', 'is_audit_request', 'client_is_agency', 'wants_ongoing_work']
       const _classificationCurrent = (o) => !!o && _CLASSIFICATION_FIELDS.every(k => k in o)
 
       const _classificationPromise = (async () => {
@@ -6795,6 +6885,20 @@ function ProposalColumn({
       if (_isAgencyClientRegex !== isAgencyClient) {
         console.log(`[Falcon] client_is_agency: classifier says ${isAgencyClient}, regex said ${_isAgencyClientRegex} — using the classifier.`)
         _recordViolations('generator', job?.id, ['agencyClassificationOverrodeRegex'])
+      }
+      // wants_ongoing_work (Task 7.2, owner 2026-11-23, job 25615): does the
+      // posting ask for continuing work after the first deliverable, or is it
+      // a one-time audit/review/report? Classification-first, regex fallback
+      // — same pattern as isAgencyClient above. Drives the plan-vs-audit
+      // deliverable decision in the generation prompt AND the post-generation
+      // checks (missingSeoPlanOffer / wrongPlanOnAuditJob / wrongDeliverableForScope).
+      const _wantsOngoingWorkRegex = _WANTS_ONGOING_WORK_RE.test(_earlyDesc) || _WANTS_ONGOING_WORK_RE.test(job?.title || '')
+      const wantsOngoingWork = (_jobClassification && typeof _jobClassification.wants_ongoing_work === 'boolean')
+        ? _jobClassification.wants_ongoing_work
+        : _wantsOngoingWorkRegex
+      if (_wantsOngoingWorkRegex !== wantsOngoingWork) {
+        console.log(`[Falcon] wants_ongoing_work: classifier says ${wantsOngoingWork}, regex said ${_wantsOngoingWorkRegex} — using the classifier.`)
+        _recordViolations('generator', job?.id, ['ongoingWorkClassificationOverrodeRegex'])
       }
       // White-label framing needs the POSTING to ask for it; an agency buyer is not
       // enough (owner, 2026-09-29: "approaching job as an agency when there is no
@@ -7767,37 +7871,7 @@ What you CAN do instead (this is how you sound sharp WITHOUT lying):
 - Describe what your audit/process WILL check — future tense, not claimed past findings: "first thing i'd check is whether [X]" not "your [X] is broken".
 The line: talk about what you'll INVESTIGATE and the patterns you KNOW, never about what you've supposedly already FOUND on their specific property.
 
-ATTACHMENTS & SAMPLES RULE (non-negotiable): Artem has exactly these attachable materials:
-1. Derma Solution case study — PDF. When mentioned, say "attached as a PDF" in the same or next sentence.
-2. Skin Reboot case study — PDF. Same rule.
-3. Google Ads / PPC audit sample — real document Artem attaches ONLY to proposals for jobs that involve auditing an EXISTING account (optimise / fix / review running campaigns). Mention it as: "attaching a sample of a recent Google Ads audit so you can see the format and depth." DO NOT offer or attach this on LAUNCH / from-scratch / zero-pixel jobs — there is no account to audit, and offering one signals you didn't read the brief (see WHEN NOT TO OFFER AN AUDIT above). This item is required ONLY when the AUDIT OFFER RULES say an audit applies.
-4. SEO promotion plan sample — real document for SEO proposals. Mention as: "attaching a sample SEO promotion plan so you can see the format." NEVER write "attaching a sample so you can see the format" without naming the type — always name it: "SEO promotion plan", "Google Ads audit", "technical SEO audit". An unnamed "sample" confuses the client and signals you copy-pasted the line.
-5. Technical SEO audit sample — a real 36-page technical SEO audit PDF Artem delivered (lemoos.com, a bilingual e-commerce site: glossary + a 4-tier priority framework, crawl/indexation/redirects/canonicals/schema/Core Web Vitals findings). Attach this when the SEO job involves a technical AUDIT / DIAGNOSIS / site review / migration recovery / crawl / indexation work (i.e. the client wants you to FIND and FIX issues on an existing site — NOT a from-scratch build). Mention it as: "attaching a sample technical SEO audit so you can see the format and depth." This is the SEO counterpart to the Google Ads audit sample — when the SEO job is audit/diagnosis-driven, attaching it is REQUIRED.
-6. Every other case study — use the block format below. Each non-PDF case carries its OWN "(attached in profile highlights)" label right after its name — the lead-in sentence introducing the block stays PLAIN, with no attachment label on it (a shared lead-in can't correctly describe a block that later mixes in a PDF case, which carries a different label).
-That is the complete inventory. There are NO schema implementation samples, NO AI visibility breakdowns, NO entity mapping examples, NO separate SEO reports beyond the plan sample and the technical SEO audit sample, NO additional work examples beyond what is listed. Do not invent materials, do not promise to send things that are not on this list, do not say "profile highlights" contains anything that isn't an approved case study from the list. This covers everything — case studies, audit samples, schema examples, AI visibility breakdowns, reports, screenshots, or any other work example. If you say "i'm attaching X" or "happy to send X" or "here are samples of X", X must be in the approved list. If it is not listed, do not mention it. Inventing promised materials destroys credibility when the client asks for them and they don't exist.
-
-SEO JOB DELIVERABLE — pick the RIGHT deliverable by what the client actually wants (mandatory):
-
-(A) TECHNICAL-AUDIT / DIAGNOSIS / MIGRATION-RECOVERY SEO jobs — the client wants you to FIND and FIX issues on an EXISTING site (signals: "audit", "technical audit", "site review", "crawl", "GSC / Search Console", "indexation", "redirect chains", "canonicals", "Core Web Vitals", "migration", "recover traffic", "diagnose", "why did rankings drop"). For these you MUST:
-  - attach the TECHNICAL SEO AUDIT SAMPLE (inventory item 5). WEAVE the mention into the letter tied to what you diagnosed — do NOT drop it as an isolated boilerplate line floating before the signoff (out-of-context orphan = current failure). Keep it recognizable and named ("sample technical SEO audit … see the format and depth"), but connect it to a surrounding sentence, e.g. "That crawl/indexation matrix is exactly what my audit maps — I've attached a recent technical SEO audit sample so you can see the format and depth." NOT a lone trailing "I'm attaching a sample technical SEO audit so you can see the format and depth."
-  - offer the concrete diagnostic deliverable but state NO turnaround time for it (e.g. "i can run a full diagnostic crawl covering redirects, indexation, canonicals, schema and Core Web Vitals, then hand you a prioritized findings doc"). CRITICAL: a technical SEO audit is NOT a 1–2 day job — NEVER attach a day-count to it ("audit in 2 working days", "audit within 2 days", "deliver the audit in 1 working day" are all FORBIDDEN). The "1 working day" turnaround is the GOOGLE ADS audit only; the "2 working days" turnaround is the SEO PROMOTION PLAN only (option B). The technical SEO audit's timeline is OMITTED from the cover letter entirely (internal estimate ~2 weeks; that figure never goes in the letter).
-  - ALWAYS convey that the audit itself is performed entirely manually — no automated crawlers spitting out a templated report, every site gone through by hand. State it plainly, woven into the audit description rather than as a standalone line — e.g. "every audit I run is done entirely by hand — no automated tools, no templated report."
-  EXCEPTION — AUDIT + RETAINER JOBS: if the client mentions BOTH an initial audit AND ongoing/retainer/long-term work ("audit project, followed by a retainer", "initial audit then monthly SEO", "audit and ongoing improvements", "audit followed by a 90-day roadmap, with the opportunity for ongoing implementation"), the (A) "do not push the plan" rule does NOT apply. For audit+retainer jobs you MUST include BOTH: (1) the audit sample attachment, AND (2) the 3-month SEO promotion plan CTA. The plan covers the retainer phase — if the client's own word for it is "roadmap" rather than "plan", still offer Artem's 3-month SEO promotion plan as the concrete deliverable that IS that roadmap; do not silently drop the CTA because the client used a different noun for it.
-  EXCEPTION — ALREADY-AUDITED / IMPLEMENTATION-ONLY JOBS (mandatory — common on "review and fix" jobs): if the posting explicitly states the client ALREADY completed a technical SEO audit (e.g. "we already have done a technical SEO audit", "we've already had an audit completed", "based on our existing audit", "already identified the issues") and is asking you to review the current setup / validate / implement the fixes — do NOT offer or mention the technical SEO audit sample. The client isn't buying an audit; saying "here's a sample audit so you can see the format" when they just told you they already have one reads as if you didn't read the posting. Skip the audit-sample line entirely and lean on case studies that demonstrate IMPLEMENTATION results (fixed canonicals/schema/redirects/site speed, etc.) as your proof instead. Describe the review-then-fix process directly — no separate audit deliverable to attach or time.
-
-(B) GROWTH / RANKINGS / ONGOING-SEO jobs — the client wants to grow organic traffic/rankings (not primarily diagnose a broken site). For these you MUST offer the custom 3-month SEO Promotion Plan in 2 working days (deliverables, costs, link building budget, basic site check, competitor overview) and attach the SEO promotion plan sample:
-"i can prepare a custom 3-month SEO promotion plan within 2 working days — covers deliverables, costs, link building budget, a basic site check, and competitor overview. i'm attaching a sample SEO promotion plan so you can see the format."
-
-A job can be BOTH (audit now → growth later): attach the technical SEO audit sample AND offer the plan. Skip only for a clearly one-off micro-task (e.g. "fix this one schema bug").
-
-(C) WEBSITE-BUILD / WEB-DEVELOPMENT jobs where the client wants a site BUILT (not SEO campaigns run) — signals: "WordPress developer", "Shopify developer", "build a website", "develop our site", "create our online store", "website development". Even when the posting includes "SEO-friendly design" or "basic on-page SEO setup", that is a BUILD requirement (architecture and structure are SEO-ready from day one), NOT an ongoing SEO campaign deliverable. For these jobs:
-  - Do NOT offer the 3-month SEO promotion plan — it is an ongoing-campaign document and will confuse a client who hired a developer, not an SEO agency.
-  - Do NOT attach the SEO promotion plan sample.
-  - If you want a closing deliverable offer, frame it as: "happy to put together a project scope with build timeline and tech stack before we start" — or simply close with the sign-off and your name.
-  - The differentiator DEPENDS ON SCOPE — match it, don't force the SEO angle:
-    • NEW BUILD / from-scratch / launch (signals: "build a website", "create our store", "develop our new site", "from scratch", "launch"): LEAD with "IT Force wires SEO architecture, schema, GA4 conversion tracking, and Core Web Vitals INTO the build itself — the site ranks from launch, not six months after a separate SEO contractor." Here the ranks-from-launch USP is on-target.
-    • MAINTENANCE / CHANGES / FIX / adjust-existing (signals: "changes", "adjust", "adjustments", "existing", "fix", "minor issues", "update sections", "tweaks", "ongoing changes", "improve the store", "modify", "theme customization on our store"): the store ALREADY EXISTS — there is no launch, so do NOT lead with "ranks from launch" (it's aimed at the wrong scenario and the client hired a DEVELOPER, not an SEO). LEAD instead with DEV RELIABILITY: careful theme/Liquid work, testing every change in a duplicate/preview before pushing live, clean scoped delivery, and NOT breaking existing functionality. Demote SEO/tracking to at most ONE reassurance line — "changes won't break your rankings, schema, or GA4 tracking" — never a ranking pitch. Pitching an SEO service they didn't ask for reads as not listening.
-  - STATE THE DIFFERENTIATOR ONCE (mandatory — no self-echo): make your core differentiating point in ONE place, then move on. Do NOT establish it in the opening/body ("I build production-ready with GA4/GTM/schema wired in at launch") and then RESTATE the same idea in a separate closing paragraph ("The unique part:" / "The differentiator:" / "What sets me apart:" → "I wire the technical SEO and GA4 into the build so it ranks from day one"). That is the same claim twice — it reads as padding and as if you're trying to convince yourself. Pick the single strongest framing, say it once, and cut the duplicate. In particular, if the "tracking/SEO wired into the build" point is already in the letter, do NOT add a second "The unique part:"/"The differentiator:" paragraph repeating it.
+${buildDeliverableRulesBlock(wantsOngoingWork)}
 
 CASE STUDY SELECTION — match the case study's domain to the job's domain (mandatory):
 
@@ -9958,6 +10032,17 @@ ${buildArtemFactsBlock(_postingTitleDesc)}${renderCaseFactsBlock()}`,
               && !seoPriceOffLedger
               && !unrequestedWhiteLabel
               && !metaChannelMissing
+              && !offerMissingBeforeAttachment(text) && !duplicateAttachment(text)
+              && !wrongDeliverableForScope(text, { wantsOngoingWork, isAuditJob })
+
+            // ── Task 7.5 (owner, 2026-11-23, job 25615): deliverable checks ──
+            // Record-only, same as every other check in this block — never
+            // rewritten (see "ENFORCER DELETED" below). Use the SAME
+            // classifier-first wantsOngoingWork/isAuditJob this run's prompt
+            // used, so the check and the prompt can never disagree.
+            const _offerMissingBeforeAttachment = offerMissingBeforeAttachment(text)
+            const _duplicateAttachment = duplicateAttachment(text)
+            const _wrongDeliverableForScope = wrongDeliverableForScope(text, { wantsOngoingWork, isAuditJob })
 
             // Telemetry (Phase C): record every guard that fired this run.
             // Captured into a named list (not passed inline) because the enforcer's
@@ -10007,6 +10092,9 @@ ${buildArtemFactsBlock(_postingTitleDesc)}${renderCaseFactsBlock()}`,
               missingSeoPlanOffer && 'missingSeoPlanOffer',
               wrongSeoPlanTiming && 'wrongSeoPlanTiming',
               wrongPlanOnAuditJob && 'wrongPlanOnAuditJob',
+              _offerMissingBeforeAttachment && 'offerMissingBeforeAttachment',
+              _duplicateAttachment && 'duplicateAttachment',
+              _wrongDeliverableForScope && 'wrongDeliverableForScope',
               wrongAuditSampleOnAlreadyAudited && 'wrongAuditSampleOnAlreadyAudited',
               missingComplimentaryAuditOffer && 'missingComplimentaryAuditOffer',
               wrongComplimentaryOfferOnAuditOnly && 'wrongComplimentaryOfferOnAuditOnly',
@@ -10593,7 +10681,36 @@ ${buildArtemFactsBlock(_postingTitleDesc)}${renderCaseFactsBlock()}`,
           onMessagesChange={(msgs) => { chatMessagesRef.current = msgs; setChatHasMessages((msgs || []).length > 0) }}
           onRework={(msgs) => generate(buildAdjustments(msgs), digitBombArmed ? { digitBombCaseId } : {})}
           reworkLabel="↺ Rework letter"
-          onProposalRewrite={(text) => { const _t = _blockPlaceholders(_gcShadow(stripAdmissions(text).text, job), job, 'chat'); _recordGeneration(job?.id, 'chat', _t, 'claude-sonnet-4-5'); setProposal(_t) }}
+          onProposalRewrite={(text) => {
+            const _t = _blockPlaceholders(_gcShadow(stripAdmissions(text).text, job), job, 'chat');
+            _recordGeneration(job?.id, 'chat', _t, 'claude-sonnet-4-5')
+            setProposal(_t)
+            // Task 7.4 (owner, 2026-11-23, job 25615): run the same deliverable
+            // checks after a chat edit as after generation, and show them in
+            // the SAME UI place (the rule-flags strip) — not just telemetry.
+            // Reuses the cached classifier result from this job's last
+            // generation when available; regex fallback otherwise (no extra
+            // paid call for a chat turn).
+            const _cached = jobClassificationCacheRef.current[job?.id]
+            const _chatPostingText = `${job?.title || ''}\n${job?.description_full || job?.description_snippet || job?.raw_message || ''}`
+            const _chatWantsOngoingWork = (_cached && typeof _cached.wants_ongoing_work === 'boolean')
+              ? _cached.wants_ongoing_work
+              : _WANTS_ONGOING_WORK_RE.test(_chatPostingText)
+            const _chatIsAuditJob = (_cached && typeof _cached.is_audit_request === 'boolean')
+              ? _cached.is_audit_request
+              : /\baudit\b/i.test(_chatPostingText)
+            _beginViolationRun()
+            const _chatChecks = [
+              offerMissingBeforeAttachment(_t) && 'offerMissingBeforeAttachment',
+              duplicateAttachment(_t) && 'duplicateAttachment',
+              wrongDeliverableForScope(_t, { wantsOngoingWork: _chatWantsOngoingWork, isAuditJob: _chatIsAuditJob }) && 'wrongDeliverableForScope',
+            ].filter(Boolean)
+            if (_chatChecks.length) {
+              console.warn(`[Falcon] chat: ${_chatChecks.length} deliverable check(s) fired: ${_chatChecks.join(', ')}`)
+              _recordViolations('chat', job?.id, _chatChecks)
+            }
+            setRuleFlags(_getRunViolations().filter(n => !_INFO_ONLY_CODES.has(n)))
+          }}
           currentProposalText={proposal}
           fillHeight={true}
           droppedFiles={droppedFiles}
