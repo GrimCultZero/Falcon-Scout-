@@ -19,6 +19,41 @@ export function isUsOnlyValue(value) {
   return US_ONLY_RE.test(String(value || ''))
 }
 
+// Task 9.3 (owner, 2026-11-24): the API feed's mandatory preferred-location field can
+// be ONE country name, or several comma-joined ("Poland, Romania, Ukraine, Argentina,
+// Brazil, Pakistan") — see api/upwork_api.py's _stringify_for_text_column, which joins
+// Upwork's raw list this way. Artem is based in Ukraine: a list that INCLUDES Ukraine
+// means he IS eligible (not a restriction at all, never hidden or marked). A list that
+// does NOT include Ukraine excludes him exactly like "United States only" excludes a
+// non-US freelancer, and is shown the same way.
+// Every value the OTHER writer (the extension's enrichment path, api/geo_restriction.py
+// normalize_geo_value) can store always ends in the word "only", or is "Worldwide" — so
+// excluding those two shapes is enough to recognise "this is the API feed's raw
+// place-name list" without needing a comma (a single mandatory country, e.g. "United
+// States" with no "only" suffix, must also count as restricted).
+const UKRAINE_RE = /\bukraine\b/i
+// The API mapping (api/upwork_api.py _map_node) always tags its own geo_restriction
+// writes with evidence starting this way — gating on it means a pre-T20 garbage value
+// from the OLD, unvalidated extension scraper ("Skills and Expertise", a stray label)
+// is never mistaken for a place-name list just because it happens to omit "only"/
+// "Worldwide"/"Ukraine".
+const API_FEED_EVIDENCE_RE = /^Upwork API: mandatory preferred location\b/
+
+/** Is this stored value a mandatory-location list/single-place value (not an "only"
+ * phrase, not "Worldwide"), FROM THE API FEED specifically, that excludes Ukraine? */
+export function isExcludesUkraineListValue(value, evidence) {
+  const v = String(value || '').trim()
+  if (!v || !API_FEED_EVIDENCE_RE.test(String(evidence || ''))) return false
+  if (/\bonly\b/i.test(v) || /worldwide/i.test(v)) return false
+  return !UKRAINE_RE.test(v)
+}
+
+/** Any hard geo restriction that excludes Artem (Ukraine) — "US only" wording, or an
+ * API-feed mandatory-location list without Ukraine in it. */
+export function isLocationRestrictedValue(value, evidence) {
+  return isUsOnlyValue(value) || isExcludesUkraineListValue(value, evidence)
+}
+
 /**
  * @param {object} job  a feed row (geo_restriction, geo_evidence, geo_read_at)
  * @param {number} [now] ms since epoch (injectable for tests)
@@ -27,7 +62,10 @@ export function isUsOnlyValue(value) {
  *   unverified - US-only but not verified: say "location unverified", never SKIP on it
  */
 export function geoVerdict(job, now = Date.now()) {
-  const usOnly = isUsOnlyValue(job && job.geo_restriction)
+  // "usOnly" is kept as the field name for backward compatibility, but as of Task 9.3
+  // it means "any hard geo restriction excluding Ukraine" — US-only wording, or a
+  // mandatory-location country list without Ukraine in it.
+  const usOnly = isLocationRestrictedValue(job && job.geo_restriction, job && job.geo_evidence)
   if (!usOnly) return { usOnly: false, verified: false, unverified: false, ageHours: null, why: 'not a US-only value' }
 
   const evidence = String((job && job.geo_evidence) || '').trim()

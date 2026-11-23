@@ -204,6 +204,25 @@ def _money(m) -> "float | None":
         return None
 
 
+def _stringify_for_text_column(v):
+    """Coerce a list/dict value to a plain string safe for a String column
+    (Task 9.1, owner 2026-11-24). Upwork's API returns preferredFreelancerLocation
+    as a list sometimes (observed live: ['Poland', 'Romania', 'Ukraine', 'Argentina',
+    'Brazil', 'Pakistan']) and as a single string other times. A list or dict handed
+    straight to sqlite3 fails to bind at all ("type 'list' is not supported"), which
+    aborted the WHOLE insert batch for every row in that cycle, not just the one job
+    (Task 9 root cause — see WORKLOG.md 2026-11-24). Every other field this module
+    maps straight from the API (title, category, posted_date, experience_level,
+    duration, project_type) is a GraphQL leaf scalar per the query in _SEARCH_QUERY
+    (not a list-typed field), so preferredFreelancerLocation is the only one at risk
+    today — checked by inspection, not by trial and error."""
+    if isinstance(v, list):
+        return ", ".join(str(x) for x in v) if v else None
+    if isinstance(v, dict):
+        return json.dumps(v)
+    return v
+
+
 # Fields confirmed present on MarketplaceJobPostingSearchResult (probe2). We map
 # these onto the jobs table; API-sourced jobs land already enriched.
 _SEARCH_QUERY = """
@@ -262,7 +281,7 @@ def _map_node(n: dict) -> dict:
     fixed = _money(n.get("amount"))
     spent = _money(client.get("totalSpent"))
 
-    pref_loc = n.get("preferredFreelancerLocation")
+    pref_loc = _stringify_for_text_column(n.get("preferredFreelancerLocation"))
     pref_mand = bool(n.get("preferredFreelancerLocationMandatory"))
 
     # Client quality — rating + hire rate are computable straight from the

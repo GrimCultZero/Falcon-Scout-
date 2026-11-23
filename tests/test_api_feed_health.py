@@ -85,7 +85,7 @@ async def run_a_few_ticks(ns, fake_api, ticks=2, seed_state=None):
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "main_feed_loop", "exec"), ns)
     ns["_feed_api"] = lambda: fake_api
     ns["_feed_gap_hours"] = lambda: 0.0  # no deep/catch-up pass in these tests
-    ns["_upsert_api_jobs"] = lambda rows: (0, 0)
+    ns["_upsert_api_jobs"] = lambda rows: (0, 0, 0)  # Task 9.2: (inserted, skipped, insert_errors)
     ns["_FEED_PASS_TIMEOUT_SEC"] = 0.05
     ns["_FEED_DEEP_PASS_TIMEOUT_SEC"] = 0.05
     if seed_state:

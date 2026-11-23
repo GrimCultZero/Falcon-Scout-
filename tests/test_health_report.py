@@ -86,14 +86,30 @@ check(lvl(rep(), "api_feed") == "ok", "a successful last fetch, no failures -> o
 check(lvl(rep(api_feed={"last_success_at": None, "last_error": None, "last_error_at": None, "consecutive_failures": 0}), "api_feed") == "info",
       "never completed a fetch attempt yet (just started, or auto-fetch off) -> info, not an alarm")
 for fails, want in ((1, "amber"), (2, "amber"), (3, "red"), (10, "red")):
-    r2 = rep(api_feed={"last_success_at": ago(minutes=30), "last_error": "ConnectTimeout", "last_error_at": ago(minutes=5), "consecutive_failures": fails})
+    # last_success kept UNDER the Task 9.5 15-min time trigger, so this isolates
+    # the failure-COUNT path specifically (the time path is tested separately below).
+    r2 = rep(api_feed={"last_success_at": ago(minutes=6), "last_error": "ConnectTimeout", "last_error_at": ago(minutes=5), "consecutive_failures": fails})
     check(lvl(r2, "api_feed") == want, f"{fails} consecutive failure(s) -> {want}")
-r2 = rep(api_feed={"last_success_at": ago(minutes=30), "last_error": "ConnectTimeout", "last_error_at": ago(minutes=5), "consecutive_failures": 3})
+r2 = rep(api_feed={"last_success_at": ago(minutes=6), "last_error": "ConnectTimeout", "last_error_at": ago(minutes=5), "consecutive_failures": 3})
 check("ConnectTimeout" in r2["items"]["api_feed"]["reason"], "the red reason names the actual last error, not just a generic failure count")
 check(r2["overall"] == "red" and "api_feed" in r2["problems"], "3+ failures makes it a REAL problem, not just an item nobody looks at")
 # A single transient blip never pages anyone -- this is the whole point of the threshold.
 r2 = rep(api_feed={"last_success_at": ago(minutes=6), "last_error": "ConnectTimeout", "last_error_at": ago(minutes=5), "consecutive_failures": 1})
 check(r2["overall"] != "red", "ONE failed attempt (ordinary, see API_FEED_NOT_FETCHING.md) is amber, not red -- it retries on its own in 5 min")
+
+# ── Task 9.5 (owner, 2026-11-24): a TIME-based red trigger, independent of the
+# failure count -- "make a broken feed impossible to miss" even in a shape where
+# the loop keeps reporting success-free cycles without ever raising 3 in a row.
+check(lvl(rep(api_feed={"last_success_at": ago(minutes=14), "last_error": None, "last_error_at": None, "consecutive_failures": 0}), "api_feed") == "ok",
+      "14 min since the last good fetch, no failures -> still ok (under the 15-min trigger)")
+r2 = rep(api_feed={"last_success_at": ago(minutes=23), "last_error": None, "last_error_at": None, "consecutive_failures": 0})
+check(lvl(r2, "api_feed") == "red", "23 min since the last good fetch -> red EVEN WITH ZERO consecutive failures (Task 9.5)")
+check("23 min" in r2["items"]["api_feed"]["reason"] or "red after 15 min" in r2["items"]["api_feed"]["reason"],
+      "...and the reason names the time-based trigger, not a generic message")
+# insert-errors (Task 9.2) are surfaced in the reason text and carried on the item, without changing the level by themselves.
+r2 = rep(api_feed={"last_success_at": ago(minutes=5), "last_error": None, "last_error_at": None, "consecutive_failures": 0, "last_insert_errors": 2})
+check(lvl(r2, "api_feed") == "ok" and r2["items"]["api_feed"]["last_insert_errors"] == 2 and "2 insert error" in r2["items"]["api_feed"]["reason"],
+      "insert-errors on an otherwise-successful cycle stay ok, but are visible in the item and its reason")
 
 # ── proposals sync: age, header_count/coverage, 0-row flag ──────────────────
 def prop(good=None, last=None, zero24=0):

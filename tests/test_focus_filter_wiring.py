@@ -13,6 +13,7 @@ NOT hidden, and with the block inactive nothing is hidden at all.
 Run: .venv\\Scripts\\python tests\\test_focus_filter_wiring.py
 """
 import ast
+import json as _json_mod
 import sys
 import types
 from pathlib import Path
@@ -24,7 +25,7 @@ sys.path.insert(0, str(ROOT / "api"))
 src = (ROOT / "api" / "main.py").read_text(encoding="utf-8")
 tree = ast.parse(src)
 
-WANT_FUNCS = {"_upsert_api_jobs"}
+WANT_FUNCS = {"_upsert_api_jobs", "_coerce_row_for_insert"}
 nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in WANT_FUNCS]
 if {n.name for n in nodes} != WANT_FUNCS:
     print(f"FAIL  could not lift _upsert_api_jobs from api/main.py (found {[n.name for n in nodes]})")
@@ -53,7 +54,8 @@ def make_ns(focus_cfg):
     Base.metadata.create_all(engine)
     fake_upwork_api = types.SimpleNamespace(load_feed_config=lambda: focus_cfg)
     ns = {"Job": Job, "FeedDrop": FeedDrop, "Session": Session, "engine": engine,
-          "datetime": datetime, "timezone": timezone, "upwork_api": fake_upwork_api}
+          "datetime": datetime, "timezone": timezone, "upwork_api": fake_upwork_api,
+          "_json_mod": _json_mod}
     # _upsert_api_jobs does `import upwork_api` / `import focus_filter` itself -- make
     # those imports resolve to the fake / real modules instead of hitting the DB-backed
     # real upwork_api.py (off limits to touch, and we don't want its real config file).
@@ -71,8 +73,8 @@ rows = [
     row("~w1", "WordPress Developer", "Build us a custom WordPress theme from scratch, full-stack."),
     row("~w2", "SEO Specialist", "We need a technical SEO audit and local SEO work for our ecommerce site."),
 ]
-ins, skip = ns["_upsert_api_jobs"](rows)
-check(ins == 2 and skip == 0, f"both rows are inserted either way (never dropped outright): ins={ins} skip={skip}")
+ins, skip, errs = ns["_upsert_api_jobs"](rows)
+check(ins == 2 and skip == 0 and errs == 0, f"both rows are inserted either way (never dropped outright): ins={ins} skip={skip} errs={errs}")
 
 with Session(engine) as s:
     webdev_job = s.query(Job).filter_by(upwork_job_id="~w1").first()
@@ -86,7 +88,7 @@ with Session(engine) as s:
 
 # ── window inactive: nothing is hidden, regardless of content ──────────────────
 ns2, engine2 = make_ns(INACTIVE)
-ins2, skip2 = ns2["_upsert_api_jobs"]([row("~x1", "WordPress Developer", "Build us a custom WordPress theme.")])
+ins2, skip2, errs2 = ns2["_upsert_api_jobs"]([row("~x1", "WordPress Developer", "Build us a custom WordPress theme.")])
 check(ins2 == 1, "still inserted with the block inactive")
 with Session(engine2) as s:
     j = s.query(Job).filter_by(upwork_job_id="~x1").first()
@@ -100,7 +102,7 @@ with Session(engine3) as s:
     j = s.query(Job).filter_by(upwork_job_id="~w1").first()
     j.hidden_at = None  # pretend the owner already rescued it via /unhide
     s.commit()
-ins3, skip3 = ns3["_upsert_api_jobs"]([row("~w1", "WordPress Developer", "Build us a custom WordPress theme.")])
+ins3, skip3, errs3 = ns3["_upsert_api_jobs"]([row("~w1", "WordPress Developer", "Build us a custom WordPress theme.")])
 check(skip3 == 1, "a dedup match on upwork_job_id is still skipped as before -- a rescued job is never re-hidden by a later upsert")
 
 print(f"\n{bad} FAILURES" if bad else "\nall pass")

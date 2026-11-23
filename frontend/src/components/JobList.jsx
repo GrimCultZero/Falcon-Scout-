@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { feedTagBadges } from '../lib/feedDrops'
 import { applicantsChip, shouldDim } from '../lib/bidSignals'
 import { useFeedUi } from '../lib/feedUi'
+import { isLocationRestrictedValue, isUsOnlyValue } from '../lib/geoEvidence'
 
 function formatRate(min, max) {
   if (!min && !max) return null
@@ -98,7 +99,8 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
         const rate = formatRate(job.hourly_rate_min, job.hourly_rate_max)
         const rateStyle = getRateStyle(job.hourly_rate_min, job.hourly_rate_max)
         const isSelected = job.id === selectedId
-        const isUsOnly = job.geo_restriction && /United States only|US only/i.test(job.geo_restriction)
+        // Task 9.3: also covers an API-feed mandatory-location list that excludes Ukraine.
+        const isUsOnly = isLocationRestrictedValue(job.geo_restriction, job.geo_evidence)
         // T18: a row the feed let through because its TITLE is about tracking or a Google
         // Business Profile (and not Google Ads / SEO): shown, never hidden, but labelled.
         const tagBadges = feedTagBadges(job.feed_tag)
@@ -278,7 +280,7 @@ function JobList({ jobs, selectedId, onSelect, onToggleHidden, onToggleStar, sho
               )}
               {isUsOnly && (
                 <span title={job.geo_restriction} style={{ fontSize: 11, fontWeight: 700, padding: '3px 7px', borderRadius: 3, background: 'rgba(239,68,68,0.13)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.35)', letterSpacing: '0.04em' }}>
-                  🇺🇸 US only
+                  {isUsOnlyValue(job.geo_restriction) ? '🇺🇸 US only' : '🚫 Restricted'}
                 </span>
               )}
               {job.client_country && (

@@ -1006,6 +1006,26 @@ def feed_drops(hours: int = Query(24, ge=1, le=24 * _FEED_DROP_RETENTION_DAYS), 
     return {"hours": hours, "retention_days": _FEED_DROP_RETENTION_DAYS, "total": len(rows), "groups": out}
 
 
+def _coerce_row_for_insert(r: dict) -> dict:
+    """Defensive coercion (Task 9.2, owner 2026-11-24): a list or dict value handed
+    straight to sqlite3 fails to bind at all ("type 'list' is not supported"), which
+    is exactly what aborted the WHOLE insert batch for a cycle whenever one row's
+    preferredFreelancerLocation came back as a list (Task 9 root cause — see
+    WORKLOG.md 2026-11-24). api/upwork_api.py._map_node now normalizes that one known
+    field at the source; this is the second, independent line of defense at the sink,
+    covering any OTHER field a future Upwork API change might also turn into a list/
+    dict, so a mapping bug can again cost at most one row, never the whole cycle."""
+    out = {}
+    for k, v in r.items():
+        if isinstance(v, list):
+            out[k] = ", ".join(str(x) for x in v) if v else None
+        elif isinstance(v, dict):
+            out[k] = _json_mod.dumps(v)
+        else:
+            out[k] = v
+    return out
+
+
 def _upsert_api_jobs(rows):
     """Insert new API-sourced jobs (dedup on upwork_job_id). Shared by the
     on-demand /api-fetch endpoint and the background auto-fetch loop.
@@ -1018,12 +1038,21 @@ def _upsert_api_jobs(rows):
     feed_drops with reason "focus:<category>". The row is ALWAYS inserted either
     way -- this never drops a posting the normal feed filter already decided to
     keep, only hides it. Deliberately kept out of api/upwork_api.py and the fetch/
-    filter pipeline themselves (owner instruction)."""
+    filter pipeline themselves (owner instruction).
+
+    Task 9.2 (owner, 2026-11-24): each row is inserted in its OWN savepoint. Before
+    this fix a single bad row made _upsert_api_jobs's one shared commit raise, which
+    aborted the WHOLE batch -- every other job in that cycle was silently lost too,
+    and the cycle (falsely) counted as a failure, backing the whole loop off for 5
+    minutes. One bad row now costs only itself: logged, recorded in feed_drops with
+    reason "insert-error: <short message>", and the rest of the batch still saves.
+    The cycle that calls this still counts as successful as long as it COMPLETED
+    (see _api_feed_loop), even with some insert-errors."""
     import upwork_api
     import focus_filter
     focus_on = focus_filter.focus_test_active(upwork_api.load_feed_config())
     now = datetime.now(timezone.utc)
-    inserted, skipped = 0, 0
+    inserted, skipped, insert_errors = 0, 0, 0
     with Session(engine) as session:
         for r in rows:
             uid = r.get("upwork_job_id")
@@ -1032,24 +1061,41 @@ def _upsert_api_jobs(rows):
             if existing:
                 skipped += 1
                 continue
-            job = Job(**r)
-            if focus_on:
-                keep, category = focus_filter.classify_focus(job.title, job.description_full, job.keywords)
-                if not keep:
-                    job.hidden_at = now
-                    drop = session.query(FeedDrop).filter_by(upwork_job_id=uid).first() if uid else None
-                    if drop is not None:
-                        drop.reason, drop.fetched_at = f"focus:{category}", now
-                        if job.title:
-                            drop.title = job.title[:300]
-                        drop.posted_date = job.posted_date
-                    elif uid:
-                        session.add(FeedDrop(upwork_job_id=uid, title=(job.title or "")[:300],
-                                             reason=f"focus:{category}", posted_date=job.posted_date, fetched_at=now))
-            session.add(job)
-            inserted += 1
+            try:
+                with session.begin_nested():
+                    job = Job(**_coerce_row_for_insert(r))
+                    if focus_on:
+                        keep, category = focus_filter.classify_focus(job.title, job.description_full, job.keywords)
+                        if not keep:
+                            job.hidden_at = now
+                            drop = session.query(FeedDrop).filter_by(upwork_job_id=uid).first() if uid else None
+                            if drop is not None:
+                                drop.reason, drop.fetched_at = f"focus:{category}", now
+                                if job.title:
+                                    drop.title = job.title[:300]
+                                drop.posted_date = job.posted_date
+                            elif uid:
+                                session.add(FeedDrop(upwork_job_id=uid, title=(job.title or "")[:300],
+                                                     reason=f"focus:{category}", posted_date=job.posted_date, fetched_at=now))
+                    session.add(job)
+                    session.flush()
+                inserted += 1
+            except Exception as exc:
+                insert_errors += 1
+                msg = str(exc).splitlines()[0][:200]
+                print(f"[api-feed] insert-error on job {uid!r} ({r.get('title', '')[:60]!r}): {msg}")
+                try:
+                    with session.begin_nested():
+                        drop = session.query(FeedDrop).filter_by(upwork_job_id=uid).first() if uid else None
+                        if drop is not None:
+                            drop.reason, drop.fetched_at = f"insert-error: {msg}", now
+                        elif uid:
+                            session.add(FeedDrop(upwork_job_id=uid, title=(r.get("title") or "")[:300],
+                                                 reason=f"insert-error: {msg}", posted_date=r.get("posted_date"), fetched_at=now))
+                except Exception as log_exc:
+                    print(f"[api-feed] could not even record the insert-error in feed_drops for {uid!r}: {log_exc}")
         session.commit()
-    return inserted, skipped
+    return inserted, skipped, insert_errors
 
 
 # Background auto-fetch — keeps the API feed current like the bot's live stream.
@@ -1081,7 +1127,8 @@ _CATCHUP_MIN_INTERVAL_SEC = 30 * 60
 # Feed health (/health's api_feed item): last_success_at / last_error / last_error_at /
 # consecutive_failures, surfaced in the header chip tooltip. A `/health` item has no
 # fetch-loop visibility of its own, only what this loop tells it.
-_API_FEED_STATE = {"last_success_at": None, "last_error": None, "last_error_at": None, "consecutive_failures": 0}
+_API_FEED_STATE = {"last_success_at": None, "last_error": None, "last_error_at": None, "consecutive_failures": 0,
+                   "last_insert_errors": 0}  # Task 9.2: insert-errors from the most recent cycle's _upsert_api_jobs call
 
 # Deadlines around the feed loop's own outbound calls (api/upwork_api.py's httpx calls
 # already carry their own 30-60s per-request timeouts; this is a second, OUTER ceiling
@@ -1123,6 +1170,7 @@ async def _api_feed_loop():
             gap = await loop.run_in_executor(None, _feed_gap_hours)
             deep = gap >= _CATCHUP_GAP_HOURS and (_time.time() - last_catchup) >= _CATCHUP_MIN_INTERVAL_SEC
             saved_early = 0
+            cycle_insert_errors = 0  # Task 9.2: summed across every _upsert_api_jobs call this cycle
             if deep:
                 # Newest first: one normal page per keyword (~30 s) saves the fresh
                 # postings, THEN the slow paging back fills the hole behind them,
@@ -1132,18 +1180,20 @@ async def _api_feed_loop():
                 try:
                     rows, stats = await asyncio.wait_for(
                         loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg), timeout=_FEED_PASS_TIMEOUT_SEC)
-                    ins, skip = await loop.run_in_executor(None, _upsert_api_jobs, rows)
+                    ins, skip, errs = await loop.run_in_executor(None, _upsert_api_jobs, rows)
                     saved_early += ins
-                    print(f"[api-feed/catchup] newest page first: {stats} inserted={ins} skipped={skip}")
+                    cycle_insert_errors += errs
+                    print(f"[api-feed/catchup] newest page first: {stats} inserted={ins} skipped={skip} insert-errors={errs}")
                 except asyncio.TimeoutError:
                     print(f"[api-feed/catchup] newest-page pass timed out after {_FEED_PASS_TIMEOUT_SEC}s, going straight to paging back")
                 except Exception as exc:
                     print(f"[api-feed/catchup] newest-page pass failed, going straight to paging back: {exc}")
 
                 def _save_as_you_go(fresh):
-                    nonlocal saved_early
-                    n, _ = _upsert_api_jobs(fresh)
+                    nonlocal saved_early, cycle_insert_errors
+                    n, _, errs = _upsert_api_jobs(fresh)
                     saved_early += n
+                    cycle_insert_errors += errs
 
                 print(f"[api-feed/catchup] {gap:.1f}h gap — paging back through every keyword")
                 rows, stats = await asyncio.wait_for(
@@ -1153,10 +1203,12 @@ async def _api_feed_loop():
             else:
                 rows, stats = await asyncio.wait_for(
                     loop.run_in_executor(None, upwork_api.fetch_and_filter, cfg), timeout=_FEED_PASS_TIMEOUT_SEC)
-            ins, skip = await loop.run_in_executor(None, _upsert_api_jobs, rows)
-            print(f"[api-feed/{'catchup' if deep else 'auto'}] {stats} inserted={ins + saved_early} skipped={skip}")
+            ins, skip, errs = await loop.run_in_executor(None, _upsert_api_jobs, rows)
+            cycle_insert_errors += errs
+            print(f"[api-feed/{'catchup' if deep else 'auto'}] {stats} inserted={ins + saved_early} skipped={skip} insert-errors={cycle_insert_errors}")
             _API_FEED_STATE["last_success_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
             _API_FEED_STATE["consecutive_failures"] = 0
+            _API_FEED_STATE["last_insert_errors"] = cycle_insert_errors
             await asyncio.sleep(mins * 60)
         except asyncio.CancelledError:
             break
@@ -6441,9 +6493,9 @@ def api_fetch():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    inserted, skipped = _upsert_api_jobs(rows)
-    print(f"[api-fetch] {stats} inserted={inserted} skipped={skipped}")
-    return {"ok": True, "inserted": inserted, "skipped_existing": skipped, **stats}
+    inserted, skipped, insert_errors = _upsert_api_jobs(rows)
+    print(f"[api-fetch] {stats} inserted={inserted} skipped={skipped} insert-errors={insert_errors}")
+    return {"ok": True, "inserted": inserted, "skipped_existing": skipped, "insert_errors": insert_errors, **stats}
 
 
 @app.post("/api-fetch/catchup")
@@ -6462,9 +6514,9 @@ def api_fetch_catchup():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    inserted, skipped = _upsert_api_jobs(rows)
-    print(f"[api-fetch/catchup] {stats} inserted={inserted} skipped={skipped}")
-    return {"ok": True, "inserted": inserted, "skipped_existing": skipped, **stats}
+    inserted, skipped, insert_errors = _upsert_api_jobs(rows)
+    print(f"[api-fetch/catchup] {stats} inserted={inserted} skipped={skipped} insert-errors={insert_errors}")
+    return {"ok": True, "inserted": inserted, "skipped_existing": skipped, "insert_errors": insert_errors, **stats}
 
 
 @app.post("/api-feed/prune")

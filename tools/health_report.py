@@ -60,6 +60,13 @@ BACKUP_RED_HOURS = 48
 # a single transient network blip (an ordinary occurrence, see API_FEED_NOT_FETCHING.md)
 # retries on its own 5 minutes later and should not page anyone.
 API_FEED_RED_FAILURES = 3
+# Task 9.5 (owner, 2026-11-24): "make a broken feed impossible to miss" -- a TIME-
+# based trigger alongside the failure-count one above. Guards against a shape the
+# count alone could miss: a cycle that keeps "succeeding" (no exception) but the
+# auto-fetch interval itself has been off, or stuck, or very slow, for a long time
+# with no fresh success landing. 15 minutes = 5 missed cycles at the normal 3-minute
+# cadence, same order of magnitude as 3 failures x the 5-minute failure backoff.
+API_FEED_RED_MINUTES = 15
 
 # A sync run that reads 0 rows is flagged. These stages mean "the page was
 # opened but no sync was started" -- Artem browsing /nx/proposals/ by hand makes
@@ -138,18 +145,26 @@ def _api_feed(data, now_utc):
     last_error = data.get("last_error")
     last_error_at = data.get("last_error_at")
     failures = int(data.get("consecutive_failures") or 0)
+    insert_errors = int(data.get("last_insert_errors") or 0)
     out = {"label": label, "last_success_at": _iso(last_success), "last_error": last_error,
-           "last_error_at": _iso(last_error_at), "consecutive_failures": failures}
+           "last_error_at": _iso(last_error_at), "consecutive_failures": failures,
+           "last_insert_errors": insert_errors}
     if last_success is None and last_error is None:
         out.update(level="info", reason="The feed loop has not completed a fetch attempt yet (just started, or auto-fetch is off).")
         return out
-    success_ago = f"Last successful fetch {_ago(_minutes(now_utc, last_success))} ago." if last_success else "No fetch has ever succeeded."
-    if failures == 0:
-        out.update(level="ok", reason=success_ago)
+    success_age_min = _minutes(now_utc, last_success) if last_success else None
+    success_ago = f"Last successful fetch {_ago(success_age_min)} ago." if last_success else "No fetch has ever succeeded."
+    insert_note = f" ({insert_errors} insert error(s) on that cycle.)" if insert_errors else ""
+    # Task 9.5: red on EITHER signal -- repeated failures (the old check), or simply
+    # no success landing for API_FEED_RED_MINUTES, however that happened.
+    if success_age_min is not None and success_age_min >= API_FEED_RED_MINUTES:
+        out.update(level="red", reason=f"{success_ago} (red after {API_FEED_RED_MINUTES} min with no good fetch).{insert_note}")
     elif failures >= API_FEED_RED_FAILURES:
-        out.update(level="red", reason=f"{failures} fetch attempts in a row have failed ({last_error}). {success_ago}")
+        out.update(level="red", reason=f"{failures} fetch attempts in a row have failed ({last_error}). {success_ago}{insert_note}")
+    elif failures == 0:
+        out.update(level="ok", reason=f"{success_ago}{insert_note}")
     else:
-        out.update(level="amber", reason=f"The last fetch attempt failed ({last_error}); retrying in 5 min. {success_ago}")
+        out.update(level="amber", reason=f"The last fetch attempt failed ({last_error}); retrying in 5 min. {success_ago}{insert_note}")
     return out
 
 
