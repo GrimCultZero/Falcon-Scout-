@@ -400,5 +400,40 @@ check(not ff.focus_test_active(CFG, utc(2026, 12, 3, 22)), "Dec 4, 00:00 Kyiv: O
 check(not ff.focus_test_active({}, utc(2026, 11, 25)) and not ff.focus_test_active({"focus_test": None}, utc(2026, 11, 25)), "no block: never active")
 check(not ff.focus_test_active({"focus_test": {"until": "not-a-date"}}, utc(2026, 11, 25)), "a malformed date never activates the filter")
 
+# ── Task 8.2 (owner, 2026-11-23): "Google Ad Grants"/"AdGrants"/"Ad Grants" ──
+keep, cat = ff.classify_focus("Google AdGrants Account Troubleshooting", "Fix issues in our Google Ad Grants account.", None)
+check(keep and cat == "google_ads", f'"AdGrants" (no space) is a STRONG google_ads signal: got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("Google Ad Grants Specialist for a Nonprofit Sailing Club (Campaign Strategy and Setup)", "Help us run our Ad Grants campaign.", None)
+check(keep and cat == "google_ads", f'"Ad Grants" (two words) is also STRONG: got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("Freelancer Needed", "We run ad grants for our nonprofit and need help.", None)
+check(keep and cat == "google_ads", f'bare "ad grants" anywhere in the blob still keeps it (STRONG = anywhere): got keep={keep} cat={cat!r}')
+
+# ── Task 8.4 (owner, 2026-11-23): Google Business Profile trial ─────────────
+keep, cat = ff.classify_focus("Google Business Profile Expert", "Manage and optimize our Google Business Profile listing, posts and categories.", None)
+check(keep and cat == "gbp", f'a GBP-only job is now KEPT, tagged "gbp": got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("Local GBP Specialist Needed", "Set up and maintain our google my business listing.", None)
+check(keep and cat == "gbp", f'"google my business" phrasing also rescues: got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("GBP Setup for New Clinic", "Need help with GBP for our new clinic location.", None)
+check(keep and cat == "gbp", f'bare "GBP" (whole word) also rescues: got keep={keep} cat={cat!r}')
+# pure review-removal/reputation jobs stay hidden -- NOT part of this trial
+keep, cat = ff.classify_focus("Remove Fake Google Business Profile Review", "We need someone to remove a fake negative review from our GBP listing.", None)
+check(not keep, f'pure review-removal, even naming GBP, stays hidden (owner: not part of the trial): got keep={keep} cat={cat!r}')
+keep, cat = ff.classify_focus("Negative google review removal", "Please help with review removal for our business.", None)
+check(not keep, f'review removal with no GBP phrase at all stays hidden, unaffected either way: got keep={keep} cat={cat!r}')
+# a job that's ALSO a real Google Ads/SEO job keeps its stronger category, not "gbp"
+keep, cat = ff.classify_focus("Google Ads Specialist with GBP Management", "Run our Google Ads campaigns and also manage GBP.", None)
+check(keep and cat == "google_ads", f'a job with a real Google Ads signal keeps that category, GBP is not the ONLY signal: got keep={keep} cat={cat!r}')
+# a job that ALSO matches an off-lane HIDE category stays hidden under THAT
+# category -- "ONLY focus category is GBP" means GBP and nothing else off-lane.
+# Real regression caught while building this: #23079 mentions "Google my
+# business page set up" as one bullet among facebook/instagram/tiktok work.
+keep, cat = ff.classify_focus(
+    "Marketing Help - Home Services Businesses",
+    "I need an individual who can manage, grow, and scale our facebook, instagram, and tik tok page... "
+    "I also need a Google my business page set up, Google ads, Meta ads, etc.",
+    "Social Media Marketing, Social Media Content Creation, Instagram, TikTok",
+)
+check(not keep and cat == "meta_tiktok_ads", f'#23079: "Google my business" mentioned in passing on a real meta_tiktok_ads job does NOT get GBP-rescued, stays hidden as before: got keep={keep} cat={cat!r}')
+
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)

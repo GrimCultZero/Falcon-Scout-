@@ -178,17 +178,34 @@ for t in ("Google and Instagram Ads Expert",
 assert_(all(k in CFG["keywords"] for k in NEW_KW), "all 17 new keywords are in the live feed_config.json")
 assert_(all(k in upwork_api.DEFAULT_FEED_CONFIG["keywords"] for k in NEW_KW), "…and in the defaults, so a reset config is not weaker")
 
-# ── the proximity rule: TITLE only, within 6 words ──────────────────────────
+# ── the proximity rule: within 6 words, title OR description (Task 8.1, owner 2026-11-23) ──
+# Widened from title-only on 2026-11-23: "Digital Marketing Ads Management" has no
+# "google" in the TITLE at all, only in the description ("manage Google, Facebook,
+# and Instagram ads") -- a title-only check can never see that. The original
+# title-only restriction existed because 54 stored postings had "Google ... ads" in
+# the DESCRIPTION under an off-lane TITLE (the "Website designer" example below) --
+# widening to the blob makes those pass the KEYWORD GATE (get fetched) again, but
+# most still get HIDDEN afterward by focus_filter.py's own webdev/design/etc.
+# categories (a title-driven check, unaffected by this change) -- so the practical
+# effect on what the owner actually SEES is small. Measured in the Task 8 report.
 near = upwork_api._google_near_ads
 assert_(near("Google and Instagram Ads Expert") and near("Google & Meta Ads") and near("Paid campaigns across Google, Facebook"), "google near ads/campaigns")
 assert_(near("Google Search Specialist") and near("PPC manager for Google") and near("Google Shopping feed") and near("Google PMax setup"), "…and search / ppc / shopping / pmax")
 assert_(near("Ads on Google") and near("advertising on google"), "either side of the word")
 assert_(near("Google a b c d e Ads") and not near("Google a b c d e f g Ads"), "within 6 words, not 7")
 assert_(not near("Google Docs template designer") and not near("Ad copywriter for Facebook"), "google alone, ads alone: no")
-assert_(not passes("Website designer", "We run Google and Meta advertising and want a new site."),
-        "the rule is title-only: 'Google ... ads' in a DESCRIPTION does not rescue an off-lane title (54 such stored postings had off-lane titles)")
+assert_(near("Google Media Buyer") and near("iGaming Meta & Google Media Buyer (Monthly, Long-term)"),
+        "Task 8.1: 'buyer' is now a near-word, so 'Google Media Buyer' passes")
+assert_(passes("Digital Marketing Ads Management", "manage Google, Facebook, and Instagram ads for our brand."),
+        "Task 8.1: 'Google ... ads' in the DESCRIPTION now passes the gate (the title alone has no 'google' at all)")
+assert_(not passes("Google Docs Specialist", "Help us organize our Google Docs templates."),
+        "Task 8.1: bare 'Google' with no ads-word nearby still fails, title or description")
+assert_(not passes("Google Maps listing removal", "Please remove our old Google Maps listing."),
+        "Task 8.1: 'Google Maps...removal' still fails — 'maps'/'listing'/'removal' are not near-words")
+assert_(passes("Website designer", "We run Google and Meta advertising and want a new site."),
+        "Task 8.1 (was: the rule is title-only, so this did NOT pass before 2026-11-23): now passes the keyword gate — but is still HIDDEN downstream by focus_filter's webdev category off an off-lane title, unaffected by this change")
 assert_(not passes("Paid Ads Specialist Needed for Two Upcoming Campaigns"),
-        "known, not covered: no 'google' in the title (the audit's 'US apparel co.' example)")
+        "known, not covered: no 'google' anywhere in title or description (the audit's 'US apparel co.' example)")
 
 # ── whole words: aeo / geo / ga4 / gbp ──────────────────────────────────────
 assert_(passes("GEO Specialist"), "'geo' as a word passes")

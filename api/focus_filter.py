@@ -81,7 +81,12 @@ STRONG_PATTERNS = {
         r"\bppc\b|paid search|performance\s*max\b|\bpmax\b|"
         r"\bgoogle\s*ads\s*managers?\b|"
         r"\bgoogle\s*ads?\s*(?:management|specialists?|experts?|campaigns?)\b|"
-        r"\badwords\s*(?:management|managers?|specialists?|experts?|campaigns?)\b",
+        r"\badwords\s*(?:management|managers?|specialists?|experts?|campaigns?)\b|"
+        # Task 8.2 (owner, 2026-11-23): "Google Ad Grants"/"AdGrants"/"Ad Grants" —
+        # a real, role-shaped Google Ads program (free ad credits for nonprofits),
+        # same treatment as the other role-shaped phrases above. \s* covers both
+        # "Ad Grants" and the no-space "AdGrants" spelling.
+        r"\bad\s*grants?\b",
         re.I,
     ),
     # Bare "google analytics" DOWNGRADED to WEAK below (D4, owner 2026-11-21): it's
@@ -167,6 +172,23 @@ MARKETING_TITLE_RE = re.compile(
 # must not be rescued by the marketing-title exception.
 NON_MARKETING_ROLE_RE = re.compile(r"\bauditor\b|\baudit\b|\bcompliance\b", re.I)
 
+# ── Google Business Profile trial (Task 8.4, owner 2026-11-23) ─────────────
+# A GBP-only job ("Google Business Profile Expert", #25368) has no Google
+# Ads/SEO signal elsewhere, so it fell through to "no-signal" and was hidden
+# by the focus test since 2026-11-19. The owner wants these KEPT for the rest
+# of the focus test, as a trial, visibly marked (the existing "gbp" feed_tag
+# chip -- set at fetch time in api/upwork_api.py's feed_tag_for/marked_keywords,
+# unrelated to this module -- already renders a "GBP" badge; nothing new needed
+# there). Pure review-removal/reputation jobs are NOT part of this trial -- they
+# stay hidden exactly as before, which is why REVIEW_REMOVAL_RE below is checked
+# first and wins.
+GBP_RE = re.compile(r"\bgoogle\s*business\s*profile\b|\bgoogle\s*my\s*business\b|\bgbp\b", re.I)
+REVIEW_REMOVAL_RE = re.compile(
+    r"\b(?:remov(?:e|al|ing)|delet(?:e|ion|ing)|wipe|dispute|takedown)\b[^.?!]{0,40}\breviews?\b|"
+    r"\breviews?\b[^.?!]{0,40}\b(?:remov(?:e|al|ing)|delet(?:e|ion|ing)|wipe|dispute|takedown)\b",
+    re.I,
+)
+
 # ── hide categories: only used to LABEL the feed_drops reason once NO keep signal
 # matched. A job matching one of these AND a keep signal was already kept above. ──
 HIDE_PATTERNS = {
@@ -242,7 +264,22 @@ def classify_focus(title: str, text: str, keywords: "str | None" = None):
             if pat.search(title_kw_blob) or is_marketing_title or two_signals:
                 return True, cat
 
+    # HIDE_PATTERNS checked BEFORE the GBP trial below (Task 8.4, owner
+    # 2026-11-23): "ONLY focus category is GBP" means GBP and nothing ELSE
+    # off-lane. #23079 "Marketing Help - Home Services Businesses" mentions
+    # "Google my business page set up" as ONE bullet among "manage, grow, and
+    # scale our facebook, instagram, and tik tok page" -- a real
+    # meta_tiktok_ads job, not a GBP job, and the owner has explicitly
+    # confirmed this one stays hidden. If a job matches an off-lane HIDE
+    # category too, that category wins; GBP only rescues when NOTHING else
+    # off-lane also matched.
     for cat, pat in HIDE_PATTERNS.items():
         if pat.search(blob):
             return False, cat
+
+    # GBP trial (Task 8.4): keep a GBP-only job unless it's really a pure
+    # review-removal/reputation job — those stay hidden.
+    if GBP_RE.search(blob) and not REVIEW_REMOVAL_RE.search(blob):
+        return True, "gbp"
+
     return False, "no-signal"

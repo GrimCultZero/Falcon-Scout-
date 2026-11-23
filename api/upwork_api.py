@@ -577,7 +577,7 @@ def _stop_word_hit(text: str, stop_words) -> "str | None":
 # ── keyword matching (T18) ───────────────────────────────────────────────────
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _GOOGLE_NEAR = frozenset({"ad", "ads", "advertising", "campaign", "campaigns",
-                          "ppc", "search", "shopping", "pmax"})
+                          "ppc", "search", "shopping", "pmax", "buyer"})
 _KW_RE_CACHE: dict[tuple, "re.Pattern"] = {}
 
 
@@ -624,7 +624,15 @@ def _keyword_hit(title: str, desc: str, cfg: dict) -> "str | None":
         if need and not any(c in blob for c in need):
             continue
         return k
-    if cfg.get("google_proximity", True) and _google_near_ads(title):
+    # Task 8.1 (owner, 2026-11-23): widened from title-only to the whole blob —
+    # "Digital Marketing Ads Management" (no "google" in the title at all) with
+    # a description that "asks for Google, Facebook and Instagram ads" must
+    # pass the gate; title-only proximity never looks at the description at
+    # all, regardless of window size. "buyer" added to _GOOGLE_NEAR for
+    # "Google Media Buyer" roles. Still never matches a BARE "Google" near an
+    # unrelated word ("Google Docs", "Google Sheets", "Google Maps listing
+    # removal") — those words simply aren't in _GOOGLE_NEAR.
+    if cfg.get("google_proximity", True) and _google_near_ads(blob):
         return "proximity"
     return None
 
