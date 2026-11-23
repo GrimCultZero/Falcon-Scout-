@@ -83,18 +83,79 @@
     "openclaw"
   ],
   "require_keyword_in_text": true,
+  "title_only_keywords": [
+    "google tag manager",
+    "ga4",
+    "google analytics",
+    "conversion tracking",
+    "search console",
+    "indexing",
+    "guest post",
+    "youtube ads",
+    "google business profile",
+    "gbp",
+    "local search",
+    "link insertion"
+  ],
+  "whole_word_keywords": [
+    "aeo",
+    "geo",
+    "ga4",
+    "gbp"
+  ],
+  "keyword_title_exclusions": {
+    "google business profile": [
+      "api"
+    ],
+    "gbp": [
+      "api"
+    ]
+  },
+  "keyword_context": {
+    "indexing": [
+      "google",
+      "seo",
+      "search console",
+      "sitemap",
+      "crawl",
+      "serp",
+      "website",
+      "webpage",
+      "web page"
+    ]
+  },
+  "google_proximity": true,
+  "marked_keywords": {
+    "tracking": [
+      "google tag manager",
+      "ga4",
+      "google analytics",
+      "conversion tracking",
+      "consent mode"
+    ],
+    "gbp": [
+      "google business profile",
+      "google my business",
+      "gbp"
+    ]
+  },
+  "test_week": {
+    "from": "2026-11-10",
+    "until": "2026-11-17"
+  },
   "min_hourly": 25,
   "min_fixed": 100,
   "exclude_countries": [
     "india"
   ],
   "payment_verified_only": true,
+  "max_posting_age_hours": 72,
   "per_keyword_limit": 20,
   "auto_fetch_minutes": 3,
-  "test_week": {
-    "from": "2026-11-10",
-    "until": "2026-11-17"
-  },
+  "dim_applicants_50plus": false,
+  "auto_enrich": true,
+  "auto_enrich_batch": 2,
+  "auto_enrich_max_age_hours": 72,
   "focus_test": {
     "from": "2026-11-19",
     "until": "2026-12-03",
