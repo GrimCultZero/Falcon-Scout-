@@ -53,5 +53,40 @@ check(d2 == datetime(2026, 11, 20, 22, 27, 1, tzinfo=timezone.utc), "a Z-suffixe
 check(ugt._posted_dt({}) is None, "a missing posted_date returns None, not a crash")
 check(ugt._posted_dt({"posted_date": "not-a-date"}) is None, "an unparseable posted_date returns None, not a crash")
 
+# ── argument parsing (2026-11-24, Task 10.5): `--help` once ran the whole check and
+# spent 24 live Upwork requests. Parsing must come first and must never touch the network.
+import contextlib, io
+_calls = []
+_real_search = ugt.upwork_api.search_jobs
+ugt.upwork_api.search_jobs = lambda *a, **k: (_calls.append(a), ([], 0))[1]
+try:
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            ugt.main(["--help"])
+        check(False, "--help exits instead of running")
+    except SystemExit as e:
+        check(e.code == 0 and "--dry-run" in buf.getvalue(), "--help prints usage and exits 0")
+    check(_calls == [], "--help sent ZERO requests")
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        ugt.main(["--dry-run"])
+    check(_calls == [], "--dry-run sent ZERO requests")
+    check("DRY RUN" in buf.getvalue() and "Request cap this run: 21" in buf.getvalue(), "--dry-run prints the plan with the default cap of 21")
+
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            ugt.main(["--bogus"])
+        check(False, "an unknown flag is rejected")
+    except SystemExit as e:
+        check(e.code == 2 and _calls == [], "an unknown flag is rejected before any request")
+finally:
+    ugt.upwork_api.search_jobs = _real_search
+
+check(ugt.request_cap(999) == ugt.ABSOLUTE_MAX_REQUESTS == 40, "--max-requests can never exceed the absolute ceiling of 40")
+check(ugt.request_cap(5) == 5 and ugt.request_cap(0) == 1 and ugt.request_cap(-3) == 1, "--max-requests below 1 is clamped to 1")
+check(ugt.DEFAULT_MAX_REQUESTS == 21, "the default cap is the 21 requests Task 11 allows")
+
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)

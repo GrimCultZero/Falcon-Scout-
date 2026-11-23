@@ -9,8 +9,10 @@ Does NOT modify api/upwork_api.py or the fetch pipeline. Read-only against
 Upwork (a marketplace search, same as any browse) and against the DB
 (mode=ro). Never writes anything.
 
-Safety limits, all hard-coded, none configurable from the command line:
-  - at most 3 pages per term, 10 terms  => at most 30 requests this run.
+Safety limits (the per-term and pause limits are hard-coded; the only command-line
+knobs are --max-requests, which can only LOWER the cap, and --dry-run):
+  - at most 3 pages per term, up to 11 terms, and never more than --max-requests
+    (default 21, absolute ceiling 40) requests in one run.
   - a 3-second pause between every request (more conservative than the live
     feed's own un-paced catch-up fetch, which has no inter-request delay at all).
   - stops the ENTIRE run immediately on any auth error, HTTP 429, or anything
@@ -22,6 +24,7 @@ Run: .venv\\Scripts\\python tools\\upwork_ground_truth.py
 """
 import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+import argparse
 import re
 import sqlite3
 import time
@@ -39,6 +42,8 @@ TERMS = [
     "Merchant Center", "Google Analytics 4",
 ]
 MAX_PAGES_PER_TERM = 3
+DEFAULT_MAX_REQUESTS = 21
+ABSOLUTE_MAX_REQUESTS = 40
 PER_PAGE = 20
 REQUEST_PAUSE_SEC = 3.0
 CUTOFF = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -70,9 +75,42 @@ def _hard_stop(exc_or_text):
     return None
 
 
-def main():
+def build_parser():
+    ap = argparse.ArgumentParser(
+        prog="upwork_ground_truth.py",
+        description="One-off ground-truth check: compare what Upwork returns for a fixed set of search "
+                    "terms (last 24h) against the Falcon Scout DB. Read-only. Makes LIVE Upwork "
+                    "requests unless --dry-run is given.")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print the plan (terms, pages, request cap, pause) and exit; sends nothing, opens nothing")
+    ap.add_argument("--max-requests", type=int, default=DEFAULT_MAX_REQUESTS, metavar="N",
+                    help=f"stop after N live requests (default {DEFAULT_MAX_REQUESTS}, ceiling {ABSOLUTE_MAX_REQUESTS})")
+    return ap
+
+
+def request_cap(requested):
+    """The effective cap: never below 1, never above the absolute ceiling."""
+    return max(1, min(int(requested), ABSOLUTE_MAX_REQUESTS))
+
+
+def plan_text(cap):
+    worst = min(len(TERMS) * MAX_PAGES_PER_TERM, cap)
+    return (f"{len(TERMS)} terms, up to {MAX_PAGES_PER_TERM} pages each, {PER_PAGE} rows/page, "
+            f"{REQUEST_PAUSE_SEC:g}s pause between requests.\n"
+            f"Request cap this run: {cap}  (worst case {worst} live requests).\n"
+            f"Terms: {', '.join(TERMS)}")
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    cap = request_cap(args.max_requests)
+    if args.dry_run:
+        print("DRY RUN -- nothing sent to Upwork, DB not opened.\n" + plan_text(cap))
+        return
+    print(plan_text(cap) + "\n")
     con = sqlite3.connect(f"file:{ROOT / 'upwork_jobs.db'}?mode=ro", uri=True)
     total_requests = 0
+    capped = False
     overall_found = overall_in_db = 0
     not_in_db_all = []
 
@@ -80,6 +118,8 @@ def main():
         found_this_term = []
         offset = 0
         for page in range(MAX_PAGES_PER_TERM):
+            if total_requests >= cap:
+                break
             total_requests += 1
             try:
                 rows, total_count = upwork_api.search_jobs(term, PER_PAGE, str(offset))
@@ -103,11 +143,6 @@ def main():
             if last_dt is not None and last_dt < CUTOFF:
                 break
             offset += PER_PAGE
-            if total_requests >= 40:
-                print("\nSafety limit reached (40 requests total this run) -- stopping.")
-                break
-        if total_requests >= 40:
-            break
 
         print(f"\n{'='*90}\nTERM: {term!r}  -- {len(found_this_term)} posting(s) in the last 24h")
         print(f"{'='*90}")
@@ -139,6 +174,11 @@ def main():
         print(f"  -> {in_db} in DB, {not_in_db} missing, of {len(found_this_term)} found on Upwork")
         overall_found += len(found_this_term)
         overall_in_db += in_db
+        if total_requests >= cap:
+            skipped = TERMS[TERMS.index(term) + 1:]
+            print(f"\nRequest cap reached ({cap} requests this run) -- stopping. "
+                  f"Terms NOT checked: {', '.join(skipped) if skipped else '(none)'}.")
+            break
 
     print(f"\n{'='*90}\nTOTAL: {overall_found} postings found across all terms (24h, deduped per term only, "
           f"not globally); {overall_in_db} in DB ({(overall_in_db/overall_found*100) if overall_found else 0:.1f}% recall by this measure).")
