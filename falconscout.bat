@@ -19,12 +19,15 @@ REM  for WinError 64 under ProactorEventLoop) and restarts the backend (only
 REM  that one process) if :8000 is listening but /health goes unresponsive
 REM  for 3 checks 10s apart.
 REM
-REM  The frontend window runs tools\launcher\frontend_watchdog.py, which builds
-REM  (npm run build) only when frontend\src is newer than frontend\dist, then
-REM  serves the production build with `vite preview` on :5180 (same proxy
-REM  settings as dev, including /generations) and restarts it the same way the
-REM  backend watchdog restarts the backend. falconscout-dev.bat still runs
-REM  `npm run dev` instead - for editing the frontend, not for daily use.
+REM  The frontend window runs tools\launcher\run_frontend_watchdog_forever.bat
+REM  (Task 5.3, owner 2026-11-23), which restarts frontend_watchdog.py itself
+REM  if IT ever exits (it died silently at least twice with nothing bringing
+REM  it back). frontend_watchdog.py builds (npm run build) only when
+REM  frontend\src is newer than frontend\dist, then serves the production
+REM  build with `vite preview` on :5180 (same proxy settings as dev, including
+REM  /generations) and restarts THAT child the same way the backend watchdog
+REM  restarts the backend. falconscout-dev.bat still runs `npm run dev`
+REM  instead - for editing the frontend, not for daily use.
 REM
 REM  If the provider is switched to CLI later, the backend starts
 REM  the bridge itself on the first CLI call.
@@ -39,7 +42,7 @@ cd /d "%~dp0"
 set "RELOAD="
 set "RELOAD_FLAG="
 set "FRONTEND_DIR=%~dp0."
-set "FRONTEND_CMD=.\.venv\Scripts\python.exe tools\launcher\frontend_watchdog.py --port 5180"
+set "FRONTEND_CMD=tools\launcher\run_frontend_watchdog_forever.bat"
 set "FRONTEND_TITLE=Falcon Scout - Frontend"
 if /i "%~1"=="dev" (
   set "RELOAD= --reload"

@@ -191,5 +191,53 @@ finally:
     shutil.rmtree(tmp2, ignore_errors=True)
     fw.build_is_stale = REAL_BUILD_IS_STALE
 
+# ── Task 5.1 (owner, 2026-11-23): port_listening/page_ok check BOTH loopback
+# interfaces. Root cause found live: vite preview on this machine binds the
+# IPv6 loopback ONLY ("[::1]:5180 LISTENING", nothing on 127.0.0.1), so the
+# original IPv4-only check always said "down" for a perfectly healthy server.
+# Binds a REAL socket on ::1 only, confirms port_listening finds it. ──
+import socket as _socket
+try:
+    _srv = _socket.socket(_socket.AF_INET6, _socket.SOCK_STREAM)
+    _srv.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    _srv.bind(("::1", 0))
+    _srv.listen(1)
+    _v6_port = _srv.getsockname()[1]
+    check(fw.port_listening(_v6_port) is True, "a socket listening on ::1 ONLY (not 127.0.0.1) is still found")
+    _srv.close()
+except OSError:
+    print("SKIP  IPv6 loopback unavailable on this machine -- cannot exercise the ::1 path directly")
+
+# ── Task 5.3 (owner, 2026-11-23): another_instance_is_serving ───────────────
+# The concrete, observed cause of a real crash loop this session: two
+# frontend_watchdog.py instances alive at once fight over the port.
+REAL_PORT_LISTENING = fw.port_listening
+REAL_PAGE_OK = fw.page_ok
+try:
+    fw.port_listening = lambda port: True
+    fw.page_ok = lambda port: True
+    check(fw.another_instance_is_serving(5180) is True, "listening AND serving -> another instance is alive")
+
+    fw.port_listening = lambda port: False
+    fw.page_ok = lambda port: True
+    check(fw.another_instance_is_serving(5180) is False, "not listening at all -> no other instance")
+
+    fw.port_listening = lambda port: True
+    fw.page_ok = lambda port: False
+    check(fw.another_instance_is_serving(5180) is False, "listening but not answering (a stuck/crashing instance) -> NOT treated as healthy, this one may still need to take over")
+finally:
+    fw.port_listening = REAL_PORT_LISTENING
+    fw.page_ok = REAL_PAGE_OK
+
+# ── Task 5.3: an unhandled exception in the main loop is now logged with a
+# traceback and timestamp, not silently lost. Exercises the real except-clause
+# source, not a re-implementation, so this can't drift from main()'s own code. ──
+import inspect
+main_src = inspect.getsource(fw.main)
+check("except Exception:" in main_src and "traceback.format_exc()" in main_src and "FATAL" in main_src,
+      "main()'s loop now has a catch-all exception handler that logs a traceback (previously only KeyboardInterrupt was caught)")
+check("raise" in main_src.split("except Exception:")[1],
+      "...and re-raises after logging, so the process still exits non-zero for the outer restart loop to notice")
+
 print(f"\n{bad} FAILURES" if bad else "\nall pass")
 sys.exit(1 if bad else 0)

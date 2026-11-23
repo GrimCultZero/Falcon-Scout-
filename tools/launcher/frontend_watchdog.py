@@ -26,6 +26,7 @@ import socket
 import subprocess
 import sys
 import time
+import traceback
 import urllib.request
 from pathlib import Path
 
@@ -111,20 +112,42 @@ def start_preview(port: int, reload: bool) -> subprocess.Popen:
     return subprocess.Popen([NPM, "run", "preview"], cwd=str(FRONTEND_DIR))
 
 
-def port_listening(port: int, host: str = "127.0.0.1", timeout: float = 2.0) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
+# Task 5.1 finding (owner, 2026-11-23): the ROOT CAUSE this task was looking
+# for. `vite preview` on this machine binds the IPv6 loopback ONLY
+# ("[::1]:5180 LISTENING" in netstat, nothing on 127.0.0.1 at all) -- but both
+# checks below were hardcoded to IPv4 127.0.0.1. Confirmed live: a fresh
+# socket connect to 127.0.0.1:5180 sat in SYN_SENT (never completing) while
+# curl to "localhost:5180" (which resolves ::1 first on this machine) got a
+# clean 200. That means the watchdog's OWN health check believed a perfectly
+# healthy preview server was DOWN, restarted it on a fail-threshold timer
+# forever, and the new process could then collide with the old one still
+# tearing down -- a crash loop with a real, external symptom (port already in
+# use) but an INTERNAL, self-inflicted cause. Fixed by trying 127.0.0.1 first,
+# then ::1 -- whichever interface vite actually bound, this now sees it.
+_LOOPBACK_HOSTS = ("127.0.0.1", "::1")
+
+
+def port_listening(port: int, host: "str | None" = None, timeout: float = 2.0) -> bool:
+    hosts = (host,) if host else _LOOPBACK_HOSTS
+    for h in hosts:
+        try:
+            with socket.create_connection((h, port), timeout=timeout):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def page_ok(port: int, timeout: float = 5.0) -> bool:
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=timeout) as r:
-            return r.status == 200
-    except Exception:
-        return False
+    for h in _LOOPBACK_HOSTS:
+        url = f"http://[{h}]:{port}/" if ":" in h else f"http://{h}:{port}/"
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 def rebuild_if_stale(wd: Watchdog) -> None:
@@ -152,6 +175,16 @@ def rebuild_if_stale(wd: Watchdog) -> None:
         _last_failed_mtime = current_mtime
 
 
+def another_instance_is_serving(port: int) -> bool:
+    """True when something is already listening on `port` AND actually
+    serving the page -- i.e. a healthy instance (this script's or another
+    one's) already owns it. Task 5.3: the concrete, observed cause of a
+    frontend_watchdog.py crash loop -- a second instance's own preview
+    process can never bind an already-used port, so its Watchdog "restarts"
+    it forever."""
+    return port_listening(port) and page_ok(port)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=5180)
@@ -159,8 +192,25 @@ def main():
     parser.add_argument("--fail-threshold", type=int, default=3)
     parser.add_argument("--rebuild-check-interval", type=float, default=60.0,
                          help="how often to re-check whether a rebuild is needed while running")
+    parser.add_argument("--heartbeat-interval", type=float, default=300.0,
+                         help="how often to log an 'alive' line while running (Task 5.3)")
     parser.add_argument("--skip-build", action="store_true", help="serve the existing dist/ as-is, even if stale")
     args = parser.parse_args()
+
+    # Task 5.3 (owner, 2026-11-23): a concrete, OBSERVED cause of the
+    # "silent death" this task investigates -- two frontend_watchdog.py
+    # instances alive at once (e.g. a leftover one from an earlier session,
+    # or a second falconscout.bat launch) fight over :5180: the second
+    # instance's own preview process can never bind the port, so the
+    # Watchdog's own tick() loop "restarts" it every check_interval forever,
+    # in a crash loop that can eventually take BOTH instances down. If
+    # something is already listening on this port AND actually serving the
+    # page, assume it's a healthy instance (ours or another one) and exit
+    # cleanly rather than starting a competing preview process.
+    if another_instance_is_serving(args.port):
+        log(f"frontend watchdog: port {args.port} is already listening and serving — "
+            f"another instance is alive. Exiting without starting a second one.")
+        return
 
     if not args.skip_build and build_is_stale():
         build()
@@ -177,6 +227,7 @@ def main():
     )
     wd.start()
     next_rebuild_check = time.monotonic() + args.rebuild_check_interval
+    next_heartbeat = time.monotonic() + args.heartbeat_interval
     try:
         while True:
             time.sleep(wd.check_interval)
@@ -184,9 +235,32 @@ def main():
             if time.monotonic() >= next_rebuild_check:
                 next_rebuild_check = time.monotonic() + args.rebuild_check_interval
                 rebuild_if_stale(wd)
+            # Task 5.3: a heartbeat every 5 min (default) so the log can show
+            # exactly when the silence started, instead of nothing at all
+            # between a restart line and whatever killed the process.
+            if time.monotonic() >= next_heartbeat:
+                next_heartbeat = time.monotonic() + args.heartbeat_interval
+                listening = port_listening(args.port)
+                log(f"frontend watchdog: alive, vite pid {wd.proc.pid}, :{args.port} listening {'yes' if listening else 'no'}")
     except KeyboardInterrupt:
         log("frontend watchdog: KeyboardInterrupt, stopping the preview server")
         Watchdog._stop(wd.proc)
+    except Exception:
+        # Task 5.3: the main loop had NO handler for anything but
+        # KeyboardInterrupt before this -- any other exception (a bug in
+        # rebuild_if_stale/build(), a transient OSError from port_listening,
+        # etc.) propagated uncaught and silently ended the process with
+        # nothing written to the log at all. Log the full traceback with a
+        # timestamp, stop the child cleanly, then re-raise so the process
+        # still exits with a non-zero code -- run_frontend_watchdog_forever.bat
+        # (Task 5.3) is the outer loop that notices the exit and starts a
+        # fresh instance a few seconds later.
+        log(f"frontend watchdog: FATAL — unhandled exception in the main loop, exiting:\n{traceback.format_exc()}")
+        try:
+            Watchdog._stop(wd.proc)
+        except Exception:
+            pass
+        raise
 
 
 if __name__ == "__main__":

@@ -91,7 +91,7 @@ setup({ provider: '{"provider": "cli"}', env: ENV_OK });
 r = run('falconscout.bat');
 assert(r.status === 0 && names(r) === 'CLI Bridge | Backend | Frontend', `provider cli -> bridge, backend, frontend, in that order (got: ${names(r)}; exit ${r.status})`);
 assert(r.launches[1] && r.launches[1].cmd === '.\\.venv\\Scripts\\python.exe tools\\launcher\\backend_watchdog.py --port 8000', `the backend command has no --reload: "${r.launches[1] && r.launches[1].cmd}"`);
-assert(r.launches[2] && r.launches[2].dir.toLowerCase() === tmp.toLowerCase() && r.launches[2].cmd === '.\\.venv\\Scripts\\python.exe tools\\launcher\\frontend_watchdog.py --port 5180', `the daily frontend command is the production watchdog, started from the repo root: "${r.launches[2] && r.launches[2].cmd}" in "${r.launches[2] && r.launches[2].dir}"`);
+assert(r.launches[2] && r.launches[2].dir.toLowerCase() === tmp.toLowerCase() && r.launches[2].cmd === 'tools\\launcher\\run_frontend_watchdog_forever.bat', `the daily frontend command is the self-restarting watchdog wrapper (Task 5.3, owner 2026-11-23), started from the repo root: "${r.launches[2] && r.launches[2].cmd}" in "${r.launches[2] && r.launches[2].dir}"`);
 assert(r.launches[0] && r.launches[0].cmd === 'node cli-bridge.js', 'the bridge command is unchanged');
 assert(!/listener/i.test(r.out), 'nothing about the listener is launched or printed');
 
