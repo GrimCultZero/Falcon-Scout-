@@ -26,6 +26,7 @@ Falcon Scout gets a second half, **Metro**: outbound to white-label agency partn
 | Scoring | Layer 0 persona (CSV only) -> layer 1 business fit (domain, website scan, PageSpeed, Ads Transparency, Google Business Profile) -> layer 2 deep (Ahrefs for niche only, LinkedIn company page) |
 | Emails | Linked Helper's email finder if credits are included in Pro, otherwise Apollo; only verified addresses get email |
 | Chain shape | Touches = number of distinct hooks, shared across channels, no fact reused (ledger); cap about 6; under 2 hooks gets a base chain of about 3 from the campaign brief |
+| Channel order (agreed 24 Nov) | Sequential, never parallel. Every lead is enriched and has hooks before any message. Emails are looked up right after scoring and junk removal, while the connect campaign runs. Per-lead window: 14 days after the Linked Helper invite. Accepted by then -> LinkedIn first (about 3 messages from Artem), then email with the unused hooks if no reply. Not accepted -> email first, a longer email chain. Someone who accepts while on the email track: if they replied by email, the conversation stays on email; if they ignored the emails, they move to the combined track and get LinkedIn messages with unused hooks. Any reply on any channel stops everything else. In Linked Helper exports, "Successful" = accepted |
 | Re-contact | Cycles: rest 60-90 days, new cycle only with new hooks, max 3 cycles a year; any reply, opt-out or bounce stops all channels |
 | Case studies | The 89 English pages at itforce.ua/en/cases, matched by industry tag; the link is attached by code, never written by the AI |
 | Offer | Direct clients: a free mini-audit. Agencies: "send a client you're struggling to deliver for" / pilot audit |
@@ -56,7 +57,9 @@ One FastAPI process (`:8000`) and one SQLite file hold all Metro data, so every 
 | `metro_replies` | channel, kind (reply, auto-reply, bounce, opt-out), what it stopped |
 | `metro_suppression` | person, company or address, reason, scope |
 | `metro_case_links` | a KB case study's English URL and industry tags (the KB table itself is untouched) |
-| `metro_settings` | week mode (Linked Helper / Metro), caps, test mode |
+| `metro_settings` | week mode (Linked Helper / Metro), caps, test mode, persona rules |
+| `metro_imports` | one row per CSV import into a campaign: file, source, counts per outcome (no lead data). Added in Phase 1 |
+| `metro_suppression_candidates` | suppression entries proposed by Upwork-derived data, each waiting for Oleh's approve / reject. Added in Phase 1 |
 
 ### Accounts and weeks
 
@@ -96,7 +99,7 @@ Seven phases. After Phase 3 the first campaign can run, with sending through Lin
     - A small cyan dot on the other side's half of the switch when something there needs attention (wired in later phases; the slot exists now).
     - Each side remembers its last tab; the current side is remembered between visits; Ctrl+M switches sides. Switching never reloads the page.
 6. New tables (data model above) with migrations; nothing in `jobs` or `proposals` changes.
-7. Suppression list import: `Claude outputs/already_contacted_member_ids.csv` (1,818), existing IT Force clients (from Artem, when available), Upwork clients from the `proposals` table.
+7. Suppression list import: `Claude outputs/already_contacted_member_ids.csv` (1,818), existing IT Force clients (from Artem, when available), Upwork clients from the `proposals` table (changed 24 Nov: the 494 `upwork_job` ids are NOT imported; the 13 domains found are listed in Metro Settings as candidates that Oleh approves or rejects one by one, and nothing is suppressed until approved).
 8. `DESIGN.md` gets a "Metro" section with the locked decisions.
 
 **Accept when:** every Upwork tab still works (feed, analysis, letter, Outcomes, Dashboard); both test suites pass; opening DevScout and Falcon Scout in one Chrome profile shows no cross-talk in either console; the switch flips sides without a reload.
@@ -108,7 +111,7 @@ Seven phases. After Phase 3 the first campaign can run, with sending through Lin
 3. Dedup: by LinkedIn member id / profile URL, then email, then name + company; against the suppression list and every active campaign (a lead and its company are in one active campaign only).
 4. Layer 0 persona score from the CSV only: title, seniority, geography, junk patterns (freelancer, student, "open to work", recruiters). Rules editable in Settings.
 5. Leads table with the pipeline cards (Import -> Enrich -> Write -> Send) and DevScout's "what you see runs" rule.
-6. Linked Helper exports (agreed 24 Nov): import Linked Helper "Profiles downloaded" CSVs (both comma- and semicolon-delimited) with their campaign status (invited / connected); emails present in the export (1st-degree contact info) are used first and marked `source = linkedhelper`, so the paid finder runs only on the rest. Every imported list keeps a `source` field (which Sales Navigator seat / Linked Helper instance it came from).
+6. Linked Helper exports (agreed 24 Nov): import Linked Helper "Profiles downloaded" CSVs (both comma- and semicolon-delimited) with their campaign status (invited / connected); emails present in the export (1st-degree contact info) are used first and marked `source = linkedhelper`, so the paid finder runs only on the rest. Every imported list keeps a `source` field (which Sales Navigator seat / Linked Helper instance it came from). The "Profiles downloaded" files carry no status column, so the status is derived: invited = the invite date is filled; connected (accepted) = `connected_at` is filled or the member is DISTANCE_1; a file that does have an explicit status column uses it, "Successful" = accepted.
 7. Campaign launch kit (agreed 24 Nov): each campaign stores the "package" it runs with: Artem's LinkedIn profile variant (headline, About, banner, featured items), the case studies and sample audits it may use, the brief and the offer. Starting a campaign shows a checklist of the manual steps (profile switched, featured items swapped, "share profile updates with network" off) and records when each was done. Metro never edits LinkedIn itself.
 
 **Accept when:** the current Europe Linked Helper export (D:\ITForce\Metro\imports) imports with invited/connected status and its emails; the US agency list (`Claude outputs/US_CA_agency_owners_TierA.csv`) imports with zero manual column mapping; anyone in the 1,818 list is marked suppressed, never deleted; re-importing the same file adds nothing.
@@ -173,6 +176,7 @@ These hold in every phase; breaking one means stopping and asking Oleh.
 - No Metro code in `api/main.py` beyond mounting the router, and none in `JobDetail.jsx`. Shared helpers are extracted into small modules, never imported from those two files.
 - Never change the `jobs` or `proposals` tables or the Upwork feed.
 - `baba-leada` is read-only except the Phase 0 extension rename.
+- **Metro never imports leads sourced from Upwork** (jobs, proposals, Upwork clients). Upwork-derived data may only *propose* suppression entries (for example client domains), which Oleh approves or rejects one by one in Metro Settings; nothing is suppressed until approved.
 
 **Safety (fail closed)**
 - Nothing is ever sent without an explicit button press and confirm; test mode is on by default for email and LinkedIn.
@@ -204,5 +208,5 @@ None blocks Phases 0-2; the first two must be settled before Phases 3-4.
 - [ ] **Existing IT Force client list** for suppression (Artem).
 - [ ] **Agency proof**: 1-2 anonymised white-label write-ups, or the one-pager's numbers as a page on itforce.ua; the one-pager's LinkedIn call to action to match the sender.
 - [ ] **Next niche** after Medicine / Health / Aesthetics, ranked by contract value and IT Force's strength.
-- [ ] **React 19 upgrade** (Phase 0 step 3) - confirm, or keep React 18.
+- [x] **React 19 upgrade** (Phase 0 step 3) - kept (Oleh, 24 Nov).
 - [ ] **Email volume research** - on request.

@@ -1683,3 +1683,48 @@ below are settled with Oleh; changing one goes back to him before code.
   was NOT applied; it waits for Oleh's decision.
 - **Extension cross-talk fixed:** Falcon Scout Enricher (5.18) injects `bridge.js` and broadcasts
   `cockpit:*` messages to port 5180 only; 5173/5174 are DevScout's. Pinned by `tests/extension-ports.test.js`.
+
+### How Phase 1 built it (2026-11-24): campaigns, import, persona score
+- **Upwork stays out of Metro (decision 24 Nov, now a hard rule in METRO_PLAN.md):** Metro never imports
+  leads sourced from Upwork. The 494 `upwork_job` ids are NOT imported. The domains named by engaged
+  Upwork clients become **suppression candidates** (`metro_suppression_candidates`): listed in Metro
+  Settings, approved or rejected one by one; only an approval creates a `metro_suppression` entry
+  (company scope). A rejection is remembered; an approval cannot be flipped back through the API. A test
+  pins that no module of the lead import reads `jobs` / `proposals`; `leads.assert_not_upwork` refuses a
+  source named Upwork.
+- **Modules (`api/metro/`):** `campaigns.py` (CRUD, brief, launch kit, checklist), `csvimport.py`
+  (reading + column detection, a Python port of DevScout's `detectCols`), `leads.py` (the import pass,
+  dedup, rescore), `persona.py` (layer 0), `candidates.py`, `routes_p1.py` (included by `router.py`).
+  Detection is Python, not the JS lift the plan table names, because dedup and suppression run against the
+  database on the server; the browser only uploads and shows the preview. Exact header match beats
+  "contains"; a person's own site (`website_1`) is never the company website.
+- **Import pass, per row, first rule wins:** no identifier -> invalid; repeated in the file -> duplicate;
+  already in this campaign -> duplicate (status only moves forward none -> invited -> connected, a missing
+  email is filled); already in ANOTHER campaign -> skipped; company already in another campaign ->
+  skipped; on the suppression list -> **stored and marked `suppressed`** (never deleted, never written to);
+  else stored, layer 0 decides `new` or `junk`. "Same person" = member id, profile URL, email, then name +
+  company, the last one only when the two records do not carry DIFFERENT member ids or profiles (found on
+  the real US list: 13 pairs with the same name and company but different LinkedIn accounts). A campaign
+  holds its leads and companies while it is not `done`; a finished campaign's leads are not re-imported
+  either (re-contact is the Phase 6 cycle rule). Dry run by default; re-importing a file adds nothing.
+- **Linked Helper status (step 6):** the "Profiles downloaded" exports have NO status column and no
+  "Successful" value. invited = `invited_date_iso` filled; connected (accepted) = `connected_at` filled or
+  `member_distance` DISTANCE_1; an explicit status column, when a file has one, uses it ("Successful" =
+  accepted). An email in the export is kept with `email_source = linkedhelper`, `email_verified = false`
+  (verification belongs to Phase 2 step 8); the paid finder is only needed for the rest. Every import keeps a
+  `list_source` label (default parsed from the `lh-<instance>-#<id>` file name).
+- **Layer 0 persona score** (`persona.py`): 0-100 from title / headline / company / location only, with the
+  reasons stored on the lead; verdict keep / review / junk. Junk (freelancer, student, intern, recruiter,
+  "open to work", the job-seeker badge) is a verdict, never a deletion; "Keep anyway" locks the lead
+  (`persona_locked`) so rescoring never flips it. Rules live in `metro_settings.persona_rules`, are edited
+  and validated in Metro Settings, and are applied to existing leads by Rescore.
+- **Launch kit (step 7):** per campaign `launch_kit_json` (profile variant, case studies, sample audits,
+  notes), the brief in `brief_json`, and `checklist_json` (three manual LinkedIn steps, each dated, undoable,
+  with a history). Starting a campaign records the date and shows the open steps; it does not block on
+  them. Metro never edits LinkedIn.
+- **Header (Phase 0 step 5, finished):** the active half of the switch is dark on Falcon Scout and teal
+  #005669 with white text on Metro, an attention-dot slot sits on the inactive half (off until a phase
+  wires it), Ctrl+M switches sides, Metro's header has a 3px cyan top edge plus the week-mode chip and a
+  "Visits 0 of cap" placeholder chip.
+- **Two tables beyond the plan's eleven:** `metro_imports` (audit of each import, counts only) and
+  `metro_suppression_candidates`.
