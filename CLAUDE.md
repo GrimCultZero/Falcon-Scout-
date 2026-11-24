@@ -9,7 +9,7 @@ Local Windows tool that captures Upwork job postings from Telegram (@OffersHunte
 - **Capture:** the API job feed (a backend loop, `api/upwork_api.py`). The Telegram listener (`listener.py`), its regex parser and importers were removed on 2026-11-09 (the bot shut down 2026-10-15; they stay in git history). Jobs it captured keep `source = 'bot'`
 - **Frontend:** React + Vite on `:5180` (`frontend/src/`)
 - **Enrichment:** Chrome extension Manifest V3 (`upwork-enricher/`)
-- **LLM:** Claude (`claude-sonnet-4-5`) via `/claude` proxy
+- **LLM:** Claude Sonnet 5.5 (`claude-sonnet-5-5`; Haiku 4.5 for the cheap passes) via `/claude` proxy. Model names live in ONE place: `SONNET_MODEL`/`HAIKU_MODEL` in `api/main.py` (override with `FALCON_SONNET_MODEL` in `.env`) and `frontend/src/lib/models.js`; `/claude` rewrites any Sonnet name it receives to `SONNET_MODEL`
 - **Launcher:** `falconscout.bat` (daily: backend without reload, frontend, bridge only when the provider is `cli`); `falconscout-dev.bat` for backend development (reloads on `.py` edits)
 
 ## Read this first

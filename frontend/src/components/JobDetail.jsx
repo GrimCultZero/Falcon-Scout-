@@ -16,6 +16,7 @@ import { groundingCheck } from '../lib/groundingCheck'
 import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, vapeFabricationSentences, hasOrphanPunctuation, ensureExperienceYearsStated, stripRecordLeakSentences, stripResultsComingSentences, repairDoubleParenOrphan, offerMissingBeforeAttachment, duplicateAttachment, wrongDeliverableForScope } from '../lib/letterGuards'
 import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage, ensureLocalSeoResultsAnswer, ensurePricingFigureWhenAsked, insertNumberedAnswers } from '../lib/screeningQuestions'
 import { findAutoBomb } from '../lib/digitBombMatch'
+import { SONNET_MODEL, HAIKU_MODEL } from '../lib/models'
 import { paymentFlag, paymentRisk, competitionFlags, applyClientRiskGuards, cleanKeyPoints, highRiskCountriesLabel } from '../lib/clientRisk'
 import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
 
@@ -1540,7 +1541,7 @@ async function checkRuleConflict(newRuleText) {
     body: JSON.stringify({
       _kind: 'rule_check',
       // Mechanical JSON conflict-detect — Haiku is plenty (handoff §Haiku flip)
-      model: 'claude-haiku-4-5-20251001',
+      model: HAIKU_MODEL,
       max_tokens: 150,
       system: 'You detect contradictions between rules for an Upwork job-filtering assistant. A contradiction means two rules give opposite instructions for the same situation (e.g. "skip X" vs "always take X"). Respond ONLY with valid JSON, no markdown: {"conflict":true/false,"conflicting_index":null_or_number,"explanation":"one sentence"}',
       messages: [{ role: 'user', content: `New rule: "${newRuleText}"\n\nExisting rules:\n${existing.map((r, i) => `${i}. ${r.content}`).join('\n')}\n\nDoes the new rule directly contradict any existing rule?` }],
@@ -1623,7 +1624,7 @@ async function classifyJobShape(jobTitle, jobDescription, model) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         _kind: 'job_classify',
-        model: model || 'claude-haiku-4-5-20251001',
+        model: model || HAIKU_MODEL,
         max_tokens: 150,
         system: 'You classify Upwork job postings for a freelance proposal tool. Answer exactly four yes/no questions about what the posting ITSELF says — do not infer or guess beyond the text. Respond ONLY with valid JSON, no markdown: {"asks_for_rate":true/false,"is_audit_request":true/false,"client_is_agency":true/false,"wants_ongoing_work":true/false}\n\nasks_for_rate: does the posting explicitly ask the freelancer to state their rate, price, budget, or a quote?\nis_audit_request: does the posting ask for a one-time audit, analysis, review, or diagnostic engagement (as opposed to ongoing hands-on management)? A posting that rejects a "generic" or "templated" audit but still wants a custom/bespoke one still counts as true — it is asking for audit-shaped work, just not a canned version of it.\nclient_is_agency: is the BUYER an agency, reseller, or marketing team hiring a delivery partner to work on THEIR OWN CLIENTS\' properties? True only when the work is for the buyer\'s clients — "we are a digital agency", "our clients", "white-label for our roster", "you would work under our brand". FALSE when the buyer wants work on their OWN site or account, even if the posting mentions the word agency as a REQUIREMENT ON THE APPLICANT — "agency background required", "previous agency experience is a must", "you have worked at an agency" all describe the freelancer\'s CV, not the buyer. If the posting says "our website" or "our account", the answer is false no matter how often the word agency appears.\nwants_ongoing_work: does the posting ask for CONTINUING work after the initial deliverable — a retainer, monthly management, an ongoing campaign, recurring work, or a long-term engagement/partnership/role? A posting that asks ONLY for a one-time audit, review, check, setup, or report is false, even if it mentions "roadmap", "plan", "growth", "foundation" or "link building" as part of what that ONE deliverable covers or recommends — those words describe the CONTENT of a single audit/report, not a second, continuing engagement. True requires an explicit continuing-work signal: "retainer", "ongoing", "monthly", "recurring", "long-term partnership/management/contract", or an audit explicitly followed by continuing work ("audit then ongoing SEO", "initial review, then monthly management").',
         messages: [{ role: 'user', content: `Job title: ${jobTitle || '(none)'}\n\nJob description:\n${(jobDescription || '').slice(0, 4000)}` }],
@@ -5321,7 +5322,7 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           _kind: coreOnly ? 'analysis_rescan' : 'analysis',
-          model: 'claude-sonnet-4-5',
+          model: SONNET_MODEL,
           // 600 was too tight — bumped to 1200 for normal jobs. 1200 still
           // truncates on very long job descriptions (120+ lines of scope).
           // 2000 held until 2026-09-30, when three analyses hit exactly 2000
@@ -5597,7 +5598,7 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...parsed,
-            model: 'claude-sonnet-4-5',
+            model: SONNET_MODEL,
             ran_at: new Date().toISOString(),
           }),
         }).catch(() => {})
@@ -6133,7 +6134,7 @@ export function MyRulesBar() {
         body: JSON.stringify({
           _kind: 'rule_distill',
           // Compress free-form input → 1-2 sentence rule. Haiku is plenty.
-          model: 'claude-haiku-4-5-20251001',
+          model: HAIKU_MODEL,
           max_tokens: 120,
           system: 'You distill user input into a single, clear, actionable rule for an Upwork proposal assistant. Output ONLY the rule text — 1-2 sentences max, imperative tone, no preamble, no quotes.',
           messages: [{ role: 'user', content: text }],
@@ -6887,7 +6888,7 @@ function ProposalColumn({
           fetch(`/jobs/${job.id}/classification`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...fresh, model: 'claude-haiku-4-5-20251001' }),
+            body: JSON.stringify({ ...fresh, model: HAIKU_MODEL }),
           }).catch(() => {})
         }
         return fresh
@@ -7491,7 +7492,7 @@ function ProposalColumn({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           _kind: coreOnly ? 'proposal_rescan' : 'proposal',
-          model: 'claude-sonnet-4-5',
+          model: SONNET_MODEL,
           max_tokens: 2000,
           system: `You write Upwork cover letters for Artem Yatsuk, a Google Ads/PPC/SEO and ecommerce web development specialist (12 years).
 ═══════════════════════════════════════════════════════════════════
@@ -8408,7 +8409,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 _kind: 'proposal_repair',
-                model: 'claude-sonnet-4-5',
+                model: SONNET_MODEL,
                 max_tokens: 500,
                 system: `You write ONLY the MISSING numbered answer paragraph(s) for an Upwork cover letter already drafted for Artem Yatsuk (${ARTEM_EXPERIENCE_YEARS}, Google Ads/PPC/SEO and ecommerce web development).
 FACTS (non-negotiable): use ONLY the approved case ledger (names, metrics, places and periods exactly as given) and ARTEM'S BUSINESS FACTS below. Never invent a number, count, duration, client name, URL, result or timeframe. When a question needs a figure that is NOT on record, write NOTHING about that figure — answer the rest of the question from what IS on record, and never apologise, say you lack it, promise to send it, or leave a placeholder.
@@ -10201,7 +10202,7 @@ ${buildArtemFactsBlock(_postingTitleDesc)}${renderCaseFactsBlock()}`,
         // Already stripped above, before the checks ran. Kept as its own binding so
         // the stale-navigation branch below reads the same either way.
         const _finalText = _blockPlaceholders(text, job)
-        _recordGeneration(_jobIdAtCallTime ?? job?.id, coreOnly ? 'rescan' : 'generate', _finalText, 'claude-sonnet-4-5',
+        _recordGeneration(_jobIdAtCallTime ?? job?.id, coreOnly ? 'rescan' : 'generate', _finalText, SONNET_MODEL,
           _digitBombCase ? { case: _digitBombCase.id, score: _autoBomb ? _autoBomb.score : null } : null)
         if (_isStaleGenerate()) {
           console.log(`[Falcon] Generated proposal for job ${_jobIdAtCallTime} finished after navigating away — cached, not shown (was about to overwrite job ${currentJobIdRef.current}'s textarea).`)
@@ -10712,7 +10713,7 @@ ${buildArtemFactsBlock(_postingTitleDesc)}${renderCaseFactsBlock()}`,
           reworkLabel="↺ Rework letter"
           onProposalRewrite={(text) => {
             const _t = _blockPlaceholders(_gcShadow(stripAdmissions(text).text, job), job, 'chat');
-            _recordGeneration(job?.id, 'chat', _t, 'claude-sonnet-4-5')
+            _recordGeneration(job?.id, 'chat', _t, SONNET_MODEL)
             setProposal(_t)
             // Task 7.4 (owner, 2026-11-23, job 25615): run the same deliverable
             // checks after a chat edit as after generation, and show them in

@@ -461,11 +461,33 @@ async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
     }
 
 
+# ── Model names: ONE place (owner, 2026-11-24: "always use Sonnet 5 or 5.5") ───────
+# Every Sonnet call in the app goes through SONNET_MODEL. There is no moving "latest" alias, so moving
+# to a newer Sonnet means changing this ONE line (or setting FALCON_SONNET_MODEL in .env). /claude also
+# rewrites any Sonnet name the frontend sends to SONNET_MODEL (see _resolve_model), so a stale name in a
+# component can never pin the app to an old model. Haiku (cheap passes) stays on 4.5 on purpose.
+SONNET_MODEL = (os.getenv("FALCON_SONNET_MODEL") or "claude-sonnet-5-5").strip()
+HAIKU_MODEL = (os.getenv("FALCON_HAIKU_MODEL") or "claude-haiku-4-5-20251001").strip()
+
+
+def _resolve_model(requested) -> str:
+    """The model to actually use for a requested name: any Sonnet (old or new spelling) becomes SONNET_MODEL;
+    an empty request means SONNET_MODEL; anything else (Haiku, Opus) is passed through unchanged."""
+    m = str(requested or "").strip()
+    if not m or "sonnet" in m.lower():
+        return SONNET_MODEL
+    return m
+
+
 # ── Token usage tracking ─────────────────────────────────────────────────────
 # Pricing per 1M tokens (USD). Numbers reflect Anthropic's published rates as
 # of writing; update here if rates change. Falls back to Sonnet rates for any
 # unknown model so we never crash the usage chip.
 _MODEL_PRICING = {
+    "claude-sonnet-5-5":          {"input": 2.0, "output": 10.0},
+    "claude-sonnet-5":            {"input": 2.0, "output": 10.0},
+    "claude-haiku-5-5":           {"input": 0.1, "output": 0.5},
+    "claude-opus-5-5":            {"input": 4.0, "output": 20.0},
     "claude-sonnet-4-5":          {"input": 3.0, "output": 15.0},
     "claude-sonnet-4-5-20250929": {"input": 3.0, "output": 15.0},
     "claude-sonnet-4-6":          {"input": 3.0, "output": 15.0},
@@ -2925,7 +2947,7 @@ async def parse_kb_file(file: UploadFile = File(...)):
                         "content-type": "application/json",
                     },
                     json={
-                        "model": "claude-sonnet-4-6",
+                        "model": SONNET_MODEL,
                         "max_tokens": 8096,
                         "messages": [{
                             "role": "user",
@@ -2958,7 +2980,7 @@ async def parse_kb_file(file: UploadFile = File(...)):
         if not resp.is_success:
             raise HTTPException(status_code=502, detail=f"Claude API error {resp.status_code}: {resp.text[:300]}")
         result = resp.json()
-        _record_usage("pdf_parse", "claude-sonnet-4-6", result)
+        _record_usage("pdf_parse", SONNET_MODEL, result)
         text = "".join(b.get("text", "") for b in result.get("content", []) if b.get("type") == "text")
         if not text.strip():
             raise HTTPException(status_code=422, detail="Claude could not extract text from this PDF")
@@ -3250,9 +3272,9 @@ ORIGINAL CONTENT:
 
     if _get_ai_provider() == "cli":
         result = await _call_via_cli_bridge(
-            {"messages": [{"role": "user", "content": prompt}]}, "claude-haiku-4-5-20251001", "kb_shrink"
+            {"messages": [{"role": "user", "content": prompt}]}, HAIKU_MODEL, "kb_shrink"
         )
-        _record_usage("kb_shrink", "claude-haiku-4-5-20251001", result)
+        _record_usage("kb_shrink", HAIKU_MODEL, result)
         shrunk = "".join(b.get("text", "") for b in result.get("content", []) if b.get("type") == "text").strip()
         if not shrunk:
             raise HTTPException(status_code=502, detail="Claude returned empty content")
@@ -3275,7 +3297,7 @@ ORIGINAL CONTENT:
                 json={
                     # Mechanical compression — Haiku is plenty. ~7× cheaper
                     # than Sonnet for the same job (handoff §"Yes to all").
-                    "model": "claude-haiku-4-5-20251001",
+                    "model": HAIKU_MODEL,
                     "max_tokens": 4096,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -3289,7 +3311,7 @@ ORIGINAL CONTENT:
         raise HTTPException(status_code=502, detail=f"Claude API error {resp.status_code}: {resp.text[:300]}")
 
     result = resp.json()
-    _record_usage("kb_shrink", "claude-haiku-4-5-20251001", result)
+    _record_usage("kb_shrink", HAIKU_MODEL, result)
     shrunk = "".join(b.get("text", "") for b in result.get("content", []) if b.get("type") == "text").strip()
     if not shrunk:
         raise HTTPException(status_code=502, detail="Claude returned empty content")
@@ -3685,8 +3707,8 @@ async def chat(request: dict):
     # through cli-bridge.js instead of api.anthropic.com. Without this branch
     # /chat ignored the toggle entirely and kept hitting the exhausted API.
     if _get_ai_provider() == "cli":
-        parsed = await _call_via_cli_bridge({"system": system, "messages": messages}, "claude-sonnet-4-5", "chat")
-        _record_usage("chat", "claude-sonnet-4-5", parsed)
+        parsed = await _call_via_cli_bridge({"system": system, "messages": messages}, SONNET_MODEL, "chat")
+        _record_usage("chat", SONNET_MODEL, parsed)
         return parsed
 
     # Build extra headers — PDF document blocks in `messages` need the beta flag.
@@ -3714,7 +3736,7 @@ async def chat(request: dict):
                     # vanished instead of erroring. Output tokens bill only as
                     # used, so a higher ceiling costs nothing until it is needed.
                     # The frontend now also reports stop_reason == "max_tokens".
-                    "model": "claude-sonnet-4-5",
+                    "model": SONNET_MODEL,
                     "max_tokens": 4000,
                     "system": system,
                     "messages": messages,
@@ -3727,7 +3749,7 @@ async def chat(request: dict):
                 )
             import json as _json
             parsed = _json.loads(response.text)
-            _record_usage("chat", "claude-sonnet-4-5", parsed)
+            _record_usage("chat", SONNET_MODEL, parsed)
             return parsed
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Claude API timed out")
@@ -3778,9 +3800,9 @@ Conversation:
     if _get_ai_provider() == "cli":
         import json as _json
         data = await _call_via_cli_bridge(
-            {"messages": [{"role": "user", "content": distill_prompt}]}, "claude-sonnet-4-5", "distill"
+            {"messages": [{"role": "user", "content": distill_prompt}]}, SONNET_MODEL, "distill"
         )
-        _record_usage("distill", "claude-sonnet-4-5", data)
+        _record_usage("distill", SONNET_MODEL, data)
         text = data["content"][0]["text"]
         json_match = _re.search(r'\[[\s\S]*\]', text)
         if not json_match:
@@ -3798,7 +3820,7 @@ Conversation:
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-5",
+                    "model": SONNET_MODEL,
                     "max_tokens": 2000,
                     "messages": [{"role": "user", "content": distill_prompt}],
                 },
@@ -3810,7 +3832,7 @@ Conversation:
                 )
             import json as _json
             data = _json.loads(response.text)
-            _record_usage("distill", "claude-sonnet-4-5", data)
+            _record_usage("distill", SONNET_MODEL, data)
             text = data["content"][0]["text"]
             # Extract JSON array (handles any surrounding text)
             json_match = _re.search(r'\[[\s\S]*\]', text)
@@ -5609,7 +5631,7 @@ Pre-extracted title hint (may be wrong): "{job_title}"
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-5",
+                    "model": SONNET_MODEL,
                     "max_tokens": 4096,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -5623,7 +5645,7 @@ Pre-extracted title hint (may be wrong): "{job_title}"
         raise HTTPException(status_code=502, detail=f"Claude API error {resp.status_code}: {resp.text[:300]}")
 
     result_json = resp.json()
-    _record_usage("capture", "claude-sonnet-4-5", result_json)
+    _record_usage("capture", SONNET_MODEL, result_json)
     text_out = "".join(
         b.get("text", "") for b in result_json.get("content", []) if b.get("type") == "text"
     )
@@ -7000,7 +7022,8 @@ async def claude_proxy(request: dict):
         # `_betas` lets the frontend request beta features (e.g. PDF document
         # blocks). Strip before forwarding; translate to the beta header instead.
         betas = request.pop("_betas", None) or []
-        model = request.get("model") or "claude-sonnet-4-5"
+        model = _resolve_model(request.get("model"))
+        request["model"] = model  # the forwarded payload must carry the resolved name, not the requested one
 
         # ── Outcome stats injection for Analyser / Generator (Chunk 5) ──
         # The analyser and generator build their system prompts client-side

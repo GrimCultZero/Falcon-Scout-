@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { SONNET_MODEL } from '../lib/models'
 
 // Knowledge Base view: list of entries on the left, editor on the right.
 // See DESIGN.md sections 5, 8 (Phase 2), 12 for design rationale.
@@ -253,7 +254,7 @@ export default function KnowledgeBase({ refreshTrigger = 0 }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           _kind: 'kb_structure',
-          model: 'claude-sonnet-4-5',
+          model: SONNET_MODEL,
           max_tokens: 8192,
           messages: [{
             role: 'user',
@@ -367,7 +368,7 @@ ${rawText.slice(0, 60000)}
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           _kind: 'kb_structure',
-          model: 'claude-sonnet-4-5',
+          model: SONNET_MODEL,
           max_tokens: 8192,
           messages: [{
             role: 'user',
