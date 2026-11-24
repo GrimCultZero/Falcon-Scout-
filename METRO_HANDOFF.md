@@ -70,3 +70,50 @@ which reads the newest entry, checks it against METRO_PLAN.md and writes the nex
 - Suggested next task: Phase 1 (campaigns, CSV import with DevScout's column detection, dedup against suppression and active campaigns, layer 0 persona score, Leads table), after acceptance check 3 passes and the Upwork-clients question is answered.
 
 ---
+
+### 2026-11-24 21:25 Kyiv - Phase 1, Campaigns, import, persona score (steps 1-7 + Phase 0 step 5 finish) - DONE (one acceptance check PARTIAL)
+- Model and effort used: Claude Sonnet 5.5 (claude-sonnet-5-5) in Claude Code; the effort setting is not visible to me.
+- Branch / commits: metro/phase-1 (from metro/phase-0), pushed to origin.
+  - a63c230 feat(metro): Phase 1 - campaigns, CSV import with dedup, layer 0 persona score, launch kit; finish header switch
+  - d11f52e docs(metro): Phase 1 acceptance checks, DESIGN section 25 additions, METRO_PLAN hard rule (no Upwork leads)
+- Done:
+  - Phase 0 step 5 finished: active half dark on Falcon Scout / teal #005669 with white text on Metro; attention-dot slot on the inactive half (off); Ctrl+M; 3px cyan top edge; week-mode chip and "Visits 0 of 60" chip (display only). Checked in the browser pane.
+  - METRO_PLAN.md: hard rule "Metro never imports leads sourced from Upwork"; data-model rows for the two new tables; step 7 and step 6 notes; React 19 item ticked.
+  - Upwork suppression: the 494 upwork_job ids are not imported; the 13 domains are suppression candidates in Metro Settings, approve / reject one by one, nothing suppressed until approved.
+  1. Campaigns: agency / niche, region, month, status, brief (who, pains, case tags, do-not-claim), offer; Campaigns tab.
+  2. CSV import into a campaign with DevScout's column detection (ported to Python); preview (dry run) first, then import.
+  3. Dedup by member id, profile URL, email, then name + company; against suppression and other campaigns.
+  4. Layer 0 persona score from the CSV only, rules editable and validated in Settings, Rescore, "Keep anyway".
+  5. Leads tab with the four pipeline cards (only Import live) and the "what you see runs" rule.
+  6. Linked Helper exports, comma and semicolon: invited / connected status, emails from the export marked linkedhelper, `list_source` per import.
+  7. Launch kit per campaign (profile variant, case studies, sample audits, brief, offer) and a dated launch checklist; Start campaign shows open steps.
+- Not done / deferred, and why:
+  - Nothing was imported into the live database (Oleh does the first real import). The Phase 1 screens were checked against a scratch backend on another port, not the live app.
+  - Enrich / Write / Send cards are disabled placeholders (Phases 2, 3, 4-5). Week mode is display only, no switch yet (Phase 2 with the pop-up and Linked Helper check).
+  - CRM and Senders tabs are still empty.
+- Acceptance checks:
+  - Europe Linked Helper export imports with invited/connected status and its emails: PARTIAL. Scratch DB, file `...2026-11-08T12-19-41` (130 rows, `;`): status 100 invited / 4 connected / 26 not invited, no mapping needed. That file has no emails; the August 1st-degree export has 101 of 319, kept as linkedhelper. BUT every one of the 130 rows is on the 1,817-id "already contacted" list, so all 130 import as `suppressed`. And D:\ITForce\Metro\imports is empty (the sample audits and the US_CA CSVs are in `Claude outputs`).
+  - US agency list imports with zero manual column mapping: PASSED (495 rows, 495 stored: 421 keep / 73 review / 1 junk).
+  - Anyone in the 1,818 list is marked suppressed, never deleted: PASSED (1,817 ids; the plan's 1,818 counts the header).
+  - Re-importing the same file adds nothing: PASSED (US: added 0, duplicate 495; Europe: added 0, duplicate 130).
+- Tests: node tests/run_all.mjs --python: 66 JS suites passed / 0 failed; 42 Python suites passed / 0 failed. New: tests/metro/test_metro_phase1.py (97 checks), tests/metro/metro-ui.test.js; extended side-switch.test.js and test_metro_foundation.py.
+- Files changed: api/metro/{db,router}.py and new {campaigns,candidates,csvimport,leads,persona,routes_p1}.py; frontend/src/metro/{MetroApp,SideShell,SideSwitch}.jsx, theme.js, lib/side.js, new api.js and components/{CampaignsTab,LeadsTab,ImportDialog,SettingsTab,ui}.jsx; tests/metro/{side-switch.test.js,test_metro_foundation.py,test_metro_phase1.py,metro-ui.test.js}; METRO_PLAN.md, DESIGN.md, WORKLOG.md, METRO_HANDOFF.md.
+- Decisions made on my own (need Oleh's OK):
+  - Two tables beyond the plan's eleven: metro_imports (audit counts, no lead data) and metro_suppression_candidates; schema_version 2.
+  - Column detection is Python in api/metro, not the JS lift the plan table names (dedup and suppression run server-side).
+  - A campaign holds its leads and companies while its status is not `done` (draft and paused count, the plan says "active"); a finished campaign's leads are not re-imported either.
+  - Starting a campaign shows the checklist and records dates but does not block on open steps.
+  - Name + company is the weakest dedup key: two records with different member ids or profiles are two people (13 such pairs in the real US list), reported as same_name_other_profile.
+  - LH emails are stored email_verified = false (verification is Phase 2 step 8).
+  - An approved suppression candidate cannot be un-approved through the API (a rejected one can still be approved).
+- Questions for Oleh:
+  1. The Europe export's people are all on the already-contacted list, so importing them marks them all suppressed, including the 4 who accepted. For the channel-order decision (accepted -> LinkedIn messages) these people must stay messageable. How should a Linked Helper export of our own campaign relate to that list? Options: (a) exempt entries that came from that file when the lead's own status is invited/connected, (b) re-source the list with only the people who must never be written to, (c) leave as is. I changed nothing in code.
+  2. Which file is "the current Europe export"? D:\ITForce\Metro\imports is empty; I used the 2026-11-08T12-19-41 file.
+  3. Only 1 of 7 Linked Helper exports has emails. Is the email finder (Linked Helper credits or Apollo) decided yet? It affects Phase 2.
+- What Oleh must do by hand before the next task:
+  - Nothing is required to run. The live backend already loaded the new code and has the Phase 1 tables (empty); restart falconscout.bat to be sure and rebuild is already done (frontend/dist).
+  - Import the first real list yourself: Metro > Campaigns > New campaign, then Leads > Import CSV (preview first).
+  - Open Settings > Suppression list > "Look for Upwork clients' domains" and approve or reject the 13 domains.
+  - Reload the 5.18 extension and check the console cross-talk (Phase 0 check 3 is still open); rename DevScout's extension (Phase 0 step 2).
+  - Another process had uncommitted edits in api/main.py, JobDetail.jsx, frontend/src/lib/models.js and tests/test_model_config.py (a Haiku 5.5 switch). I did not touch or commit them.
+- Suggested next task: answer question 1, then Phase 2 (domain resolution, website scan, PageSpeed, Ads Transparency, LinkedIn extension fork with the week gate).
