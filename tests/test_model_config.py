@@ -54,13 +54,22 @@ def lift(env_overrides=None):
 
 ns = lift()
 check(ns["SONNET_MODEL"] == "claude-sonnet-5-5", "default Sonnet is claude-sonnet-5-5")
-check(ns["HAIKU_MODEL"] == "claude-haiku-4-5-20251001", "Haiku (cheap passes) is unchanged")
+check(ns["HAIKU_MODEL"] == "claude-haiku-5-5", "default Haiku (cheap passes) is claude-haiku-5-5")
 
 r = ns["_resolve_model"]
 for old in ("claude-sonnet-4-5", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6", "claude-sonnet-4", "Claude-Sonnet-3-7", "sonnet", "claude-sonnet-5"):
     check(r(old) == "claude-sonnet-5-5", f"any Sonnet name is rewritten to the configured Sonnet: {old!r}")
 check(r(None) == "claude-sonnet-5-5" and r("") == "claude-sonnet-5-5" and r("   ") == "claude-sonnet-5-5", "no model requested -> the configured Sonnet")
 check(r("claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001", "a Haiku request passes through unchanged")
+
+# Haiku 5.5 thinks by default and thinking counts against max_tokens: at 150 it returned no answer at all
+# (tested 2026-11-24). Every frontend Haiku call must leave room for it.
+jd = (ROOT / "frontend" / "src" / "components" / "JobDetail.jsx").read_text(encoding="utf-8")
+budgets = []
+for m_ in re.finditer(r"model: (?:model \|\| )?HAIKU_MODEL,\s*max_tokens: (\d+)", jd):
+    budgets.append(int(m_.group(1)))
+check(len(budgets) == 3 and all(b >= 1500 for b in budgets), f"every Haiku call in JobDetail.jsx has max_tokens >= 1500 (thinking headroom): {budgets}")
+check('"max_tokens": 8192,  # Haiku 5.5' in src, "kb_shrink Haiku call has thinking headroom (8192)")
 check(r("claude-opus-4-7") == "claude-opus-4-7", "an Opus request passes through unchanged (nothing requests it today)")
 
 ns2 = lift({"FALCON_SONNET_MODEL": "claude-sonnet-9-9"})
@@ -78,8 +87,8 @@ outside_table = src[:price_start] + src[price_end:]
 stale = re.findall(r'"claude-(?:sonnet|haiku|opus)-[0-9][^"]*"', outside_table)
 stale = [s for s in stale if s not in ('"claude-sonnet-5-5"',)]
 # the only literals allowed outside the price table are the constants' own defaults
-allowed = {'"claude-haiku-4-5-20251001"'}
-check(all(s in allowed for s in stale) and stale.count('"claude-haiku-4-5-20251001"') <= 1,
+allowed = {'"claude-haiku-5-5"'}
+check(all(s in allowed for s in stale) and stale.count('"claude-haiku-5-5"') <= 1,
       f"api/main.py has no hard-coded model names outside the constants and the price table: {sorted(set(stale))}")
 
 fe_hits = []

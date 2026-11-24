@@ -11231,3 +11231,13 @@ session on Telegram's side.
 3. **Anyone in the 1,818 list is marked suppressed, never deleted: PASSED** (1,817 ids; the plan's 1,818 counts the header). Scratch run: the 130 Europe rows were all stored with status `suppressed` and their reason; none was skipped or removed. Synthetic fixtures in the test pin member id, domain, company and email matches.
 4. **Re-importing the same file adds nothing: PASSED.** US list again: added 0, duplicate 495; Europe export again: added 0, duplicate 130, updated 0.
 - Not run: nothing was imported into the live database (Oleh does the first real import); the Phase 1 screens were checked against a scratch backend, not the live app.
+
+## 2026-11-24 (late) — Haiku 4.5 -> Haiku 5.5 for the cheap passes
+- Tested first (scratch script, 40 recent jobs, 4.5's stored classification vs 5.5): with the old `max_tokens: 150`
+  Haiku 5.5 returned NO answer (it thinks by default, thinking counts against max_tokens, cannot be disabled).
+  With 2000 it agreed with 4.5 on 150 of 160 answers; the 10 differences were borderline wording, 5.5 followed the
+  prompt's own rules at least as well. ~3x cheaper per classification at the $0.10/$0.50 price in the price table
+  (price not yet verified against Anthropic's page).
+- Switched: `HAIKU_MODEL = claude-haiku-5-5` (api/main.py, frontend/src/lib/models.js; override `FALCON_HAIKU_MODEL`).
+  Raised max_tokens: rule check / job classifier / rule distill 150/150/120 -> 2000; KB shrink 4096 -> 8192.
+  `tests/test_model_config.py` now pins the Haiku name and guards these budgets. Any NEW Haiku call needs the same headroom.

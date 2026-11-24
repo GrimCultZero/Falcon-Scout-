@@ -1542,7 +1542,7 @@ async function checkRuleConflict(newRuleText) {
       _kind: 'rule_check',
       // Mechanical JSON conflict-detect — Haiku is plenty (handoff §Haiku flip)
       model: HAIKU_MODEL,
-      max_tokens: 150,
+      max_tokens: 2000, // Haiku 5.5 thinks by default and thinking counts against this; 150 returned nothing
       system: 'You detect contradictions between rules for an Upwork job-filtering assistant. A contradiction means two rules give opposite instructions for the same situation (e.g. "skip X" vs "always take X"). Respond ONLY with valid JSON, no markdown: {"conflict":true/false,"conflicting_index":null_or_number,"explanation":"one sentence"}',
       messages: [{ role: 'user', content: `New rule: "${newRuleText}"\n\nExisting rules:\n${existing.map((r, i) => `${i}. ${r.content}`).join('\n')}\n\nDoes the new rule directly contradict any existing rule?` }],
     }),
@@ -1625,7 +1625,7 @@ async function classifyJobShape(jobTitle, jobDescription, model) {
       body: JSON.stringify({
         _kind: 'job_classify',
         model: model || HAIKU_MODEL,
-        max_tokens: 150,
+        max_tokens: 2000, // thinking counts against this (Haiku 5.5); 150 returned no answer
         system: 'You classify Upwork job postings for a freelance proposal tool. Answer exactly four yes/no questions about what the posting ITSELF says — do not infer or guess beyond the text. Respond ONLY with valid JSON, no markdown: {"asks_for_rate":true/false,"is_audit_request":true/false,"client_is_agency":true/false,"wants_ongoing_work":true/false}\n\nasks_for_rate: does the posting explicitly ask the freelancer to state their rate, price, budget, or a quote?\nis_audit_request: does the posting ask for a one-time audit, analysis, review, or diagnostic engagement (as opposed to ongoing hands-on management)? A posting that rejects a "generic" or "templated" audit but still wants a custom/bespoke one still counts as true — it is asking for audit-shaped work, just not a canned version of it.\nclient_is_agency: is the BUYER an agency, reseller, or marketing team hiring a delivery partner to work on THEIR OWN CLIENTS\' properties? True only when the work is for the buyer\'s clients — "we are a digital agency", "our clients", "white-label for our roster", "you would work under our brand". FALSE when the buyer wants work on their OWN site or account, even if the posting mentions the word agency as a REQUIREMENT ON THE APPLICANT — "agency background required", "previous agency experience is a must", "you have worked at an agency" all describe the freelancer\'s CV, not the buyer. If the posting says "our website" or "our account", the answer is false no matter how often the word agency appears.\nwants_ongoing_work: does the posting ask for CONTINUING work after the initial deliverable — a retainer, monthly management, an ongoing campaign, recurring work, or a long-term engagement/partnership/role? A posting that asks ONLY for a one-time audit, review, check, setup, or report is false, even if it mentions "roadmap", "plan", "growth", "foundation" or "link building" as part of what that ONE deliverable covers or recommends — those words describe the CONTENT of a single audit/report, not a second, continuing engagement. True requires an explicit continuing-work signal: "retainer", "ongoing", "monthly", "recurring", "long-term partnership/management/contract", or an audit explicitly followed by continuing work ("audit then ongoing SEO", "initial review, then monthly management").',
         messages: [{ role: 'user', content: `Job title: ${jobTitle || '(none)'}\n\nJob description:\n${(jobDescription || '').slice(0, 4000)}` }],
       }),
@@ -6135,7 +6135,7 @@ export function MyRulesBar() {
           _kind: 'rule_distill',
           // Compress free-form input → 1-2 sentence rule. Haiku is plenty.
           model: HAIKU_MODEL,
-          max_tokens: 120,
+          max_tokens: 2000, // thinking counts against this (Haiku 5.5)
           system: 'You distill user input into a single, clear, actionable rule for an Upwork proposal assistant. Output ONLY the rule text — 1-2 sentences max, imperative tone, no preamble, no quotes.',
           messages: [{ role: 'user', content: text }],
         }),
