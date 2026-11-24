@@ -11241,3 +11241,13 @@ session on Telegram's side.
 - Switched: `HAIKU_MODEL = claude-haiku-5-5` (api/main.py, frontend/src/lib/models.js; override `FALCON_HAIKU_MODEL`).
   Raised max_tokens: rule check / job classifier / rule distill 150/150/120 -> 2000; KB shrink 4096 -> 8192.
   `tests/test_model_config.py` now pins the Haiku name and guards these budgets. Any NEW Haiku call needs the same headroom.
+- REGRESSION found from the owner's shared snapshot (job 25972, 2026-11-24 19:20): after the Sonnet 5.5 switch the cover-letter
+  call (max_tokens 2000) used exactly 2000 output tokens and the letter ended mid-sentence ("...each with the"); the rescan
+  too. Sonnet 5.5 thinks by default and thinking counts against max_tokens (a plain 250-word letter = ~900 thinking + ~460 text).
+  Fixed: letter 2000 -> 8000, letter repair 500 -> 4000, analysis 4000 -> 8000, backend /chat 4000 -> 12000, two backend
+  distill/shrink-type calls -> 8000/12000. A letter whose stop_reason is max_tokens now raises instead of looking finished.
+  Rule for any new Claude call on 5.5: leave ~1000+ tokens above the expected answer for thinking. Guarded in tests/test_model_config.py.
+- Same snapshot: fixed_budget is stored with its own "$" ("$2,000", 791 rows), the analyser prompt added another -> "$$2,000"
+  in the prompt and the flag. Fixed (`_fb`). NOT changed (owner call): an "Ongoing project" label makes ANY fixed budget
+  count as anomalous/unspecified (JobDetail `_budgetAnomalous`), so job 25972's $2,000 was ignored and the client's $10/hr
+  history drove a -3 rate-floor penalty (MAYBE 5).
