@@ -14,16 +14,21 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
 
 ;(async () => {
   const m = await import(pathToFileURL(LIB).href)
-  const { paymentRisk, applicantsLowerBound, competitionSignal, competitionFlags, paymentFlag, applyClientRiskGuards, cleanKeyPoints } = m
+  const { HIGH_RISK_UNVERIFIED_COUNTRIES, highRiskCountriesLabel, paymentRisk, applicantsLowerBound, competitionSignal, competitionFlags, paymentFlag, applyClientRiskGuards, cleanKeyPoints } = m
 
   // ── payment ────────────────────────────────────────────────────────────────
   assert(!paymentRisk({ payment_verified: true, client_country: 'Pakistan' }).highRisk, 'verified payment from Pakistan is not high-risk')
   assert(!paymentRisk({ payment_verified: null, client_country: 'Pakistan' }).unverified, 'unknown payment (panel not read) is not "unverified"')
   assert(paymentRisk({ payment_verified: false, client_country: 'Pakistan' }).highRisk, 'unverified + Pakistan is high-risk')
   assert(paymentRisk({ payment_verified: false, client_country: 'Nigeria' }).highRisk, 'unverified + Nigeria is high-risk')
+  assert(paymentRisk({ payment_verified: false, client_country: 'Bangladesh' }).highRisk, 'unverified + Bangladesh is high-risk (64% of its postings are unverified in our data)')
+  assert(paymentRisk({ payment_verified: false, client_country: 'Ghana' }).highRisk, 'unverified + Ghana is high-risk')
+  assert(!paymentRisk({ payment_verified: true, client_country: 'Bangladesh' }).highRisk, 'verified + Bangladesh is NOT high-risk')
+  assert(highRiskCountriesLabel() === 'Pakistan, Nigeria, Bangladesh, Ghana', 'the prompt label is built from the list')
+  assert(HIGH_RISK_UNVERIFIED_COUNTRIES.every(c => c === c.toLowerCase()), 'the list is stored lower-case')
   assert(paymentRisk({ payment_verified: false, client_country: 'PAK' }).highRisk, 'a legacy 3-letter code (PAK) is recognised')
   assert(paymentRisk({ payment_verified: false, client_country: ' pakistan ' }).highRisk, 'case and whitespace do not matter')
-  for (const c of ['Germany', 'United States', 'United Kingdom', 'Australia', 'Canada', null, '']) {
+  for (const c of ['Germany', 'United States', 'United Kingdom', 'Australia', 'Canada', 'Turkey', 'Belgium', null, '']) {
     assert(!paymentRisk({ payment_verified: false, client_country: c }).highRisk, `unverified + ${JSON.stringify(c)} is NOT high-risk (owner: "if it is Germany he maybe just did not bother")`)
   }
   assert(paymentFlag({ payment_verified: true, client_country: 'Pakistan' }) === null, 'no payment flag when verified')
@@ -41,7 +46,8 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   // ── competition ceilings ───────────────────────────────────────────────────
   const sig = (j) => competitionSignal(j).ceiling
   assert(sig({ interviewing: 0, proposals: '5 to 10' }) === null, 'nothing interviewing, small pool: no ceiling')
-  assert(sig({ interviewing: 2, proposals: '10 to 15' }) === null, '1-2 interviewing: no ceiling')
+  assert(sig({ interviewing: 1, proposals: '5 to 10' }) === 8, '1 interviewing: score at most 8 (a point off)')
+  assert(sig({ interviewing: 2, proposals: '10 to 15' }) === 8, '2 interviewing: score at most 8')
   assert(sig({ interviewing: 3, proposals: '5 to 10' }) === 7, '3 interviewing: score at most 7 (the reported 8/10 case)')
   assert(sig({ interviewing: 4 }) === 7, '4 interviewing: at most 7')
   assert(sig({ interviewing: 5 }) === 6, '5 interviewing: at most 6')
@@ -52,7 +58,7 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(sig({ interviewing: 3, proposals: '50+' }) === 6, '50+ applicants AND 3 interviewing: at most 6')
   assert(sig({ interviewing: 10, proposals: '50+' }) === 5, 'the lowest ceiling wins')
   assert(competitionFlags({ interviewing: 3 }).some(f => /-2 points, score at most 7/.test(f)), '3 interviewing: flag states -2 and the ceiling')
-  assert(competitionFlags({ interviewing: 1 }).length === 1 && /no point change/.test(competitionFlags({ interviewing: 1 })[0]), '1 interviewing: informational flag only')
+  assert(competitionFlags({ interviewing: 1 }).length === 1 && /-1 point, score at most 8/.test(competitionFlags({ interviewing: 1 })[0]), '1 interviewing: a flag that states -1 and the ceiling')
   assert(competitionFlags({ interviewing: 0, proposals: '5 to 10' }).length === 0, 'no signal, no flags')
 
   // ── the guard: enforce in code ─────────────────────────────────────────────
@@ -64,6 +70,10 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   assert(r.parsed.score === 6 && r.parsed.verdict === 'MAYBE', '8/10 with 5 interviewing -> 6/10 and MAYBE, never APPLY')
   r = applyClientRiskGuards({ ...base, score: 9 }, { interviewing: 12, payment_verified: true })
   assert(r.parsed.score === 5 && r.parsed.verdict === 'MAYBE', '9/10 with 12 interviewing -> 5/10 MAYBE')
+  r = applyClientRiskGuards({ ...base, score: 10 }, { interviewing: 1, payment_verified: true })
+  assert(r.parsed.score === 8 && r.parsed.verdict === 'APPLY', '10/10 with someone already interviewing -> 8/10, still APPLY')
+  r = applyClientRiskGuards({ ...base, score: 9 }, { interviewing: 2, payment_verified: true })
+  assert(r.parsed.score === 8, '9/10 with 2 interviewing -> 8/10')
   r = applyClientRiskGuards({ ...base, score: 6, verdict: 'MAYBE' }, { interviewing: 3, payment_verified: true })
   assert(r.parsed.score === 6 && r.events.length === 0, 'a score already under the ceiling is left alone (the guard never raises)')
   r = applyClientRiskGuards({ ...base, score: 3, verdict: 'SKIP' }, { interviewing: 12, payment_verified: true })
@@ -99,7 +109,8 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
   has(/paymentRisk\(job\)\.highRisk/, 'the audit-job override only yields to a HIGH-RISK unverified client')
   assert(!/payment_verified === false && \(Number\(job\.client_review_count\) \|\| 0\) < 5/.test(src), 'the old "unverified + under 5 reviews" disqualifier is gone from code')
   assert(!/Payment NOT verified AND client has under 5 reviews/.test(src), 'the old hard-disqualifier wording is gone from the prompt')
-  has(/Payment NOT verified AND the client is in a HIGH-RISK country \(Pakistan, Nigeria\)/, 'the prompt states the country-based rule')
+  has(/Payment NOT verified AND the client is in a HIGH-RISK country \(\$\{highRiskCountriesLabel\(\)\}\)/, 'the prompt states the country-based rule from the shared list')
+  has(/If interviewing is 1 or 2: subtract 1 point, score AT MOST 8/, 'the prompt deducts a point for 1-2 interviewing')
   has(/"key_points":\[/, 'the output schema asks for key_points')
   has(/data-testid="key-points"/, 'the key points are rendered')
 

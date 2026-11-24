@@ -6,14 +6,23 @@
 //    who has not added a card is usually just new (1 in 5 postings), and the real cost is that Upwork
 //    gives no payment protection until a method is verified. Artem never accepts a contract before the
 //    client verifies, so it is a flag, not a deduction. It is treated as junk / likely fraud ONLY when the
-//    client is in a high-risk country (data: 58% of Pakistani postings are unverified, against 14% for the
-//    US). The list is the owner's, "Pakistan or Nigeria or countries like this": extend it here.
-// 2. COMPETITION: a client who is already interviewing several people, or a pool of 50+ applicants, caps
-//    the score. Our own reply rate at 50+ applicants is about 2%, against about 20% at 20-49.
+//    client is in a high-risk country. The list is the owner's call ("Pakistan, Nigeria, anything generally
+//    considered high risk; you name it"). No public source ranks countries by fake Upwork clients (checked
+//    2026-11-24), so it rests on our own data (Pakistan 43% and Bangladesh 64% of postings unverified, against
+//    about 11% for the US) plus the two countries most often named for advance-fee and impersonation fraud.
+//    Deliberately NOT listed: Turkey and Belgium look high but on 9-10 postings, and are ordinary markets.
+//    Extend or trim the list here; the prompt and the tests read it from this constant.
+// 2. COMPETITION: a client who is already interviewing anyone (even one or two), or a pool of 50+ applicants,
+//    caps the score. Our own reply rate at 50+ applicants is about 2%, against about 20% at 20-49.
 
-export const HIGH_RISK_UNVERIFIED_COUNTRIES = ['pakistan', 'nigeria']
+export const HIGH_RISK_UNVERIFIED_COUNTRIES = ['pakistan', 'nigeria', 'bangladesh', 'ghana']
 
-const _COUNTRY_CODES = { pk: 'pakistan', pak: 'pakistan', ng: 'nigeria', nga: 'nigeria' }
+/** "Pakistan, Nigeria, Bangladesh, Ghana" -- the list as it is written into the analyser prompt. */
+export function highRiskCountriesLabel() {
+  return HIGH_RISK_UNVERIFIED_COUNTRIES.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(', ')
+}
+
+const _COUNTRY_CODES = { pk: 'pakistan', pak: 'pakistan', ng: 'nigeria', nga: 'nigeria', bd: 'bangladesh', bgd: 'bangladesh', gh: 'ghana', gha: 'ghana' }
 
 function _countryKey(c) {
   const s = String(c == null ? '' : c).trim().toLowerCase()
@@ -51,6 +60,7 @@ export function competitionSignal(job) {
   if (interviewing >= 10) cap(5, `client is already interviewing ${interviewing} candidates, the shortlist is closing`)
   else if (interviewing >= 5) cap(6, `client is already interviewing ${interviewing} candidates, the funnel is heavily shortlisted`)
   else if (interviewing >= 3) cap(7, `client is already interviewing ${interviewing} candidates, the funnel is filling`)
+  else if (interviewing >= 1) cap(8, `client is already interviewing ${interviewing} candidate${interviewing === 1 ? '' : 's'}`)
 
   const crowded = applicants != null && applicants >= 50
   if (crowded) cap(7, 'a crowded pool of 50+ applicants')
@@ -67,7 +77,7 @@ export function competitionFlags(job) {
   if (n >= 10) out.push(`Client already interviewing ${n} candidates — shortlist is closing, cap verdict at MAYBE, -4 points, score at most 5`)
   else if (n >= 5) out.push(`Client already interviewing ${n} candidates — funnel heavily shortlisted, cap verdict at MAYBE, -3 points, score at most 6`)
   else if (n >= 3) out.push(`Client already interviewing ${n} candidates — funnel is filling, -2 points, score at most 7`)
-  else if (n >= 1) out.push(`Client already interviewing ${n} candidate${n === 1 ? '' : 's'} — note it, no point change`)
+  else if (n >= 1) out.push(`Client already interviewing ${n} candidate${n === 1 ? '' : 's'} — someone is already ahead of you, -1 point, score at most 8`)
   if (sig.crowded) out.push(`Crowded pool: 50+ applicants — -1 point, score at most 7 (our own reply rate at 50+ is about 2%, against about 20% at 20-49)`)
   if (sig.crowded && n >= 3) out.push('50+ applicants AND an interview shortlist already forming — cap verdict at MAYBE, score at most 6')
   return out
