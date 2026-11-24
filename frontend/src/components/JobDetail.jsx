@@ -16,6 +16,7 @@ import { groundingCheck } from '../lib/groundingCheck'
 import { stripCallOffers, findCallOffers, ensureAuditSampleMention, ALREADY_AUDITED_RE, postingAsksForTimeline, findRequestedExample, letterGivesExample, findAuditCaseAsk, isAuditSampleEntry, findOffLedgerSeoPrices, draftAttachesAuditSample, caseStudiesCrammed, blankNegatedLaunch, postingAsksForWhiteLabel, findWhiteLabelPitch, findUnsolicitedLogistics, postingDeclinesAudit, postingNamesGoogleAndMeta, letterCoversMeta, postingHasRunningAccount, ensureRunningAccountAuditCta, ONGOING_SIGNAL_RE, AUDIT_ONLY_NO_ONGOING_RE, ensureAuditOfferLeads, letterHasCaseStudy, digitBombOpenerMiss, postingRequiredOpener, stripUnrequestedOpenerWord, dropPastLetterCodeWord, findOffStandardOngoingFee, stripPlaceholders, stripAdmissions, timingViolationSentences, stripOffStandardYearsClaim, stripVapeNearLocalSeo, stripUnledgeredCaseQualifiers, vapeFabricationSentences, hasOrphanPunctuation, ensureExperienceYearsStated, stripRecordLeakSentences, stripResultsComingSentences, repairDoubleParenOrphan, offerMissingBeforeAttachment, duplicateAttachment, wrongDeliverableForScope } from '../lib/letterGuards'
 import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCoverage, ensureLocalSeoResultsAnswer, ensurePricingFigureWhenAsked, insertNumberedAnswers } from '../lib/screeningQuestions'
 import { findAutoBomb } from '../lib/digitBombMatch'
+import { paymentFlag, paymentRisk, competitionFlags, applyClientRiskGuards, cleanKeyPoints } from '../lib/clientRisk'
 import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -5223,13 +5224,13 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
       // cheap-payer / weak-average wording is left out for those (the other test-week flags stay).
       const _twEvForFlags = _twEv && _isPpcAuditJob ? { ..._twEv, cheapPayer: false, weakAvg: false } : _twEv
       if (_twEvForFlags) mandatoryFlags.push(...testWeekFlags(_twEvForFlags))
-      if (_interviewing >= 10) {
-        mandatoryFlags.push(`Client already interviewing ${_interviewing} candidates — shortlist is closing, cap verdict at MAYBE, -3 points`)
-      } else if (_interviewing >= 5) {
-        mandatoryFlags.push(`Client already interviewing ${_interviewing} candidates — funnel heavily shortlisted, -2 points`)
-      } else if (_interviewing >= 3) {
-        mandatoryFlags.push(`Client already interviewing ${_interviewing} candidates — funnel is filling, -1 point`)
-      }
+      // Interviewing + crowded-pool rules (owner, 2026-11-24: an 8/10 on a client already interviewing 3
+      // people is too generous). Same table as the prompt; applyClientRiskGuards() enforces the score
+      // ceilings in code after the answer comes back. See lib/clientRisk.js.
+      mandatoryFlags.push(...competitionFlags(job))
+      // Payment not verified: NOT a disqualifier unless the client is in a high-risk country.
+      const _payFlag = paymentFlag(job)
+      if (_payFlag) mandatoryFlags.push(_payFlag)
       // Connect COST is intentionally NOT a scoring factor: Artem boosts every
       // proposal, so the flat connects-required number doesn't change his calculus.
       // BOOST COMPETITION, however, IS meaningful — it shows how aggressively
@@ -5373,7 +5374,7 @@ When the core ask is a Google Ads / PPC account AUDIT, REVIEW, assessment, healt
 - THE HOURLY RATE FLOOR DOES NOT APPLY. It is a fixed-fee deliverable, not an hourly engagement. A low posted hourly range (even $10-25/hr) and a low client historical avg rate are NOT reasons to deduct points, cap the verdict, or raise rate-floor risk. Do not compute an effective hourly against the posted range — the price is $300 flat regardless of what the posting advertises hourly.
 - "SHORT-TERM" / "PART-TIME" / "ONE-OFF" / "SMALL PROJECT" IS THE NATURE OF AN AUDIT — it is exactly what Artem wants here. Never treat those words as a negative, as "scope-creep risk", or as evidence the client wants cheap ongoing hourly support. An audit IS a short, bounded, one-off deliverable.
 - These jobs are cheap to win, fast to deliver, and frequently convert into ongoing management afterwards — the audit is the door-opener. Applying is nearly always correct.
-- VERDICT: APPLY, score 7-9. Only a genuine HARD disqualifier (US-only geo lock, already-hired, unverified payment with under 5 reviews) may pull it below that. Client quality concerns (few reviews, modest spend) are a flag at most, never a SKIP on their own — the downside is capped at one small fixed fee.
+- VERDICT: APPLY, score 7-9. Only a genuine HARD disqualifier (US-only geo lock, already-hired, unverified payment from a high-risk country) may pull it below that. Client quality concerns (few reviews, modest spend) are a flag at most, never a SKIP on their own — the downside is capped at one small fixed fee.
 - For web development BUILD jobs (Shopify/WordPress/OpenCart, from-scratch/new site), the differentiator is full-scope delivery: most web devs hand off to a separate SEO person; IT Force delivers build + SEO architecture + analytics in one engagement — cite this as the edge. BUT for MAINTENANCE / CHANGES / FIX jobs on an EXISTING store (theme tweaks, adjustments, fixing issues), the client hired a developer, not an SEO — the edge is dev RELIABILITY (careful theme work, test-before-deploy, doesn't break existing functionality/tracking), NOT an SEO/ranking pitch. Don't force the SEO angle where it wasn't asked for.
 
 AGENCY / WHITE-LABEL REQUIREMENT (mandatory — an explicit "agency" ask is NOT a disqualifier):
@@ -5386,12 +5387,12 @@ Artem is a Top Rated individual freelancer BUT delivers through his associated a
 HARD DISQUALIFIERS — if any apply, score MUST be 0 and verdict MUST be SKIP, no exceptions:
 1. "Freelancer geo restriction" field contains "United States only", "US only", or any similar restriction (Artem cannot legally apply). A field that says "location unverified" is NOT a restriction and does NOT trigger this rule
 2. Rate ceiling is below $15/hr. For HOURLY RANGE jobs (e.g. "$15-$45/hr"), use the CEILING ($45 in this example), NOT the floor — the ceiling is what the client is willing to pay up to, and Artem can negotiate to that. Only disqualify when the CEILING (or the single rate, for non-range jobs) is below $15/hr. Below-$30 ceilings should be a soft negative signal / flag, not a hard skip.
-3. Payment NOT verified AND client has under 5 reviews. READ THE CLIENT LINE LITERALLY — this fires ONLY when the client line above literally says "payment NOT verified". If it says "payment verified", the client IS verified: you may NOT write "payment not verified", "unverified payment", or "high non-payment risk" anywhere in your output. NEVER CONTRADICT THE CLIENT DATA YOU WERE GIVEN — do not call spend "unknown" when a spend figure is provided, and do not invent a client-quality red flag that the data disproves. Fabricating this disqualifier has caused wrong SKIPs.
+3. Payment NOT verified AND the client is in a HIGH-RISK country (Pakistan, Nigeria). READ THE CLIENT LINE LITERALLY — this fires ONLY when the client line above literally says "payment NOT verified" AND the client's country is one of those. Such a posting is treated as junk / likely fraud. In EVERY OTHER country, "payment NOT verified" is NOT a disqualifier and NOT a score deduction (owner, 2026-11-24): an unverified client is usually just new and has not added a card yet, and Artem never accepts a contract before the client verifies. A client with few reviews is NOT a disqualifier either. For a non-high-risk unverified client write exactly one flag, "Payment not verified: ask the client to verify before accepting a contract", and judge the job on its scope, budget and fit. If the client line says "payment verified", the client IS verified: you may NOT write "payment not verified", "unverified payment", or "high non-payment risk" anywhere in your output. NEVER CONTRADICT THE CLIENT DATA YOU WERE GIVEN — do not call spend "unknown" when a spend figure is provided, and do not invent a client-quality red flag that the data disproves. Fabricating this disqualifier has caused wrong SKIPs.
 4. "ALREADY HIRED" count ≥ 1 — the client has already hired someone for this role and is unlikely to hire again. Verdict MUST be SKIP and the "flags" array MUST include a flag noting "Client already hired N freelancer(s)".
 
 SCORE CALIBRATION — what the 0-10 number means (mandatory):
 The score must distinguish "categorically cannot/should-never apply" from "could apply but poor fit." Use these bands:
-- 0-1 → RESERVED for the four HARD DISQUALIFIERS above ONLY. A score of 0 means "Artem literally cannot apply or it is categorically pointless" (geo-locked out, rate below floor, unverified+unproven client, already hired). Do NOT use 0-1 for fit/vertical/experience mismatches.
+- 0-1 → RESERVED for the four HARD DISQUALIFIERS above ONLY. A score of 0 means "Artem literally cannot apply or it is categorically pointless" (geo-locked out, rate below floor, unverified payment from a high-risk country, already hired). Do NOT use 0-1 for fit/vertical/experience mismatches.
 - 2-4 → SKIP for FIT reasons. The job is applicable in principle (no hard disqualifier) but a poor match: wrong vertical with an explicit experience gate, a screening question demanding proof Artem can't credibly give, heavy specialization Artem lacks, or a very crowded pool where specialists clearly out-compete him. Verdict SKIP, score 2-4 — NOT 0.
   EXPLICIT PROOF REQUIREMENT (most-missed 2-4 trigger): if the posting explicitly asks for a portfolio, examples, or screenshots of work Artem has NOT done (e.g. "share examples of content you ranked on external platforms", "attach a portfolio of web designs", "show us case studies from the finance vertical"), this is a near-disqualifying signal. The client will evaluate proposals against this requirement; Artem cannot credibly answer it. Score MUST be 2-4 (SKIP), NOT 5-6. Do NOT call this MAYBE and do NOT suggest that Artem can "work around" the requirement in the letter. CARVE-OUT: this rule is about proof of SKILLS or VERTICALS Artem genuinely lacks — it does NOT apply to agency-structure / white-label / team-capacity / account-manager questions, which are answerable via IT Force (see AGENCY / WHITE-LABEL REQUIREMENT above). An explicit agency ask is not a proof gap. SECOND CARVE-OUT — CHECK BEFORE YOU FIRE THIS RULE (mandatory): "Artem has NOT done it" is a claim about his portfolio, and you must verify it against the CORE KB CONTEXT block in this prompt before asserting it. Do NOT infer an absence from the fact that you cannot recall one. He demonstrably HAS, and routinely attaches: a 36-page technical SEO audit deliverable (lemoos.com, bilingual Webflow ecommerce — see the CORE KB entry titled "two technical SEO website audit examples that Artem attaches to cover letter"), Google Ads / PPC account audit samples, an SEO promotion plan sample, and the case studies listed in CORE KB. A posting asking for "a sample audit", "examples of your audits", "case studies", or "a portfolio of past work" is therefore NOT a proof gap — it is a request he can satisfy today, and it should be treated as a REASON TO APPLY, not a reason to skip. Confirmed failure, job 14335 (2026-09-03): the analyser wrote "Artem cannot credibly answer this without fabricating proof" and capped the score at 3/10 SKIP on a $30-45/hr technical-SEO-audit job with under 5 applicants — his exact productised deliverable — while that lemoos.com audit block sat in the same prompt. Fire this rule ONLY when the requested proof is for a skill or vertical genuinely absent from the KB, and say which KB section you checked.
 - 5-6 → MAYBE. Adjacent fit, real but surmountable concerns, worth a tailored proposal.
@@ -5445,10 +5446,13 @@ FLAT-RATE / FIXED-PRICE EXCEPTION: When the job is fixed-price (flat budget, not
 
 INTERVIEWING-COUNT SIGNAL (mandatory — most-missed shortlist-saturation flag):
 The "interviewing" count is the number of candidates the client is ALREADY in active interview conversations with. It is the single strongest leading indicator that the funnel is closing. Entering the funnel late, after the client has shortlisted multiple candidates, rarely converts even with strong fit.
-- If interviewing >= 3 but < 5: subtract 1 point. Flag: "Client already interviewing N candidates — funnel is filling".
-- If interviewing >= 5 but < 10: subtract 2 points. Flag: "Client already interviewing N candidates — funnel heavily shortlisted; entering this late is uphill".
-- If interviewing >= 10: subtract 3 points AND cap verdict at MAYBE (never APPLY). Flag: "Client already interviewing N candidates — shortlist is closing; entering this late rarely converts even with strong fit. Strongly consider SKIP unless fit is exceptional and budget alignment is provable".
+Owner, 2026-11-24: a job scored 8/10 with the client already interviewing 3 people was too generous. The deductions are now steeper, and the score also has a CEILING that code enforces after you answer:
+- If interviewing is 1 or 2: note it, no point change.
+- If interviewing >= 3 but < 5: subtract 2 points, score AT MOST 7. Flag: "Client already interviewing N candidates — funnel is filling".
+- If interviewing >= 5 but < 10: subtract 3 points, score AT MOST 6 AND cap verdict at MAYBE (never APPLY). Flag: "Client already interviewing N candidates — funnel heavily shortlisted; entering this late is uphill".
+- If interviewing >= 10: subtract 4 points, score AT MOST 5 AND cap verdict at MAYBE (never APPLY). Flag: "Client already interviewing N candidates — shortlist is closing; entering this late rarely converts even with strong fit. Strongly consider SKIP unless fit is exceptional and budget alignment is provable".
 - If interviewing is 0 or absent: no penalty.
+CROWDED POOL: an applicants band of "50+" subtracts 1 point and caps the score at 7 (our own reply rate is about 2% at 50+ applicants against about 20% at 20-49). Pools below 50 are NOT penalised for applicant count (see COMPETITIVE POSITIONING). 50+ applicants together with 3 or more interviewing caps the score at 6 (MAYBE).
 
 CONNECTS COST — IGNORE (mandatory): Do NOT factor the "connects required" number into the score or verdict, and do NOT flag it. Artem boosts every proposal, so connect cost has no bearing on his decision. Even a very high connect requirement is irrelevant — never deduct points for it or mention it as a concern.
 CRITICAL — connects required is NOT a competition signal: the "connects required" number is a flat ENTRY PRICE Upwork sets, NOT a measure of how contested the job is. NEVER describe connects as a "competitive auction", "premium auction", "high competition", or infer demand/competition from it. Competition is read ONLY from (a) the applicant count and (b) the BOOST COMPETITION bids below. A high connects-required number with few applicants and low boost bids is an UNCONTESTED job — do not call it competitive. Conflating connect cost with auction/competition is a specific error to avoid.
@@ -5492,8 +5496,9 @@ SCORING RULE (mandatory):
 - For every missed criterion, the "flags" array MUST include a flag in the exact format: "Doesn't meet preferred: <criterion as written>" (one flag per criterion).
 - The cover letter should pre-empt the concern (timezone overlap, async cadence, etc.) — but that's the generator's job; here, your job is to score honestly and flag visibly.${rulesText}${coreContextText}${examplesText}${adjustments}${_testWeek ? testWeekPromptBlock(_twUntil) : ''}
 Respond ONLY with a JSON object. No markdown, no explanation, just the JSON:
-{"verdict":"APPLY","score":8,"summary":"brief fit summary","reasons":["reason 1","reason 2","reason 3"],"flags":["flag 1"]}
-Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
+{"verdict":"APPLY","score":8,"summary":"brief fit summary","key_points":[{"text":"most important thing, 12 words or fewer","tone":"good"}],"reasons":["reason 1","reason 2","reason 3"],"flags":["flag 1"]}
+Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.
+"key_points" is 2 to 4 items: the things that MOST decide this verdict, most important first, each one short and concrete with the real number or fact in it (for example "Interviewing 3 already, funnel filling", "$300 audit, his flagship deliverable", "Client spent $45K, 5.0 rating", "Pool of 50+ applicants"). tone is "good" for something that helps, "bad" for something that hurts or blocks, "warn" for a risk or a thing to verify. Do not repeat the summary; do not include minor details.`,
           messages: [{ role: 'user', content: `Analyze this job:\n\n${jobSummary}` }],
         }),
       })
@@ -5516,6 +5521,16 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
       } else {
         throw new Error('No JSON found in: ' + clean.slice(0, 100))
       }
+      // Client-risk guards (owner, 2026-11-24, lib/clientRisk.js): unverified payment from a high-risk
+      // country is a hard SKIP; an interview shortlist or a 50+ applicant pool puts a ceiling on the
+      // score. Prompt rules alone get ignored, so this is enforced here. A PPC audit job keeps the
+      // "always worth applying" policy below, so it skips the competition ceiling (not the junk SKIP).
+      {
+        const _crg = applyClientRiskGuards(parsed, job, { skipCeiling: _isPpcAuditJob })
+        parsed = _crg.parsed
+        if (_crg.events.length) _recordViolations('analyser', job?.id, _crg.events)
+        parsed.key_points = cleanKeyPoints(parsed.key_points)
+      }
       // Deterministic verdict override for PPC/Google Ads audit jobs (§ MANDATORY
       // FLAGS above already tells the model "rate-floor DOES NOT APPLY, verdict
       // APPLY 7-9" — but that's a prompt instruction, and prompt instructions get
@@ -5528,7 +5543,7 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
       if (_isPpcAuditJob) {
         const _hasRealDisqualifier =
           geoVerdict(job).verified ||
-          (job.payment_verified === false && (Number(job.client_review_count) || 0) < 5) ||   // unknown (panel not read) is not a disqualifier
+          paymentRisk(job).highRisk ||   // unverified payment from a high-risk country only (owner, 2026-11-24); unknown (panel not read) is not a disqualifier
           (Number(job.client_already_hired) || 0) >= 1
         if (!_hasRealDisqualifier && (parsed.verdict !== 'APPLY' || (Number(parsed.score) || 0) < 7)) {
           const _rateNoiseRe = /rate.?floor|budget.?tier|rate.?reject|rate.?pressure|historical avg rate|client'?s? avg(?:erage)? (?:hourly )?rate|avg rate \$?\d/i
@@ -5644,6 +5659,20 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.`,
             </div>
             <div style={{ fontSize: 13, fontWeight: 700, color: verdictColor[analysis.verdict], marginBottom: 6 }}>{analysis.verdict}</div>
             <div style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.5 }}>{analysis.summary}</div>
+            {/* Key points (owner, 2026-11-24): the few things that most decide the verdict, most important first.
+                Absent on analyses cached before this field existed: nothing is drawn then. */}
+            {cleanKeyPoints(analysis.key_points).length > 0 && (
+              <div data-testid="key-points" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                {cleanKeyPoints(analysis.key_points).map((k, i) => {
+                  const tone = { good: ['#00d070', 'rgba(0,208,112,0.12)'], bad: ['#ef4444', 'rgba(239,68,68,0.12)'], warn: ['#d97706', 'rgba(245,158,11,0.14)'] }[k.tone]
+                  return (
+                    <span key={i} style={{ fontSize: 11, fontWeight: 600, color: tone[0], background: tone[1], border: `1px solid ${tone[0]}55`, borderRadius: 4, padding: '3px 8px', lineHeight: 1.35 }}>
+                      {k.tone === 'good' ? '✓' : k.tone === 'bad' ? '✕' : '⚠'} {k.text}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Similar-proposals badge — appears once similarity data loads */}

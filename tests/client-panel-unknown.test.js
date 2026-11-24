@@ -74,8 +74,13 @@ assert(/def _payment_word\(v\)/.test(main) && !/'verified' if job\.get\('payment
 const jd = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'components', 'JobDetail.jsx'), 'utf8');
 assert(/payment \$\{job\.payment_verified \? 'verified' : job\.payment_verified === false \? 'NOT verified' : 'status unknown \(client panel not read\)'\}/.test(jd),
   'analyser prompt (letter page): unknown payment is written as unknown');
-assert(/\(job\.payment_verified === false && \(Number\(job\.client_review_count\) \|\| 0\) < 5\)/.test(jd),
-  'PPC-audit override: only a real "not verified" is a disqualifier, not an unread panel');
+// 2026-11-24: the disqualifier narrowed to "not verified" + a high-risk country (lib/clientRisk.js), and the
+// library itself still requires an EXPLICIT false, so an unread panel (null) can never trigger it.
+assert(/paymentRisk\(job\)\.highRisk/.test(jd),
+  'PPC-audit override: only a real "not verified" from a high-risk country is a disqualifier');
+const _risk = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'lib', 'clientRisk.js'), 'utf8');
+assert(/const unverified = !!job && job\.payment_verified === false/.test(_risk),
+  'clientRisk: an unread panel (null) is never "unverified"');
 const popup = fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'popup.js'), 'utf8');
 assert(/d\.payment_verified === false \? '✗ Not verified' : null/.test(popup), 'extension popup: unknown payment is not shown as "Not verified"');
 
