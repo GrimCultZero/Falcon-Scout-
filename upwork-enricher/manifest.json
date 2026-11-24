@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Falcon Scout Enricher",
-  "version": "5.17",
+  "version": "5.18",
   "description": "Extracts job data from Upwork job pages and sends to local Falcon Scout dashboard",
   "permissions": [
     "activeTab",
@@ -16,10 +16,6 @@
     "http://*/*",
     "https://www.upwork.com/*",
     "http://127.0.0.1/*",
-    "http://localhost:5173/*",
-    "http://127.0.0.1:5173/*",
-    "http://localhost:5174/*",
-    "http://127.0.0.1:5174/*",
     "http://localhost:5180/*",
     "http://127.0.0.1:5180/*"
   ],
@@ -90,10 +86,6 @@
     },
     {
       "matches": [
-        "http://localhost:5173/*",
-        "http://127.0.0.1:5173/*",
-        "http://localhost:5174/*",
-        "http://127.0.0.1:5174/*",
         "http://localhost:5180/*",
         "http://127.0.0.1:5180/*"
       ],

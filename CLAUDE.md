@@ -32,6 +32,11 @@ worse — that is the whole reason for the rebuild). That file carries the migra
 owner decisions, the known-unfixed defects with evidence, and the working agreements. Nothing in it is
 committed yet.
 
+**`METRO_PLAN.md` + `METRO_HANDOFF.md` — READ THESE TOO if you are working on Metro** (the outbound
+side: `api/metro/`, `frontend/src/metro/`, `tests/metro/`). The plan carries the locked decisions, the
+phases with acceptance checks and the hard rules; every Metro task ends with an entry appended to
+`METRO_HANDOFF.md`. DESIGN.md §25 records how it is built.
+
 **`DASHBOARD_HANDOFF.md` — READ THIS TOO if you are touching the Dashboard period cards, proposal
 statuses, or the inbox sync.** It carries what "a reply" means (the client's FIRST message, dated when
 they sent it), why SUBMITTED/VIEWED use a different clock from REPLIES/HIRED, the `first_reply_at`

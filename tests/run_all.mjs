@@ -4,12 +4,16 @@
 //
 // Run: node tests/run_all.mjs [--python]     (--python also runs tests/run_all.py)
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const files = readdirSync(dir).filter((f) => f.endsWith('.test.js')).sort();
+// tests/metro/ holds Metro's suites (METRO_PLAN.md); they run with the rest.
+const files = [
+  ...readdirSync(dir).filter((f) => f.endsWith('.test.js')).sort(),
+  ...(existsSync(join(dir, 'metro')) ? readdirSync(join(dir, 'metro')).filter((f) => f.endsWith('.test.js')).sort().map((f) => join('metro', f)) : []),
+];
 const failed = [];
 for (const f of files) {
   const r = spawnSync(process.execPath, [join(dir, f)], { encoding: 'utf8', timeout: 180000, cwd: join(dir, '..') });

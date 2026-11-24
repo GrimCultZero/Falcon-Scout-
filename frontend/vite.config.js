@@ -43,6 +43,9 @@ const PROXY = {
   '/feed-drops': 'http://localhost:8000',
   '/sync-runs': 'http://localhost:8000',
   '/focus-test': 'http://localhost:8000',
+  // Metro (api/metro/router.py). Trailing slash on purpose: a bare '/metro' prefix also catches
+  // the static /metro-wagon.svg and sends it to the backend (404).
+  '/metro/': 'http://localhost:8000',
 }
 
 export default defineConfig({

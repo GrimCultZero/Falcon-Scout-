@@ -30,7 +30,7 @@ if (typeof window !== 'undefined' && !window.__falconErrHook) {
   window.__falconErrLog = _errLog
 }
 
-export default function App() {
+export default function App({ sideSwitch = null } = {}) {   // sideSwitch: the Falcon Scout | Metro switch (frontend/src/metro/SideShell.jsx)
   // Top-level view: 'jobs' | 'outcomes' | 'kb' | 'chat'
   // See DESIGN.md sections 5, 8 (Phases 2, 2.5, 5), 12.
 
@@ -848,6 +848,8 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {sideSwitch}
 
         <div style={{ width:1, height:22, background:'rgba(0,185,210,0.18)', marginLeft:2 }} />
 
