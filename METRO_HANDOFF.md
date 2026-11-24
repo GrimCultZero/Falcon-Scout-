@@ -117,3 +117,54 @@ which reads the newest entry, checks it against METRO_PLAN.md and writes the nex
   - Reload the 5.18 extension and check the console cross-talk (Phase 0 check 3 is still open); rename DevScout's extension (Phase 0 step 2).
   - Another process had uncommitted edits in api/main.py, JobDetail.jsx, frontend/src/lib/models.js and tests/test_model_config.py (a Haiku 5.5 switch). I did not touch or commit them.
 - Suggested next task: answer question 1, then Phase 2 (domain resolution, website scan, PageSpeed, Ads Transparency, LinkedIn extension fork with the week gate).
+
+---
+
+### 2026-11-24 21:12 Kyiv - Phase 2, Enrichment (steps 1-8, week switch, Phase 1 answers) - PARTIAL (all code and tests done; live checks need Oleh's Chrome)
+- Model and effort used: Claude Sonnet 5.5 (claude-sonnet-5-5) in Claude Code; the effort setting is not visible to me.
+- Branch / commits: metro/phase-2b (from main), merged into main and pushed.
+  - 9a42d71 Merge metro/phase-2 (Metro Phases 0-1) into main (Step 0; the only conflict was WORKLOG.md, both appended entries kept; the duplicate model commits changed nothing)
+  - 6935a67 feat(metro): Phase 2 - enrichment (all of Phase 2 in one commit)
+  - f0b8334 Merge metro/phase-2b (Metro Phase 2: enrichment) into main
+- Done:
+  0. Merge of Metro Phases 0-1 into main, both suites run, frontend/dist rebuilt, main pushed. Oleh must restart falconscout.bat.
+  A. Phase 1 answers: suppression is hard / soft (`metro_suppression.strength`; the migration classifies the 1,817 already_contacted rows as soft with their source label kept; a soft hit on a plain CSV is status `previously_contacted`, a soft hit on an invited / connected row of our own Linked Helper export stays usable; a hard hit is `suppressed`); recorded in METRO_PLAN.md and DESIGN.md section 25. Phase 1 acceptance wording now says "USA CAN Claude" (US/Canada). Email finder = Linked Helper first, Apollo fallback.
+  B. Week mode: header switch with a confirm pop-up in both directions; a Metro week is refused while `linked-helper.exe` runs (Windows process list, the name is a setting) or if the list cannot be read; in a Linked Helper week the backend hands out no extension job at all; the visits chip is the backend's counter.
+  1. Domain resolution: CSV, email-finder export, AI lookup (the model only proposes; the site's title / headline must carry the company name), LinkedIn company page; the source is stored.
+  2. Website scan, backend side, no browser, at most 5 pages: Google Ads / GA4 / Tag Manager / Universal Analytics / Meta pixel / LinkedIn insight tags, call tracking, booking tool / call to action / form, CMS, service and location pages, blog freshness, public emails, marketing terms.
+  3. PageSpeed (Google API, mobile score, optional key typed in Settings and never returned); Ads Transparency and Google Business Profile are read in the browser by the extension, queued by the backend, paced; everything is cached per domain with lifetimes in Settings; a failed reading never replaces a good one.
+  4. Extension `metro-linkedin/` (new, v0.1.0, forked from DevScout's approach, DevScout untouched): LinkedIn profile and company readers, account registry (identity read from linkedin.com/feed, no extra visit), per-account caps (default 60, max 80), the week gate enforced by the backend and repeated by the extension, Senders tab.
+  5. Ahrefs rekeyed to domain, niche campaigns only, queued for the shortlist only, 15 jobs a day, run in Oleh's own browser seat.
+  6. Layer 1 and layer 2 scores from editable rules (agency and niche sets, in Settings), a coverage figure, no fit score for an unmeasured lead, a shortlist view with a threshold.
+  7. AI hooks through `/claude` from a numbered evidence list; code throws away hooks with invented numbers, URLs, prices, hedges, do-not-claim phrases or missing evidence ids; each stored hook carries its stored field(s), source reference and the date it was read; angle and an allowed case tag.
+  8. Email-finder round trip: export the shortlist as a Linked Helper list, import Linked Helper results (Apollo CSV as fallback), emails stored `unverified`; `verified` only when the provider says so or Oleh marks it; suppressed addresses refused; a free DNS check gives `domain_ok` / `invalid`, never `verified`; `emailable()` is the one test Phase 4 must use.
+- Not done / deferred, and why:
+  - Nothing was run live in Chrome: the extension's LinkedIn / Google Maps / Ads Transparency / Ahrefs selectors are best effort and were tested only on synthetic page text. Expect to adjust them after the first live run.
+  - The Linked Helper list importer's exact column expectations are unverified (the list has `profile_url`, names, company, title and `metro_lead_id`); the real results file shape is also unseen. Results are matched by `metro_lead_id`, member id or profile URL.
+  - No real model call and no real company site were used (tests use stand-ins and local pages). The scratch UI run scanned two dead `.invalid` domains only.
+  - Business Profile is read from Maps in the browser; Google's Places API (paid) was deliberately not used. No Apollo API call exists anywhere.
+  - The CRM tab and everything from Phase 3 on are untouched; the Write and Send cards stay disabled.
+- Acceptance checks:
+  - 20-lead niche sample, every hook traces to a stored field and date: PASSED on a synthetic sample (a stand-in model that invents facts; none reached the ledger). NOT RUN with the real model and real sites.
+  - No LinkedIn visit in a Linked Helper week: PASSED (140 asks with ~60 jobs queued: no job, no visit row, no counter change; the extension also refuses by itself). The pop-up refusing a Metro week was seen for real, because this machine has linked-helper.exe running.
+  - Visit counter never passes the cap: PASSED (400 asks, cap 60: 60 counted; the next Kyiv day restarts; an account cap of 2 holds; above 80 is refused).
+  - Live database migration: PASSED on a COPY of upwork_jobs.db (1,817 rows -> soft, source kept, 15 Metro tables, jobs untouched). The live file was not written; it migrates on the first /metro call after the backend restarts.
+- Tests: node tests/run_all.mjs --python: 68 JS suites, 0 failing; 43 Python suites, 0 failing. New: tests/metro/test_metro_phase2.py (about 180 checks), extension-parsers.test.js, week-switch.test.js. Updated: test_metro_foundation.py (15 tables), metro-ui.test.js (Enrich live, Senders a real tab).
+- Files changed: api/metro/{db,leads,suppression,router,routes_p1,csvimport}.py; new api/metro/{gate,webscan,pagespeed,enrich,results,scoring,hooks,emailfinder,aiclient,routes_p2}.py; tools/metro_import_suppression.py (--strength); frontend/src/metro/{MetroApp.jsx, components/{LeadsTab,SettingsTab,ImportDialog}.jsx}, new components/{WeekSwitch,SendersTab,EnrichPanel,EnrichSettings}.jsx; new metro-linkedin/ (manifest, background, limits, parsers, scrape, register, popup, li-experience, icons); METRO_PLAN.md, DESIGN.md, CLAUDE.md, WORKLOG.md, METRO_TASK.md; the tests listed above.
+- Decisions made on my own (need Oleh's OK):
+  - Google Business Profile is read from Maps in the browser (the official API is paid); the question was in my plan and not answered, so I used the no-cost option.
+  - "Verified" email = the provider says so, or Oleh marks it; the free DNS check never verifies. A verified address is never replaced; an unverified finder result never replaces an address already held; a provider-verified one replaces an unverified one.
+  - Any active LinkedIn account may take LinkedIn jobs (scrapers are not preferred in code): Artem's account is the only one that exists today and must be able to scrape. Oleh can switch it off or cap it on the Senders tab. In the plan's wording only extra accounts are scraper-only.
+  - A Linked Helper week blocks ALL extension jobs (also Ads Transparency, Business Profile and Ahrefs), following the plan's "no scrape jobs at all"; the backend's own website scan and PageSpeed keep running because they make no LinkedIn visit.
+  - Defaults: shortlist line 50, Ahrefs 15 jobs a day, cache lifetimes 30 / 14 / 14 / 30 / 30 / 30 days, pacing 30-75 s per LinkedIn page. The default fit rules are my first proposal and need Oleh's eye (Settings, Fit rules).
+  - Two tables added (metro_scrape_jobs, metro_visit_log; schema_version 3, 15 tables).
+- Questions for Oleh:
+  1. Are the default fit rules (agency: names PPC / Google Ads / SEO, fresh blog, runs ads; niche: tracking gaps, slow site, few reviews, ads running) a good first guess, and is 50 the right shortlist line?
+  2. Which Chrome profile is Artem's, and which would be a scraper later? Only Artem's account exists now.
+  3. Does Linked Helper's list importer accept `profile_url` plus extra columns as the export has them? If not, send me the header Linked Helper wants.
+- What Oleh must do by hand before the next task:
+  - Restart falconscout.bat (new routes; the suppression migration runs on the first /metro call). Close Linked Helper before switching to a Metro week.
+  - chrome://extensions > Developer mode > Load unpacked > the `metro-linkedin` folder, in each Chrome profile that should scrape; open linkedin.com/feed once in it; in the extension popup type a profile name and switch "Take jobs from Metro" on.
+  - Metro > Senders: make Artem's account the messenger, check the caps. Metro > Settings: optionally paste a PageSpeed API key; review the fit rules.
+  - Import the USA CAN Claude export into its campaign, then try Enrich on a few ticked leads, Score, look at one lead's evidence, then queue the deep readings in a Metro week.
+- Suggested next task: after the live run above, fix whatever the selectors miss, then Phase 3 (chains and export for the first live campaign), starting from the shortlist, the hooks and `emailable()`.
