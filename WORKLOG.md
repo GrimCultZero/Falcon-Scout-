@@ -11182,3 +11182,13 @@ session on Telegram's side.
 - Checked first: no request sends `temperature`, `tool_choice`, `thinking`, `budget_tokens` or prefill, so none of Sonnet 5.5's breaking changes apply.
 - Verified live after restarting the backend: a request for `claude-sonnet-4-5` came back from the API as `claude-sonnet-5-5`; the full-KB chat (22.7k input tokens) worked and `token_usage` rows now say `claude-sonnet-5-5`. New `tests/test_model_config.py`; suites green (40 Python, 63 JS).
 - Not done / unknown: CLI-bridge mode (weekly limit reached until Nov 26 10am Kyiv; it maps to the CLI's `sonnet` alias); cost and latency of long generations on 5.5 not yet measured; Haiku 5.5 not adopted.
+
+## 2026-11-24 (late) — Haiku 4.5 -> Haiku 5.5 for the cheap passes
+- Tested first (scratch script, 40 recent jobs, 4.5's stored classification vs 5.5): with the old `max_tokens: 150`
+  Haiku 5.5 returned NO answer (it thinks by default, thinking counts against max_tokens, cannot be disabled).
+  With 2000 it agreed with 4.5 on 150 of 160 answers; the 10 differences were borderline wording, 5.5 followed the
+  prompt's own rules at least as well. ~3x cheaper per classification at the $0.10/$0.50 price in the price table
+  (price not yet verified against Anthropic's page).
+- Switched: `HAIKU_MODEL = claude-haiku-5-5` (api/main.py, frontend/src/lib/models.js; override `FALCON_HAIKU_MODEL`).
+  Raised max_tokens: rule check / job classifier / rule distill 150/150/120 -> 2000; KB shrink 4096 -> 8192.
+  `tests/test_model_config.py` now pins the Haiku name and guards these budgets. Any NEW Haiku call needs the same headroom.

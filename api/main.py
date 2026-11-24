@@ -467,7 +467,7 @@ async def _call_via_cli_bridge(request: dict, model: str, kind: str) -> dict:
 # rewrites any Sonnet name the frontend sends to SONNET_MODEL (see _resolve_model), so a stale name in a
 # component can never pin the app to an old model. Haiku (cheap passes) stays on 4.5 on purpose.
 SONNET_MODEL = (os.getenv("FALCON_SONNET_MODEL") or "claude-sonnet-5-5").strip()
-HAIKU_MODEL = (os.getenv("FALCON_HAIKU_MODEL") or "claude-haiku-4-5-20251001").strip()
+HAIKU_MODEL = (os.getenv("FALCON_HAIKU_MODEL") or "claude-haiku-5-5").strip()
 
 
 def _resolve_model(requested) -> str:
@@ -3298,7 +3298,7 @@ ORIGINAL CONTENT:
                     # Mechanical compression — Haiku is plenty. ~7× cheaper
                     # than Sonnet for the same job (handoff §"Yes to all").
                     "model": HAIKU_MODEL,
-                    "max_tokens": 4096,
+                    "max_tokens": 8192,  # Haiku 5.5 thinks by default; thinking counts against this
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
