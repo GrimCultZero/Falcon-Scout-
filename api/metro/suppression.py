@@ -6,6 +6,11 @@ Sources (METRO_PLAN.md Phase 0, step 7):
     columns (member id, profile URL, email, domain/website, company);
   * Upwork clients, from the `proposals` table (read only).
 
+Two kinds (Phase 2, Oleh 2026-11-24): HARD = never contact (IT Force clients, opt-outs, bounced
+addresses, approved Upwork domains); SOFT = "previously contacted" (the already_contacted list). A soft
+entry keeps a person out of any NEW invite list, but a lead imported from our own Linked Helper campaign
+export keeps its invited / connected status and stays usable (its re-contact timing is the Phase 6 cycle rule).
+
 Rules: an import only ever ADDS. Re-importing the same data adds nothing (unique kind+value).
 Nothing is deleted. Values are normalized so the same person/company matches however it is
 written. Scope: a member id, profile URL or person is `person`; a domain or company is `company`
@@ -99,8 +104,15 @@ class ImportResult:
         return {"added": self.added, "already": self.already, "invalid": self.invalid, "by_kind": self.by_kind}
 
 
-def add_entries(s: Session, entries: Iterable[dict], *, source: str, dry_run: bool = False) -> ImportResult:
-    """Add {kind, value, reason?, note?} entries. Idempotent; never deletes; commits unless dry_run."""
+STRENGTHS = ("hard", "soft")
+
+
+def add_entries(s: Session, entries: Iterable[dict], *, source: str, dry_run: bool = False,
+                strength: str = "hard") -> ImportResult:
+    """Add {kind, value, reason?, note?, strength?} entries. Idempotent; never deletes; commits unless dry_run.
+    `strength` is the default for entries that do not carry their own: hard (never contact) or soft (previously contacted)."""
+    if strength not in STRENGTHS:
+        raise ValueError("strength must be hard or soft")
     res = ImportResult()
     have = {(r.kind, r.value) for r in s.query(MetroSuppression.kind, MetroSuppression.value).all()}
     for e in entries:
@@ -118,7 +130,8 @@ def add_entries(s: Session, entries: Iterable[dict], *, source: str, dry_run: bo
         if not dry_run:
             s.add(MetroSuppression(kind=kind, value=value, scope=SCOPE_BY_KIND[kind],
                                    reason=(e.get("reason") or None), source=source,
-                                   note=(e.get("note") or None), created_at=utcnow()))
+                                   note=(e.get("note") or None), created_at=utcnow(),
+                                   strength=e.get("strength") if e.get("strength") in STRENGTHS else strength))
     if dry_run:
         s.rollback()
     else:
@@ -185,7 +198,9 @@ def entries_from_proposals(s: Session) -> list[dict]:
 def stats(s: Session) -> dict:
     rows = s.execute(text("SELECT kind, scope, COUNT(*) FROM metro_suppression GROUP BY kind, scope")).fetchall()
     total = sum(r[2] for r in rows)
-    return {"total": total, "by_kind": {r[0]: r[2] for r in rows}}
+    by_strength = dict(s.execute(text("SELECT coalesce(strength,'hard'), COUNT(*) FROM metro_suppression GROUP BY 1")).fetchall())
+    return {"total": total, "by_kind": {r[0]: r[2] for r in rows},
+            "by_strength": {"hard": by_strength.get("hard", 0), "soft": by_strength.get("soft", 0)}}
 
 
 def is_suppressed(s: Session, *, member_id=None, profile_url=None, email=None, domain=None, company=None) -> list[dict]:
@@ -197,10 +212,12 @@ def is_suppressed(s: Session, *, member_id=None, profile_url=None, email=None, d
         if not nv:
             continue
         for r in s.query(MetroSuppression).filter_by(kind=kind, value=nv).all():
-            hits.append({"kind": r.kind, "value": r.value, "scope": r.scope, "reason": r.reason})
+            hits.append({"kind": r.kind, "value": r.value, "scope": r.scope, "reason": r.reason,
+                             "strength": r.strength or "hard"})
     if email and not domain:
         d = normalize("domain", str(email).split("@")[-1])
         if d:
             for r in s.query(MetroSuppression).filter_by(kind="domain", value=d).all():
-                hits.append({"kind": r.kind, "value": r.value, "scope": r.scope, "reason": r.reason})
+                hits.append({"kind": r.kind, "value": r.value, "scope": r.scope, "reason": r.reason,
+                             "strength": r.strength or "hard"})
     return hits

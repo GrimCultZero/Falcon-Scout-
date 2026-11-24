@@ -8,8 +8,13 @@ One pass over the file, per row, in this order (the first rule that applies deci
      forward none -> invited -> connected, a missing email is filled; nothing else changes)
   4. the person is already in ANOTHER campaign (any status)              -> in_other_campaign, skipped
   5. the person's company already has leads in another campaign          -> company_in_other_campaign, skipped
-  6. the person / address / company is on the suppression list           -> stored, status `suppressed`
-     (marked, never deleted, never written to)
+  6. the person / address / company is on the suppression list           -> stored, never deleted:
+       HARD entry (never contact)                      -> status `suppressed`, never written to
+       SOFT entry (previously contacted), plain CSV     -> status `previously_contacted`: kept out of every new
+                                                           invite list, still enrichable / scoreable
+       SOFT entry, row of our own Linked Helper export  -> keeps its invited / connected status and stays
+         that is already invited or connected              usable (status new / junk); the soft hit is only noted
+         in `prior_contact_reason` (re-contact timing is the Phase 6 cycle rule)
   7. otherwise                                                           -> stored; layer 0 persona score
      decides `new` or `junk`
 
@@ -64,24 +69,37 @@ class _Suppression:
         for r in s.query(MetroSuppression).all():
             self.by_kind.setdefault(r.kind, {})[r.value] = r
 
-    def hit(self, *, member_id=None, profile_key=None, email=None, company_name=None, domain=None) -> str | None:
+    def hit(self, **ids) -> tuple[str, str] | None:
+        """(strength, why) of the strongest match: a hard entry beats a soft one. None = not on the list."""
+        found = self._hits(**ids)
+        if not found:
+            return None
+        hard = [h for h in found if h[0] == "hard"]
+        return (hard or found)[0]
+
+    def _hits(self, *, member_id=None, profile_key=None, email=None, company_name=None, domain=None) -> list[tuple[str, str]]:
         k = self.by_kind
+        out: list[tuple[str, str]] = []
+
+        def add(row, why):
+            out.append((row.strength or "hard", why))
         if member_id and member_id in k.get("member_id", {}):
-            return f"member id on the suppression list ({k['member_id'][member_id].reason or 'no reason kept'})"
+            r = k["member_id"][member_id]
+            add(r, f"member id on the suppression list ({r.reason or 'no reason kept'})")
         if profile_key and profile_key in k.get("profile_url", {}):
-            return "profile on the suppression list"
+            add(k["profile_url"][profile_key], "profile on the suppression list")
         if email:
             if email in k.get("email", {}):
-                return "address on the suppression list"
+                add(k["email"][email], "address on the suppression list")
             d = normalize("domain", email.split("@")[-1])
             if d and d in k.get("domain", {}):
-                return f"address at a suppressed domain ({d})"
+                add(k["domain"][d], f"address at a suppressed domain ({d})")
         if domain and domain in k.get("domain", {}):
-            return f"company domain on the suppression list ({domain})"
+            add(k["domain"][domain], f"company domain on the suppression list ({domain})")
         c = normalize("company", company_name or "") if company_name else None
         if c and c in k.get("company", {}):
-            return "company on the suppression list"
-        return None
+            add(k["company"][c], "company on the suppression list")
+        return out
 
 
 def _lead_keys(l) -> list[tuple[str, str]]:
@@ -219,8 +237,17 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
             res["company_in_other_campaign"] += 1
             continue
 
-        why = sup.hit(member_id=n["member_id"], profile_key=n["profile_key"], email=n["email"],
+        hit = sup.hit(member_id=n["member_id"], profile_key=n["profile_key"], email=n["email"],
                       company_name=n["company_name"], domain=n["domain"])
+        strength, why = hit if hit else (None, None)
+        # A soft hit on a row of our own Linked Helper campaign export that is already invited / connected
+        # keeps its status and stays usable: it is only noted.
+        prior_why = None
+        if strength == "soft" and is_lh and n["invite_status"] in ("invited", "connected"):
+            prior_why, why, strength = why, None, None
+            res["kept_soft"] += 1
+        elif strength == "soft":
+            prior_why = why
         p = _persona_for(n, rules, campaign)
 
         if company is None and (n["company_key"] or n["domain"]) and not dry_run:
@@ -233,9 +260,12 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
             if n["domain"]:
                 domains[n["domain"]] = company
 
-        if why:
+        if strength == "hard":
             status = "suppressed"
             res["suppressed"] += 1
+        elif strength == "soft":
+            status = "previously_contacted"
+            res["previously_contacted"] += 1
         elif p["verdict"] == "junk":
             status = "junk"
             res["junk"] += 1
@@ -261,7 +291,7 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
             source_file=filename, list_source=list_source, import_id=imp.id,
             company_name=n["company_name"], profile_key=n["profile_key"], name_company_key=n["name_company_key"],
             invite_status=n["invite_status"], invited_at=n["invited_at"], connected_at=n["connected_at"],
-            suppressed_reason=why, persona_locked=False,
+            suppressed_reason=why, prior_contact_reason=prior_why, persona_locked=False,
             raw_json=json.dumps({"mapped": {"headline": n["headline"], "summary": n["summary"],
                                             "job_seeker_badge": n["job_seeker_badge"]},
                                  "row": {k: v for k, v in row.items() if v}}, ensure_ascii=False),
@@ -283,7 +313,8 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
         "same_name_other_profile": res["same_name_other_profile"],
         "in_other_campaign": res["in_other_campaign"], "in_other_campaign_by": dict(other),
         "company_in_other_campaign": res["company_in_other_campaign"],
-        "suppressed": res["suppressed"], "junk": res["junk"], "with_email": res["with_email"],
+        "suppressed": res["suppressed"], "previously_contacted": res["previously_contacted"],
+        "kept_despite_soft_hit": res["kept_soft"], "junk": res["junk"], "with_email": res["with_email"],
         "invite": {k: res[f"invite_{k}"] for k in ("none", "invited", "connected")},
         "persona": {k: res[f"persona_{k}"] for k in ("keep", "review", "junk")},
     }

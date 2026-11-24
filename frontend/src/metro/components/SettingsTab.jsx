@@ -6,11 +6,14 @@ import { useEffect, useState } from 'react'
 import { api, fromLines, toLines } from '../api.js'
 import { METRO } from '../theme.js'
 import { Btn, Err, Field, Pill, card, input } from './ui.jsx'
+import { EnrichSettings, FitRules } from './EnrichSettings.jsx'
 
 export default function SettingsTab() {
   return (
     <div style={{ display: 'grid', gap: 16, maxWidth: 980 }}>
       <Defaults />
+      <EnrichSettings />
+      <FitRules />
       <Candidates />
       <PersonaRules />
     </div>
@@ -58,7 +61,8 @@ function Candidates() {
     <div style={card} data-testid="candidates">
       <h3 style={{ margin: '0 0 4px', fontSize: 15, color: METRO.teal }}>Suppression list</h3>
       <p style={{ margin: '0 0 10px', fontSize: 12, color: 'rgba(0,12,14,0.6)' }}>
-        {stats ? `${stats.total} entries today (${Object.entries(stats.by_kind).map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}). ` : ''}
+        {stats ? `${stats.total} entries today (${Object.entries(stats.by_kind).map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}); ` : ''}
+        {stats?.by_strength ? `${stats.by_strength.hard} hard (never contact), ${stats.by_strength.soft} soft (previously contacted: kept out of new invite lists, but people from our own Linked Helper export stay usable). ` : ''}
         Domains found in your Upwork proposals are listed below as candidates. Nothing is suppressed until you approve it; a rejected domain stays rejected.
         Metro never imports Upwork clients as leads.
       </p>

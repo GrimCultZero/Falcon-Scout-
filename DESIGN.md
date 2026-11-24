@@ -1728,3 +1728,70 @@ below are settled with Oleh; changing one goes back to him before code.
   "Visits 0 of cap" placeholder chip.
 - **Two tables beyond the plan's eleven:** `metro_imports` (audit of each import, counts only) and
   `metro_suppression_candidates`.
+
+### How Phase 2 built it (2026-11-24/25): enrichment
+- **Two kinds of suppression (Oleh, 24 Nov):** `metro_suppression.strength` = `hard` (never contact: IT Force
+  clients, opt-outs, bounced addresses (address only), approved Upwork domains) or `soft` ("previously
+  contacted": the already_contacted list). `init_db` classifies existing rows once (source label
+  `already_contacted*` -> soft, everything else hard; idempotent; the source label is kept). Import: a hard
+  hit is always `suppressed`; a soft hit on a plain CSV is stored as status `previously_contacted` (kept out
+  of every new invite list); a soft hit on a row of our own Linked Helper export that is already invited or
+  connected keeps its status and stays usable (`prior_contact_reason` notes it; re-contact timing is the
+  Phase 6 cycle rule). Nothing is ever deleted.
+- **Week gate (`api/metro/gate.py`), fail closed:** the week mode (`metro_settings.week_mode`) is changed only
+  by `PUT /metro/week` with `confirmed: true`. Entering a Metro week reads the Windows process list
+  (`tasklist`; names in the `linked_helper_process_names` setting, default `linked-helper.exe`): a running
+  Linked Helper (409) or an unreadable list (503) refuses. In a Linked Helper week `next_job` returns no job
+  of any kind. The backend's own website scan and PageSpeed are not extension jobs and make no LinkedIn visit.
+  An unreadable stored week mode counts as a Linked Helper week.
+- **Visit counter:** `metro_senders.visits_today` (+ `counter_date`, Kyiv day) is incremented in the SAME
+  transaction that leases the job, only when `visits_today < cap` (account cap or the default 60, never above
+  80); every visit is also a row in `metro_visit_log`. Pacing is server side (30-75 s between LinkedIn pages,
+  8-20 s for other sites); an expired lease is re-queued but the visit stays counted; only the account holding
+  a job may complete it. Ahrefs: 15 jobs a day (shared Standard seat), Oleh's own seat in his browser.
+- **Queue and results:** `metro_scrape_jobs` (kind, target, company / lead, status queued / leased / done /
+  failed, lease, result) and `results.py` (extension results are cleaned: only known keys of the right type,
+  sizes capped; a failed reading is stored as `{ok:false}` so it is retried after a day and never replaces a
+  good one; a LinkedIn company page that names the website gives the domain).
+- **Backend scans (`webscan.py`, `pagespeed.py`, `enrich.py`):** per company, in order: domain (CSV -> email
+  finder export -> AI lookup -> LinkedIn company page), website scan (at most 5 pages: home, contact, blog,
+  one service page; tags AW-/G-/GTM-/UA-, Meta pixel, call tracking, booking, CMS, service and location
+  pages, blog freshness, public emails, marketing terms; page source only, so "no GA4 visible" never claims
+  "no GA4"), PageSpeed (mobile score via Google's API, optional key typed in Settings, never returned). Every
+  reading is a dated snapshot on `metro_companies` reused until its cache lifetime (Settings `cache_days`);
+  a host that resolves to a private address is never fetched. The AI domain lookup only PROPOSES: the site's
+  title / h1 / description must carry a distinctive word of the company name or the candidate is dropped.
+  Runs are background threads, one at a time, with status, stop and per-company failure isolation.
+- **Extension `metro-linkedin/` (forked from DevScout, which stays read-only):** background service worker
+  polls `/metro/jobs/next` once a minute, runs ONE job in a background tab, posts the result. It opens only
+  URLs it builds itself from (kind, target) (`limits.js urlFor`), checks the week again by itself, is off
+  until a person switches it on, has no standing content script on LinkedIn except a read-only identity
+  reader on `linkedin.com/feed` (a page the person opened, no extra visit), and its scraper clicks nothing
+  except the first Maps result. Account registry: `metro_senders` rows registered from that identity read;
+  one messenger, others scrapers, per-account cap 1-80 (Senders tab). Parsers (`parsers.js`) are pure and
+  tested in Node; the selectors for live LinkedIn / Maps / Ads Transparency pages are best effort and need
+  Oleh's live check (WORKLOG, Phase 2 acceptance).
+- **Scores (`scoring.py`):** layer 1 (website, PageSpeed, Ads Transparency, Business Profile) and layer 2
+  (Ahrefs for niche campaigns, LinkedIn company page) are sums of editable rules over the stored snapshots
+  (`metro_settings.fit_rules`, separate sets for agency and niche, validated, editable in Settings). A rule
+  whose field was never measured adds nothing and is listed as not measured; the score carries a coverage
+  figure; a lead nothing was measured for has NO fit score (never zero). Shortlist = usable lead, persona not
+  junk, layer 1 at or above `shortlist_min_fit` (default 50). Layer 2 jobs (LinkedIn pages and, niche only,
+  Ahrefs) are queued only for the shortlist.
+- **Hooks (`hooks.py`):** a numbered evidence list is built from the stored snapshots (each item: path,
+  value, date read; CSV fields count as evidence but are not enough alone) and sent through `/claude`
+  (`aiclient.py`, the only way Metro reaches a model). The model answers with hooks that cite evidence ids;
+  CODE keeps a hook only when its cited ids exist, every number in it is in the cited evidence, and it has no
+  URL, price, hedge word or do-not-claim phrase. Survivors go to `metro_hooks` with the cited paths, the source
+  reference and the evidence's date (SEEN). Used hooks stay in the ledger when hooks are rewritten; the angle
+  and a case tag (only one the campaign allows) go into the lead's notes.
+- **Email finder (`emailfinder.py`):** Linked Helper first (its Data credits), Apollo only as a fallback
+  and only as a CSV import (no Apollo API call). Export = a CSV with `profile_url`, names, company, title and
+  `metro_lead_id`, only usable leads without an email. Import matches by `metro_lead_id`, member id, profile
+  URL; new emails are `unverified` (`email_status`), `verified` only when the provider says so or a person
+  marks it; an address on the suppression list is never stored; a verified address is never replaced; an
+  unverified finder result never replaces an address already held. `emailable()` (verified + usable lead) is
+  the single test Phase 4 must use. A free DNS check (`nslookup`) can set `domain_ok` / `invalid`, never `verified`.
+- **Tables added:** `metro_scrape_jobs`, `metro_visit_log` (schema_version 3, 15 tables); columns added to
+  `metro_suppression` (strength) and `metro_leads` (prior_contact_reason, email_status, email_checked_at,
+  shortlisted, enriched_at).

@@ -43,8 +43,9 @@ def suppression_stats():
 
 @router.post("/suppression/import")
 async def suppression_import(file: UploadFile = File(...), dry_run: bool = Query(True),
-                             reason: str = Query("imported list")):
-    """Import a CSV (member ids, profile URLs, emails, domains, companies). Dry run by default."""
+                             reason: str = Query("imported list"), strength: str = Query("hard")):
+    """Import a CSV (member ids, profile URLs, emails, domains, companies). Dry run by default.
+    `strength=hard` (never contact, the default) or `soft` (previously contacted)."""
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "file too large")
@@ -56,8 +57,11 @@ async def suppression_import(file: UploadFile = File(...), dry_run: bool = Query
     if not cols:
         raise HTTPException(400, "no recognised column (member_id, profile URL, email, domain/website, company)")
     with Session(get_engine()) as s:
-        res = sup.add_entries(s, entries, source=file.filename or "upload", dry_run=dry_run)
-    return {"dry_run": dry_run, "columns": cols, **res.as_dict()}
+        try:
+            res = sup.add_entries(s, entries, source=file.filename or "upload", dry_run=dry_run, strength=strength)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    return {"dry_run": dry_run, "columns": cols, "strength": strength, **res.as_dict()}
 
 
 @router.post("/suppression/import-proposals")
@@ -71,3 +75,7 @@ def suppression_import_proposals(dry_run: bool = Query(True)):
 
 from .routes_p1 import p1 as _p1   # noqa: E402  Phase 1 routes (campaigns, import, leads, persona rules)
 router.include_router(_p1)
+
+
+from .routes_p2 import p2 as _p2   # noqa: E402  Phase 2 routes (week gate, accounts, job queue, enrichment, shortlist, email finder)
+router.include_router(_p2)

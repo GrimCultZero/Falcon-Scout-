@@ -1,5 +1,5 @@
 // Metro: the outbound side of Falcon Scout. The header (wagon mark, side switch, tabs, status chips)
-// and five tabs: Campaigns, Leads and Settings work from Phase 1; CRM and Senders arrive later.
+// and five tabs: Campaigns, Leads and Settings work from Phase 1, Senders (LinkedIn accounts) from Phase 2; CRM arrives later.
 import { useEffect, useState } from 'react'
 import '@fontsource/manrope/400.css'
 import '@fontsource/manrope/600.css'
@@ -9,21 +9,23 @@ import SideSwitch from './SideSwitch.jsx'
 import CampaignsTab from './components/CampaignsTab.jsx'
 import LeadsTab from './components/LeadsTab.jsx'
 import SettingsTab from './components/SettingsTab.jsx'
+import SendersTab from './components/SendersTab.jsx'
+import WeekSwitch from './components/WeekSwitch.jsx'
 import { METRO } from './theme.js'
 import { METRO_TABS, readMetroTab, writeMetroTab } from './lib/side.js'
 
+const loadWeekRef = { current: () => {} }
 const store = typeof window !== 'undefined' ? window.localStorage : null
 
 const COMING = {
   crm:     'A card for every lead who replied. Arrives in Phase 4.',
-  senders: "Artem's LinkedIn account, scraper accounts and the mailbox, with caps and today's counters. Phases 2, 4 and 5.",
 }
 const CAMPAIGN_KEY = 'falconscout.metro.campaign'
 
 export default function MetroApp({ side, onSideChange }) {
   const [tab, setTab] = useState(() => readMetroTab(store))
   const [health, setHealth] = useState(null)
-  const [settings, setSettings] = useState(null)
+  const [week, setWeek] = useState(null)
   const [seen, setSeen] = useState(() => new Set([readMetroTab(store)]))
   const [campaignId, setCampaignId] = useState(() => Number(store?.getItem(CAMPAIGN_KEY)) || null)
 
@@ -31,8 +33,11 @@ export default function MetroApp({ side, onSideChange }) {
     let alive = true
     fetch('/metro/health').then((r) => (r.ok ? r.json() : null)).then((j) => { if (alive) setHealth(j) })
       .catch(() => { if (alive) setHealth({ ok: false }) })
-    fetch('/metro/settings').then((r) => (r.ok ? r.json() : null)).then((j) => { if (alive) setSettings(j) }).catch(() => {})
-    return () => { alive = false }
+    const loadWeek = () => fetch('/metro/week').then((r) => (r.ok ? r.json() : null)).then((j) => { if (alive && j) setWeek(j) }).catch(() => {})
+    loadWeek()
+    loadWeekRef.current = loadWeek
+    const t = setInterval(loadWeek, 30000)
+    return () => { alive = false; clearInterval(t) }
   }, [])
 
   const pick = (key) => { setTab(key); writeMetroTab(store, key); setSeen((x) => new Set(x).add(key)) }
@@ -69,11 +74,9 @@ export default function MetroApp({ side, onSideChange }) {
         </nav>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'rgba(234,246,249,0.75)',
           minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap' }}>
-          <Chip testid="week-chip" title="Linked Helper weeks: no scraping. Metro weeks: Metro scrapes. Messages and reply checks are always allowed.">
-            {settings?.week_mode === 'linked_helper' ? 'Linked Helper week' : 'Metro week'}
-          </Chip>
-          <Chip testid="visits-chip" title="LinkedIn profile visits today against the daily cap. A placeholder until Phase 2 counts them.">
-            Visits 0 of {settings?.scrape_cap_per_day ?? 60}
+          <WeekSwitch week={week} onChanged={() => loadWeekRef.current()} />
+          <Chip testid="visits-chip" title="LinkedIn profile and company visits today against the daily cap, summed over active accounts. Counted before a visit is handed out, so it can never pass the cap.">
+            Visits {week?.visits ?? 0} of {week?.cap ?? 60}
           </Chip>
           <span title="GET /metro/health" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%',
@@ -91,6 +94,7 @@ export default function MetroApp({ side, onSideChange }) {
             {seen.has(key) && key === 'campaigns' && <CampaignsTab openCampaign={chooseCampaign} onOpenLeads={openLeads} />}
             {seen.has(key) && key === 'leads' && <LeadsTab campaignId={campaignId} onCampaign={chooseCampaign} />}
             {seen.has(key) && key === 'settings' && <SettingsTab />}
+            {seen.has(key) && key === 'senders' && <SendersTab />}
             {COMING[key] && (
               <div style={{ maxWidth: 720, background: '#fff', borderRadius: 12, border: '1px solid rgba(0,86,105,0.15)',
                 padding: '22px 24px', boxShadow: '0 1px 2px rgba(0,12,14,0.05)' }}>

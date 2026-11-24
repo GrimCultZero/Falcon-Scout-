@@ -2,15 +2,16 @@
 // over a table of the campaign's leads, with DevScout's rule "WHAT YOU SEE RUNS": there are no scope
 // buttons. Every action applies to the rows the filters show, or to the ticked rows when any are
 // ticked, and each button carries the number it will actually process. Phase 1 has one live action
-// (Import); the other three show their counts and the phase that turns them on.
+// (Import); Enrich is live from Phase 2; Write and Send show their counts and the phase that turns them on.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api.js'
 import { METRO } from '../theme.js'
 import ImportDialog from './ImportDialog.jsx'
+import EnrichPanel from './EnrichPanel.jsx'
 import { Btn, Err, Pill, card, input, lineColor } from './ui.jsx'
 
 const PAGE = 100
-const STATUS_COLOR = { new: METRO.teal, junk: '#b36b00', suppressed: METRO.agencyLine }
+const STATUS_COLOR = { new: METRO.teal, junk: '#b36b00', suppressed: METRO.agencyLine, previously_contacted: '#7a5af8' }
 
 export default function LeadsTab({ campaignId, onCampaign }) {
   const [campaigns, setCampaigns] = useState([])
@@ -23,6 +24,7 @@ export default function LeadsTab({ campaignId, onCampaign }) {
   const [open, setOpen] = useState(null)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
+  const [tick, setTick] = useState(0)
 
   useEffect(() => { api('/campaigns').then((j) => setCampaigns(j.campaigns)).catch((e) => setError(e.message)) }, [])
   const campaign = campaigns.find((c) => c.id === campaignId) || null
@@ -53,6 +55,14 @@ export default function LeadsTab({ campaignId, onCampaign }) {
     try { const r = await api(`/campaigns/${campaignId}/rescore`, { method: 'POST' }); setNote(`Rescored: ${r.changed || 0} changed`); load() }
     catch (e) { setError(e.message) }
   }
+  const enrich = async () => {
+    const ids = ticked.size ? [...ticked] : null
+    try {
+      const r = await api(`/campaigns/${campaignId}/enrich`, { method: 'POST', json: { lead_ids: ids } })
+      setNote(r.started ? `Enriching ${r.total} companies (domain, website scan, PageSpeed; browser reads are queued)` : r.reason)
+      setTick((x) => x + 1)
+    } catch (e) { setError(e.message) }
+  }
   const toggleAll = () => setTicked(ticked.size === shown.length ? new Set() : new Set(shown.map((l) => l.id)))
 
   const setFilter = (k) => (e) => { setF({ ...f, [k]: e.target.value }); setLimit(PAGE) }
@@ -75,11 +85,11 @@ export default function LeadsTab({ campaignId, onCampaign }) {
       {campaignId && pipe && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }} data-testid="pipeline">
           <Stage n="1" title="Import" line={`${pipe.import.leads} lead${pipe.import.leads === 1 ? '' : 's'} in this campaign`}
-            sub={`${pipe.import.new} ready · ${pipe.import.junk} junk · ${pipe.import.suppressed} suppressed`}>
+            sub={`${pipe.import.new} ready · ${pipe.import.junk} junk · ${pipe.import.suppressed} suppressed · ${pipe.import.previously_contacted || 0} previously contacted`}>
             <Btn small onClick={() => setShowImport(true)} data-testid="open-import">Import CSV</Btn>
           </Stage>
-          <Stage n="2" title="Enrich" line={`${pipe.enrich.ready} ready`} sub={`Phase ${pipe.enrich.phase}`}>
-            <Btn small disabled title="Enrichment arrives in Phase 2">{`Enrich ${eligible} ${scope.what}`}</Btn>
+          <Stage n="2" title="Enrich" line={`${pipe.enrich.ready} ready`} sub="Domain, website scan, PageSpeed; then browser reads">
+            <Btn small onClick={enrich} disabled={eligible === 0} title="Domain, website scan and PageSpeed run on the backend, paced and cached per domain. Browser reads are queued and run only in a Metro week." data-testid="enrich-btn">{`Enrich ${eligible} ${scope.what}`}</Btn>
           </Stage>
           <Stage n="3" title="Write" line={`${pipe.write.ready} ready`} sub={`Phase ${pipe.write.phase}`}>
             <Btn small disabled title="Chain writing arrives in Phase 3">{`Write 0 ${scope.what}`}</Btn>
@@ -90,13 +100,15 @@ export default function LeadsTab({ campaignId, onCampaign }) {
         </div>
       )}
 
+      {campaignId && campaign && <EnrichPanel campaign={campaign} refreshKey={tick} onChanged={load} />}
+
       {campaignId && (
         <div style={card}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
             <input style={{ ...sel, minWidth: 200 }} placeholder="Search name, title, company, place" value={f.q} onChange={setFilter('q')} />
             <select style={sel} value={f.status} onChange={setFilter('status')} aria-label="Status">
               <option value="">All statuses</option>
-              {['new', 'junk', 'suppressed'].map((s) => <option key={s} value={s}>{s} ({data.counts[s] || 0})</option>)}
+              {['new', 'junk', 'suppressed', 'previously_contacted'].map((s) => <option key={s} value={s}>{s} ({data.counts[s] || 0})</option>)}
             </select>
             <select style={sel} value={f.verdict} onChange={setFilter('verdict')} aria-label="Persona">
               <option value="">Any persona</option><option value="keep">keep</option><option value="review">review</option><option value="junk">junk</option>
@@ -122,7 +134,7 @@ export default function LeadsTab({ campaignId, onCampaign }) {
               <thead>
                 <tr style={{ textAlign: 'left', color: METRO.teal, fontSize: 12 }}>
                   <th style={{ width: 28 }}><input type="checkbox" aria-label="Tick all shown" checked={shown.length > 0 && ticked.size === shown.length} onChange={toggleAll} /></th>
-                  <th>Name</th><th>Title</th><th>Company</th><th>Place</th><th>Persona</th><th>Linked Helper</th><th>Email</th><th>Status</th><th />
+                  <th>Name</th><th>Title</th><th>Company</th><th>Place</th><th>Persona</th><th>Fit</th><th>Linked Helper</th><th>Email</th><th>Status</th><th />
                 </tr>
               </thead>
               <tbody>
@@ -144,10 +156,12 @@ export default function LeadsTab({ campaignId, onCampaign }) {
                       {open === l.id && <ul style={{ margin: '4px 0 0', paddingLeft: 16, fontSize: 11, color: 'rgba(0,12,14,0.7)' }}>
                         {l.persona_reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>}
                     </td>
+                    <td title={l.deep_score != null ? `deep ${l.deep_score}` : ''}>{l.fit_score ?? '-'}</td>
                     <td>{l.invite_status === 'connected' ? 'connected' : l.invite_status === 'invited' ? 'invited' : '-'}</td>
                     <td style={{ fontSize: 12 }}>{l.email ? <>{l.email}<div style={{ fontSize: 10, color: 'rgba(0,12,14,0.5)' }}>{l.email_source}{l.email_verified ? ', verified' : ', unverified'}</div></> : '-'}</td>
                     <td><Pill color={STATUS_COLOR[l.status] || METRO.teal}>{l.status}</Pill>
-                      {l.suppressed_reason && <div style={{ fontSize: 10, color: 'rgba(0,12,14,0.55)', maxWidth: 160 }}>{l.suppressed_reason}</div>}</td>
+                      {(l.suppressed_reason || l.prior_contact_reason) && <div style={{ fontSize: 10, color: 'rgba(0,12,14,0.55)', maxWidth: 160 }}>
+                        {l.suppressed_reason || `previously contacted, kept: ${l.prior_contact_reason}`}</div>}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {l.status === 'junk' && <Btn kind="ghost" small onClick={() => decide(l, 'keep')}>Keep anyway</Btn>}
                       {l.status === 'new' && <Btn kind="ghost" small onClick={() => decide(l, 'junk')}>Mark junk</Btn>}

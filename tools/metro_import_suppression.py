@@ -27,6 +27,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--file", action="append", default=[], help="CSV to import (repeatable)")
     ap.add_argument("--reason", default=None, help="reason stored when the CSV has no src/reason column")
+    ap.add_argument("--strength", choices=("hard", "soft"), default=None,
+                    help="hard = never contact (default); soft = previously contacted. A file named already_contacted* is soft")
     ap.add_argument("--proposals", action="store_true", help="import Upwork clients from the proposals table")
     ap.add_argument("--apply", action="store_true", help="write (default is a dry run)")
     args = ap.parse_args(argv)
@@ -42,7 +44,8 @@ def main(argv=None) -> int:
             if not cols:
                 print(f"{p.name}: no recognised column, skipped")
                 continue
-            res = sup.add_entries(s, entries, source=p.name, dry_run=dry)
+            strength = args.strength or ("soft" if p.name.lower().startswith("already_contacted") else "hard")
+            res = sup.add_entries(s, entries, source=p.name, dry_run=dry, strength=strength)
             print(f"{p.name}: columns {cols}, {len(entries)} values -> {res.as_dict()}")
         if args.proposals:
             entries = sup.entries_from_proposals(s)
