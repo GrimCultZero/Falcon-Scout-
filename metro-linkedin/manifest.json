@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Metro LinkedIn Scraper",
+  "version": "0.1.0",
+  "description": "Metro's browser helper (IT Force). Takes jobs from the local Metro backend (127.0.0.1:8000): LinkedIn profile and company pages, Google Ads Transparency, Google Business Profile, Ahrefs. The backend decides what, when and how many; nothing runs in a Linked Helper week.",
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
+  "permissions": ["tabs", "storage", "scripting", "alarms"],
+  "host_permissions": [
+    "*://www.linkedin.com/*",
+    "https://adstransparency.google.com/*",
+    "https://www.google.com/*",
+    "https://app.ahrefs.com/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/feed/*"],
+      "js": ["parsers.js", "register.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "Metro LinkedIn Scraper" }
+}

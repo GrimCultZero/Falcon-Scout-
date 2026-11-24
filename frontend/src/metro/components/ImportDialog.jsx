@@ -9,7 +9,7 @@ const ROWS = [
   ['rows_read', 'Rows read'], ['added', 'New leads'], ['duplicate', 'Already in this campaign'],
   ['updated', 'Of those, status or email updated'], ['duplicate_in_file', 'Repeated inside the file'],
   ['in_other_campaign', 'Skipped: already in another campaign'], ['company_in_other_campaign', "Skipped: company is in another campaign"],
-  ['suppressed', 'Stored but marked suppressed (never written to)'], ['junk', 'Marked junk by layer 0'],
+  ['suppressed', 'Stored but marked suppressed (never written to)'], ['previously_contacted', 'Stored, previously contacted (kept out of new invite lists)'], ['junk', 'Marked junk by layer 0'],
   ['invalid', 'No usable identifier (not stored)'], ['with_email', 'New leads with an email in the file'],
   ['same_name_other_profile', 'Same name and company, different profile (kept, worth a look)'],
 ]

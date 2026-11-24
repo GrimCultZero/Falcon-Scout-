@@ -22,14 +22,15 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
 
   const app = read('MetroApp.jsx')
   assert(/<CampaignsTab/.test(app) && /<LeadsTab/.test(app) && /<SettingsTab/.test(app), 'Campaigns, Leads and Settings are mounted')
-  assert(/crm:/.test(app) && /senders:/.test(app), 'CRM and Senders are still placeholders')
+  assert(/crm:/.test(app) && !/senders:\s*['"]/.test(app) && /<SendersTab/.test(app), 'CRM is still a placeholder; Senders is a real tab from Phase 2')
 
   const leads = read('components', 'LeadsTab.jsx')
   assert(/WHAT YOU SEE RUNS/.test(leads) && /ticked\.size > 0 \? \{ n: ticked\.size, what: 'ticked' \} : \{ n: data\.total, what: 'shown' \}/.test(leads),
     'scope = the ticked rows, else the rows the filters show')
   assert(/Enrich \$\{eligible\} \$\{scope\.what\}/.test(leads), 'the Enrich button carries the number it would process')
-  for (const label of ['Enrich', 'Write', 'Send']) {
-    assert(new RegExp(`<Btn small disabled title="[^"]*">\{\`${label} `).test(leads), `${label} is disabled in Phase 1`)
+  assert(/<Btn small onClick=\{enrich\}[^>]*>\{`Enrich \$\{eligible\} \$\{scope\.what\}`\}/.test(leads), 'Enrich is live from Phase 2 and still carries its number')
+  for (const label of ['Write', 'Send']) {
+    assert(new RegExp(`<Btn small disabled title="[^"]*">\{\`${label} `).test(leads), `${label} is disabled until its phase`)
   }
   assert(/Nothing is ever sent without a button press and a confirm/.test(leads), 'the Send card repeats the safety rule')
   assert(!/\/send|method: 'POST'.*send/i.test(leads), 'the Leads tab never calls a send route')

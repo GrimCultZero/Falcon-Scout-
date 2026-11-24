@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Metro LinkedIn Scraper</title>
+<style>
+  body { font: 13px/1.45 Manrope, "Segoe UI", sans-serif; width: 320px; margin: 0; color: #000c0e; background: #eaf6f9; }
+  header { background: #005669; color: #fff; padding: 10px 14px; border-top: 3px solid #37bbd5; font-weight: 800; font-size: 15px; }
+  main { padding: 12px 14px; }
+  .row { margin: 8px 0; } label { font-weight: 700; color: #005669; display: block; margin-bottom: 3px; }
+  input[type=text] { width: 100%; box-sizing: border-box; padding: 5px 8px; border: 1px solid rgba(0,86,105,.35); border-radius: 6px; }
+  button { padding: 6px 12px; border-radius: 6px; border: 1px solid #005669; background: #005669; color: #fff; font-weight: 700; cursor: pointer; }
+  .muted { color: rgba(0,12,14,.6); font-size: 12px; } .warn { color: #b36b00; font-weight: 700; } .lh { color: #e6261f; font-weight: 700; }
+</style></head>
+<body>
+<header>Metro LinkedIn Scraper</header>
+<main>
+  <div class="row" id="week"></div>
+  <div class="row" id="acct"></div>
+  <div class="row"><label for="prof">This Chrome profile is called</label><input type="text" id="prof" placeholder="e.g. Artem, scraper 1"></div>
+  <div class="row"><label><input type="checkbox" id="on"> Take jobs from Metro</label>
+    <div class="muted">Off by default. The Metro backend decides what runs and when; in a Linked Helper week nothing runs.</div></div>
+  <div class="row"><button id="now">Check for a job now</button></div>
+  <div class="row muted" id="last"></div>
+</main>
+<script src="popup.js"></script>
+</body></html>

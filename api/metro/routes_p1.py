@@ -166,7 +166,8 @@ def campaigns_pipeline(cid: int):
         by = dict(s.query(MetroLead.status, func.count()).filter(MetroLead.campaign_id == cid)
                   .group_by(MetroLead.status).all())
         return {"import": {"leads": sum(by.values()), "new": by.get("new", 0), "junk": by.get("junk", 0),
-                           "suppressed": by.get("suppressed", 0)},
+                           "suppressed": by.get("suppressed", 0),
+                           "previously_contacted": by.get("previously_contacted", 0)},
                 "enrich": {"ready": by.get("new", 0), "live": False, "phase": "2"},
                 "write": {"ready": 0, "live": False, "phase": "3"},
                 "send": {"ready": 0, "live": False, "phase": "4-5"}}
@@ -180,8 +181,10 @@ def lead_dict(l: MetroLead) -> dict:
             "company_name": l.company_name, "location": l.location, "profile_url": l.profile_url,
             "email": l.email, "email_source": l.email_source, "email_verified": bool(l.email_verified),
             "invite_status": l.invite_status, "persona_score": l.persona_score, "persona_verdict": l.persona_verdict,
-            "persona_reasons": (notes or {}).get("reasons", []), "persona_locked": bool(l.persona_locked),
-            "status": l.status, "suppressed_reason": l.suppressed_reason, "list_source": l.list_source,
+            "persona_reasons": (notes or {}).get("reasons", []),
+            "fit_score": l.fit_score, "deep_score": l.deep_score, "email_status": l.email_status,
+            "emailable": bool(l.email and l.email_status == "verified" and l.status == "new"), "persona_locked": bool(l.persona_locked),
+            "status": l.status, "suppressed_reason": l.suppressed_reason, "prior_contact_reason": l.prior_contact_reason, "list_source": l.list_source,
             "invited_at": l.invited_at.isoformat() if l.invited_at else None,
             "connected_at": l.connected_at.isoformat() if l.connected_at else None}
 
@@ -224,8 +227,8 @@ def leads_patch(lead_id: int, body: LeadPatch):
         l = s.get(MetroLead, lead_id)
         if l is None:
             raise HTTPException(404, "no such lead")
-        if l.status == "suppressed":
-            raise HTTPException(400, "a suppressed lead cannot be changed here")
+        if l.status in ("suppressed", "previously_contacted"):
+            raise HTTPException(400, "a suppressed or previously contacted lead cannot be changed here")
         if body.decision not in ("keep", "junk"):
             raise HTTPException(400, "decision must be keep or junk")
         l.status = "new" if body.decision == "keep" else "junk"

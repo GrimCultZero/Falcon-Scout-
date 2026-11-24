@@ -47,6 +47,8 @@ _COL_KEYS = {
     "org_title1": ("organizationtitle1",),
     "email":    ("email", "emailaddress", "email1", "workemail", "personalemail"),
     "email_type": ("emailtype",),
+    "email_status": ("emailstatus", "emailverification", "emailvalidation", "emailvalidity", "emailverified"),
+    "metro_lead_id": ("metroleadid",),
     "website":  ("companywebsite", "companydomain", "domain", "companyurl", "website"),
     "industry": ("companyindustry", "industry"),
     "job_seeker": ("badgesjobseeker",),

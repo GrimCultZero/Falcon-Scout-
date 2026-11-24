@@ -26,7 +26,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def utcnow() -> datetime:
@@ -117,6 +117,12 @@ class MetroLead(MetroBase):
     persona_verdict = Column(String, nullable=True)              # keep | review | junk
     persona_locked = Column(Boolean, nullable=False, default=False)   # a person's own decision, rescoring never flips it
     suppressed_reason = Column(String, nullable=True)
+    # Phase 2
+    prior_contact_reason = Column(String, nullable=True)         # a soft suppression hit (previously contacted)
+    email_status = Column(String, nullable=True)                 # unverified | domain_ok | verified | invalid
+    email_checked_at = Column(DateTime, nullable=True)
+    shortlisted = Column(Boolean, nullable=False, default=False)
+    enriched_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -222,6 +228,10 @@ class MetroSuppression(MetroBase):
     reason = Column(String, nullable=True)
     source = Column(String, nullable=True)                       # file name or "proposals"
     note = Column(Text, nullable=True)
+    # Phase 2: hard = never contact (IT Force clients, opt-outs, bounced addresses, approved Upwork domains);
+    # soft = "previously contacted" (the already_contacted list): kept out of new invite lists, but a lead
+    # imported from our own Linked Helper campaign export keeps its invited/connected status and stays usable.
+    strength = Column(String, nullable=False, default="hard", index=True)
     created_at = Column(DateTime, default=utcnow)
 
 
@@ -265,6 +275,38 @@ class MetroSuppressionCandidate(MetroBase):
     created_at = Column(DateTime, default=utcnow)
 
 
+class MetroScrapeJob(MetroBase):
+    """Work for a browser extension (Phase 2): a LinkedIn profile or company page, a Google Ads Transparency
+    lookup, a Google Business Profile read, an Ahrefs read. The backend decides who gets what, and when."""
+    __tablename__ = "metro_scrape_jobs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kind = Column(String, nullable=False, index=True)            # linkedin_profile | linkedin_company | ads_transparency | gbp | ahrefs
+    target = Column(String, nullable=False)                      # URL, or the domain / search text
+    company_id = Column(Integer, ForeignKey("metro_companies.id"), nullable=True, index=True)
+    lead_id = Column(Integer, ForeignKey("metro_leads.id"), nullable=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("metro_campaigns.id"), nullable=True, index=True)
+    status = Column(String, nullable=False, default="queued", index=True)   # queued | leased | done | failed | cancelled
+    sender_id = Column(Integer, ForeignKey("metro_senders.id"), nullable=True)   # the account that took it
+    lease_until = Column(DateTime, nullable=True)
+    result_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class MetroVisitLog(MetroBase):
+    """Every LinkedIn page visit the backend authorised (audit; the daily counter lives on metro_senders)."""
+    __tablename__ = "metro_visit_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sender_id = Column(Integer, ForeignKey("metro_senders.id"), nullable=False, index=True)
+    job_id = Column(Integer, ForeignKey("metro_scrape_jobs.id"), nullable=True)
+    kind = Column(String, nullable=False)
+    target = Column(String, nullable=True)
+    day = Column(String, nullable=False, index=True)             # YYYY-MM-DD (Kyiv)
+    week_mode = Column(String, nullable=False)
+    at = Column(DateTime, default=utcnow)
+
+
 class MetroSetting(MetroBase):
     __tablename__ = "metro_settings"
     key = Column(String, primary_key=True)
@@ -283,8 +325,14 @@ DEFAULT_SETTINGS = {
     "email_test_mode": True,
     "linkedin_test_mode": True,
     "email_daily_cap": 20,
+    # Phase 2
+    "linked_helper_process_names": ["linked-helper.exe"],   # a Metro week is refused while one of these runs
+    "cache_days": {"website": 30, "pagespeed": 14, "ads": 14, "gbp": 30, "ahrefs": 30, "linkedin_company": 30},
+    "pace_seconds": {"web": 3, "pagespeed": 2},               # minimum gap between two requests to the same kind of source
+    "shortlist_min_fit": 50,
     "schema_version": SCHEMA_VERSION,
 }
+SECRET_SETTINGS = ("pagespeed_api_key",)                      # entered by Oleh in Settings; never returned by GET /metro/settings
 # persona_rules (Phase 1, layer 0) is seeded from api/metro/persona.DEFAULT_RULES by init_db.
 
 
@@ -335,9 +383,21 @@ def migrate(eng: Engine) -> list[str]:
     return done
 
 
+def classify_suppression(eng: Engine) -> int:
+    """Phase 2: give every suppression entry a strength. The already_contacted list is SOFT ("previously
+    contacted"); everything else is HARD. Only rows without a strength are touched (idempotent), and the
+    source label is kept. Returns how many rows it classified."""
+    with eng.begin() as conn:
+        soft = conn.exec_driver_sql(
+            "UPDATE metro_suppression SET strength='soft' WHERE strength IS NULL AND lower(coalesce(source,'')) LIKE 'already_contacted%'").rowcount
+        hard = conn.exec_driver_sql("UPDATE metro_suppression SET strength='hard' WHERE strength IS NULL").rowcount
+    return (soft or 0) + (hard or 0)
+
+
 def init_db(eng: Engine) -> None:
     MetroBase.metadata.create_all(eng)
     migrate(eng)
+    classify_suppression(eng)
     with Session(eng) as s:
         for key, value in DEFAULT_SETTINGS.items():
             if s.get(MetroSetting, key) is None:
@@ -351,5 +411,24 @@ def init_db(eng: Engine) -> None:
         s.commit()
 
 
-def read_settings(s: Session) -> dict:
-    return {r.key: json.loads(r.value_json) for r in s.query(MetroSetting).all()}
+def read_settings(s: Session, *, secrets: bool = False) -> dict:
+    """All settings. Secrets (API keys) are returned as a "set / not set" flag unless `secrets=True`."""
+    out = {r.key: json.loads(r.value_json) for r in s.query(MetroSetting).all()}
+    if not secrets:
+        for k in SECRET_SETTINGS:
+            out[k] = {"set": bool(out.get(k))}
+    return out
+
+
+def get_setting(s: Session, key: str, default=None):
+    row = s.get(MetroSetting, key)
+    return json.loads(row.value_json) if row is not None else DEFAULT_SETTINGS.get(key, default)
+
+
+def put_setting(s: Session, key: str, value) -> None:
+    row = s.get(MetroSetting, key)
+    if row is None:
+        s.add(MetroSetting(key=key, value_json=json.dumps(value)))
+    else:
+        row.value_json = json.dumps(value)
+        row.updated_at = utcnow()
