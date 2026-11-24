@@ -5287,13 +5287,14 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
         // hourly/monthly, never as a lump sum. This must NEVER drive a SKIP
         // (it was: a bogus $200k budget produced SKIP/3 on a perfect-fit job).
         // Reframe as "verify this" and tell the model to judge on scope + client.
+        const _fb = String(job.fixed_budget).replace(/^\s*[$]\s*/, '') // stored as "$2,000"; the prompt adds its own "$"
         const _budgetNum = parseFloat(String(job.fixed_budget).replace(/[^0-9.]/g, '')) || 0
         const _ongoingLabel = /ongoing/i.test(String(job.project_type || ''))
         const _budgetAnomalous = _budgetNum >= 50000 || (_ongoingLabel && _budgetNum > 0)
         if (_budgetAnomalous) {
-          rateLine = `Rate: the fixed-budget field shows $${job.fixed_budget}${job.project_type ? ` (${job.project_type})` : ''}, but treat this number as SUSPECT / UNVERIFIED DATA — NOT a fact and NOT a reason to skip. ${_ongoingLabel ? 'It is labeled an ONGOING role, which is normally billed hourly or monthly, not as a single fixed sum. ' : ''}${_budgetNum >= 50000 ? `$${job.fixed_budget} as a one-off SEO/PPC engagement is implausible and is almost certainly a capture error or a placeholder ceiling. ` : ''}A large or incoherent budget figure is NEVER a disqualifier — if anything a big budget is a positive signal. Do NOT call this job "unbiddable" or "structurally incoherent", do NOT build the verdict around this number, and do NOT deduct points for it. Add exactly ONE flag: "Budget figure ($${job.fixed_budget}) looks anomalous — verify before bidding". Then score the job on SCOPE FIT, CLIENT QUALITY, and the client's historical hourly rate, treating the budget as effectively unspecified.`
+          rateLine = `Rate: the fixed-budget field shows $${_fb}${job.project_type ? ` (${job.project_type})` : ''}, but treat this number as SUSPECT / UNVERIFIED DATA — NOT a fact and NOT a reason to skip. ${_ongoingLabel ? 'It is labeled an ONGOING role, which is normally billed hourly or monthly, not as a single fixed sum. ' : ''}${_budgetNum >= 50000 ? `$${_fb} as a one-off SEO/PPC engagement is implausible and is almost certainly a capture error or a placeholder ceiling. ` : ''}A large or incoherent budget figure is NEVER a disqualifier — if anything a big budget is a positive signal. Do NOT call this job "unbiddable" or "structurally incoherent", do NOT build the verdict around this number, and do NOT deduct points for it. Add exactly ONE flag: "Budget figure ($${_fb}) looks anomalous — verify before bidding". Then score the job on SCOPE FIT, CLIENT QUALITY, and the client's historical hourly rate, treating the budget as effectively unspecified.`
         } else {
-          rateLine = `Rate: FIXED-PRICE budget $${job.fixed_budget} USD${job.project_type ? ` (${job.project_type})` : ''} — this is a FIXED budget, NOT hourly. Apply the FIXED/FLAT-PRICE rule: estimate effort in hours from the scope, then compute effective hourly = budget ÷ hours, and compare THAT to ${_floorDirective}. The budget is in USD as captured ("Budget: $X"); do NOT speculate about other currencies.`
+          rateLine = `Rate: FIXED-PRICE budget $${_fb} USD${job.project_type ? ` (${job.project_type})` : ''} — this is a FIXED budget, NOT hourly. Apply the FIXED/FLAT-PRICE rule: estimate effort in hours from the scope, then compute effective hourly = budget ÷ hours, and compare THAT to ${_floorDirective}. The budget is in USD as captured ("Budget: $X"); do NOT speculate about other currencies.`
         }
       } else {
         rateLine = `Rate: NOT SPECIFIED in the posting. Do NOT fabricate a rate, currency, or rate type. Treat the rate as genuinely unknown, add a flag "Rate not specified — cannot assess rate-floor risk", and do NOT let an invented rate drive the verdict up or down.`
@@ -5330,7 +5331,7 @@ function AIAnalysisColumn({ job, hasEnrichment, bridgeReady, onEnrich }) {
           // screening questions, unverified payment, Meta + Google) and another
           // job twice in a row, so re-analysing never helped. Typical output is
           // 700-1,500; the cap only bills what is written.
-          max_tokens: 4000,
+          max_tokens: 8000, // Sonnet 5.5 thinks by default; thinking counts against this
           system: `You are analyzing Upwork jobs for Artem Yatsuk. Use this profile to calibrate every score.
 
 ARTEM'S UPWORK PROFILE (real, verified data — use this to assess fit):
@@ -7493,7 +7494,7 @@ function ProposalColumn({
         body: JSON.stringify({
           _kind: coreOnly ? 'proposal_rescan' : 'proposal',
           model: SONNET_MODEL,
-          max_tokens: 2000,
+          max_tokens: 8000, // the letter hit exactly 2000 and was cut mid-sentence (2026-11-24): thinking eats the budget
           system: `You write Upwork cover letters for Artem Yatsuk, a Google Ads/PPC/SEO and ecommerce web development specialist (12 years).
 ═══════════════════════════════════════════════════════════════════
 NEVER STATE WHAT ARTEM LACKS (owner rule, 2026-11-16 — absolute):
@@ -8098,6 +8099,11 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
       })
       const data = await response.json()
       if (!response.ok) throw new Error(_friendlyApiError(data.detail, response.status))
+      // A letter that ran out of tokens ends mid-sentence and looks finished (2026-11-24: Sonnet 5.5's thinking
+      // ate a 2000-token budget). Never hand back a cut-off draft as if it were complete.
+      if (data.stop_reason === 'max_tokens') {
+        throw new Error('The letter hit the length limit and was cut off. Generate it again.')
+      }
       let text = data.content.map(b => b.text || '').join('')
 
       // ── Deterministic markdown strip (KB Rule: no asterisks/markdown) ────
@@ -8410,7 +8416,7 @@ PRIORITY RULE: the JOB POSTING defines what this proposal must accomplish. An at
               body: JSON.stringify({
                 _kind: 'proposal_repair',
                 model: SONNET_MODEL,
-                max_tokens: 500,
+                max_tokens: 4000, // thinking headroom (Sonnet 5.5)
                 system: `You write ONLY the MISSING numbered answer paragraph(s) for an Upwork cover letter already drafted for Artem Yatsuk (${ARTEM_EXPERIENCE_YEARS}, Google Ads/PPC/SEO and ecommerce web development).
 FACTS (non-negotiable): use ONLY the approved case ledger (names, metrics, places and periods exactly as given) and ARTEM'S BUSINESS FACTS below. Never invent a number, count, duration, client name, URL, result or timeframe. When a question needs a figure that is NOT on record, write NOTHING about that figure — answer the rest of the question from what IS on record, and never apologise, say you lack it, promise to send it, or leave a placeholder.
 FORMAT: for EACH question below, write ONE paragraph, 2-3 sentences max, beginning with its number and (if given) its short title, exactly like "${_missingQs[0]?.n ?? 8}. ${_missingQs[0]?.title || 'Pricing'}:". Output ONLY the numbered paragraph(s), one per line with a blank line between — no preamble, no closing, no signature, nothing else.
@@ -9226,7 +9232,7 @@ ${buildArtemFactsBlock(_postingTitleDesc)}${renderCaseFactsBlock()}`,
             const overBudgetLengthCap = _isSmallFixedJob && _draftWordCount > 220
             if (overBudgetLengthCap) {
               console.warn(
-                `[Falcon] budget-length check: fixed budget $${job.fixed_budget} (<$1000) but the draft ` +
+                `[Falcon] budget-length check: fixed budget ${String(job.fixed_budget).replace(/^\s*[$]\s*/, '$')} (<$1000) but the draft ` +
                 `is ${_draftWordCount} words — the prompt's own cap is 200. Client evaluating a small ` +
                 `fixed-price job reads length as scope confusion, not thoroughness.`
               )

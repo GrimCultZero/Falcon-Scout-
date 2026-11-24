@@ -3737,7 +3737,7 @@ async def chat(request: dict):
                     # used, so a higher ceiling costs nothing until it is needed.
                     # The frontend now also reports stop_reason == "max_tokens".
                     "model": SONNET_MODEL,
-                    "max_tokens": 4000,
+                    "max_tokens": 12000,  # Sonnet 5.5 thinks by default; thinking counts against this
                     "system": system,
                     "messages": messages,
                 },
@@ -3821,7 +3821,7 @@ Conversation:
                 },
                 json={
                     "model": SONNET_MODEL,
-                    "max_tokens": 2000,
+                    "max_tokens": 8000,  # thinking headroom (Sonnet 5.5)
                     "messages": [{"role": "user", "content": distill_prompt}],
                 },
             )
@@ -5632,7 +5632,7 @@ Pre-extracted title hint (may be wrong): "{job_title}"
                 },
                 json={
                     "model": SONNET_MODEL,
-                    "max_tokens": 4096,
+                    "max_tokens": 12000,  # thinking headroom (Sonnet 5.5)
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )

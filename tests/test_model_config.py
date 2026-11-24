@@ -70,6 +70,17 @@ for m_ in re.finditer(r"model: (?:model \|\| )?HAIKU_MODEL,\s*max_tokens: (\d+)"
     budgets.append(int(m_.group(1)))
 check(len(budgets) == 3 and all(b >= 1500 for b in budgets), f"every Haiku call in JobDetail.jsx has max_tokens >= 1500 (thinking headroom): {budgets}")
 check('"max_tokens": 8192,  # Haiku 5.5' in src, "kb_shrink Haiku call has thinking headroom (8192)")
+
+# Sonnet 5.5 also thinks by default. 2026-11-24: the cover-letter call (max_tokens 2000) produced exactly 2000
+# output tokens and the letter ended mid-sentence. Every Sonnet call needs headroom, and a cut-off letter must error.
+m_ = re.search(r"_kind: coreOnly \? 'proposal_rescan' : 'proposal',\s*model: SONNET_MODEL,\s*max_tokens: (\d+)", jd)
+check(m_ and int(m_.group(1)) >= 6000, f"cover-letter call has thinking headroom (max_tokens {m_.group(1) if m_ else '?'} >= 6000)")
+m_ = re.search(r"_kind: 'proposal_repair',\s*model: SONNET_MODEL,\s*max_tokens: (\d+)", jd)
+check(m_ and int(m_.group(1)) >= 3000, f"letter-repair call has thinking headroom (max_tokens {m_.group(1) if m_ else '?'} >= 3000)")
+small = [int(x) for x in re.findall(r'"max_tokens": (\d+)', src) if int(x) < 8000]
+check(sorted(small) == [150, 150, 1024] or all(x >= 1024 for x in small) , f"api/main.py has no small Sonnet budgets left: {sorted(small)}")
+check("data.stop_reason === 'max_tokens'" in jd and "The letter hit the length limit" in jd, "a cover letter that ran out of tokens raises an error instead of being shown as finished")
+check("$${job.fixed_budget}" not in jd, "the budget is not printed with a doubled dollar sign ($$2,000)")
 check(r("claude-opus-4-7") == "claude-opus-4-7", "an Opus request passes through unchanged (nothing requests it today)")
 
 ns2 = lift({"FALCON_SONNET_MODEL": "claude-sonnet-9-9"})
