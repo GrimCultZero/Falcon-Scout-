@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import App from '../App.jsx'
 import MetroApp from './MetroApp.jsx'
 import SideSwitch from './SideSwitch.jsx'
-import { readSide, writeSide, hashForcesFalcon, hashOnSwitch } from './lib/side.js'
+import { readSide, writeSide, hashForcesFalcon, hashOnSwitch, isSwitchKey, otherSide } from './lib/side.js'
 
 const store = typeof window !== 'undefined' ? window.localStorage : null
 
@@ -32,6 +32,19 @@ export default function SideShell() {
     const onHash = () => { if (hashForcesFalcon(window.location.hash)) change('falcon') }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  // Ctrl+M switches sides (keeps the latest side in a ref so the listener is registered once).
+  const sideRef = useRef(side)
+  sideRef.current = side
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!isSwitchKey(e)) return
+      e.preventDefault()
+      change(otherSide(sideRef.current))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   return (

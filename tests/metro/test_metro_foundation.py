@@ -84,7 +84,9 @@ names = {r[0] for r in sqlite3.connect(db_path).execute("SELECT name FROM sqlite
 expected = {"metro_campaigns", "metro_companies", "metro_leads", "metro_hooks", "metro_touches", "metro_senders",
             "metro_send_log", "metro_replies", "metro_suppression", "metro_case_links", "metro_settings"}
 check(expected <= names, f"all 11 metro tables exist (missing: {sorted(expected - names)})")
-check(set(mdb.METRO_TABLES) == expected, "METRO_TABLES lists exactly the 11 plan tables")
+# Phase 1 adds two: the import audit and the Upwork-derived suppression candidates (METRO_HANDOFF, Phase 1).
+check(set(mdb.METRO_TABLES) == expected | {"metro_imports", "metro_suppression_candidates"},
+      "METRO_TABLES lists the 11 plan tables plus metro_imports and metro_suppression_candidates")
 check({t: schema(t) for t in ("jobs", "proposals")} == before, "jobs and proposals schemas unchanged by Metro init")
 
 # migrate() adds a column a model gained later, only on metro_ tables
@@ -171,7 +173,7 @@ app = FastAPI()
 app.include_router(router)
 c = TestClient(app)
 h = c.get("/metro/health").json()
-check(h["ok"] is True and h["missing"] == [] and len(h["tables"]) == 11, "GET /metro/health ok, 11 tables")
+check(h["ok"] is True and h["missing"] == [] and len(h["tables"]) == 13, "GET /metro/health ok, 13 tables")
 check(c.get("/metro/settings").json()["email_test_mode"] is True, "GET /metro/settings")
 total0 = c.get("/metro/suppression/stats").json()["total"]
 up = c.post("/metro/suppression/import", files={"file": ("ids.csv", io.BytesIO(b"member_id\n333\n444\n"), "text/csv")})

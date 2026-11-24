@@ -8,3 +8,6 @@ export const METRO = {
   nicheLine:  '#37bbd5',   // Niche campaigns
   font: "'Manrope', 'Inter', sans-serif",
 }
+
+// Fill of the active half of the side switch while Falcon Scout shows (darker than its header).
+export const FALCON_DARK = '#04141c'

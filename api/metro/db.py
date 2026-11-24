@@ -26,7 +26,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def utcnow() -> datetime:
@@ -47,6 +47,9 @@ class MetroCampaign(MetroBase):
     status = Column(String, nullable=False, default="draft", index=True)  # draft | active | paused | done
     brief_json = Column(Text, nullable=True)                     # niche / agency brief: who, pains, case tags, do-not-claim
     offer = Column(Text, nullable=True)
+    launch_kit_json = Column(Text, nullable=True)                # the "package" the campaign runs with (Phase 1, step 7)
+    checklist_json = Column(Text, nullable=True)                 # manual launch steps, each with the date it was done
+    started_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -55,6 +58,7 @@ class MetroCompany(MetroBase):
     __tablename__ = "metro_companies"
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False, index=True)
+    name_key = Column(String, nullable=True, index=True)          # normalized name (companies are matched on it)
     domain = Column(String, nullable=True, unique=True)
     domain_source = Column(String, nullable=True)                # csv | email-finder | ai-lookup | linkedin
     linkedin_url = Column(String, nullable=True, index=True)
@@ -100,6 +104,19 @@ class MetroLead(MetroBase):
     current_cycle = Column(Integer, nullable=False, default=1)
     source_file = Column(String, nullable=True)
     raw_json = Column(Text, nullable=True)                       # the imported CSV row, as read
+    # Phase 1 (import, dedup, layer 0)
+    company_name = Column(String, nullable=True)
+    profile_key = Column(String, nullable=True, index=True)      # normalized LinkedIn profile URL
+    name_company_key = Column(String, nullable=True, index=True)
+    list_source = Column(String, nullable=True)                  # which Sales Navigator seat / Linked Helper instance
+    import_id = Column(Integer, ForeignKey("metro_imports.id"), nullable=True, index=True)
+    invite_status = Column(String, nullable=False, default="none", index=True)   # none | invited | connected
+    invited_at = Column(DateTime, nullable=True)
+    connected_at = Column(DateTime, nullable=True)
+    email_type = Column(String, nullable=True)                   # personal | business, as Linked Helper reports it
+    persona_verdict = Column(String, nullable=True)              # keep | review | junk
+    persona_locked = Column(Boolean, nullable=False, default=False)   # a person's own decision, rescoring never flips it
+    suppressed_reason = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -220,6 +237,34 @@ class MetroCaseLink(MetroBase):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class MetroImport(MetroBase):
+    """One CSV import into a campaign: what was read and what happened to each row. Holds no lead data."""
+    __tablename__ = "metro_imports"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(Integer, ForeignKey("metro_campaigns.id"), nullable=False, index=True)
+    filename = Column(String, nullable=True)
+    file_sha256 = Column(String, nullable=True, index=True)
+    list_source = Column(String, nullable=True)
+    delimiter = Column(String, nullable=True)
+    rows_read = Column(Integer, nullable=False, default=0)
+    result_json = Column(Text, nullable=True)                    # counts per outcome + the columns used
+    created_at = Column(DateTime, default=utcnow)
+
+
+class MetroSuppressionCandidate(MetroBase):
+    """A suppression entry PROPOSED by Upwork-derived data. Nothing is suppressed until Oleh approves it."""
+    __tablename__ = "metro_suppression_candidates"
+    __table_args__ = (UniqueConstraint("kind", "value", name="uq_metro_supp_cand_kind_value"),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kind = Column(String, nullable=False)                        # domain
+    value = Column(String, nullable=False)                       # normalized
+    source = Column(String, nullable=True)                       # proposals
+    evidence = Column(Text, nullable=True)                       # where the domain was named
+    decision = Column(String, nullable=False, default="pending", index=True)   # pending | approved | rejected
+    decided_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
 class MetroSetting(MetroBase):
     __tablename__ = "metro_settings"
     key = Column(String, primary_key=True)
@@ -240,6 +285,7 @@ DEFAULT_SETTINGS = {
     "email_daily_cap": 20,
     "schema_version": SCHEMA_VERSION,
 }
+# persona_rules (Phase 1, layer 0) is seeded from api/metro/persona.DEFAULT_RULES by init_db.
 
 
 def _database_url() -> str:
@@ -296,6 +342,9 @@ def init_db(eng: Engine) -> None:
         for key, value in DEFAULT_SETTINGS.items():
             if s.get(MetroSetting, key) is None:
                 s.add(MetroSetting(key=key, value_json=json.dumps(value)))
+        if s.get(MetroSetting, "persona_rules") is None:
+            from .persona import DEFAULT_RULES        # local import: persona.py imports nothing from here
+            s.add(MetroSetting(key="persona_rules", value_json=json.dumps(DEFAULT_RULES)))
         row = s.get(MetroSetting, "schema_version")
         if json.loads(row.value_json) != SCHEMA_VERSION:
             row.value_json = json.dumps(SCHEMA_VERSION)

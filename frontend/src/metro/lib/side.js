@@ -43,6 +43,17 @@ export function hashOnSwitch(currentHash, nextSide, savedFalconHash) {
   return currentHash
 }
 
+// Ctrl+M flips sides. Only the bare chord counts (no Shift/Alt/Meta), and a held key (auto-repeat)
+// flips once, not back and forth.
+export function isSwitchKey(e) {
+  return !!e && !e.repeat && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey
+    && String(e.key || '').toLowerCase() === 'm'
+}
+
+export function otherSide(side) {
+  return side === 'metro' ? 'falcon' : 'metro'
+}
+
 export function readSide(storage, hash) {
   if (String(hash || '').toLowerCase() === METRO_HASH) return 'metro'
   if (hashForcesFalcon(hash)) return 'falcon'

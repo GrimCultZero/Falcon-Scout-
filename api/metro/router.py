@@ -67,3 +67,7 @@ def suppression_import_proposals(dry_run: bool = Query(True)):
         entries = sup.entries_from_proposals(s)
         res = sup.add_entries(s, entries, source="proposals", dry_run=dry_run)
     return {"dry_run": dry_run, **res.as_dict()}
+
+
+from .routes_p1 import p1 as _p1   # noqa: E402  Phase 1 routes (campaigns, import, leads, persona rules)
+router.include_router(_p1)
