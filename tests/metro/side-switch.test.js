@@ -77,6 +77,9 @@ function memStore(init = {}) {
   for (const c of ['#000c0e', '#005669', '#37bbd5', '#eaf6f9', '#e6261f']) assert(metro.includes(c), `Metro uses IT Force colour ${c}`)
   assert(/@fontsource\/manrope/.test(metro) && /Manrope/.test(metro), 'Metro uses Manrope, served locally (@fontsource)')
   assert(/metro-wagon\.svg/.test(metro) && fs.existsSync(path.join(SRC, '..', 'public', 'metro-wagon.svg')), 'Metro header shows the wagon mark')
+  const vite = fs.readFileSync(path.join(SRC, '..', 'vite.config.js'), 'utf8')
+  assert(/'\/metro\/': 'http:\/\/localhost:8000'/.test(vite) && !/'\/metro':/.test(vite),
+    "Vite proxies '/metro/' only, so the static /metro-wagon.svg is not sent to the backend")
   const jd = fs.readFileSync(path.join(SRC, 'components', 'JobDetail.jsx'), 'utf8')
   assert(!/metro/i.test(jd), 'JobDetail.jsx has no Metro code')
 
