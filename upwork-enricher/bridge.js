@@ -1,5 +1,5 @@
 // Falcon Scout - Bridge Content Script
-// Runs on the Falcon Scout dashboard (localhost:5180; legacy 5173/5174 also matched).
+// Runs on the Falcon Scout dashboard (localhost:5180 / 127.0.0.1:5180 only; 5173/5174 are DevScout).
 // Bridges between the React page and the extension background worker.
 
 (function () {

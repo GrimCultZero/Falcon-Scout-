@@ -533,6 +533,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+from metro.router import router as _metro_router; app.include_router(_metro_router)  # noqa: E402,E702  Metro (METRO_PLAN.md): the ONLY Metro line in this file
 
 # When was the Chrome extension last heard from, and since when without a break?
 # /health judges the proposals sync on hours the extension was RUNNING, not on the

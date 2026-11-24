@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-files = sorted(HERE.glob("test_*.py"))
+files = sorted(HERE.glob("test_*.py")) + sorted((HERE / "metro").glob("test_*.py"))  # + Metro suites
 failed = []
 for f in files:
     r = subprocess.run([sys.executable, "-I", str(f)], capture_output=True, text=True,
@@ -17,9 +17,9 @@ for f in files:
     out = (r.stdout or "") + (r.stderr or "")
     fail_lines = [l for l in out.splitlines() if l.startswith("FAIL")]
     bad = r.returncode != 0 or bool(fail_lines)
-    print(("FAIL" if bad else "ok  ") + "  " + f.name + (f"  ({len(fail_lines)} FAIL lines)" if fail_lines else ""))
+    print(("FAIL" if bad else "ok  ") + "  " + str(f.relative_to(HERE)) + (f"  ({len(fail_lines)} FAIL lines)" if fail_lines else ""))
     if bad:
-        failed.append(f.name)
+        failed.append(str(f.relative_to(HERE)))
         for l in fail_lines[:5]:
             print("        " + l)
 print(f"\n{len(files)} Python suites, {len(failed)} failing")

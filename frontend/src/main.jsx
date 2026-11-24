@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
+import SideShell from './metro/SideShell.jsx'   // Falcon Scout | Metro; renders App.jsx unchanged as the Falcon Scout side
 import './index.css'
 
 const ZOOM = 1.2
@@ -17,6 +17,6 @@ window.addEventListener('resize', sizeRoot)
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <SideShell />
   </React.StrictMode>
 )

@@ -1610,3 +1610,76 @@ hours]]`: *"I want us to block things like this forever, its a bug."* It had alr
 - Sonnet 5.5 rejects some request options older models accept: forced `tool_choice` (`any`/`tool`), non-default `temperature`/`top_p`/`top_k`, assistant prefill, `thinking: {type: "disabled"}`, `budget_tokens`. Falcon Scout sends none of them (checked 2026-11-24); do not add them. Thinking is on by default at effort `high`, which raises latency and output tokens a little on long generations; there is no setting for it today.
 - Haiku (cheap passes: KB shrink, the small helpers) stays on 4.5. Haiku 5.5 exists ($0.10 / $0.50) but thinks by default; adopt it only after testing those passes.
 - CLI-bridge mode maps any Sonnet request to the CLI's own `sonnet` alias, so it runs whatever Sonnet the installed Claude Code resolves that to. Not testable on 2026-11-24 (the CLI profile hit its weekly limit until Nov 26, 10am Kyiv); the app was on the API provider.
+
+## 25. Metro: the outbound side (decided 2026-11-24, Phase 0 built 2026-11-24)
+
+Falcon Scout gets a second half, **Metro**: outbound to white-label agency partners and to direct clients by
+niche, over LinkedIn and email, built inside this app by adapting DevScout's (`C:\Users\syzov\baba-leada`)
+tested machinery. The Upwork side keeps the name Falcon Scout. The build brief is `METRO_PLAN.md` (phases,
+acceptance checks, hard rules); every Metro task ends with an entry in `METRO_HANDOFF.md`. The decisions
+below are settled with Oleh; changing one goes back to him before code.
+
+### Locked decisions
+| Area | Decision |
+| --- | --- |
+| Where and name | Inside Falcon Scout as a walled-off module named **Metro**; header switch **Falcon Scout \| Metro**, each side with its own tabs. Metro's logo is a metro wagon carrying the IT Force mark; IT Force colours (ink #000c0e, teal #005669, cyan #37bbd5, ice #eaf6f9) and the Manrope typeface. Agency line colour: red #e6261f; niche line: cyan |
+| DevScout code | Free to copy and adapt; pure logic and the extension are lifted with their tests; storage goes through Falcon Scout's backend |
+| LinkedIn sending | Linked Helper sends connection requests; Metro sends messages after acceptance and checks replies; Linked Helper CSV (custom variables) is the fallback |
+| LinkedIn safety | Alternating weeks. In a Linked Helper week no scraping (pop-up confirm + a check that the Linked Helper program is closed); messages and reply checks are always allowed. Scraping cap 60/day default, adjustable to 80 |
+| Accounts | Artem's account is the only messenger; extra accounts later are scraper-only; one Chrome profile per account |
+| Email | IMAP/SMTP on the itforce.ua mailbox (hosting at Ukraine.com.ua; SPF, DKIM, DMARC pass; mail-tester 10/10); plain text; start at up to 20-30/day |
+| Campaigns | Two types: Agency (US/Canada, then Europe) and Niche (one per month, with a niche brief); months alternate; a lead or company is in one active campaign at a time |
+| Scoring | Layer 0 persona (CSV only) -> layer 1 business fit (domain, website scan, PageSpeed, Ads Transparency, Google Business Profile) -> layer 2 deep (Ahrefs for niche only, LinkedIn company page) |
+| Emails | Linked Helper's email finder if credits are included in Pro, otherwise Apollo; only verified addresses get email |
+| Chain shape | Touches = number of distinct hooks, shared across channels, no fact reused (ledger); cap about 6; under 2 hooks gets a base chain of about 3 from the campaign brief |
+| Re-contact | Cycles: rest 60-90 days, new cycle only with new hooks, max 3 cycles a year; any reply, opt-out or bounce stops all channels |
+| Case studies | The 89 English pages at itforce.ua/en/cases, matched by industry tag; the link is attached by code, never written by the AI |
+| Offer | Direct clients: a free mini-audit. Agencies: "send a client you're struggling to deliver for" / pilot audit |
+| Prices | Never in any message; enforced by a code check |
+| Language, style | English only. DevScout's writing rules as the base, Artem's tone from the Upwork corpus, no deliberate typos or lowercase "i" |
+| AI | Every call through the existing `/claude` proxy on the CLI bridge (subscription) |
+
+### Hard rules (from METRO_PLAN.md, binding in every phase)
+- No Metro code in `api/main.py` beyond the one mounting line, and none in `JobDetail.jsx`; nothing in
+  `api/metro/` imports `api/main.py`. `jobs` / `proposals` / the Upwork feed are never changed by Metro.
+- Fail closed: nothing is sent without a button press and confirm; test mode on by default for email and
+  LinkedIn; no LinkedIn visit in a Linked Helper week or past the cap (cap checked before a visit is counted);
+  a damaged send log refuses all sending; a crash mid-send is "unconfirmed" and never retried; a suppressed
+  person or company is never written to; no price, AI-written URL or unfilled placeholder in any message
+  (checked in code); a hook is stated only when a stored field supports it, with its date.
+- Secrets are entered by Oleh in Settings, never typed, logged or committed. Lead data stays out of git.
+
+### How Phase 0 built it (2026-11-24)
+- **Layout:** backend `api/metro/` (package; `router.py` is an `APIRouter` with prefix `/metro`, mounted by
+  one line in `main.py`); frontend `frontend/src/metro/`; tests `tests/metro/` (both `tests/run_all.*`
+  runners pick them up). Vite proxies `/metro`.
+- **Storage:** `api/metro/db.py` has its own `DeclarativeBase` and its own engine on the SAME SQLite file
+  (resolved like `main.py`: `DATABASE_URL`, else `upwork_jobs.db`), so Metro never imports `main.py`.
+  The eleven `metro_*` tables of the plan's data model are created on first use (`create_all`), then
+  `migrate()` adds any model column an existing `metro_*` table lacks (it asserts the `metro_` prefix, so it
+  can never alter another table). `metro_settings` is key/value JSON, seeded only when a key is absent:
+  week_mode `metro`, scrape cap 60 (max 80), email and LinkedIn test mode `true`, email daily cap 20.
+  `metro_touches` is unique on lead + cycle + step + channel and `metro_send_log` on an idempotency key,
+  so a step can never be sent twice by construction.
+- **Header switch:** `main.jsx` renders `metro/SideShell.jsx`, which keeps `App.jsx` mounted and only
+  toggles `display` (no reload, no remount, nothing lost on the Upwork side); Metro mounts on first visit
+  and stays mounted. `App.jsx` only receives the switch as a prop. The side is remembered in localStorage
+  (`falconscout.side`) AND in the URL: while Metro shows the hash is `#metro` (replaceState, so `App.jsx`
+  sees no hashchange); flipping back restores the Falcon Scout view hash. A Falcon Scout view hash
+  (`#outcomes`, ... the extension's deep links) always shows Falcon Scout. Why the URL too: `App.jsx`
+  writes its view into the hash, so without `#metro` a reload on Metro came back on Falcon Scout.
+  Manrope is served locally (`@fontsource/manrope`), no external font request; the wagon mark is
+  `frontend/public/metro-wagon.svg` (supplied by Oleh).
+- **Suppression:** `api/metro/suppression.py`. Imports only ever add (unique kind + normalized value),
+  never delete; dry run by default (`tools/metro_import_suppression.py`, `POST /metro/suppression/import`).
+  Kinds and scope: member id / profile URL = person, email = address (a bounce suppresses only it),
+  domain / company = company (a reply or client mark the whole company). An address at a suppressed
+  domain counts as suppressed. Any CSV with recognisable columns (member id, profile URL, email,
+  domain/website, company) imports with no mapping, so the IT Force client list needs no code.
+  **Upwork clients are anonymous**: `proposals` / `jobs` hold no client name, company or domain, so the
+  proposals import records one `upwork_job` entry per proposal (for completeness) and adds a domain only
+  when an engaged client's reply or posting names one, never a platform domain. On the live data that
+  yields 494 job entries and 13 domains of mixed quality (some are competitors named in a posting), so it
+  was NOT applied; it waits for Oleh's decision.
+- **Extension cross-talk fixed:** Falcon Scout Enricher (5.18) injects `bridge.js` and broadcasts
+  `cockpit:*` messages to port 5180 only; 5173/5174 are DevScout's. Pinned by `tests/extension-ports.test.js`.

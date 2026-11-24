@@ -43,6 +43,7 @@ const PROXY = {
   '/feed-drops': 'http://localhost:8000',
   '/sync-runs': 'http://localhost:8000',
   '/focus-test': 'http://localhost:8000',
+  '/metro': 'http://localhost:8000',   // Metro (api/metro/router.py)
 }
 
 export default defineConfig({

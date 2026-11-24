@@ -1316,18 +1316,16 @@ async function saveConversation(data) {
   return result;
 }
 
-// Send a message to all open Falcon Scout tabs (localhost:5180 + legacy ports)
+// Send a message to all open Falcon Scout tabs. Port 5180 ONLY: 5173/5174 belong to
+// DevScout (baba-leada), whose page must never receive cockpit:* events (Metro Phase 0, step 1).
+const COCKPIT_ORIGINS = ['http://localhost:5180', 'http://127.0.0.1:5180'];
+function _isCockpitUrl(url) {
+  return !!url && COCKPIT_ORIGINS.some((o) => url === o || url.startsWith(o + '/'));
+}
 function notifyCockpit(type, detail) {
   chrome.tabs.query({}, (tabs) => {
     for (const tab of tabs) {
-      if (tab.url && (
-        tab.url.startsWith('http://localhost:5173') ||
-        tab.url.startsWith('http://127.0.0.1:5173') ||
-        tab.url.startsWith('http://localhost:5174') ||
-        tab.url.startsWith('http://127.0.0.1:5174') ||
-        tab.url.startsWith('http://localhost:5180') ||
-        tab.url.startsWith('http://127.0.0.1:5180')
-      )) {
+      if (_isCockpitUrl(tab.url)) {
         chrome.tabs.sendMessage(tab.id, { type, ...detail }, () => {
           if (chrome.runtime.lastError) {} // tab may not have bridge.js loaded yet — ignore
         });

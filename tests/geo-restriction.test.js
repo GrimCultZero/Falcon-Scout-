@@ -119,7 +119,7 @@ assert(runSrc.indexOf('sameJobProblem(startHref') > 0 && runSrc.indexOf('sameJob
 assert(/return;\n      \}\n\n      console\.log\('\[Cockpit\] Extracted:'/.test(runSrc), '…dropping the whole reading, not just the geo field');
 assert(!/geoKeywordMatch|geoLabelMatch/.test(src), 'the old label-grabs-next-line and bare-keyword branches are gone');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'upwork-enricher', 'manifest.json'), 'utf8'));
-assert(manifest.version === '5.17', `extension version 5.17 so a stale loaded extension is visible (${manifest.version})`);
+assert(manifest.version.split('.').map(Number).reduce((a, n) => a * 1000 + n) >= 5017, `extension version 5.17 or later so a stale loaded extension is visible (${manifest.version})`);
 
 console.log(bad ? `\n${bad} FAILURES` : '\nall pass');
 process.exit(bad ? 1 : 0);
