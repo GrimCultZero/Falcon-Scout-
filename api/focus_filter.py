@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""2-week SEO / GEO / Google Ads focus test (owner, 2026-11-19).
+"""SEO / GEO / Google Ads focus filter (owner, 2026-11-19; made permanent, no end date, 2026-11-24).
 
 Mirrors the owner-approved test_week pattern (feed_config.json block, auto-expiry in
 Europe/Kyiv time, nothing recorded destructively): while `feed_config.json`'s
@@ -34,16 +34,19 @@ def focus_test_active(cfg: dict, now: "datetime | None" = None) -> bool:
     rule as upwork_api.test_week_active (reimplemented here, not imported, since
     that module is off limits for this task)."""
     tw = (cfg or {}).get("focus_test")
-    if not isinstance(tw, dict) or not tw.get("until"):
+    if not isinstance(tw, dict):
         return False
     moment = now or datetime.now(timezone.utc)
     today = moment.astimezone(_OWNER_TZ).date() if _OWNER_TZ else moment.date()
+    # Owner, 2026-11-24: the focus filter is permanent -- "without end date". A block with
+    # NO "until" key stays active indefinitely (from "from" onward). A block that HAS an
+    # "until" still expires after it, and a malformed date still never activates the filter.
     try:
-        until = datetime.strptime(str(tw["until"]), "%Y-%m-%d").date()
+        until = datetime.strptime(str(tw["until"]), "%Y-%m-%d").date() if tw.get("until") else None
         start = datetime.strptime(str(tw["from"]), "%Y-%m-%d").date() if tw.get("from") else None
     except ValueError:
         return False
-    return (start is None or today >= start) and today <= until
+    return (start is None or today >= start) and (until is None or today <= until)
 
 
 # ── keep signals, split strong / weak (owner, 2026-11-20, after the 14-day replay

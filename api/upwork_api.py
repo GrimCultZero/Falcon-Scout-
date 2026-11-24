@@ -553,12 +553,17 @@ def save_feed_config(cfg: dict) -> dict:
     return merged
 
 
-# Task 10.3 (owner, 2026-11-24): the ONLY thing that may still rescue a stop word
-# in the title — the title literally names Google (or AdWords, Google Ads' old
-# name). Deliberately narrower than the old _LANE_RE (which also fired on generic
-# "ppc"/"sem"/"seo"/"shopify"/etc. with no Google mention at all — that genericness
-# is exactly what let an Amazon-only "PPC" job through). See _row_passes.
-_GOOGLE_MENTION_RE = re.compile(r"(?<!\w)(?:google|adwords)(?!\w)", re.I)
+# Single words that mean the title is offering work Artem actually does. Used
+# only to rescue a title that also tripped a stop word — deliberately looser
+# than the feed keywords, because "Google & Meta Ads Specialist" contains
+# neither "google ads" nor "google ad" as a contiguous phrase, yet is plainly
+# a Google Ads job.
+_LANE_RE = re.compile(
+    r"(?<!\w)(?:google|adwords|ppc|sem|seo|aeo|geo|shopping|pmax|"
+    r"performance\s+max|merchant\s+center|shopify|woocommerce|wordpress|"
+    r"opencart|magento|ecommerce|e-commerce)(?!\w)",
+    re.I,
+)
 
 _STOP_RE_CACHE: dict[str, "re.Pattern"] = {}
 
@@ -786,39 +791,33 @@ def _row_passes(row: dict, cfg: dict, now: "datetime | None" = None) -> "str | N
     # this. _apply_filter tags a relaxed row "focus:unverified" / "focus:lowbudget"
     # (see _focus_floor_failures) so it's visibly marked in the feed, same
     # pattern as test_week's test:* tags.
-    focus_relax = (focus_filter.focus_test_active(cfg, now)
-                   and focus_filter.classify_focus(row.get("title"), row.get("description_full"), row.get("keywords"))[0])
+    #
+    # 2026-11-24 (owner: "I don't want any jobs to be dropped from this perspective"):
+    # the relaxation no longer depends on the job carrying a focus keep-signal. While the
+    # focus filter is active the three soft floors NEVER drop anything. A job the
+    # classifier calls off-lane is still removed from the feed, but by the focus filter's
+    # post-insertion step: it is inserted, hidden and recorded as "focus:<category>", so
+    # it sits in the Hidden tab and can be rescued with /unhide -- a floor drop was only a
+    # line in feed_drops, with no way back. (Before this, "Digital Marketing Ads Management",
+    # unverified payment, was lost to the payment floor because its description named Meta.)
+    focus_relax = focus_filter.focus_test_active(cfg, now)
 
     # Stop words match the TITLE ONLY, on whole words (2026-10-15).
     # Matching the whole blob meant one passing mention killed a job that was
     # squarely in the lane: "facebook" alone dropped 28 postings in a single
     # fetch, nearly all Google Ads roles that happen to say the client also
-    # runs Meta.
-    #
-    # Task 10.3 (owner, 2026-11-24): the old lane-rescue (_LANE_RE: "google",
-    # "ppc", "sem", "seo", "shopify", ... — ANY of those saved a stop word) let
-    # "Amazon PPC Campaign Audit & Performance Optimization" (#25711-#25713)
-    # leak past the "amazon" stop word purely because "PPC" is generic enough
-    # to appear on an Amazon-only job with zero Google content. Owner's rule:
-    # stop words are absolute, no exceptions, including a rescue that isn't
-    # actually about Google.
-    #
-    # NARROWED, not removed (measured before shipping, not assumed): a full,
-    # unconditional removal was tried first and checked against the last 14
-    # days of captured titles — it also would have dropped 98 genuinely mixed
-    # Google+other-platform postings ("Google & Meta Ads Specialist", "PPC
-    # Expert for Google and Microsoft Ads", "Facebook and Google Ads Specialist
-    # for Gutter Cleaning"), on top of the 129 real off-lane leaks (Amazon-only,
-    # SEO content-writer gigs, etc.) — far beyond the 3-job symptom reported,
-    # and squarely the volume the 2026-10-15 decision was protecting (5 real
-    # applied-to jobs, 2 replies). So the rescue now requires the title to
-    # LITERALLY say "Google" or "AdWords" — not just a generic lane word like
-    # "ppc"/"seo"/"shopify" that says nothing about which platform. This closes
-    # the Amazon leak (no "google" in that title) while keeping every
-    # genuinely Google-mixed posting. Full before/after counts in the
-    # 2026-11-24 report.
+    # runs Meta. Measured against the real corpus, the old behaviour blocked 5
+    # jobs Artem applied to anyway since 2026-08-01 (3 on "bing", 1 "hubspot",
+    # 1 "editor") — two of which got replies. A job genuinely ABOUT the wrong
+    # platform says so in its title, so the title is the honest signal.
     hit = _stop_word_hit(title, cfg.get("stop_words") or [])
-    if hit and not _GOOGLE_MENTION_RE.search(title):
+    if hit and not _LANE_RE.search(title):
+        # A stop word in the title only disqualifies a job when the title
+        # offers nothing from Artem's own lane. "Meta Ads Specialist for a
+        # Bali Villa" is off-lane and goes; "Google & Meta Ads Specialist"
+        # names the work he does and stays. Without this, adding the platform
+        # terms below would throw away every mixed Google+Meta posting, of
+        # which a single live fetch held three.
         return f"stopword:{hit}"
 
     if cfg.get("require_keyword_in_text"):

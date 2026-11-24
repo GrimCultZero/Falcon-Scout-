@@ -42,7 +42,7 @@ def row(uid, title, desc="Please see the details below.", hours_ago=3, **kw):
 rows = [
     row("~in", "Google Ads Specialist"),                                              # passes, stored
     row("~new", "SEO Backlink Specialist"),                                           # passes, never stored
-    row("~miss1", "Marketing Specialist for Instagram and Google Campaigns Expert"),  # google near campaigns: passes via the proximity rule (and via Task 10.3's narrowed "google" rescue, since the title literally says Google)
+    row("~miss1", "Marketing Specialist for Instagram and Google Campaigns Expert"),  # google near campaigns: passes via the proximity rule
     row("~miss2", "Paid Ads Specialist Needed for Two Upcoming Campaigns"),           # no Google in the title: a known gap
     row("~miss3", "Semrush report for a few companies", "Need a report."),            # 'sem' is not a whole word here
     row("~lane", "SEM specialist wanted", "Need a person."),                          # no feed keyword, SEM is a lane word -> suspect
@@ -54,7 +54,7 @@ rows = [
 rep = fc.analyse(rows, CFG, {"~in"})
 ids = lambda items: {i["upwork_job_id"] for i in items}
 check(ids(rep["in_feed"]) == {"~in"}, "a passing posting that is stored is 'in feed' (and only that one)")
-check({"~new", "~miss1"} <= ids(rep["passes_not_stored"]), "'Instagram and Google Campaigns' passes (Google is named, Task 10.3's narrowed rescue) but was never stored")
+check({"~new", "~miss1"} <= ids(rep["passes_not_stored"]), "'Instagram and Google Campaigns' now passes (proximity) but was never stored")
 check({"~miss2", "~miss3"} <= ids(sum(rep["dropped_words"].values(), [])) and not ({"~miss2", "~miss3"} & ids(rep["suspect_misses"])), "known limits, not suspects: no Google in the title ('Paid Ads Specialist'), 'Semrush' is not the word SEM")
 check("~new" in ids(rep["passes_not_stored"]), "a passing posting the feed never stored is 'passes, not stored'")
 check(set(rep["dropped_floors"]) == {"hourly<25", "posted>72h"} and ids(rep["dropped_floors"]["hourly<25"]) == {"~low"}, "rate and age drops are the floors, not words")

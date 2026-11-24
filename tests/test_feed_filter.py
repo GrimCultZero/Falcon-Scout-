@@ -18,16 +18,11 @@ Three behaviours are pinned here:
    "PlumBING", which is the real reason "Google Ads Expert for Plumbing
    Campaign" was filtered as a Bing job. Artem applied to it anyway.
 
-3. Task 10.3 (owner, 2026-11-24): stop words are now ABSOLUTE — a stop word in
-   the title drops the row no matter what else the title says. Until this task
-   a "lane rescue" kept a title that ALSO mentioned google/ppc/seo/shopify/etc.
-   alongside a stop word (meant for "Google & Meta Ads Specialist"-style mixed
-   postings), but it was never scoped to platform words specifically, so
-   "Amazon PPC Campaign Audit & Performance Optimization" leaked past the
-   "amazon" stop word purely because its title also says "PPC". The rescue is
-   removed entirely, per the owner's explicit "nothing may override a stop
-   word" rule — this also means a genuinely mixed Google+Meta title is dropped
-   now (a real, disclosed behavior change — see the 2026-11-24 report).
+3. A stop word in the title only disqualifies a title that offers nothing from
+   Artem's lane. Moving to title-only let Meta-only jobs through, so
+   "meta ads"/"instagram"/"social media" went into the stop list — and without
+   this rescue those would bin every mixed Google+Meta posting, of which one
+   live fetch held three.
 
 Run: .venv\\Scripts\\python tests\\test_feed_filter.py
 """
@@ -88,49 +83,28 @@ assert_(not dropped("Google Ads Specialist for Home Services",
 assert_(dropped("Facebook Ads Manager for DTC Brand"),
         "a stop word in the TITLE still drops the job")
 
-# ── 3. stop words are absolute UNLESS the title literally names Google/AdWords
-# (Task 10.3, owner 2026-11-24, narrowed after measuring the blast radius —
-# see the comment in _row_passes) ────────────────────────────────────────────
+# ── 3. the lane rescue ───────────────────────────────────────────────────────
 for t in ("Meta Ads Specialist for Boutique Bali Villa Developer",
           "Experienced Meta Ads Lead Generation Specialist",
           "Senior Social Media & Performance Marketing Manager | Jewelry",
           "LinkedIn Outreach Coordinator",
           "Bookkeeper (full-time, remote)"):
-    assert_(dropped(t), f"off-lane, no Google mention: {t[:52]}")
+    assert_(dropped(t), f"off-lane: {t[:52]}")
 
-# These genuinely say "Google" alongside the other platform -- still rescued,
-# same as before Task 10.3 (this is the volume the 2026-10-15 decision was
-# protecting: measured at 98 titles in the last 14 days, see the report).
+# None of these contain "google ads" as a contiguous phrase, which is why the
+# rescue tests a looser set of lane words than the feed keywords do.
 for t in ("Google & Meta Ads Specialist for Local Music Academy",
-          "Google & Facebook Ads Specialist for Boutique Agency",
-          "Social Media & Marketing Manager (Meta + Google Ads, FR/EN)",
-          "Expert Google Ads & Meta Ads Audit"):
-    assert_(not dropped(t), f"Google is explicitly named -> still rescued: {t[:52]}")
+          "Expert Healthcare Ad Campaign Manager - Google, Meta & ChatGPT Ads",
+          "Social Media & Marketing Manager (Meta + Google Ads, FR/EN)"):
+    assert_(not dropped(t), f"mixed Google+Meta survives: {t[:46]}")
 
-# This is the exact reported symptom: "PPC" alone (no "google" anywhere in the
-# title) used to rescue an Amazon-only job under the old, generic _LANE_RE.
-# The narrowed rescue requires "google"/"adwords" specifically, so this is now
-# correctly dropped.
-for t in ("Amazon PPC Campaign Audit & Performance Optimization",
-          "Experienced Amazon PPC Specialist Needed for Campaign Management & Optimization",
-          "Amazon Brand Strategist / Account Manager for 9-Figure DTC Ecommerce Brand",
-          "SEO Content Writer for Manual Rewriting"):
-    assert_(dropped(t), f"Task 10.3: no Google mention -> the stop word is absolute: {t[:52]}")
-assert_((upwork_api._row_passes({"title": "Amazon PPC Campaign Audit & Performance Optimization",
-                                 "description_full": "google ads seo audit", "payment_verified": True}, CFG)
-         == "stopword:amazon"),
-        "Task 10.3: the exact symptom title is dropped with reason stopword:amazon")
-
-# These still contain "google" in the title, so they're unaffected either way
-# (same behavior before and after Task 10.3):
+# ── the five jobs the old rule blocked and Artem sent anyway (2 replied) ─────
 for t in ("Google Ads Expert for Plumbing Campaign",
           "Google Ads, SEO & Website Specialist to Manage and Grow Our Plumbing Business",
           "Google Ads, GA4, GTM, HubSpot & CallRail Attribution Audit",
-          "Google Ads Specialist for Home Services"):
-    assert_(not dropped(t), f"'google' named in the title, survives either way: {t[:46]}")
-# No stop word at all -- never affected by any version of the rescue:
-assert_(not dropped("International Technical SEO Architect for Multi-Market iGaming"),
-        "no stop word present, survives regardless")
+          "Google Ads Specialist for Home Services",
+          "International Technical SEO Architect for Multi-Market iGaming"):
+    assert_(not dropped(t), f"applied-to job survives: {t[:46]}")
 
 # ── the keyword restoration the bot's shutdown forced ────────────────────────
 # Recovered from the 226 bot postings still on disk: the terms
@@ -200,8 +174,6 @@ for t in ("Google and Instagram Ads Expert",
           "Usercentrics + GTM + Google Consent Mode v2"):
     assert_(passes(t), f"ACCEPTANCE: passes the filter: {t}")
     assert_(not passes(t, cfg=OLD_CFG), f"…and was dropped by the old rules (this is the leak): {t}")
-# "Google and Instagram Ads Expert" survives Task 10.3 too (narrowed rescue, owner
-# 2026-11-24): "instagram" is a stop word, but "google" is literally in the title.
 
 assert_(all(k in CFG["keywords"] for k in NEW_KW), "all 17 new keywords are in the live feed_config.json")
 assert_(all(k in upwork_api.DEFAULT_FEED_CONFIG["keywords"] for k in NEW_KW), "…and in the defaults, so a reset config is not weaker")
@@ -392,11 +364,18 @@ assert_(focus_verdict(focus_row(fixed_budget="$20")) is None,
 # hourly under the floor + Google Ads -> admitted
 assert_(focus_verdict(focus_row(hourly_rate_max=10)) is None,
         "0c.2: hourly $10 + Google Ads title is ADMITTED during the focus test")
-# either + web dev title -> still dropped (classify_focus keep=False for a pure web-dev title)
-assert_(focus_verdict(focus_row(title="Shopify Developer Needed", desc="Build our store.", payment_verified=False)) == "unverified-payment",
-        "0c.2: unverified + a pure web-dev title (no focus signal) is STILL dropped")
-assert_(focus_verdict(focus_row(title="Shopify Developer Needed", desc="Build our store.", fixed_budget="$20")) == "fixed<100",
-        "0c.2: low fixed + a pure web-dev title (no focus signal) is STILL dropped")
+# 2026-11-24 (owner: "I don't want any jobs to be dropped from this perspective"): while the focus
+# filter is active the soft floors drop NOTHING, off-lane or not. An off-lane job passes this filter and
+# is then hidden (rescuable) by the focus filter's post-insertion step in api/main.py, not discarded.
+assert_(focus_verdict(focus_row(title="Shopify Developer Needed", desc="Build our store.", payment_verified=False)) is None,
+        "focus: unverified + a pure web-dev title is NOT dropped by the payment floor (the focus filter hides it, rescuably)")
+assert_(focus_verdict(focus_row(title="Shopify Developer Needed", desc="Build our store.", fixed_budget="$20")) is None,
+        "focus: low fixed + a pure web-dev title is NOT dropped by the fixed floor")
+assert_(focus_verdict(focus_row(title="Digital Marketing Ads Management", desc="We manage Google, Facebook and Instagram ads.", payment_verified=False)) is None,
+        "focus: the 2026-11-24 example (Meta in the description, unverified payment) is no longer lost to the payment floor")
+# ...and with the focus filter OFF the floors drop exactly as before
+assert_(focus_verdict(focus_row(payment_verified=False), cfg={**FOCUS_CFG, "focus_test": None}) == "unverified-payment",
+        "focus filter off: the unverified-payment floor drops as before")
 # verified, high-budget job: unchanged (passes either way)
 assert_(focus_verdict(focus_row()) is None, "0c.2: a verified, well-budgeted on-lane job is unaffected")
 # India still excluded even with a focus signal
@@ -437,7 +416,7 @@ kept, _ = upwork_api._apply_filter({"~f": focus_row()}, FOCUS_CFG_NOW, 1)
 assert_(len(kept) == 1 and kept[0]["feed_tag"] is None, "0c.2: a verified, well-budgeted row carries no focus tag")
 
 kept, _ = upwork_api._apply_filter({"~g": focus_row(title="Shopify Developer Needed", desc="Build our store.", payment_verified=False)}, FOCUS_CFG_NOW, 1)
-assert_(kept == [], "0c.2: a pure web-dev title with no focus signal is still dropped by _apply_filter, not admitted")
+assert_(len(kept) == 1 and kept[0]["feed_tag"] == "focus:unverified", f"focus: a pure web-dev title is kept by _apply_filter and tagged focus:unverified (the focus filter hides it after insertion): got {kept[0]['feed_tag'] if kept else None!r}")
 
 kept, _ = upwork_api._apply_filter({"~h": focus_row(payment_verified=False)}, {**FOCUS_CFG_NOW, "focus_test": None}, 1)
 assert_(kept == [], "0c.2: with focus_test off, the same unverified row is dropped as before (no manual step needed)")

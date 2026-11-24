@@ -399,6 +399,18 @@ check(ff.focus_test_active(CFG, utc(2026, 12, 3, 21)), "Dec 3, 23:00 Kyiv: still
 check(not ff.focus_test_active(CFG, utc(2026, 12, 3, 22)), "Dec 4, 00:00 Kyiv: OVER -- expires on its own, no manual step")
 check(not ff.focus_test_active({}, utc(2026, 11, 25)) and not ff.focus_test_active({"focus_test": None}, utc(2026, 11, 25)), "no block: never active")
 check(not ff.focus_test_active({"focus_test": {"until": "not-a-date"}}, utc(2026, 11, 25)), "a malformed date never activates the filter")
+# 2026-11-24, owner: the focus filter has NO end date. A block without "until" never expires.
+OPEN = {"focus_test": {"from": "2026-11-19"}}
+check(not ff.focus_test_active(OPEN, utc(2026, 11, 18, 21)), "open-ended: not yet before its start date")
+check(ff.focus_test_active(OPEN, utc(2026, 11, 25)), "open-ended: active inside the old window")
+check(ff.focus_test_active(OPEN, utc(2026, 12, 4)), "open-ended: STILL active after the old 2026-12-03 end date")
+check(ff.focus_test_active(OPEN, utc(2027, 6, 1)), "open-ended: still active months later (no expiry)")
+check(ff.focus_test_active({"focus_test": {}}, utc(2026, 11, 25)), "an empty block (no from, no until) is active")
+check(not ff.focus_test_active({"focus_test": {"from": "oops"}}, utc(2026, 11, 25)), "a malformed start date never activates the filter")
+import json as _json
+_live = _json.loads((ROOT / "feed_config.json").read_text(encoding="utf-8"))
+check("until" not in (_live.get("focus_test") or {}), "the LIVE feed_config.json focus_test block has no 'until' (owner: no end date)")
+check(ff.focus_test_active(_live, utc(2030, 1, 1)), "the LIVE config keeps the focus filter on years from now")
 
 # ── Task 8.2 (owner, 2026-11-23): "Google Ad Grants"/"AdGrants"/"Ad Grants" ──
 keep, cat = ff.classify_focus("Google AdGrants Account Troubleshooting", "Fix issues in our Google Ad Grants account.", None)

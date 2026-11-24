@@ -9,7 +9,7 @@ export function focusTestChipState(status) {
   return {
     label: `Hidden by focus: ${count}`,
     title: count > 0
-      ? `SEO/GEO/Google Ads focus test is active (expires automatically). It has hidden ${count} off-lane job${count === 1 ? '' : 's'} so far — click to review and rescue any of them.`
-      : 'SEO/GEO/Google Ads focus test is active (expires automatically). It has not hidden anything yet.',
+      ? `SEO/GEO/Google Ads focus filter is on. It has hidden ${count} off-lane job${count === 1 ? '' : 's'} so far — click to review and rescue any of them.`
+      : 'SEO/GEO/Google Ads focus filter is on. It has not hidden anything yet.',
   }
 }

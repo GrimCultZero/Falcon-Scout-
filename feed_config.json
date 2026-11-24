@@ -158,11 +158,10 @@
   "auto_enrich_max_age_hours": 72,
   "focus_test": {
     "from": "2026-11-19",
-    "until": "2026-12-03",
-    "note": "SEO/GEO/Google Ads focus test (owner, 2026-11-19). Expires automatically after 'until' (Europe/Kyiv, inclusive) -- no manual step needed. See api/focus_filter.py."
+    "note": "SEO/GEO/Google Ads focus filter (owner, 2026-11-19). PERMANENT since 2026-11-24: no 'until' key, so it never expires (owner: 'without end date'). To change or end it, the owner asks; do not add an 'until' on your own. See api/focus_filter.py."
   },
   "focus_test_paused_keywords": {
-    "note": "Removed from \"keywords\" for the duration of the focus test (Task 0b.4, owner 2026-11-21) -- these are web-dev/ecommerce-platform terms, not SEO/GEO/Google Ads, and were pulling in web-dev postings at the FETCH stage that only the post-capture focus filter then had to hide. Restore to \"keywords\" on 2026-12-03 evening, after focus_test ends. See WORKLOG.md.",
+    "note": "Removed from \"keywords\" when the focus filter started (Task 0b.4, owner 2026-11-21) -- these are web-dev/ecommerce-platform terms, not SEO/GEO/Google Ads, and were pulling in web-dev postings at the FETCH stage that only the post-capture focus filter then had to hide. Since 2026-11-24 the focus filter has no end date, so these STAY paused until the owner says to restore them (the old 2026-12-03 restore date is cancelled). See WORKLOG.md.",
     "keywords": [
       "shopify developer",
       "shopify store",

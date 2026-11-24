@@ -46,20 +46,6 @@ WIDER_TERMS = [
 
 _POLICY = ("hourly<", "fixed<", "unverified-payment", "posted>", "country:")
 
-# Single words that mean a title is offering work Artem actually does. Used only to
-# flag a "suspect miss" (a dropped title worth a human look) -- this tool's own,
-# read-only heuristic. Was shared with api/upwork_api.py's stop-word rescue, which
-# Task 10.3 (owner, 2026-11-24) removed because stop words must now be absolute;
-# this tool's use is unrelated to that live filter decision, so the pattern moved
-# here, independent, rather than disappearing with it.
-import re
-_LANE_RE = re.compile(
-    r"(?<!\w)(?:google|adwords|ppc|sem|seo|aeo|geo|shopping|pmax|"
-    r"performance\s+max|merchant\s+center|shopify|woocommerce|wordpress|"
-    r"opencart|magento|ecommerce|e-commerce)(?!\w)",
-    re.I,
-)
-
 
 def _posted(row):
     return upwork_api._posted_dt(row)
@@ -101,7 +87,7 @@ def looks_in_lane(row):
     """A TITLE with a lane word, or Google within 6 words of ads/campaigns/search/...
     Deliberately loose: this finds candidates for a human to look at."""
     title = (row.get("title") or "").lower()
-    return bool(_LANE_RE.search(title) or upwork_api._google_near_ads(title))
+    return bool(upwork_api._LANE_RE.search(title) or upwork_api._google_near_ads(title))
 
 
 def analyse(rows, cfg, stored_ids):
