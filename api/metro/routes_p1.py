@@ -15,6 +15,7 @@ from . import campaigns as camp
 from . import candidates as cand
 from . import leads as leadsmod
 from . import persona as pe
+from . import removal
 from .db import MetroCampaign, MetroImport, MetroLead, MetroSetting, get_engine, utcnow
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -41,6 +42,11 @@ class CampaignPatch(BaseModel):
     brief: dict | None = None
     launch_kit: dict | None = None
     status: str | None = None
+
+
+class RemoveLeadsIn(BaseModel):
+    lead_ids: list[int]
+    dry_run: bool = False
 
 
 class CheckIn(BaseModel):
@@ -101,6 +107,32 @@ def campaigns_patch(cid: int, body: CampaignPatch):
         except ValueError as e:
             raise _bad(e)
         return camp.to_dict(s, c)
+
+
+@p1.get("/campaigns/{cid}/delete-preview")
+def campaigns_delete_preview(cid: int):
+    """What deleting this campaign would remove (the confirm pop-up shows these counts)."""
+    with Session(get_engine()) as s:
+        c = _campaign(s, cid)
+        return {**removal.campaign_counts(s, c), "deletable": c.status == "draft"}
+
+
+@p1.delete("/campaigns/{cid}")
+def campaigns_delete(cid: int):
+    """Delete a DRAFT campaign with its leads and import records. Metro's own tables only."""
+    with Session(get_engine()) as s:
+        c = _campaign(s, cid)
+        try:
+            return removal.delete_draft(s, c)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+
+
+@p1.post("/campaigns/{cid}/leads/remove")
+def campaigns_remove_leads(cid: int, body: RemoveLeadsIn):
+    """Remove ticked leads from the campaign (leads with a sent message or a reply are kept)."""
+    with Session(get_engine()) as s:
+        return removal.remove_leads(s, _campaign(s, cid), body.lead_ids, dry_run=body.dry_run)
 
 
 @p1.post("/campaigns/{cid}/start")
