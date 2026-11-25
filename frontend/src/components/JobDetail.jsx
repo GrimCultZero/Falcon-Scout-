@@ -18,6 +18,7 @@ import { screeningFromJob, screeningPromptBlock, missingFactsNote, screeningCove
 import { findAutoBomb } from '../lib/digitBombMatch'
 import { SONNET_MODEL, HAIKU_MODEL } from '../lib/models'
 import { paymentFlag, paymentRisk, competitionFlags, applyClientRiskGuards, cleanKeyPoints, highRiskCountriesLabel } from '../lib/clientRisk'
+import { applyLiveSessionGuard } from '../lib/liveSession'
 import { ladderView, agoText, previewCheck, PREVIEW_CHARS, PREVIEW_MIN_SPECIFIC } from '../lib/bidSignals'
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -5567,6 +5568,13 @@ Use APPLY, MAYBE, or SKIP for verdict. Score is 0-10.
         const { parsed: _twParsed, events: _twEvents } = testWeekGuard(parsed, _twAudit, { realDisq: _twReal, until: _twUntil })
         parsed = _twParsed
         if (_twEvents.length) _recordViolations('analyser', job?.id, _twEvents)
+      }
+      // Live-session requirement (owner, 2026-11-25, lib/liveSession.js): never above the yellow zone (MAYBE, <= 6).
+      // Runs LAST so neither the PPC-audit override nor the test-week guard can lift the score back to APPLY 7.
+      {
+        const _lsg = applyLiveSessionGuard(parsed, job)
+        parsed = _lsg.parsed
+        if (_lsg.events.length) _recordViolations('analyser', job?.id, _lsg.events)
       }
       if (_isStaleAnalyse()) {
         // The user navigated to a different job while this analysis was in

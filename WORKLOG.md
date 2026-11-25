@@ -11311,3 +11311,15 @@ session on Telegram's side.
 3. **Progress dock in a real browser** (scratch backend on :8002 with a copy of the live DB and stubbed fetchers): "Enriching: CROSS Digital Marketing Agency, 2 of 20 - finding the website", filling bar, ETA, Stop; a page reload kept showing the running run; Stop ended it with "Enriched 4 of 20 (stopped) - 0 domains found, 4 not found". The table showed "no domain - tried: name-pattern x4, ai: no answer (...), linkedin: queued the profile (Metro week only)", the "just enriched" badge and Retry domain; "Enrich all" showed its confirm; the Linked Helper export dialog said "the shortlisted ones among the 495 rows shown".
 4. Suites: `node tests/run_all.mjs --python`: 70 JS suites, 0 failing; 45 Python suites, 0 failing.
 - **Not verified:** the extension's new `current_company_url` on a real LinkedIn profile (needs Oleh's Chrome in a Metro week); the AI web-search step against the real bridge (weekly limit); PageSpeed and browser readings in the live copy run (switched off on purpose).
+
+## 2026-11-25 - live-session requirement can no longer score in the green zone
+- Owner snapshot, job 26103 (Aavalabs, Finland, PPC consultancy): the posting wants "run training sessions" and a
+  "30-minute call" with the CEO. The analyser's own summary said "fit-based SKIP", then the PPC-audit override (JobDetail,
+  `_isPpcAuditJob`) rewrote the verdict to APPLY and lifted the score to 7. Owner: a live-session requirement must stay in the yellow zone.
+- New `frontend/src/lib/liveSession.js` (pure): detects a live session from the posting (training/coaching sessions, "N-minute
+  call", Zoom/Teams/video call, screen-share, "present ... on a call", weekly call/meeting) or from the analyser's own Rule 2 flag,
+  and caps at MAYBE, score <= 6, with a flag quoting the phrase. It never raises a score and leaves a lower verdict (SKIP) alone.
+  Runs LAST in the analyse path, after the audit override and the test-week guard, so nothing lifts it back to APPLY.
+  Scan of the last 800 jobs: 42 (5%) match, mostly "video call(s)", "weekly call", "Zoom call", "screen share". `tests/live-session.test.js`.
+- Not changed: the prompt text still says a live walkthrough is a hard SKIP 2-4 for the model's own scoring; the code only
+  guarantees it is never green. Owner may want the prompt reworded to say yellow.
