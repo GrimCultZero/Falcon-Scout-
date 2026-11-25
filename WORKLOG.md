@@ -11335,3 +11335,20 @@ apply writes; the progress dock's result line carries them. Decisions: strict "c
 name matches current_company; sole open position only when current_company is empty); `emailable()` is false for a personal
 address; free-mail list is one place (`csvimport.FREE_MAIL`). Details in DESIGN.md section 25 "How F3 built it". Tests:
 tests/metro/test_metro_fix3.py (comma and semicolon exports). METRO_PLAN hard rule widened for the generic /claude pass-through.
+
+## 2026-11-25 - Metro F4: progress in the header, buttons that answer, one import (branch metro/fix-4)
+Oleh's evening run after F3 (see METRO_TASK.md): "Score fit" looked dead, the Enrich click left no trace, the import dialogs showed
+JSON and did not close, a download overwrote his file, "Enrich next 20" spent its slots on companies with no domain.
+Built (details in DESIGN.md section 25 "How F4 built it"): a header activity strip on both sides of the switch fed by the backend's
+progress runs (one shared store, polls only while something runs, tab title "(Enriching 7/20) Metro", Stop, results stay until
+dismissed); every Metro button shows busy + a notice that stays, and a refused request always says why (api.js); acid blue #00E5FF
+primary / active, 1.5 px press in 120 ms, nothing animated under reduced motion; ONE import with no preview that stops only for a
+file that looks wrong (plain-words summary, Close closes); unique download names; "Enrich next N" = companies with a domain first and
+the label says how many of each; personal emails are sending addresses only when there is no business one; the current company's
+LinkedIn page from Linked Helper exports; the free domain check as a progress run (and after an import).
+Found in the real browser (scratch backend on a COPY of the live DB, fetchers and model stubbed): an inline `subscribe` function kept
+resetting the poll timer (strip frozen at 0/20), and a button stayed busy for ever because StrictMode un-mounted the "alive" flag. Both
+fixed and pinned by tests. The first click that left no trace could not be reproduced; the three silent paths are now loud.
+Not done: the company-page backfill found no stored rows (re-import the Data Enrichment file once); nothing run in Oleh's Chrome.
+Tests: node tests/run_all.mjs --python: 72 JS suites, 47 Python suites, 0 failing (new: tests/metro/activity-strip.test.js,
+tests/metro/test_metro_fix4.py; updated: fix1-ui, metro-ui, progress-dock, side-switch, test_metro_fix3).

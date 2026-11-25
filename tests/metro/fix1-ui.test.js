@@ -40,18 +40,18 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
     '5: one resolver: ticked ids, else every id the filters show (asked from the backend)')
   assert(!/ticked\.size \? \[\.\.\.ticked\] : null/.test(leads),
     '5: Enrich no longer sends "no ids" (= the whole campaign) when nothing is ticked')
-  assert(/const ids = await targetIds\(\)/.test(leads) && /await runEnrich\(ids\)/.test(leads) && /if \(!ids\.length\) \{ setNote\('Nothing to enrich in this view'\); return \}/.test(leads),
+  assert(/const ids = await targetIds\(\)/.test(leads) && /return runEnrich\(ids\)/.test(leads) && /if \(!ids\.length\) return \{ kind: 'warn', text: 'Nothing to enrich in this view/.test(leads),
     '5: Enrich runs on the resolved ids, and on nothing when the view is empty')
   assert(/targetIds=\{targetIds\}/.test(leads) && !/json: \{\} \}/.test(enrich) && (enrich.match(/lead_ids: ids/g) || []).length >= 3,
     '5: Score, queue-deep and hooks go through the same resolved ids')
   assert(/shortlist_only: !ticked/.test(enrich), '5: hooks on rows merely shown are limited to the shortlisted; ticked rows are the person\'s own choice')
   assert(/json: \{ lead_ids: ids \} \}\)\s*\n\s*setNote\(`Rescored/.test(leads) || /rescore`, \{ method: 'POST', json: \{ lead_ids: ids \}/.test(leads), '5: Rescore is scoped too')
-  assert(/if \(!ids\.length\) \{ setNote\('No leads shown, nothing to do'\); return \}/.test(enrich), '5: an empty view runs nothing, with a note')
+  assert(/if \(!ids\.length\) return \{ kind: 'warn', text: 'No leads shown, so there is nothing to do/.test(enrich), '5: an empty view runs nothing, with a warning notice')
 
   // 6
-  assert(/enrichNext\(20\)/.test(leads) && /enrichNext\(50\)/.test(leads) && /Enrich next \$\{Math\.min\(20, remaining\)\}/.test(leads) && /Enrich next \$\{Math\.min\(50, remaining\)\}/.test(leads), '6: "Enrich next 20" and "Enrich next 50" buttons (F2: next 20 is the primary one)')
-  assert(/p\.set\('status', 'new'\); p\.set\('enriched', 'no'\); p\.set\('keep_first', 'true'\); p\.set\('sort', f\.sort\); p\.set\('limit', n\)/.test(leads),
-    '6: the batch is the best of the current filter and sort, usable, not enriched yet, persona keep first')
+  assert(/enrichNext\(20\)/.test(leads) && /enrichNext\(50\)/.test(leads) && /nextLabel\(20\)/.test(leads) && /nextLabel\(50\)/.test(leads) && /Enrich next \$\{pl\.companies\}/.test(leads), '6: "Enrich next 20" and "Enrich next 50" buttons (F2: next 20 is the primary one)')
+  assert(/enrich-next\?\$\{p\}/.test(leads) && /p\.set\('take', n\)/.test(leads) && /p\.set\('sort', f\.sort\)/.test(leads),
+    '6: the batch is asked from the backend: the next N companies of the current filter and sort (F4: companies with a domain first)')
   assert(/not enriched yet in this view/.test(leads) && /data-testid="enrich-remaining"/.test(leads), '6: it shows how many remain')
   assert(/wasRunning\.current && !running\) onChanged\?\.\(\)/.test(enrich), '6: the counts are read again when a run ends')
 

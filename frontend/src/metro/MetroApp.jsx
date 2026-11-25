@@ -1,6 +1,6 @@
 // Metro: the outbound side of Falcon Scout. The header (wagon mark, side switch, tabs, status chips)
 // and five tabs: Campaigns, Leads and Settings work from Phase 1, Senders (LinkedIn accounts) from Phase 2; CRM arrives later.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import '@fontsource/manrope/400.css'
 import '@fontsource/manrope/600.css'
 import '@fontsource/manrope/700.css'
@@ -12,6 +12,9 @@ import SettingsTab from './components/SettingsTab.jsx'
 import SendersTab from './components/SendersTab.jsx'
 import WeekSwitch from './components/WeekSwitch.jsx'
 import ProgressDock from './components/ProgressDock.jsx'
+import NoticeHost from './components/NoticeHost.jsx'
+import './metro.css'
+import { takePending } from './lib/nav.js'
 import { METRO } from './theme.js'
 import { METRO_TABS, readMetroTab, writeMetroTab } from './lib/side.js'
 
@@ -23,7 +26,7 @@ const COMING = {
 }
 const CAMPAIGN_KEY = 'falconscout.metro.campaign'
 
-export default function MetroApp({ side, onSideChange }) {
+export default function MetroApp({ side, onSideChange, activityStrip = null }) {
   const [tab, setTab] = useState(() => readMetroTab(store))
   const [health, setHealth] = useState(null)
   const [week, setWeek] = useState(null)
@@ -49,6 +52,17 @@ export default function MetroApp({ side, onSideChange }) {
   const pick = (key) => { setTab(key); writeMetroTab(store, key); setSeen((x) => new Set(x).add(key)) }
   const chooseCampaign = (id) => { setCampaignId(id); try { store?.setItem(CAMPAIGN_KEY, id ? String(id) : '') } catch { /* not remembered */ } }
   const openLeads = (id) => { chooseCampaign(id); pick('leads') }
+  const openBrief = (id) => { chooseCampaign(id); pick('campaigns') }
+  // F4: a click on the header strip (from either side of the switch) asks for a tab and campaign through lib/nav.js
+  const gotoRef = useRef(null)
+  gotoRef.current = (t) => { if (!t) return; if (t.campaignId) chooseCampaign(t.campaignId); pick(t.tab || 'leads') }
+  useEffect(() => {
+    const first = takePending()
+    if (first) gotoRef.current(first)
+    const h = (e) => { takePending(); gotoRef.current(e.detail) }
+    window.addEventListener('metro-goto', h)
+    return () => window.removeEventListener('metro-goto', h)
+  }, [])
   const campaignsChanged = () => setCampaignsRev((x) => x + 1)
   const createCampaign = () => { setWantNew(true); pick('campaigns') }
   const toggleLine = (k) => setLine((cur) => (cur === k ? null : k))
@@ -72,7 +86,7 @@ export default function MetroApp({ side, onSideChange }) {
           {METRO_TABS.map(({ key, label }) => {
             const on = tab === key
             return (
-              <button key={key} type="button" role="tab" aria-selected={on} data-metro-tab={key} onClick={() => pick(key)}
+              <button key={key} type="button" role="tab" aria-selected={on} data-metro-tab={key} onClick={() => pick(key)} className="mt-tab"
                 style={{ border: `1px solid ${on ? METRO.cyan : 'rgba(55,187,213,0.25)'}`, borderRadius: 8, padding: '6px 13px',
                   cursor: 'pointer', fontFamily: METRO.font, fontSize: 13, fontWeight: 700,
                   background: on ? 'rgba(55,187,213,0.18)' : 'transparent', color: on ? METRO.ice : 'rgba(234,246,249,0.7)' }}>
@@ -96,14 +110,16 @@ export default function MetroApp({ side, onSideChange }) {
           <Line color={METRO.nicheLine} label="Niche line" on={line === 'niche'} dim={line === 'agency'} onClick={() => toggleLine('niche')} />
         </div>
       </header>
+      {/* F4: what is running now, on every tab (the same strip sits under the Falcon Scout header) */}
+      <div data-testid="metro-strip-slot" style={{ flexShrink: 0 }}>{activityStrip}</div>
 
       <main style={{ flex: 1, overflow: 'auto', padding: 24 }}>
         {METRO_TABS.map(({ key, label }) => (
           <section key={key} data-metro-panel={key} hidden={tab !== key}>
-            {seen.has(key) && key === 'campaigns' && <CampaignsTab openCampaign={chooseCampaign} onOpenLeads={openLeads} line={line} onChanged={campaignsChanged}
+            {seen.has(key) && key === 'campaigns' && <CampaignsTab selected={campaignId} openCampaign={chooseCampaign} onOpenLeads={openLeads} line={line} onChanged={campaignsChanged}
               startNew={wantNew} onStartedNew={() => setWantNew(false)} />}
             {seen.has(key) && key === 'leads' && <LeadsTab campaignId={campaignId} onCampaign={chooseCampaign} line={line} active={tab === 'leads'} rev={campaignsRev}
-              onCreateCampaign={createCampaign} />}
+              onCreateCampaign={createCampaign} onOpenBrief={openBrief} />}
             {seen.has(key) && key === 'settings' && <SettingsTab />}
             {seen.has(key) && key === 'senders' && <SendersTab />}
             {COMING[key] && (
@@ -118,6 +134,7 @@ export default function MetroApp({ side, onSideChange }) {
         ))}
       </main>
       <ProgressDock />
+      <NoticeHost />
     </div>
   )
 }

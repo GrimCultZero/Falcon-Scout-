@@ -239,6 +239,7 @@ def extract_orgs(row: dict) -> list[dict]:
         end = (o.get("organization_end") or "").strip()
         out.append({"index": idx, "name": o.get("organization") or "", "end": end, "open": end.lower() in _OPEN_END,
                     "domain": o.get("organization_domain") or "", "website": o.get("organization_website") or "",
+                    "url": o.get("organization_url") or "",
                     "location": o.get("organization_location") or "", "description": o.get("organization_description") or "",
                     "extra": {k: v for k, v in o.items() if k not in ORG_FIELDS}})
     return out

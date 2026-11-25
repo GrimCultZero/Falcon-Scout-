@@ -3,7 +3,7 @@
 //   * the Leads tab follows DevScout's rule "what you see runs": no scope buttons, the action buttons
 //     carry the number they will process, the ticked rows win over the filtered ones;
 //   * Enrich / Write / Send are not live in Phase 1 (disabled), and nothing in Metro's UI sends;
-//   * the import dialog previews (dry run) before it imports, and the backend call is a dry run by default;
+//   * F4: one Import button, no preview; the backend stops only a file that looks wrong;
 //   * Settings lists Upwork-derived candidates for a one-by-one decision;
 //   * line helpers for the one-item-per-line fields.
 // Run: node tests/metro/metro-ui.test.js
@@ -36,9 +36,9 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
   assert(!/\/send|method: 'POST'.*send/i.test(leads), 'the Leads tab never calls a send route')
 
   const imp = read('components', 'ImportDialog.jsx')
-  assert(/send\(true\)/.test(imp) && /send\(false\)/.test(imp) && /disabled=\{!file \|\| busy \|\| !preview/.test(imp),
-    'the import dialog previews first; the real import needs a preview')
-  assert(/dry_run=\$\{dry\}/.test(imp), 'the dialog tells the backend whether it is a dry run')
+  assert(/send\(false\)/.test(imp) && !/dry_run/.test(imp) && !/Preview/.test(imp) && /import-file\?/.test(imp),
+    'F4: the import dialog has no preview step: one Import button for every CSV (the backend stops a file that looks wrong)')
+  assert(/res\.summary\.headline/.test(imp) && !/JSON\.stringify/.test(imp), 'F4: the result is said in words, never as JSON')
 
   const set = read('components', 'SettingsTab.jsx')
   assert(/Suppress<\/Btn>/.test(set) && /Not a client<\/Btn>/.test(set) && /candidates\/\$\{id\}\/decision/.test(set),

@@ -25,14 +25,16 @@ import json
 import re
 import socket
 import subprocess
+import threading
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
 from sqlalchemy.orm import Session
 
 from . import csvimport as ci
-from . import lhenrich
-from .db import MetroCompany, MetroLead, MetroSuppression, utcnow
+from . import lhenrich, progress
+from .db import MetroCompany, MetroLead, MetroSuppression, get_engine, utcnow
 from .suppression import normalize
 
 EXPORT_COLUMNS = ["profile_url", "first_name", "last_name", "company", "title", "metro_lead_id"]
@@ -42,9 +44,18 @@ STATUSES = ("unverified", "domain_ok", "verified", "invalid")
 
 
 def emailable(lead: MetroLead) -> bool:
-    """The single test for "may this person be emailed": a verified address, on a usable lead. A PERSONAL address
-    (Linked Helper's `email_type`, F3) is kept but is not a sending address: it is never used as if it were business."""
-    return bool(lead.email and lead.email_status == "verified" and lead.status == "new" and (lead.email_type or "") != "personal")
+    """The single test for "may this person be emailed": a verified address, on a usable lead.
+    F4 ("Personal emails", 25 Nov): a PERSONAL address (gmail etc.) counts like any other once it is verified, but it is the
+    sending address only because the lead has no business one: a business address always wins when one is found (it replaces
+    the personal one on import, see `import_results` and `leads._fill_existing`). The address stays marked personal."""
+    return bool(lead.email and lead.email_status == "verified" and lead.status == "new")
+
+
+def email_kind(lead: MetroLead) -> str | None:
+    """business | personal | None (no address). An address Linked Helper did not type counts as business."""
+    if not lead.email:
+        return None
+    return "personal" if (lead.email_type or "") == "personal" else "business"
 
 
 def exportable(lead: MetroLead, *, include_with_email: bool = False) -> bool:
@@ -149,15 +160,16 @@ def import_results(s: Session, raw: bytes, *, campaign_id: int | None = None, so
             else:
                 res["same_email"] += 1
             continue
-        if lead.email and lead.email_status == "verified":
-            res["kept_verified_email"] += 1             # a verified address is never replaced by a finder's guess
-            continue
         if lead.email and lead.email_type == "personal" and n["email_type"] == "business":
-            res["replaced_personal"] += 1               # F3: a business address replaces an unverified personal one
+            res["replaced_personal"] += 1               # F4: a business address always wins, even over a verified personal one
             if not dry_run:
+                lhenrich.stash_other_email(lead, lead.email)
                 lead.email, lead.email_source, lead.email_type = n["email"], source, "business"
                 lead.email_status, lead.email_verified = status, status == "verified"
                 lead.email_checked_at = utcnow() if status != "unverified" else None
+            continue
+        if lead.email and lead.email_status == "verified":
+            res["kept_verified_email"] += 1             # a verified address is never replaced by a finder's guess
             continue
         if lead.email and status != "verified":
             res["kept_existing_email"] += 1             # an unverified finder result does not replace an address we already hold
@@ -240,6 +252,102 @@ def check_emails(s: Session, leads: list[MetroLead], *, mx: MxLookup | None = No
             res["could_not_check"] += 1
     s.commit()
     return dict(res)
+
+
+class MxRun:
+    """One domain check at a time (the check is one DNS look-up per distinct domain, a few seconds at worst each)."""
+    lock = threading.Lock()
+    running = False
+    stop_flag = threading.Event()
+
+
+def start_mx_check(campaign_id: int, *, include_checked: bool = True, mx: MxLookup | None = None, background: bool = True,
+                   workers: int = 8) -> dict:
+    """F4 (item 10): the free "does this domain accept mail?" check over a campaign's addresses, as a progress run (a bar in the
+    header strip, Stop, one result line) instead of a request that sits silent. `domain_ok` says the DOMAIN has a mail server;
+    it says nothing about the mailbox, so it NEVER makes an address `verified`. A syntax error or a domain that does not exist
+    is `invalid`. `include_checked=False` leaves addresses already judged (domain_ok / invalid) alone: the automatic run after
+    an import uses it."""
+    with MxRun.lock:
+        if MxRun.running:
+            return {"started": False, "reason": "a domain check is already running"}
+        res = Counter()
+        targets: dict[str, list[int]] = {}
+        with Session(get_engine()) as s:
+            for l in s.query(MetroLead).filter(MetroLead.campaign_id == campaign_id, MetroLead.email.isnot(None)).all():
+                if l.email_status == "verified" or (not include_checked and l.email_status in ("domain_ok", "invalid")):
+                    continue
+                if not normalize("email", l.email):
+                    l.email_status, l.email_checked_at = "invalid", utcnow()
+                    res["invalid"] += 1
+                    continue
+                targets.setdefault(l.email.split("@")[-1].lower(), []).append(l.id)
+            s.commit()
+        if not targets:
+            return {"started": False, "reason": "no addresses to check" if not res else f"{res['invalid']} address(es) were not valid; nothing else to check",
+                    "invalid": res["invalid"]}
+        MxRun.stop_flag.clear()
+        MxRun.running = True
+        rid = progress.start("mx-check", "Checking email domains", total=len(targets), campaign_id=campaign_id,
+                             stop=MxRun.stop_flag.set)
+
+    lookup = mx or nslookup_mx
+
+    def work():
+        verdict: dict[str, bool | None] = {}
+        stopped = False
+        done = 0
+        try:
+            with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+                futs = {}
+                for dom in targets:
+                    futs[ex.submit(lambda d=dom: lookup(d))] = dom
+                for f in as_completed(futs):
+                    dom = futs[f]
+                    try:
+                        verdict[dom] = f.result()
+                    except Exception:
+                        verdict[dom] = None
+                    done += 1
+                    progress.update(rid, done=done, current=dom, step="DNS look-up")
+                    if MxRun.stop_flag.is_set():
+                        stopped = True
+                        for g in futs:
+                            g.cancel()
+                        break
+            with Session(get_engine()) as s:
+                for dom, ids in targets.items():
+                    v = verdict.get(dom)
+                    if dom not in verdict:
+                        continue
+                    for l in s.query(MetroLead).filter(MetroLead.id.in_(ids)).all():
+                        if l.email_status == "verified":
+                            continue
+                        if v is True:
+                            l.email_status, l.email_checked_at = "domain_ok", utcnow()
+                            res["domain_ok"] += 1
+                        elif v is False:
+                            l.email_status, l.email_checked_at = "invalid", utcnow()
+                            res["invalid"] += 1
+                        else:
+                            res["could_not_check"] += 1
+                s.commit()
+            n_ok = sum(1 for d, v in verdict.items() if v is True)
+            n_bad = sum(1 for d, v in verdict.items() if v is False)
+            n_unk = sum(1 for d, v in verdict.items() if v is None)
+            line = (f"Checked {len(verdict)} of {len(targets)} domains{' (stopped)' if stopped else ''}: {n_ok} accept mail, {n_bad} do not exist or take no mail"
+                    + (f", {n_unk} could not be checked" if n_unk else "") + f". Addresses: {res['domain_ok']} domain ok, {res['invalid']} invalid. Nothing is marked verified.")
+            progress.finish(rid, line, "stopped" if stopped else "done")
+        except Exception as e:
+            progress.finish(rid, f"Domain check failed: {type(e).__name__}: {str(e)[:120]}", "failed")
+        finally:
+            MxRun.running = False
+
+    if background:
+        threading.Thread(target=work, name="metro-mx-check", daemon=True).start()
+    else:
+        work()
+    return {"started": True, "total": len(targets), "progress_id": rid, "addresses": sum(len(v) for v in targets.values())}
 
 
 def mark_email(s: Session, lead: MetroLead, status: str) -> MetroLead:

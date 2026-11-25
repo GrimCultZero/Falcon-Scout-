@@ -414,6 +414,20 @@ def f2_retry_domainless(eng: Engine) -> int:
     return n
 
 
+def f4_company_pages(eng: Engine) -> dict | None:
+    """F4 (25 Nov), once: store the LinkedIn company page that the already imported Linked Helper rows name for the lead's
+    current company (their raw data kept every non-empty column). Idempotent through a settings key; None when already done."""
+    with eng.connect() as conn:
+        if conn.exec_driver_sql("SELECT 1 FROM metro_settings WHERE key='f4_company_pages'").fetchone():
+            return None
+    from . import lhenrich                      # local import: lhenrich imports this module
+    with Session(eng) as s:
+        res = lhenrich.backfill_company_pages(s)
+        put_setting(s, "f4_company_pages", res)
+        s.commit()
+    return res
+
+
 def init_db(eng: Engine) -> None:
     MetroBase.metadata.create_all(eng)
     migrate(eng)
@@ -430,6 +444,7 @@ def init_db(eng: Engine) -> None:
         if json.loads(row.value_json) != SCHEMA_VERSION:
             row.value_json = json.dumps(SCHEMA_VERSION)
         s.commit()
+    f4_company_pages(eng)
 
 
 def read_settings(s: Session, *, secrets: bool = False) -> dict:

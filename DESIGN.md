@@ -1863,3 +1863,65 @@ address: `emailable()` is false for it); a business address replaces an unverifi
 are kept in the lead's raw_json `mapped` only when empty; the company's `industry` is filled when empty (nothing else reads a
 new company field yet, so none was added). Any other non-empty column is kept in the row's raw data and listed, with counts,
 in the import summary (`enrichment.unmapped_columns`) so the next run can map it.
+
+### How F4 built it (2026-11-25): the activity strip, buttons that answer, one import, enrich order, personal emails
+Why: Oleh's live run after F3 showed a tool that looked dead: "Score fit" answered only in small green text, a first "Enrich next 20"
+left no trace, the two import dialogs showed raw JSON and did not close, a download overwrote his own file, and "Enrich next 20"
+spent its slots on companies with no domain. Progress had to be "impossible to miss" (his words).
+- **The activity strip** (`frontend/src/metro/components/ActivityStrip.jsx`, pure logic in `lib/activity.js`, ported from DevScout's
+  `ActivityStrip` / `activity.js`). A bar of its own UNDER the header, on every Metro tab and on the Falcon Scout side (a header row
+  has no room for a chip that names the item and the step; on the Falcon side the bar exists only while there is something to
+  show, so that side does not jump; on Metro an idle bar says "Nothing running"). It is fed by the backend's progress runs
+  (`GET /metro/progress`, which now carries `campaign_name`). One chip per running job: label, campaign, `7/20`, a thin bar
+  (sliding when the total is unknown), the item and the step; Stop only where the backend says an abort exists. RUNNING jobs decide
+  the shape: more than 2 running (or a narrow window with more than 1) = one "N running" chip with a dropdown; otherwise running
+  chips plus the latest results side by side (3 in all, the rest behind "+N more"). A finished run's result line stays until
+  dismissed (dismissals are remembered in localStorage); a failure sorts first and is red. A click opens the screen where it runs
+  (`lib/nav.js` `requestGoto`: switches to Metro and opens Leads of its campaign; a request that arrives before MetroApp mounted
+  waits for it). The browser tab title is `(Enriching 7/20) Metro` (a MutationObserver keeps it against Falcon Scout's background
+  "new jobs" bell; on the Falcon side only the prefix is added). The bottom dock stays as the detail view and reads the same store.
+- **ONE reader of progress** (`lib/progressStore.js`): the strip (both sides) and the dock share one request. It polls only while
+  something runs (every 1.5 s; 5 s while the backend does not answer), once on load, and in a short fast burst (700 ms for 8 s)
+  after a button started a request (`metro-click` / `metro-progress`), so a synchronous action the backend registers a moment
+  later is still seen. The subscribe function MUST stay stable (an inline one re-subscribed on every render and kept resetting
+  the timer; found in the browser).
+- **Buttons answer** (`components/ui.jsx` `Btn`, `lib/notices.js`, `components/NoticeHost.jsx`, `api.js`). While its request runs a
+  button is disabled with a spinner (a click is never lost or doubled). What a handler returns (a string, `{kind, text}`) becomes a
+  NOTICE, fixed under the header, that stays until dismissed ("Dismiss all" when several); a handler that throws shows its reason.
+  `api()` itself puts an error notice on screen for every non-GET request that fails (refused, or the backend away: "Cannot reach
+  the backend (is falconscout.bat running?)"), once, and marks the error `notified` so a caller does not repeat it. A backend
+  answer of `started: false` is a WARNING with its reason, never a green success. The small green "note" lines are gone.
+  *Why the first "Enrich next 20" left no trace:* not reproduced (the live DB's `last_enrich_run` shows the second click's run).
+  Three paths were silent and are now loud: a refusal ("a run is already going") was shown as small green text, an error was small
+  red text at the TOP of a page the person had scrolled down, and an empty selection was small green text. The event loop is not
+  blocked: every Metro route is a plain `def` (threadpool) or runs its blocking part in `run_in_threadpool`, and the enrich run has
+  its own thread (the strip kept updating during runs).
+- **Look** (`metro.css`): acid blue #00E5FF is the highlight for the primary action and active states (the active tab), next to
+  IT Force teal; dark ink on the acid fill is 12.8 : 1. Press = 1.5 px down and back, transform only, 120 ms, on every Metro button;
+  visible hover; nothing animates under `prefers-reduced-motion` (press, spinner, pulse, sliding bar).
+- **One import** (`api/metro/importer.py`, `POST /campaigns/{id}/import-file`, `ImportDialog.jsx`). One button for every CSV; no
+  preview. It reads the file's shape (`metro_lead_id` = the email finder's results coming back; otherwise a lead list / Linked
+  Helper export), runs the existing code as an in-memory dry run, and STOPS BEFORE WRITING only when the file looks wrong: no
+  recognised columns; nothing matches this campaign and nothing would be added; the very same file already imported into this
+  campaign (an "Import anyway" button, `force`). Updates to existing leads always apply (the old lead dialog disabled its button at
+  0 new leads). The answer is `summary.headline` + `summary.lines` in plain words (zero counts left out), shown with a Close
+  button that closes the dialog. The email-finder dialog keeps the export and the domain check and opens the same dialog for the
+  results. The old `/import` and `/email-import` routes stay for API callers and tests.
+- **Download names** (`api/metro/filenames.py`): `metro_<campaign>_<what>_<YYYY-MM-DD>_<HHMMSS>.csv`, set by the backend in
+  `Content-Disposition` and used by the page as the file name.
+- **Enrich order** (`enrich.order_group`, `GET /campaigns/{id}/enrich-next`): a run takes companies with a domain and no scan first,
+  then a domain with a scan, then no domain; "Enrich next N" takes the next N COMPANIES of the current filter and sort in that order
+  (persona keep first, inside the domain groups), and its label says how many have a domain ("Enrich next 20 - 20 with a domain",
+  "12 with a domain + 8 without"); the stage line says how many of each wait. Companies with no domain are for "Retry domain".
+- **Personal emails** (decision row of 25 Nov): `emailable()` is true for a verified personal address too; a business address
+  always wins (replaces a personal one, even a verified one, on both import paths; the new address starts unverified and the old one
+  is kept in the lead's `raw_json.mapped.other_emails`); the address stays marked personal and the Leads table says "used only
+  because there is no business address".
+- **Company LinkedIn page** (`lhenrich.company_page`): `organization_url_N` of the CURRENT organization (same rule as the website)
+  is stored as `metro_companies.linkedin_url` (`https://www.linkedin.com/company/<slug>/`; schools, people, "unavailable" are not
+  pages), with a trail line; the existing LinkedIn domain step reads it. One-time backfill (`db.f4_company_pages`) from the raw rows
+  already stored: **it found none** (the first Data Enrichment file went through the email-results path, which never kept rows), so the
+  file has to be imported once more with the new Import button.
+- **The free domain check is a run** (`emailfinder.start_mx_check`): 8 parallel `nslookup`s, progress with Stop, one result line,
+  statuses `domain_ok` ("domain accepts mail, not verified") / `invalid`; never `verified`. It also starts by itself after an import
+  that stored emails (only addresses not judged yet). See METRO_HANDOFF.md F4 for the verification path proposed before Phase 4.

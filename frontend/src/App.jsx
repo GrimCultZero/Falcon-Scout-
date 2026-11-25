@@ -30,7 +30,7 @@ if (typeof window !== 'undefined' && !window.__falconErrHook) {
   window.__falconErrLog = _errLog
 }
 
-export default function App({ sideSwitch = null } = {}) {   // sideSwitch: the Falcon Scout | Metro switch (frontend/src/metro/SideShell.jsx)
+export default function App({ sideSwitch = null, activityStrip = null } = {}) {   // sideSwitch: the Falcon Scout | Metro switch; activityStrip: Metro's "what is running" strip (frontend/src/metro/SideShell.jsx)
   // Top-level view: 'jobs' | 'outcomes' | 'kb' | 'chat'
   // See DESIGN.md sections 5, 8 (Phases 2, 2.5, 5), 12.
 
@@ -918,6 +918,7 @@ export default function App({ sideSwitch = null } = {}) {   // sideSwitch: the F
           </button>
         </div>
       </header>
+      {activityStrip}
 
       {/* BODY — all views always mounted; toggle visibility with display:none to preserve state */}
       <div style={{ display:'flex', flex:1, overflow:'hidden' }}>

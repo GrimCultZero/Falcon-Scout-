@@ -5,13 +5,14 @@
 // A run with a known total fills a bar and shows "7 of 20", a percentage, elapsed time and an estimate; one without a total
 // shows a sliding bar and the elapsed time. The current item reads like "Enriching: Rank Media Agency, 7 of 20 - website scan".
 // Stop appears only when the backend says the run can be stopped. A finished run leaves one result line.
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '../api.js'
+import { useEffect, useState } from 'react'
 import { METRO } from '../theme.js'
-import { describeRun, fmtDuration, localRuns, visibleRuns } from '../lib/progressJobs.js'
+import { describeRun, fmtDuration, visibleRuns } from '../lib/progressJobs.js'
+import { stopRun, useProgress } from '../lib/progressStore.js'
+import { notify } from '../lib/notices.js'
 
 const DISMISS_KEY = 'falconscout.metro.progress.dismissed'
-const FILL = { enrich: METRO.cyan, deep: METRO.cyan, hooks: '#8fd6e6', score: '#7fe0b0', rescore: '#7fe0b0', import: '#f0b866', 'email-import': '#f0b866', local: METRO.cyan }
+const FILL = { enrich: METRO.cyan, deep: METRO.cyan, hooks: '#8fd6e6', score: '#7fe0b0', rescore: '#7fe0b0', import: '#f0b866', 'email-import': '#f0b866', 'mx-check': '#8fd6e6', local: METRO.cyan }
 const CSS = `
 @keyframes metro-dock-slide { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
 @keyframes metro-dock-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
@@ -24,42 +25,27 @@ function readDismissed() {
   try { return new Set(JSON.parse(window.localStorage.getItem(DISMISS_KEY) || '[]')) } catch { return new Set() }
 }
 
+// The runs come from the shared store (lib/progressStore.js): the header strip and this dock read the same request.
 export default function ProgressDock({ campaignId = null }) {
-  const [snap, setSnap] = useState({ runs: [], server_now: Date.now() / 1000 })
+  const view = useProgress()
   const [collapsed, setCollapsed] = useState(false)
   const [dismissed, setDismissed] = useState(readDismissed)
   const [, setTick] = useState(0)
-  const offset = useRef(0)                       // server clock minus page clock, seconds
-
-  const load = useCallback(async () => {
-    try {
-      const j = await api(`/progress${campaignId ? `?campaign_id=${campaignId}` : ''}`)
-      offset.current = j.server_now - Date.now() / 1000
-      setSnap(j)
-    } catch { /* the backend being away shows in the header chip; the dock just keeps what it had */ }
-  }, [campaignId])
-
-  useEffect(() => { load() }, [load])
-  // Any screen that starts something announces it, so the bar shows within a moment instead of at the next poll.
-  useEffect(() => {
-    const h = () => { load(); setTimeout(load, 700) }
-    window.addEventListener('metro-progress', h)
-    return () => window.removeEventListener('metro-progress', h)
-  }, [load])
-  const running = snap.runs.some((r) => r.status === 'running')
-  useEffect(() => {
-    const t = setInterval(() => { load(); setTick((x) => x + 1) }, running ? 1500 : 6000)
+  const running = view.runs.some((r) => r.status === 'running')
+  useEffect(() => {                              // the clock of the elapsed time ticks only while something shows
+    if (!running) return undefined
+    const t = setInterval(() => setTick((x) => x + 1), 1000)
     return () => clearInterval(t)
-  }, [running, load])
+  }, [running])
 
   const dismiss = (id) => {
     const n = new Set(dismissed); n.add(id); setDismissed(n)
     try { window.localStorage.setItem(DISMISS_KEY, JSON.stringify([...n].slice(-60))) } catch { /* not remembered */ }
   }
-  const stop = async (r) => { try { await api(`/progress/${r.id}/stop`, { method: 'POST' }); load() } catch { /* already over */ } }
+  const stop = async (r) => { try { await stopRun(r.id) } catch (e) { if (!e.notified) notify.error(`Could not stop: ${e.message}`) } }
 
-  const nowS = Date.now() / 1000 + offset.current
-  const all = [...snap.runs, ...localRuns.list().map((r) => ({ ...r, started_at: r.started_at + offset.current, finished_at: r.finished_at ? r.finished_at + offset.current : null }))]
+  const nowS = Date.now() / 1000 + view.offset
+  const all = campaignId ? view.runs.filter((r) => !r.campaign_id || r.campaign_id === campaignId) : view.runs
   const shown = visibleRuns(all, nowS, dismissed)
   if (!shown.length) return <style>{CSS}</style>
 
