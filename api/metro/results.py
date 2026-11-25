@@ -29,6 +29,7 @@ SCHEMAS = {
                                            "specialties": list, "headquarters": str, "founded": str, "company_type": str,
                                            "recent_posts": list}),
     "linkedin_profile": (None, {"headline": str, "about": str, "location": str, "current_role": str, "current_company": str,
+                                "current_company_url": str,
                                 "tenure": str, "experience": list, "recent_activity": list, "skills": list, "connections": str}),
 }
 MAX_STR = 3000
@@ -109,6 +110,7 @@ def complete_job(s: Session, job_id: int, sender_id: int, *, result: dict | None
         raw["linkedin_profile"] = snap
         lead.raw_json = json.dumps(raw, ensure_ascii=False)
         lead.enriched_at = now
+        notes += _company_from_profile(s, lead, data, job)
     else:
         if company is None:
             raise gate.GateError("the job has no company", 409)
@@ -123,6 +125,26 @@ def complete_job(s: Session, job_id: int, sender_id: int, *, result: dict | None
     job.status, job.result_json, job.finished_at, job.error = "done", json.dumps(snap, ensure_ascii=False), now, None
     s.commit()
     return {"status": "done", "notes": notes}
+
+
+def _company_from_profile(s: Session, lead: MetroLead, data: dict, job: MetroScrapeJob) -> list[str]:
+    """F2, domain finder step d: the profile names the current company's LinkedIn page. When the company has no page
+    stored and its name agrees with the one on the profile, keep the page and queue its reading (the page names the
+    website). A profile of someone who has moved on names another company and is ignored."""
+    url = str(data.get("current_company_url") or "")
+    comp = s.get(MetroCompany, lead.company_id) if lead.company_id else None
+    if comp is None or comp.domain or comp.linkedin_url or not re.match(r"^https://([a-z]+\.)?linkedin\.com/company/[^/?#]+", url, re.I):
+        return []
+    from .domainfinder import name_tokens, _fold
+    toks = name_tokens(comp.name)
+    seen = _fold(str(data.get("current_company") or ""))
+    compact = re.sub(r"[^a-z0-9]", "", seen)
+    if not toks or not any(t in seen.split() or (len(t) >= 5 and t in compact) for t in toks):
+        return [f"the profile's current company ({data.get('current_company') or 'unknown'}) does not match {comp.name}; page not used"]
+    clean = re.match(r"^https://[a-z.]*linkedin\.com/company/[^/?#]+", url, re.I).group(0)
+    comp.linkedin_url = clean + "/"
+    gate.enqueue(s, "linkedin_company", comp.linkedin_url, company_id=comp.id, lead_id=lead.id, campaign_id=job.campaign_id)
+    return [f"company page {comp.linkedin_url} queued from the profile"]
 
 
 def _has_good(company: MetroCompany, col: str) -> bool:

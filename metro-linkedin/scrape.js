@@ -47,7 +47,11 @@
       try {
         const cur = window.__blExp.currentJobs ? window.__blExp.currentJobs() : []
         const roles = window.__blExp.roles ? window.__blExp.roles() : []
-        if (cur && cur[0]) { out.current_role = norm(cur[0].title || ''); out.current_company = norm(cur[0].company || '') }
+        if (cur && cur[0]) {
+          out.current_role = norm(cur[0].title || ''); out.current_company = norm(cur[0].company || '')
+          const cu = /linkedin\.com\/company\//i.test(cur[0].companyUrl || '') ? cur[0].companyUrl : ''   // F2: names the company page (the domain finder reads its website)
+          if (cu) out.current_company_url = String(cu).slice(0, 300)
+        }
         if (roles && roles.length) out.experience = roles.slice(0, 8).map((r) => norm(`${r.title || ''} at ${r.company || ''} (${r.range || r.dates || ''})`))
       } catch (_) { /* experience stays unread */ }
     }

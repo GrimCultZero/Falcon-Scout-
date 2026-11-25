@@ -1795,3 +1795,48 @@ below are settled with Oleh; changing one goes back to him before code.
 - **Tables added:** `metro_scrape_jobs`, `metro_visit_log` (schema_version 3, 15 tables); columns added to
   `metro_suppression` (strength) and `metro_leads` (prior_contact_reason, email_status, email_checked_at,
   shortlisted, enriched_at).
+
+### How F2 built it (2026-11-25): the domain finder, one progress dock, the 25 Nov fixes
+Why: the first live "Enrich next 20" found a domain for 1 of 20 companies. TierA has no website, and the old AI step asked
+Haiku from memory ("do not guess"), so small agencies came back null; nothing said why.
+- **Domain finder (`domainfinder.py`, called from `enrich.resolve_domain`), cheapest first:** a. stored / CSV / email-finder
+  business address / a LinkedIn page already read; b. **name patterns**, at most 6 (`firebellymarketing.com`,
+  `firebelly.com`, `firebelly-marketing.com`; legal and generic words dropped in some, `.ca` too for Canadian places), fetched
+  paced, stop at the first verified one, source `name-pattern`; c. **AI lookup WITH web search**, Sonnet (never Haiku), source
+  `ai-lookup`; d. **LinkedIn, Metro weeks only**: a `linkedin_profile` job for the best persona-`keep` lead reads the current
+  company's LinkedIn page URL (new extension field `current_company_url`, extension 0.1.1), then the existing
+  `linkedin_company` job reads the website. Both are plain queued jobs: the week gate decides, every visit is counted.
+- **A guess is accepted only when the fetched site is that company (`verify_domain_matches_name`).** The name is necessary,
+  never sufficient. The first live run showed why: `cross.com` (a pen maker) for "CROSS Digital Marketing Agency",
+  `realperformance.com` (machinery) for "Real Performance Marketing", `commerce.com` for "Digital Commerce Partners". Rules:
+  a distinctive word of the name in the title / headline / description; if the name says what the company does (marketing,
+  agency, clinic, dental ...) the page must talk about it; a second sign (two name words, or that topic, or the lead's city);
+  a guess that is only PART of the name (`rank.com`) also needs the lead's city on the page; a parked or for-sale page (its
+  words, or an address that ends on a registrar's parking host) never passes. The model's web-found address skips only the
+  "part of the name" city rule. The LinkedIn company page's website and an email-finder address are first-party data and
+  are stored as before.
+- **Web search for ONE kind of call only.** `aiclient.ask(web=True)` -> `/claude` body `_web: true` -> the bridge call
+  `web: true` -> `claude -p --tools WebSearch,WebFetch --allowedTools WebSearch,WebFetch --permission-mode dontAsk`. Every
+  other call keeps the empty tool list (T3 lockdown, 2026-10-29). On the API provider the flag is dropped (no web-search
+  tool is enabled in this app and no new paid service is added): the step then asks Sonnet WITHOUT web and the trail says
+  "no web (web search needs the CLI provider)". Every failure of the step is kept as a sentence (bridge error text, "no
+  answer (the model's reason)", "answer was not JSON", "X rejected (...)"): nothing is swallowed.
+- **The trail.** `metro_companies.domain_tried_json` = `{at, steps: [{step, result, ...}]}`; the table's Website column shows
+  "no domain - tried: name-pattern x6, ai: no answer (...), linkedin: queued the profile (Metro week only)" and a **Retry
+  domain** button per company and in bulk (`POST /campaigns/{id}/retry-domain`: only companies without a domain, same run as
+  Enrich). Migration (schema 4, once, key `f2_domainless_retry`): companies attempted with no domain get `enrich_tried_at`
+  cleared so "Enrich next N" picks them up again.
+- **Progress (`progress.py`) is the backend's.** A run = kind, label, total (0 = unknown), done / failed, current item and
+  step, `can_stop`, one result line. `GET /metro/progress` (running first, then the last finished, with elapsed and ETA) and
+  `POST /metro/progress/{id}/stop`. Enrich and hooks register themselves (current company and step, Stop); import, rescore,
+  score and email import are tracked synchronous actions; the deep readings are followed through the jobs the extension
+  returns (the run closes when the last one is in, and says when LinkedIn ones wait for a Metro week). In memory: a tab reload
+  shows a running run, a backend restart forgets finished ones (the data itself is durable).
+- **The dock (`ProgressDock.jsx`, `lib/progressJobs.js`, copied from DevScout and restyled).** DevScout's rules kept: nothing
+  under 1 s, a filling bar with "7 of 20" when the total is known, an indeterminate bar with elapsed time when not, ETA after
+  two units, Stop only when the run has one, one result line; the current item reads "Enriching: Rank Media Agency, 7 of 20 -
+  website scan".
+- **Small fixes.** "Score fit N shown" vs "Rescore persona (N shown)", each with a tooltip naming the other; "Enrich next 20"
+  is the primary button, "Enrich all N shown" asks above 50; a "just enriched (last run)" filter and sort, a badge on the row
+  and a "Show just enriched" button (the last run is remembered in `metro_settings.last_enrich_run`); the Linked Helper
+  email export takes the ticked rows, else the shown rows that are shortlisted (`POST /campaigns/{id}/email-export`).

@@ -23,15 +23,12 @@ from typing import Callable
 
 from sqlalchemy.orm import Session
 
-from . import aiclient, gate, pagespeed, webscan
-from .db import (MetroCampaign, MetroCompany, MetroLead, MetroScrapeJob, MetroSetting, get_engine, get_setting, utcnow)
+from . import aiclient, domainfinder as df, gate, pagespeed, progress, webscan
+from .db import (MetroCampaign, MetroCompany, MetroLead, MetroScrapeJob, MetroSetting, get_engine, get_setting, put_setting, utcnow)
 
 FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "me.com",
              "aol.com", "proton.me", "protonmail.com", "gmx.com", "mail.com", "msn.com", "yandex.com", "qq.com", "ymail.com"}
-GENERIC_NAME_WORDS = {"inc", "llc", "ltd", "limited", "gmbh", "corp", "corporation", "co", "company", "group", "agency", "the",
-                      "and", "of", "digital", "marketing", "media", "solutions", "services", "consulting", "studio", "studios",
-                      "partners", "global", "international", "creative", "design", "web", "online", "clinic", "center", "centre",
-                      "health", "medical", "dental", "group", "associates", "advertising", "seo", "ppc"}
+GENERIC_NAME_WORDS = df.GENERIC_NAME_WORDS
 FAILED_RETRY_DAYS = 1
 
 
@@ -58,21 +55,9 @@ def snapshot_ok(raw: str | None) -> bool:
 
 
 # ───────────────────────── domain resolution ─────────────────────────
-
-def name_tokens(name: str) -> list[str]:
-    toks = [t for t in re.split(r"[^a-z0-9]+", (name or "").lower()) if len(t) >= 3 and t not in GENERIC_NAME_WORDS]
-    return toks
-
-
-def verify_domain_matches_name(name: str, scan: dict) -> bool:
-    """True when the scanned site plausibly belongs to the company: a distinctive word of the company name is in the
-    domain, the title, the headline or the meta description. A guess that fails this is never stored."""
-    toks = name_tokens(name)
-    if not toks or not scan or not scan.get("ok"):
-        return False
-    hay = " ".join(str(scan.get(k) or "") for k in ("title", "h1", "meta_description")).lower()   # not the domain: that is the guess itself
-    hay_compact = re.sub(r"[^a-z0-9]", "", hay)
-    return any(t in hay_compact for t in toks[:3])
+# The name rules live in domainfinder.py (F2); these names stay importable from here.
+name_tokens = df.name_tokens
+verify_domain_matches_name = df.verify_domain_matches_name
 
 
 def candidate_from_email(leads: list[MetroLead]) -> tuple[str, str] | None:
@@ -94,71 +79,142 @@ def candidate_from_linkedin(company: MetroCompany) -> str | None:
     return None
 
 
-def ai_domain_candidate(company: MetroCompany, lead: MetroLead | None, ask: Callable[..., str] | None = None) -> str | None:
-    """Ask the model for the company's website. The answer is only a CANDIDATE: resolve_domain stores it only after the
-    site itself confirms the name."""
-    ask = ask or aiclient.ask
-    ctx = [f"Company: {company.name}"]
-    if company.country:
-        ctx.append(f"Country: {company.country}")
-    if lead is not None:
-        if lead.title:
-            ctx.append(f"A person there: {lead.title}")
-        if lead.location:
-            ctx.append(f"Location: {lead.location}")
-    prompt = ("What is the official website domain of this company? Answer with JSON only: {\"domain\": \"example.com\"} "
-              "or {\"domain\": null} when you are not sure. Do not guess.\n" + "\n".join(ctx))
-    try:
-        data = aiclient.parse_json(ask(prompt, model=aiclient.HAIKU, max_tokens=2000, kind="metro_domain"))
-    except Exception:
-        return None
-    d = webscan.normalize_site(str((data or {}).get("domain") or "")) if isinstance(data, dict) else None
-    if d and d[0] not in FREE_MAIL and not d[0].endswith(("linkedin.com", "facebook.com", "wikipedia.org")):
-        return d[0]
+def ai_domain_candidate(company: MetroCompany, lead: MetroLead | None, ask: Callable[..., str] | None = None,
+                        web: bool = True) -> tuple[str | None, str]:
+    """Ask Sonnet, with web search when it is available, for the company's website. (candidate or None, the reason).
+    The answer is only a CANDIDATE: resolve_domain stores it only after the site itself confirms the name."""
+    return df.ai_lookup(company.name, country=company.country, location=lead.location if lead is not None else None,
+                        title=lead.title if lead is not None else None, ask=ask or aiclient.ask, web=web)
+
+
+def _location_of(leads: list[MetroLead]) -> str | None:
+    for l in leads:
+        if l.location:
+            return l.location
     return None
 
 
 def resolve_domain(s: Session, company: MetroCompany, leads: list[MetroLead], *, fetch: webscan.Fetcher,
-                   ask: Callable[..., str] | None = None, use_ai: bool = True, sleep=time.sleep) -> dict:
-    """Step 1. Returns {domain, source, tried: [...]} and stores domain + source on the company when found."""
+                   ask: Callable[..., str] | None = None, use_ai: bool = True, sleep=time.sleep, pace: float = 3.0,
+                   web: bool | None = None, use_patterns: bool = True) -> dict:
+    """Step 1, cheapest first: stored domain -> email-finder business address -> the LinkedIn page already read ->
+    name patterns (<= 6 paced fetches) -> AI lookup with web search. A guessed domain is stored only when its site
+    carries the company name and is not parked. Returns {domain, source, tried: [strings], steps: [dicts]} and stores
+    domain + source on the company when found. (The LinkedIn jobs of step d are queued by enrich_company.)"""
     if company.domain:
-        return {"domain": company.domain, "source": company.domain_source, "tried": []}
-    tried = []
+        return {"domain": company.domain, "source": company.domain_source, "tried": [], "steps": []}
+    tried: list[str] = []
+    steps: list[dict] = []
+
+    def other_has(domain: str):
+        return s.query(MetroCompany).filter(MetroCompany.domain == domain, MetroCompany.id != company.id).first()
 
     def take(domain: str, source: str):
-        other = s.query(MetroCompany).filter(MetroCompany.domain == domain, MetroCompany.id != company.id).first()
+        other = other_has(domain)
         if other is not None:
             tried.append(f"{source}: {domain} already belongs to company {other.id}")
             return None
         company.domain, company.domain_source = domain, source
         s.commit()
-        return {"domain": domain, "source": source, "tried": tried}
+        return {"domain": domain, "source": source, "tried": tried, "steps": steps}
 
+    # a. data we already hold
     c = candidate_from_email(leads)
     if c:
         tried.append("email-finder")
         got = take(c[0], "email-finder")
+        steps.append({"step": "email-finder", "result": f"found {c[0]}" if got else "already used by another company"})
         if got:
             return got
     li = candidate_from_linkedin(company)
-    # order: CSV (already stored) -> email-finder export -> AI lookup -> LinkedIn company page
-    if use_ai:
-        cand = ai_domain_candidate(company, leads[0] if leads else None, ask)
-        tried.append(f"ai-lookup:{cand or 'no answer'}")
-        if cand:
-            scan = webscan.scan_site(cand, fetch, sleep=sleep, pace=0)
-            if verify_domain_matches_name(company.name, scan):
-                got = take(cand, "ai-lookup")
-                if got:
-                    return got
-            else:
-                tried.append(f"ai-lookup: {cand} rejected (the site does not carry the company name)")
     if li:
         tried.append("linkedin")
         got = take(li, "linkedin")
+        steps.append({"step": "linkedin", "result": f"found {li} on the company page" if got else "already used by another company"})
         if got:
             return got
-    return {"domain": None, "source": None, "tried": tried}
+
+    # b. name patterns
+    if use_patterns:
+        hit, entry = df.try_name_patterns(company.name, country=company.country, location=_location_of(leads), fetch=fetch,
+                                          taken=lambda d: other_has(d) is not None, sleep=sleep, pace=pace)
+        steps.append(entry)
+        tried.append(f"name-pattern x{entry['tried']}: {entry['result']}")
+        if hit:
+            got = take(hit, "name-pattern")
+            if got:
+                return got
+
+    # c. AI lookup, with web search where the app can do it
+    if use_ai:
+        if web is None:
+            web, why_not = (True, "") if ask is not None else aiclient.web_search_available()
+        else:
+            why_not = "" if web else "web search is off"
+        lead0 = leads[0] if leads else None
+        cand, reason = ai_domain_candidate(company, lead0, ask, web=bool(web))
+        mode = "web" if web else f"no web ({why_not})"
+        if not cand:
+            steps.append({"step": "ai", "result": reason, "mode": mode})
+            tried.append(f"ai-lookup: {reason}")
+        else:
+            p = webscan.probe_home(cand, fetch)
+            if not p.get("ok"):
+                msg = f"{cand} rejected (the site did not answer)"
+            elif p.get("parked"):
+                msg = f"{cand} rejected (parked or for sale)"
+            elif not df.verify_domain_matches_name(company.name, p, place=_location_of(leads), strict=False):
+                msg = f"{cand} rejected (the site does not carry the company name)"
+            else:
+                msg = None
+            if msg:
+                steps.append({"step": "ai", "result": msg, "mode": mode})
+                tried.append(f"ai-lookup: {msg}")
+            else:
+                got = take(cand, "ai-lookup")
+                steps.append({"step": "ai", "result": f"found {cand}" if got else f"{cand} already used by another company", "mode": mode})
+                if got:
+                    return got
+    return {"domain": None, "source": None, "tried": tried, "steps": steps}
+
+
+def queue_linkedin_for_domain(s: Session, company: MetroCompany, leads: list[MetroLead], campaign: MetroCampaign | None) -> dict:
+    """Step d. Only QUEUES; the gate decides when (Metro weeks only, counted against the visits). A `keep` lead's profile
+    names the current company's LinkedIn page; the page names the website. Returns one trail entry."""
+    cid = campaign.id if campaign else None
+    if company.linkedin_url and not snapshot_ok(company.linkedin_page_json):
+        if gate.enqueue(s, "linkedin_company", company.linkedin_url, company_id=company.id, campaign_id=cid):
+            return {"step": "linkedin", "result": "queued the company page (Metro week only)"}
+        return {"step": "linkedin", "result": "company page already queued"}
+    if company.linkedin_url:
+        return {"step": "linkedin", "result": "company page read, no website on it"}
+    keep = [l for l in leads if l.persona_verdict == "keep" and l.profile_url and l.status == "new"]
+    if not keep:
+        return {"step": "linkedin", "result": "not queued (no persona-keep lead with a profile)"}
+    lead = keep[0]
+    raw = _loads(lead.raw_json) or {}
+    if (raw.get("linkedin_profile") or {}).get("ok"):
+        return {"step": "linkedin", "result": "profile read, no company page named"}
+    if gate.enqueue(s, "linkedin_profile", lead.profile_url, company_id=company.id, lead_id=lead.id, campaign_id=cid):
+        return {"step": "linkedin", "result": "queued the profile (Metro week only)"}
+    return {"step": "linkedin", "result": "profile already queued"}
+
+
+def store_trail(company: MetroCompany, steps: list[dict], now: datetime) -> None:
+    company.domain_tried_json = json.dumps({"at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "steps": steps}, ensure_ascii=False)
+
+
+def trail_of(company: MetroCompany) -> dict | None:
+    t = _loads(company.domain_tried_json)
+    return t if isinstance(t, dict) else None
+
+
+def domain_why(company: MetroCompany) -> str | None:
+    """Why a company has no domain, in the words the table shows; None when it has one."""
+    if company.domain:
+        return None
+    t = trail_of(company)
+    return df.trail_text(t["steps"]) if t else "not tried yet"
 
 
 # ───────────────────────── one company ─────────────────────────
@@ -169,30 +225,42 @@ def _cache_days(s: Session) -> dict:
 
 def enrich_company(s: Session, company: MetroCompany, *, fetch: webscan.Fetcher, get_json: pagespeed.JsonGetter | None = None,
                    ask: Callable[..., str] | None = None, use_ai: bool = True, campaign: MetroCampaign | None = None,
-                   queue_browser_jobs: bool = True, sleep=time.sleep, now: datetime | None = None) -> dict:
+                   queue_browser_jobs: bool = True, sleep=time.sleep, now: datetime | None = None,
+                   web: bool | None = None, on_step: Callable[[str], None] | None = None) -> dict:
     """Steps 1-3 for one company; queues the browser-only readings. Returns what it did (for the progress view)."""
     now = now or utcnow()
     days = _cache_days(s)
     pace = float((get_setting(s, "pace_seconds", {}) or {}).get("web", 3))
     out: dict = {"company_id": company.id, "name": company.name, "did": [], "skipped": []}
     leads = s.query(MetroLead).filter_by(company_id=company.id).order_by(MetroLead.persona_score.desc()).all()
+    step = on_step or (lambda _x: None)
 
     company.enrich_tried_at = now            # attempted: "Enrich next N" never picks this company again
-    r = resolve_domain(s, company, leads, fetch=fetch, ask=ask, use_ai=use_ai, sleep=sleep)
+    had_domain = bool(company.domain)
+    step("reading the site" if had_domain else "finding the website")
+    r = resolve_domain(s, company, leads, fetch=fetch, ask=ask, use_ai=use_ai, sleep=sleep, pace=pace, web=web)
     out["domain"], out["domain_source"] = r["domain"], r["source"]
+    out["domain_new"] = bool(company.domain) and not had_domain
     if r["tried"]:
         out["domain_tried"] = r["tried"]
     if not company.domain:
         out["skipped"].append("no domain")
-        if (queue_browser_jobs and company.linkedin_url and not company.linkedin_page_json
-                and gate.enqueue(s, "linkedin_company", company.linkedin_url, company_id=company.id,
-                                 campaign_id=campaign.id if campaign else None)):
-            out["did"].append("queued the LinkedIn company page (it may name the website)")
+        steps = list(r["steps"])
+        if queue_browser_jobs:
+            li = queue_linkedin_for_domain(s, company, leads, campaign)
+            steps.append(li)
+            if li["result"].startswith("queued"):
+                out["did"].append("LinkedIn: " + li["result"])
+        store_trail(company, steps, now)
+        out["domain_why"] = df.trail_text(steps)
         s.commit()
         return out
+    if r["steps"]:
+        store_trail(company, r["steps"], now)
     dom = company.domain
 
     # step 2: website scan
+    step("website scan")
     if not fresh(company.website_scan_at, int(days.get("website", 30)), ok=snapshot_ok(company.website_scan_json), now=now):
         scan = webscan.scan_site(dom, fetch, sleep=sleep, pace=pace)
         if scan.get("ok") or not snapshot_ok(company.website_scan_json):    # a failure never replaces a good reading
@@ -205,6 +273,7 @@ def enrich_company(s: Session, company: MetroCompany, *, fetch: webscan.Fetcher,
     # step 3a: PageSpeed (only for a site that answered)
     scan_ok = snapshot_ok(company.website_scan_json)
     if scan_ok and get_json is not None:
+        step("PageSpeed")
         if not fresh(company.pagespeed_at, int(days.get("pagespeed", 14)), ok=snapshot_ok(company.pagespeed_json), now=now):
             key_row = s.get(MetroSetting, "pagespeed_api_key")
             key = json.loads(key_row.value_json) if key_row else None
@@ -263,18 +332,25 @@ def _company_ids(s: Session, campaign_id: int, lead_ids: list[int] | None) -> li
 
 def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: webscan.Fetcher | None = None,
               get_json: pagespeed.JsonGetter | None = None, ask=None, use_ai: bool = True, background: bool = True,
-              limit: int | None = None, sleep=time.sleep) -> dict:
-    """Start enrichment for a campaign's `new` leads (or only the given ones). Refuses a second run."""
+              limit: int | None = None, sleep=time.sleep, web: bool | None = None) -> dict:
+    """Start enrichment for a campaign's `new` leads (or only the given ones). Refuses a second run.
+    Progress is the backend's (progress.py); the companies this run touches are marked for the "just enriched" filter."""
     with Run.lock:
         if Run.state.get("running"):
             return {"started": False, "reason": "a run is already going", **Run.state}
         with Session(get_engine()) as s:
             ids = _company_ids(s, campaign_id, lead_ids)
-        if limit:
-            ids = ids[:limit]
+            if limit:
+                ids = ids[:limit]
+            started = utcnow()
+            put_setting(s, "last_enrich_run", {"campaign_id": campaign_id, "started_at": started.strftime("%Y-%m-%dT%H:%M:%S"),
+                                               "companies": len(ids)})
+            s.commit()
         Run.stop_flag.clear()
+        rid = progress.start("enrich", "Enriching", total=len(ids), campaign_id=campaign_id, stop=stop)
         Run.state = {"running": True, "campaign_id": campaign_id, "total": len(ids), "done": 0, "failed": 0,
-                     "started_at": utcnow().isoformat(), "current": None, "log": []}
+                     "started_at": started.isoformat(), "current": None, "log": [], "progress_id": rid,
+                     "domains_found": 0, "domains_had": 0, "domains_missing": 0}
     fetch = fetch or webscan.http_fetcher()
     get_json = get_json or pagespeed.http_json_getter()
 
@@ -288,24 +364,39 @@ def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: web
                     comp = s.get(MetroCompany, cid)
                     camp = s.get(MetroCampaign, campaign_id)
                     Run.state["current"] = comp.name if comp else cid
+                    progress.update(rid, current=comp.name if comp else str(cid), step="starting")
                     try:
-                        res = enrich_company(s, comp, fetch=fetch, get_json=get_json, ask=ask, use_ai=use_ai, campaign=camp, sleep=sleep)
+                        res = enrich_company(s, comp, fetch=fetch, get_json=get_json, ask=ask, use_ai=use_ai, campaign=camp, sleep=sleep,
+                                             web=web, on_step=lambda st: progress.update(rid, step=st))
                         Run.state["log"] = (Run.state["log"] + [res])[-30:]
+                        if res.get("domain_new"):
+                            Run.state["domains_found"] += 1
+                        elif res.get("domain"):
+                            Run.state["domains_had"] += 1
+                        else:
+                            Run.state["domains_missing"] += 1
                     except Exception as e:           # one company never stops the run
                         s.rollback()
                         Run.state["failed"] += 1
                         Run.state["log"] = (Run.state["log"] + [{"company_id": cid, "error": f"{type(e).__name__}: {e}"[:200]}])[-30:]
                 Run.state["done"] += 1
+                progress.update(rid, done=Run.state["done"], failed=Run.state["failed"])
         finally:
+            st = Run.state
             Run.state["running"] = False
             Run.state["current"] = None
             Run.state["finished_at"] = utcnow().isoformat()
+            line = (f"Enriched {st['done']}" + (f" of {st['total']} (stopped)" if st.get("stopped") else "") +
+                    f" - {st['domains_found']} domains found, {st['domains_missing']} not found" +
+                    (f", {st['domains_had']} already had one" if st["domains_had"] else "") +
+                    (f", {st['failed']} failed" if st["failed"] else ""))
+            progress.finish(rid, line, "stopped" if st.get("stopped") else "done")
 
     if background:
         threading.Thread(target=work, name="metro-enrich", daemon=True).start()
     else:
         work()
-    return {"started": True, "total": len(ids)}
+    return {"started": True, "total": len(ids), "progress_id": rid}
 
 
 # ───────────────────────── layer 2: the deep readings, queued for the shortlist ─────────────────────────
@@ -322,6 +413,7 @@ def queue_deep(s: Session, campaign: MetroCampaign, lead_ids: list[int] | None =
     if lead_ids is not None:
         q = q.filter(MetroLead.id.in_(lead_ids))
     queued = {"linkedin_company": 0, "linkedin_profile": 0, "ahrefs": 0}
+    job_ids: list[int] = []
     considered = 0
     for l in q.all():
         if not shortlist_filter(l, min_fit):
@@ -331,12 +423,14 @@ def queue_deep(s: Session, campaign: MetroCampaign, lead_ids: list[int] | None =
         if comp is not None:
             if (comp.linkedin_url and not fresh(comp.linkedin_page_at, int(days.get("linkedin_company", 30)),
                                                  ok=snapshot_ok(comp.linkedin_page_json), now=now)
-                    and gate.enqueue(s, "linkedin_company", comp.linkedin_url, company_id=comp.id, lead_id=l.id, campaign_id=campaign.id)):
+                    and (j := gate.enqueue(s, "linkedin_company", comp.linkedin_url, company_id=comp.id, lead_id=l.id, campaign_id=campaign.id))):
                 queued["linkedin_company"] += 1
+                job_ids.append(j.id)
             if (campaign.type == "niche" and comp.domain
                     and not fresh(comp.ahrefs_at, int(days.get("ahrefs", 30)), ok=snapshot_ok(comp.ahrefs_json), now=now)
-                    and gate.enqueue(s, "ahrefs", comp.domain, company_id=comp.id, campaign_id=campaign.id)):
+                    and (j := gate.enqueue(s, "ahrefs", comp.domain, company_id=comp.id, campaign_id=campaign.id))):
                 queued["ahrefs"] += 1
+                job_ids.append(j.id)
         raw = json.loads(l.raw_json or "{}")
         prof = raw.get("linkedin_profile") or {}
         prof_at = None
@@ -346,7 +440,36 @@ def queue_deep(s: Session, campaign: MetroCampaign, lead_ids: list[int] | None =
             except ValueError:
                 prof_at = None
         if l.profile_url and not fresh(prof_at, 30, ok=bool(prof.get("ok")), now=now) \
-                and gate.enqueue(s, "linkedin_profile", l.profile_url, company_id=l.company_id, lead_id=l.id, campaign_id=campaign.id):
+                and (j := gate.enqueue(s, "linkedin_profile", l.profile_url, company_id=l.company_id, lead_id=l.id, campaign_id=campaign.id)):
             queued["linkedin_profile"] += 1
+            job_ids.append(j.id)
     s.commit()
-    return {"shortlisted_considered": considered, "queued": queued, "min_fit": min_fit}
+    return {"shortlisted_considered": considered, "queued": queued, "min_fit": min_fit, "job_ids": job_ids}
+
+
+def follow_jobs(campaign_id: int, job_ids: list[int], label: str = "Deep readings") -> str | None:
+    """A progress run that follows queued extension jobs as they come back (done, failed or cancelled). It closes by
+    itself when every job is in. Nothing to follow: no run."""
+    if not job_ids:
+        return None
+    ids = list(job_ids)
+
+    def poll() -> dict:
+        with Session(get_engine()) as s:
+            rows = s.query(MetroScrapeJob.status, MetroScrapeJob.kind).filter(MetroScrapeJob.id.in_(ids)).all()
+            wk = gate.week_mode(s)
+        done = sum(1 for st, _ in rows if st == "done")
+        failed = sum(1 for st, _ in rows if st in ("failed", "cancelled"))
+        waiting = sum(1 for st, k in rows if st in ("queued", "leased"))
+        li_waiting = sum(1 for st, k in rows if st in ("queued", "leased") and k in gate.LINKEDIN_KINDS)
+        detail = ""
+        if li_waiting and wk != "metro":
+            detail = f"{li_waiting} LinkedIn reading(s) wait for a Metro week"
+        elif waiting:
+            detail = f"{waiting} waiting for the browser extension"
+        out = {"total": len(rows), "done": done + failed, "failed": failed, "detail": detail}
+        if rows and waiting == 0:
+            out.update(finished=True, result=f"Deep readings: {done} read" + (f", {failed} failed" if failed else ""))
+        return out
+
+    return progress.start("deep", label, total=len(ids), campaign_id=campaign_id, poll=poll)

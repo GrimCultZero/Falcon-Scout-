@@ -26,7 +26,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def utcnow() -> datetime:
@@ -78,6 +78,7 @@ class MetroCompany(MetroBase):
     linkedin_page_json = Column(Text, nullable=True)
     linkedin_page_at = Column(DateTime, nullable=True)
     enrich_tried_at = Column(DateTime, nullable=True)            # an enrichment pass was attempted (F1: "not enriched yet")
+    domain_tried_json = Column(Text, nullable=True)              # F2: the domain finder's trail, {"at", "steps": [{step, result, ...}]}
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -395,10 +396,24 @@ def classify_suppression(eng: Engine) -> int:
     return (soft or 0) + (hard or 0)
 
 
+def f2_retry_domainless(eng: Engine) -> int:
+    """F2 (25 Nov), once: companies that were attempted but ended with no domain become eligible again for "Enrich next N"
+    (the first live run marked 19 of 20 as tried while the finder could only ask Haiku from memory). Idempotent through a
+    settings key; returns how many companies it cleared."""
+    with eng.begin() as conn:
+        done = conn.exec_driver_sql("SELECT 1 FROM metro_settings WHERE key='f2_domainless_retry'").fetchone()
+        if done:
+            return 0
+        n = conn.exec_driver_sql("UPDATE metro_companies SET enrich_tried_at=NULL WHERE domain IS NULL AND enrich_tried_at IS NOT NULL").rowcount or 0
+        conn.exec_driver_sql("INSERT INTO metro_settings (key, value_json) VALUES ('f2_domainless_retry', ?)", (json.dumps({"cleared": n}),))
+    return n
+
+
 def init_db(eng: Engine) -> None:
     MetroBase.metadata.create_all(eng)
     migrate(eng)
     classify_suppression(eng)
+    f2_retry_domainless(eng)
     with Session(eng) as s:
         for key, value in DEFAULT_SETTINGS.items():
             if s.get(MetroSetting, key) is None:

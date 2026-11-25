@@ -7023,6 +7023,10 @@ async def claude_proxy(request: dict):
         # `_betas` lets the frontend request beta features (e.g. PDF document
         # blocks). Strip before forwarding; translate to the beta header instead.
         betas = request.pop("_betas", None) or []
+        # `_web`: this one call may search the web. Only the CLI bridge can do it (it then runs `claude -p` with
+        # WebSearch + WebFetch and nothing else); the API path has no web-search tool enabled in this app, so
+        # there the flag is dropped and the model answers from memory. Callers that need to know ask /ai-provider.
+        web = bool(request.pop("_web", False))
         model = _resolve_model(request.get("model"))
         request["model"] = model  # the forwarded payload must carry the resolved name, not the requested one
 
@@ -7069,7 +7073,7 @@ async def claude_proxy(request: dict):
                 async with _httpx_cli.AsyncClient(timeout=300.0) as br:
                     # Pass the requested model so the bridge forces it via --model
                     # (else the CLI uses its default — often Opus, the slowest).
-                    br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model},
+                    br_resp = await br.post(_bridge_url("/ai"), json={"prompt": prompt_text, "model": model, **({"web": True} if web else {})},
                                             headers=_bridge_headers())
                 if br_resp.status_code != 200:
                     raise HTTPException(status_code=502, detail=f"CLI bridge error: {br_resp.text}")

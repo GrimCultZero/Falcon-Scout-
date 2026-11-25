@@ -11,6 +11,7 @@ import LeadsTab from './components/LeadsTab.jsx'
 import SettingsTab from './components/SettingsTab.jsx'
 import SendersTab from './components/SendersTab.jsx'
 import WeekSwitch from './components/WeekSwitch.jsx'
+import ProgressDock from './components/ProgressDock.jsx'
 import { METRO } from './theme.js'
 import { METRO_TABS, readMetroTab, writeMetroTab } from './lib/side.js'
 
@@ -116,6 +117,7 @@ export default function MetroApp({ side, onSideChange }) {
           </section>
         ))}
       </main>
+      <ProgressDock />
     </div>
   )
 }

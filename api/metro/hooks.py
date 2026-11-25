@@ -221,24 +221,36 @@ from .db import get_engine  # noqa: E402
 class HooksRun:
     lock = threading.Lock()
     state: dict = {"running": False}
+    stop_flag = threading.Event()
 
 
 def hooks_status() -> dict:
     return dict(HooksRun.state)
 
 
+def stop_hooks() -> None:
+    HooksRun.stop_flag.set()
+
+
 def start_hooks_run(campaign_id: int, lead_ids: list[int], *, ask=None, background: bool = True) -> dict:
+    from . import progress
     with HooksRun.lock:
         if HooksRun.state.get("running"):
             return {"started": False, "reason": "a run is already going", **HooksRun.state}
+        HooksRun.stop_flag.clear()
+        rid = progress.start("hooks", "Writing hooks", total=len(lead_ids), campaign_id=campaign_id, stop=stop_hooks)
         HooksRun.state = {"running": True, "campaign_id": campaign_id, "total": len(lead_ids), "done": 0, "failed": 0,
-                          "hooks": 0, "rejected": 0, "log": []}
+                          "hooks": 0, "rejected": 0, "log": [], "progress_id": rid}
 
     def work():
         try:
             for lid in lead_ids:
+                if HooksRun.stop_flag.is_set():
+                    HooksRun.state["stopped"] = True
+                    break
                 with Session(get_engine()) as s:
                     lead, camp = s.get(MetroLead, lid), s.get(MetroCampaign, campaign_id)
+                    progress.update(rid, current=" - ".join(x for x in (lead.full_name, lead.company_name) if x) or str(lid), step="writing hooks")
                     try:
                         r = extract_hooks(s, lead, camp, ask=ask)
                         HooksRun.state["hooks"] += r["hooks"]
@@ -248,11 +260,16 @@ def start_hooks_run(campaign_id: int, lead_ids: list[int], *, ask=None, backgrou
                         HooksRun.state["failed"] += 1
                         HooksRun.state["log"] = (HooksRun.state["log"] + [{"lead_id": lid, "error": f"{type(e).__name__}: {e}"[:200]}])[-20:]
                 HooksRun.state["done"] += 1
+                progress.update(rid, done=HooksRun.state["done"], failed=HooksRun.state["failed"])
         finally:
+            st = HooksRun.state
             HooksRun.state["running"] = False
+            progress.finish(rid, f"Hooks for {st['done']} lead(s): {st['hooks']} kept, {st['rejected']} thrown away by the checks" +
+                            (f", {st['failed']} failed" if st["failed"] else "") + (" (stopped)" if st.get("stopped") else ""),
+                            "stopped" if st.get("stopped") else "done")
 
     if background:
         threading.Thread(target=work, name="metro-hooks", daemon=True).start()
     else:
         work()
-    return {"started": True, "total": len(lead_ids)}
+    return {"started": True, "total": len(lead_ids), "progress_id": rid}

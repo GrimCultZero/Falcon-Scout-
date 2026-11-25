@@ -143,6 +143,29 @@ def _clean(t: str, n: int = 200) -> str:
     return re.sub(r"\s+", " ", _STRIP.sub(" ", t or "")).strip()[:n]
 
 
+# A parked or for-sale page belongs to nobody we want: the domain registrar's page, not the company's.
+_PARKED = re.compile(r"(this|the) (domain|web ?site|web page)( name)?( is|may be)? (currently )?(for sale|available for purchase|parked)|"
+                     r"domain (name )?(is )?for sale|buy this domain|is for sale|this domain (is|may be) (for sale|available)|"
+                     r"make an offer (on|for) this domain|domain parking|parked (free|domain|at|by)|parkingcrew|sedoparking|"
+                     r"hugedomains|afternic|dan\.com/|register\.com/parked|domain (has )?expired|location\.href\s*=\s*[\"']/lander|"
+                     r"website (is )?(coming soon|under construction) .{0,40}(godaddy|namecheap)|"
+                     r"this site can.t be reached|default web ?site page|apache2 (ubuntu )?default page|welcome to nginx", re.I)
+PARKING_HOSTS = ("hugedomains.com", "sedo.com", "sedoparking.com", "dan.com", "afternic.com", "godaddy.com", "namecheap.com",
+                 "squadhelp.com", "undeveloped.com", "parkingcrew.net", "bodis.com", "above.com", "domainmarket.com")
+
+
+_NON_TEXT = re.compile(r"<(script|style|noscript|svg|template)\b.*?</\1>", re.I | re.S)      # code and styles are not what a page says
+
+
+def is_parked(html: str, final_url: str = "") -> bool:
+    """True for a registrar's parking or for-sale page (by its words, or because the address ended on a parking host)."""
+    host = (urlparse(final_url).hostname or "").lower().removeprefix("www.")
+    if host and any(host == h or host.endswith("." + h) for h in PARKING_HOSTS):
+        return True
+    text = _clean(html or "", 6000)
+    return bool(_PARKED.search(text) or _PARKED.search((html or "")[:6000]))
+
+
 def find_tag_ids(html: str) -> dict:
     """The identifiers behind the tags (for the record; never shown as a hook unless stored)."""
     return {"google_ads": sorted(set(re.findall(r"\bAW-\d{6,}\b", html)))[:5],
@@ -194,7 +217,8 @@ def analyze_page(html: str, url: str) -> dict:
             "has_form": has_form, "cms": cms, "service_links": sorted(service_links)[:30], "location_links": sorted(location_links)[:30],
             "contact_url": contact_url, "blog_url": blog_url, "emails": emails, "phones": phones, "dates": sorted(set(dates))[-20:],
             "title": _clean(t.group(1), 160) if t else None, "meta_description": _clean(d.group(1), 300) if d else None,
-            "h1": _clean(h.group(1), 160) if h else None, "internal_links": len(links), "marketing_terms": terms}
+            "h1": _clean(h.group(1), 160) if h else None, "internal_links": len(links), "marketing_terms": terms,
+            "parked": is_parked(html, url)}
 
 
 def normalize_site(domain_or_url: str) -> tuple[str, str] | None:
@@ -282,6 +306,24 @@ def scan_site(domain: str, fetch: Fetcher, *, sleep: Callable[[float], None] = t
         "marketing_terms": sorted({t for p in pages.values() for t in p["marketing_terms"]}),
         "emails": emails[:8], "emails_on_own_domain": own[:5], "phones": phones[:3],
         "title": h["title"], "meta_description": h["meta_description"], "h1": h["h1"],
-        "final_url": h["url"], "errors": errors,
+        "final_url": h["url"], "errors": errors, "parked": bool(h.get("parked")),
     }
     return scan
+
+
+def probe_home(domain: str, fetch: Fetcher) -> dict:
+    """ONE page: the home page of a guessed domain (https, then www). The cheap look the domain finder takes before
+    it believes a guess; a full scan comes later, only for a domain that passed. Returns the home page's analysis
+    with ok / parked / final host, or {ok: False}."""
+    site = normalize_site(domain)
+    if site is None:
+        return {"ok": False, "domain": domain, "error": "not a valid domain"}
+    dom, home = site
+    for url in (home, f"https://www.{dom}/"):
+        status, final, text = fetch(url)
+        if status and 200 <= status < 300 and text:
+            a = analyze_page(text, final)
+            return {"ok": True, "domain": dom, "final_url": final, "final_host": (urlparse(final).hostname or "").lower().removeprefix("www."),
+                    "title": a["title"], "h1": a["h1"], "meta_description": a["meta_description"], "parked": a["parked"],
+                    "emails": a["emails"], "text": _clean(_NON_TEXT.sub(" ", text), 400000)[:4000].lower()}
+    return {"ok": False, "domain": dom, "error": "no answer"}

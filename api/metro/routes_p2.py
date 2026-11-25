@@ -15,6 +15,7 @@ from . import emailfinder as ef
 from . import enrich as en
 from . import gate
 from . import hooks as hk
+from . import progress
 from . import results as rs
 from . import scoring as sc
 from .db import (MetroCampaign, MetroCompany, MetroLead, MetroScrapeJob, MetroSender, MetroSetting, get_engine, get_setting,
@@ -197,6 +198,44 @@ def enrich_status():
     return {"enrich": en.status(), "hooks": hk.hooks_status()}
 
 
+@p2.get("/progress")
+def progress_get(campaign_id: int | None = None):
+    """Every long action: running ones first, then the recently finished, each with counts, the current item and step,
+    elapsed time and an estimate. The page only draws this; a reloaded tab shows a run that is still going."""
+    return progress.snapshot(campaign_id)
+
+
+@p2.post("/progress/{run_id}/stop")
+def progress_stop(run_id: str):
+    if not progress.request_stop(run_id):
+        raise HTTPException(409, "this run cannot be stopped (it is finished, or it has no stop)")
+    return {"stopping": True}
+
+
+class RetryIn(BaseModel):
+    lead_ids: list[int]
+
+
+@p2.post("/campaigns/{cid}/retry-domain")
+def campaign_retry_domain(cid: int, body: RetryIn):
+    """"Retry domain": run the domain finder again for the companies of these leads that still have no domain. Companies
+    with a domain are left alone. Goes through the same run (progress, stop) as Enrich."""
+    with Session(get_engine()) as s:
+        _campaign(s, cid)
+        picked, seen = [], set()
+        for l in s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.id.in_(body.lead_ids), MetroLead.status == "new",
+                                           MetroLead.company_id.isnot(None)).order_by(MetroLead.persona_score.desc()).all():
+            comp = s.get(MetroCompany, l.company_id)
+            if comp is not None and not comp.domain and comp.id not in seen:
+                seen.add(comp.id)
+                picked.append(l.id)
+                comp.enrich_tried_at = None
+        s.commit()
+    if not picked:
+        return {"started": False, "reason": "every company in this selection already has a domain"}
+    return en.start_run(cid, picked)
+
+
 @p2.post("/enrich/stop")
 def enrich_stop():
     en.stop()
@@ -206,7 +245,12 @@ def enrich_stop():
 @p2.post("/campaigns/{cid}/score")
 def campaign_score(cid: int, body: RunIn | None = None):
     with Session(get_engine()) as s:
-        return sc.score_campaign(s, _campaign(s, cid), lead_ids=(body.lead_ids if body else None))
+        c = _campaign(s, cid)
+        n = len(body.lead_ids) if body and body.lead_ids is not None else 0
+        with progress.track("score", "Scoring fit (layers 1 and 2)", campaign_id=cid, total=0) as t:
+            r = sc.score_campaign(s, c, lead_ids=(body.lead_ids if body else None))
+            t["result"] = f"Scored fit for {r['scored']} lead(s)"
+            return r
 
 
 @p2.post("/campaigns/{cid}/deep")
@@ -214,7 +258,9 @@ def campaign_deep(cid: int, body: RunIn | None = None):
     """Queue layer 2 readings (LinkedIn pages, Ahrefs for niche) for the shortlist. They run only in a Metro week."""
     with Session(get_engine()) as s:
         c = _campaign(s, cid)
-        return en.queue_deep(s, c, (body or RunIn()).lead_ids)
+        r = en.queue_deep(s, c, (body or RunIn()).lead_ids)
+        r["progress_id"] = en.follow_jobs(cid, r.get("job_ids") or [])
+        return r
 
 
 def shortlist_dict(s: Session, l: MetroLead, hook_counts: dict) -> dict:
@@ -323,6 +369,39 @@ def email_export(cid: int, include_with_email: bool = False, shortlist_only: boo
         return Response(content=text.encode("utf-8"), media_type="text/csv; charset=utf-8", headers=headers)
 
 
+class EmailScopeIn(BaseModel):
+    lead_ids: list[int]
+    shortlist_only: bool = True               # rows merely shown: the shortlisted ones; ticked rows are the person's own choice
+    include_with_email: bool = False
+
+
+def _scoped_leads(s: Session, cid: int, body: EmailScopeIn) -> list[MetroLead]:
+    threshold = float(get_setting(s, "shortlist_min_fit", 50))
+    leads = s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.id.in_(body.lead_ids)).order_by(MetroLead.id).all() if body.lead_ids else []
+    if body.shortlist_only:
+        leads = [l for l in leads if sc.shortlist_filter(l, threshold)]
+    return leads
+
+
+@p2.post("/campaigns/{cid}/email-export")
+def email_export_scoped(cid: int, body: EmailScopeIn):
+    """The Linked Helper list for the rows the person sees: ticked rows, else the shown rows that are shortlisted."""
+    with Session(get_engine()) as s:
+        _campaign(s, cid)
+        text, info = ef.export_csv(_scoped_leads(s, cid, body), include_with_email=body.include_with_email)
+        headers = {"Content-Disposition": f'attachment; filename="metro-email-finder-campaign-{cid}.csv"',
+                   "X-Metro-Exported": str(info["exported"]), "X-Metro-Skipped": json.dumps(info["skipped"])}
+        return Response(content=text.encode("utf-8"), media_type="text/csv; charset=utf-8", headers=headers)
+
+
+@p2.post("/campaigns/{cid}/email-export/preview")
+def email_export_preview_scoped(cid: int, body: EmailScopeIn):
+    with Session(get_engine()) as s:
+        _campaign(s, cid)
+        _, info = ef.export_csv(_scoped_leads(s, cid, body), include_with_email=body.include_with_email)
+        return {**info, "columns": ef.EXPORT_COLUMNS}
+
+
 @p2.get("/campaigns/{cid}/email-export/preview")
 def email_export_preview(cid: int, include_with_email: bool = False, shortlist_only: bool = True):
     with Session(get_engine()) as s:
@@ -340,12 +419,21 @@ async def email_import(cid: int, file: UploadFile = File(...), source: str = Que
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "file too large")
-    with Session(get_engine()) as s:
-        _campaign(s, cid)
-        try:
-            return ef.import_results(s, raw, campaign_id=cid, source=source, filename=file.filename, dry_run=dry_run)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+    from starlette.concurrency import run_in_threadpool
+
+    def work():
+        with Session(get_engine()) as s:
+            _campaign(s, cid)
+            try:
+                if dry_run:
+                    return ef.import_results(s, raw, campaign_id=cid, source=source, filename=file.filename, dry_run=True)
+                with progress.track("email-import", f"Importing emails from {file.filename or 'a file'}", campaign_id=cid) as t:
+                    r = ef.import_results(s, raw, campaign_id=cid, source=source, filename=file.filename, dry_run=False)
+                    t["result"] = f"Emails imported: {r.get('stored', 0)} stored, {r.get('no_matching_lead', 0)} without a matching lead"
+                    return r
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+    return await run_in_threadpool(work)
 
 
 @p2.post("/campaigns/{cid}/email-check")

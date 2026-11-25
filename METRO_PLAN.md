@@ -119,7 +119,7 @@ Seven phases. After Phase 3 the first campaign can run, with sending through Lin
 
 ### Phase 2 - Enrichment
 
-1. Domain resolution per company, in order: CSV, email-finder export, AI web lookup, LinkedIn company page. Store the source.
+1. Domain resolution per company, in order: CSV, email-finder export, name patterns (at most 6 guesses, fetched and verified), AI web lookup (Sonnet with web search), LinkedIn (profile -> company page, Metro weeks only). Store the source. (Changed 25 Nov, F2: the first live run resolved 1 of 20 with a no-web Haiku guess; every guess is accepted only when its site is that company; see DESIGN.md section 25.)
 2. Website scan (no LinkedIn visits): Google Ads tag, GA4, Tag Manager, Meta pixel, call tracking, booking form, CMS, services and location pages, blog freshness, public emails.
 3. PageSpeed (Google's API, mobile score), Google Ads Transparency (running ads, since when), Google Business Profile (rating, review count, categories); paced, cached per domain.
 4. Forked LinkedIn extension: profile and company scraping, account registry (who is signed in), per-account caps (default 60, max 80), the Linked Helper week gate.
