@@ -1625,7 +1625,7 @@ below are settled with Oleh; changing one goes back to him before code.
 | Where and name | Inside Falcon Scout as a walled-off module named **Metro**; header switch **Falcon Scout \| Metro**, each side with its own tabs. Metro's logo is a metro wagon carrying the IT Force mark; IT Force colours (ink #000c0e, teal #005669, cyan #37bbd5, ice #eaf6f9) and the Manrope typeface. Agency line colour: red #e6261f; niche line: cyan |
 | DevScout code | Free to copy and adapt; pure logic and the extension are lifted with their tests; storage goes through Falcon Scout's backend |
 | LinkedIn sending | Linked Helper sends connection requests; Metro sends messages after acceptance and checks replies; Linked Helper CSV (custom variables) is the fallback |
-| LinkedIn safety | Alternating weeks. In a Linked Helper week no scraping (pop-up confirm + a check that the Linked Helper program is closed); messages and reply checks are always allowed. Scraping cap 60/day default, adjustable to 80 |
+| LinkedIn safety | Alternating weeks. In a Linked Helper week no LinkedIn visits (pop-up confirm + a check that the Linked Helper program is closed); messages and reply checks are always allowed. Scraping cap 60/day default, adjustable to 80 |
 | Accounts | Artem's account is the only messenger; extra accounts later are scraper-only; one Chrome profile per account |
 | Email | IMAP/SMTP on the itforce.ua mailbox (hosting at Ukraine.com.ua; SPF, DKIM, DMARC pass; mail-tester 10/10); plain text; start at up to 20-30/day |
 | Campaigns | Two types: Agency (US/Canada, then Europe) and Niche (one per month, with a niche brief); months alternate; a lead or company is in one active campaign at a time |
@@ -1741,8 +1741,8 @@ below are settled with Oleh; changing one goes back to him before code.
 - **Week gate (`api/metro/gate.py`), fail closed:** the week mode (`metro_settings.week_mode`) is changed only
   by `PUT /metro/week` with `confirmed: true`. Entering a Metro week reads the Windows process list
   (`tasklist`; names in the `linked_helper_process_names` setting, default `linked-helper.exe`): a running
-  Linked Helper (409) or an unreadable list (503) refuses. In a Linked Helper week `next_job` returns no job
-  of any kind. The backend's own website scan and PageSpeed are not extension jobs and make no LinkedIn visit.
+  Linked Helper (409) or an unreadable list (503) refuses. In a Linked Helper week `next_job` returns no LinkedIn job
+  (F1, 25 Nov: Ads Transparency, Maps / Business Profile and Ahrefs jobs still run; Phase 2 first blocked all kinds). The backend's own website scan and PageSpeed are not extension jobs and make no LinkedIn visit.
   An unreadable stored week mode counts as a Linked Helper week.
 - **Visit counter:** `metro_senders.visits_today` (+ `counter_date`, Kyiv day) is incremented in the SAME
   transaction that leases the job, only when `visits_today < cap` (account cap or the default 60, never above

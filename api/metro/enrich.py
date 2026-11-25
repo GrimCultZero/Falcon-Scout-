@@ -177,7 +177,7 @@ def enrich_company(s: Session, company: MetroCompany, *, fetch: webscan.Fetcher,
     out: dict = {"company_id": company.id, "name": company.name, "did": [], "skipped": []}
     leads = s.query(MetroLead).filter_by(company_id=company.id).order_by(MetroLead.persona_score.desc()).all()
 
-    company.enriched_at = now            # attempted: "Enrich next N" never picks this company again
+    company.enrich_tried_at = now            # attempted: "Enrich next N" never picks this company again
     r = resolve_domain(s, company, leads, fetch=fetch, ask=ask, use_ai=use_ai, sleep=sleep)
     out["domain"], out["domain_source"] = r["domain"], r["source"]
     if r["tried"]:

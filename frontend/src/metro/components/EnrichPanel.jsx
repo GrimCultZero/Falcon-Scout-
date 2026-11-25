@@ -1,12 +1,13 @@
 // Enrichment under the pipeline cards (METRO_PLAN.md Phase 2): run status, scoring, the SHORTLIST, the evidence
 // and hooks of one lead (every hook shows the stored field it rests on and the date it was read), the queue of
 // browser jobs, and the email-finder round trip with Linked Helper. Nothing here sends anything to anyone.
-import { useCallback, useEffect, useState } from 'react'
+// F1: every button here runs on the ticked rows, or on the rows the filters show (`targetIds`), never on the whole campaign.
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { METRO } from '../theme.js'
 import { Btn, Err, Pill, card, input } from './ui.jsx'
 
-export default function EnrichPanel({ campaign, refreshKey, onChanged }) {
+export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds, scope = { n: 0, what: 'shown' }, ticked = false }) {
   const cid = campaign.id
   const [st, setSt] = useState(null)
   const [jobs, setJobs] = useState(null)
@@ -26,14 +27,26 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged }) {
   useEffect(() => { load() }, [load, refreshKey])
   const running = !!(st?.enrich?.running || st?.hooks?.running)
   useEffect(() => { if (!running) return undefined; const t = setInterval(load, 3000); return () => clearInterval(t) }, [running, load])
+  // When a run ends, the Leads tab counts (how many are enriched, how many remain) are read again.
+  const wasRunning = useRef(false)
+  useEffect(() => { if (wasRunning.current && !running) onChanged?.(); wasRunning.current = running }, [running, onChanged])
 
   const act = async (fn, msg) => {
     try { const r = await fn(); setNote(typeof msg === 'function' ? msg(r) : msg); setError(''); load(); onChanged?.() } catch (e) { setError(e.message) }
   }
-  const score = () => act(() => api(`/campaigns/${cid}/score`, { method: 'POST' }), (r) => `Scored ${r.scored} leads`)
-  const deep = () => act(() => api(`/campaigns/${cid}/deep`, { method: 'POST', json: {} }),
-    (r) => `Queued for the browser: ${Object.entries(r.queued).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`).join(', ')} (they run only in a Metro week)`)
-  const hooks = () => act(() => api(`/campaigns/${cid}/hooks`, { method: 'POST', json: {} }), (r) => r.started ? `Writing hooks for ${r.total} leads` : r.reason)
+  // Resolve the scope first; an empty scope runs nothing (the backend also treats an explicit empty list as "nobody").
+  const scoped = (fn, msg) => async () => {
+    try {
+      const ids = await targetIds()
+      if (!ids.length) { setNote('No leads shown, nothing to do'); return }
+      await act(() => fn(ids), msg)
+    } catch (e) { setError(e.message) }
+  }
+  const score = scoped((ids) => api(`/campaigns/${cid}/score`, { method: 'POST', json: { lead_ids: ids } }), (r) => `Scored ${r.scored} leads`)
+  const deep = scoped((ids) => api(`/campaigns/${cid}/deep`, { method: 'POST', json: { lead_ids: ids } }),
+    (r) => `Queued for the browser: ${Object.entries(r.queued).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`).join(', ')} (LinkedIn jobs run only in a Metro week)`)
+  const hooks = scoped((ids) => api(`/campaigns/${cid}/hooks`, { method: 'POST', json: { lead_ids: ids, shortlist_only: !ticked } }),
+    (r) => r.started ? `Writing hooks for ${r.total} leads` : r.reason)
   const stop = () => act(() => api('/enrich/stop', { method: 'POST' }), 'Stopping after the current company')
   const openLead = async (l) => {
     setOpen(l.id); setDetail(null)
@@ -51,9 +64,9 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged }) {
     <div style={card} data-testid="enrich-panel">
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 15, color: METRO.teal }}>Enrichment and shortlist</h3>
-        <Btn kind="ghost" small onClick={score} title="Layer 1 and 2 from what is stored, with the rules in Settings">Score {sl ? sl.total_usable : ''} usable leads</Btn>
-        <Btn kind="ghost" small onClick={deep} title="Queue the LinkedIn pages and (niche) Ahrefs for the shortlist. They run only in a Metro week.">Queue deep readings for the shortlist</Btn>
-        <Btn kind="ghost" small onClick={hooks} disabled={running || !sl?.shortlisted} title="Hooks, angle and case tag through /claude; every hook is checked against the stored fields">Write hooks for {sl?.shortlisted ?? 0} shortlisted</Btn>
+        <Btn kind="ghost" small onClick={score} title="Layer 1 and 2 from what is stored, with the rules in Settings. Runs on the ticked rows, or on every row the filters show." data-testid="score-btn">Score {scope.n} {scope.what}</Btn>
+        <Btn kind="ghost" small onClick={deep} title="Queue the LinkedIn pages and (niche) Ahrefs for the shortlisted leads among the ticked or shown rows. LinkedIn pages run only in a Metro week." data-testid="deep-btn">Queue deep readings ({scope.n} {scope.what}, shortlisted only)</Btn>
+        <Btn kind="ghost" small onClick={hooks} disabled={running || !sl?.shortlisted} title="Hooks, angle and case tag through /claude; every hook is checked against the stored fields. Ticked rows, or the shortlisted ones among the rows shown." data-testid="hooks-btn">Write hooks ({scope.n} {scope.what}{ticked ? '' : ', shortlisted only'})</Btn>
         <Btn kind="ghost" small onClick={() => setEmailDlg(true)}>Emails (Linked Helper)</Btn>
         {en?.running && <Btn kind="ghost" small onClick={stop}>Stop run</Btn>}
         {note && <span style={{ fontSize: 12, color: '#1a9d5c' }}>{note}</span>}

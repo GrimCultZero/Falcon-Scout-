@@ -28,6 +28,11 @@ export default function MetroApp({ side, onSideChange }) {
   const [week, setWeek] = useState(null)
   const [seen, setSeen] = useState(() => new Set([readMetroTab(store)]))
   const [campaignId, setCampaignId] = useState(() => Number(store?.getItem(CAMPAIGN_KEY)) || null)
+  // F1: the header legend is a filter (null = both lines); campaignsRev says "the campaign list changed"
+  // (Leads reloads it); wantNew asks the Campaigns tab to open its new-campaign form.
+  const [line, setLine] = useState(null)
+  const [campaignsRev, setCampaignsRev] = useState(0)
+  const [wantNew, setWantNew] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -43,6 +48,9 @@ export default function MetroApp({ side, onSideChange }) {
   const pick = (key) => { setTab(key); writeMetroTab(store, key); setSeen((x) => new Set(x).add(key)) }
   const chooseCampaign = (id) => { setCampaignId(id); try { store?.setItem(CAMPAIGN_KEY, id ? String(id) : '') } catch { /* not remembered */ } }
   const openLeads = (id) => { chooseCampaign(id); pick('leads') }
+  const campaignsChanged = () => setCampaignsRev((x) => x + 1)
+  const createCampaign = () => { setWantNew(true); pick('campaigns') }
+  const toggleLine = (k) => setLine((cur) => (cur === k ? null : k))
 
   return (
     <div data-testid="metro-app" style={{ display: 'flex', flexDirection: 'column', height: '100%',
@@ -83,16 +91,18 @@ export default function MetroApp({ side, onSideChange }) {
               background: health == null ? 'rgba(234,246,249,0.4)' : health.ok ? '#3ccf7a' : METRO.agencyLine }} />
             {health == null ? 'checking' : health.ok ? 'backend ok' : 'backend not reachable'}
           </span>
-          <Line color={METRO.agencyLine} label="Agency line" />
-          <Line color={METRO.nicheLine} label="Niche line" />
+          <Line color={METRO.agencyLine} label="Agency line" on={line === 'agency'} dim={line === 'niche'} onClick={() => toggleLine('agency')} />
+          <Line color={METRO.nicheLine} label="Niche line" on={line === 'niche'} dim={line === 'agency'} onClick={() => toggleLine('niche')} />
         </div>
       </header>
 
       <main style={{ flex: 1, overflow: 'auto', padding: 24 }}>
         {METRO_TABS.map(({ key, label }) => (
           <section key={key} data-metro-panel={key} hidden={tab !== key}>
-            {seen.has(key) && key === 'campaigns' && <CampaignsTab openCampaign={chooseCampaign} onOpenLeads={openLeads} />}
-            {seen.has(key) && key === 'leads' && <LeadsTab campaignId={campaignId} onCampaign={chooseCampaign} />}
+            {seen.has(key) && key === 'campaigns' && <CampaignsTab openCampaign={chooseCampaign} onOpenLeads={openLeads} line={line} onChanged={campaignsChanged}
+              startNew={wantNew} onStartedNew={() => setWantNew(false)} />}
+            {seen.has(key) && key === 'leads' && <LeadsTab campaignId={campaignId} onCampaign={chooseCampaign} line={line} active={tab === 'leads'} rev={campaignsRev}
+              onCreateCampaign={createCampaign} />}
             {seen.has(key) && key === 'settings' && <SettingsTab />}
             {seen.has(key) && key === 'senders' && <SendersTab />}
             {COMING[key] && (
@@ -118,10 +128,15 @@ function Chip({ children, title, testid }) {
   )
 }
 
-function Line({ color, label }) {
+function Line({ color, label, on, dim, onClick }) {
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <button type="button" onClick={onClick} aria-pressed={!!on} data-testid={`line-${label.split(' ')[0].toLowerCase()}`}
+      title={on ? 'Showing only this line. Click again to show both.' : 'Click to show only this line in Campaigns and Leads.'}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontFamily: METRO.font, fontSize: 11,
+        color: 'inherit', padding: '3px 9px', borderRadius: 999, opacity: dim ? 0.45 : 1,
+        border: `1px solid ${on ? METRO.cyan : 'transparent'}`, background: on ? 'rgba(55,187,213,0.18)' : 'transparent',
+        fontWeight: on ? 800 : 600 }}>
       <span style={{ width: 16, height: 4, borderRadius: 2, background: color }} />{label}
-    </span>
+    </button>
   )
 }

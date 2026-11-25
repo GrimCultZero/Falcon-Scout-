@@ -268,7 +268,7 @@ def _lead_filter(s: Session, *, campaign_id, status, verdict, invite, has_email,
                            func.lower(MetroLead.company_name).like(like), func.lower(MetroLead.location).like(like)))
     if enriched in ("no", "yes"):
         qq = qq.join(MetroCompany, MetroCompany.id == MetroLead.company_id)       # a lead without a company cannot be enriched
-        done = or_(MetroCompany.enriched_at.isnot(None), MetroCompany.website_scan_at.isnot(None))
+        done = or_(MetroCompany.enrich_tried_at.isnot(None), MetroCompany.website_scan_at.isnot(None))
         qq = qq.filter(done if enriched == "yes" else ~done)
     return base, qq
 
