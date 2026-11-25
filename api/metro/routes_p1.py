@@ -202,7 +202,8 @@ async def campaigns_import(cid: int, file: UploadFile = File(...), dry_run: bool
                 with progress.track("import", f"Importing {file.filename or 'a file'}", campaign_id=cid) as t:
                     r = leadsmod.run_import(s, c, raw, filename=file.filename, list_source=list_source, dry_run=False)
                     t["result"] = (f"Imported {file.filename or 'the file'}: {r.get('added', 0)} added" +
-                                   (f", {r['filled']} filled" if r.get("filled") else "") + (f", {r['duplicates']} already there" if r.get("duplicates") else ""))
+                                   (f", {r['filled']} filled" if r.get("filled") else "") + (f", {r['duplicates']} already there" if r.get("duplicates") else "") +
+                                   ((". Linked Helper data: " + leadsmod.enrichment_line(r["enrichment"])) if r.get("enrichment", {}).get("matched") else ""))
                     return r
             except ValueError as e:
                 raise _bad(e)
@@ -261,8 +262,9 @@ def lead_dict(l: MetroLead, comp: MetroCompany | None = None, last_run: datetime
             "invite_status": l.invite_status, "persona_score": l.persona_score, "persona_verdict": l.persona_verdict,
             "persona_reasons": (notes or {}).get("reasons", []),
             "fit_score": l.fit_score, "deep_score": l.deep_score, "email_status": l.email_status,
-            "emailable": bool(l.email and l.email_status == "verified" and l.status == "new"), "persona_locked": bool(l.persona_locked),
+            "emailable": bool(l.email and l.email_status == "verified" and l.status == "new" and (l.email_type or "") != "personal"), "persona_locked": bool(l.persona_locked),
             "status": l.status, "suppressed_reason": l.suppressed_reason, "prior_contact_reason": l.prior_contact_reason, "list_source": l.list_source,
+            "open_profile": bool(l.open_profile), "premium": l.premium, "hiring": l.hiring, "email_type": l.email_type,
             "invited_at": l.invited_at.isoformat() if l.invited_at else None,
             "connected_at": l.connected_at.isoformat() if l.connected_at else None}
 

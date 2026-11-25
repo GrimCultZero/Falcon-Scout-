@@ -11326,3 +11326,12 @@ session on Telegram's side.
 - Prompt reworded to match (owner 2026-11-25): the analyser prompt's "LIVE WALKTHROUGH ... = HARD SKIP, score 2-4, ZERO
   exceptions" is now "YELLOW ZONE, NEVER GREEN": MAYBE, score <= 6, flag quoting the phrase; lower (2-4 SKIP) only when live
   interaction is the CORE of the engagement. The PPC-audit "APPLY 7-9" line carries the same exception. Code guard unchanged.
+
+## 2026-11-25 - Metro F3: Linked Helper "Data Enrichment" exports (branch metro/fix-3)
+Built for the known LH header names (the real export was not in yet): both imports (lead import, email-results import) now take
+the current organization's domain/website (never an older job, never website_1..3), a business email's domain, email type,
+badges (new lead columns, schema 5), person/company facts, and list unmapped columns. Dry run reports the same numbers the
+apply writes; the progress dock's result line carries them. Decisions: strict "current organization" match (open position whose
+name matches current_company; sole open position only when current_company is empty); `emailable()` is false for a personal
+address; free-mail list is one place (`csvimport.FREE_MAIL`). Details in DESIGN.md section 25 "How F3 built it". Tests:
+tests/metro/test_metro_fix3.py (comma and semicolon exports). METRO_PLAN hard rule widened for the generic /claude pass-through.

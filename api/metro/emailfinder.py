@@ -31,7 +31,8 @@ from typing import Callable
 from sqlalchemy.orm import Session
 
 from . import csvimport as ci
-from .db import MetroLead, MetroSuppression, utcnow
+from . import lhenrich
+from .db import MetroCompany, MetroLead, MetroSuppression, utcnow
 from .suppression import normalize
 
 EXPORT_COLUMNS = ["profile_url", "first_name", "last_name", "company", "title", "metro_lead_id"]
@@ -41,8 +42,9 @@ STATUSES = ("unverified", "domain_ok", "verified", "invalid")
 
 
 def emailable(lead: MetroLead) -> bool:
-    """The single test for "may this person be emailed": a verified address, on a usable lead."""
-    return bool(lead.email and lead.email_status == "verified" and lead.status == "new")
+    """The single test for "may this person be emailed": a verified address, on a usable lead. A PERSONAL address
+    (Linked Helper's `email_type`, F3) is kept but is not a sending address: it is never used as if it were business."""
+    return bool(lead.email and lead.email_status == "verified" and lead.status == "new" and (lead.email_type or "") != "personal")
 
 
 def exportable(lead: MetroLead, *, include_with_email: bool = False) -> bool:
@@ -89,7 +91,7 @@ def import_results(s: Session, raw: bytes, *, campaign_id: int | None = None, so
         raise ValueError("source must be linkedhelper or apollo")
     rows, headers, delim = ci.read_csv(raw)
     cols = ci.detect_cols(headers)
-    if not cols.get("email"):
+    if not cols.get("email") and not any(k.lower().startswith("organization_") for k in headers):
         raise ValueError("no email column in this file")
     if not any(cols.get(f) for f in ("metro_lead_id", "member_id", "url", "public_id")):
         raise ValueError("no way to match rows to leads (needs metro_lead_id, member id or a profile URL)")
@@ -101,9 +103,12 @@ def import_results(s: Session, raw: bytes, *, campaign_id: int | None = None, so
     by_member = {l.member_id: l for l in leads if l.member_id}
     by_profile = {l.profile_key: l for l in leads if l.profile_key}
     res = Counter()
+    enr_stats, unmapped, pending = Counter(), Counter(), set()
+    domains = {c.domain: c for c in s.query(MetroCompany).filter(MetroCompany.domain.isnot(None)).all()}
     examples = []
     for row in rows:
         n = ci.normalize_row(row, cols)
+        enr = lhenrich.row_enrichment(row, n, cols)
         lead = None
         if cols.get("metro_lead_id"):
             try:
@@ -115,6 +120,18 @@ def import_results(s: Session, raw: bytes, *, campaign_id: int | None = None, so
             res["no_matching_lead"] += 1
             continue
         res["matched"] += 1
+        enr_stats["matched"] += 1
+        for h in enr["unmapped"]:
+            unmapped[h] += 1
+        # F3: the company's domain / facts, the badges and person facts come with the row, whether or not it has an email.
+        # (the lead's own stored email counts for the email-domain rule: a business address found earlier still gives its domain)
+        comp = s.get(MetroCompany, lead.company_id) if lead.company_id else None
+        if comp is not None:
+            lhenrich.apply_company(s, comp, enr, domains=domains, pending=pending, stats=enr_stats, dry_run=dry_run,
+                                   email=n["email"] or lead.email)
+        lhenrich.apply_lead(lead, n, enr, stats=enr_stats, dry_run=dry_run)
+        if n["email"]:
+            enr_stats[f"email_{n['email_type'] or 'unknown'}"] += 1
         if not n["email"]:
             res["no_email_found"] += 1
             continue
@@ -135,6 +152,13 @@ def import_results(s: Session, raw: bytes, *, campaign_id: int | None = None, so
         if lead.email and lead.email_status == "verified":
             res["kept_verified_email"] += 1             # a verified address is never replaced by a finder's guess
             continue
+        if lead.email and lead.email_type == "personal" and n["email_type"] == "business":
+            res["replaced_personal"] += 1               # F3: a business address replaces an unverified personal one
+            if not dry_run:
+                lead.email, lead.email_source, lead.email_type = n["email"], source, "business"
+                lead.email_status, lead.email_verified = status, status == "verified"
+                lead.email_checked_at = utcnow() if status != "unverified" else None
+            continue
         if lead.email and status != "verified":
             res["kept_existing_email"] += 1             # an unverified finder result does not replace an address we already hold
             continue
@@ -154,7 +178,13 @@ def import_results(s: Session, raw: bytes, *, campaign_id: int | None = None, so
             "matched": res["matched"], "stored": res["stored"], "no_matching_lead": res["no_matching_lead"],
             "no_email_found": res["no_email_found"], "refused_suppressed": res["refused_suppressed"],
             "upgraded": res["upgraded"], "same_email": res["same_email"], "kept_verified_email": res["kept_verified_email"], "kept_existing_email": res["kept_existing_email"],
-            "status": {k: res[f"status_{k}"] for k in ("unverified", "verified", "invalid")}, "refused": examples[:10]}
+            "status": {k: res[f"status_{k}"] for k in ("unverified", "verified", "invalid")}, "refused": examples[:10],
+            "replaced_personal": res["replaced_personal"], "enrichment": leadsmod_summary(enr_stats, unmapped)}
+
+
+def leadsmod_summary(st: Counter, unmapped: Counter) -> dict:
+    from .leads import enrichment_summary           # local import: leads.py does not import this module, but keep it cheap
+    return enrichment_summary(st, unmapped)
 
 
 # ───────────────────────── the free domain check ─────────────────────────

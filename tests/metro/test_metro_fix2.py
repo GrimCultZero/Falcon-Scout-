@@ -345,7 +345,7 @@ with Session(eng) as s:
 check(mdb.f2_retry_domainless(eng) == 0, "the migration runs once: a second start clears nothing")
 with Session(eng) as s:
     check(s.get(mdb.MetroCompany, a_c).enrich_tried_at is not None, "and does not undo a later attempt")
-check(mdb.SCHEMA_VERSION == 4, "schema version 4")
+check(mdb.SCHEMA_VERSION >= 4, "schema version 4 or later (F3 raised it to 5)")
 
 # ═════════════ 6. progress ═════════════
 progress.reset()

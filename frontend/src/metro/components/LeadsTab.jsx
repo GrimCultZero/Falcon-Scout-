@@ -281,7 +281,8 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                     </td>
                     <td title={l.deep_score != null ? `deep ${l.deep_score}` : ''}>{l.fit_score ?? '-'}</td>
                     <td>{l.invite_status === 'connected' ? 'connected' : l.invite_status === 'invited' ? 'invited' : '-'}</td>
-                    <td style={{ fontSize: 12 }}>{l.email ? <>{l.email}<div style={{ fontSize: 10, color: 'rgba(0,12,14,0.5)' }}>{l.email_source}{l.email_verified ? ', verified' : ', unverified'}</div></> : '-'}</td>
+                    <td style={{ fontSize: 12 }}>{l.email ? <>{l.email}<div style={{ fontSize: 10, color: 'rgba(0,12,14,0.5)' }}>{l.email_source}{l.email_verified ? ', verified' : ', unverified'}{l.email_type === 'personal' ? ', personal' : ''}</div></> : '-'}
+                      {l.open_profile && <div data-testid="open-profile-badge" title="Open Profile: can get a free InMail" style={{ display: 'inline-block', marginTop: 2, fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 8, background: 'rgba(0,128,128,0.12)', color: METRO.teal }}>Open Profile</div>}</td>
                     <td><Pill color={STATUS_COLOR[l.status] || METRO.teal}>{l.status}</Pill>
                       {(l.suppressed_reason || l.prior_contact_reason) && <div style={{ fontSize: 10, color: 'rgba(0,12,14,0.55)', maxWidth: 160 }}>
                         {l.suppressed_reason || `previously contacted, kept: ${l.prior_contact_reason}`}</div>}</td>

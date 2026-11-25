@@ -26,7 +26,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def utcnow() -> datetime:
@@ -60,7 +60,7 @@ class MetroCompany(MetroBase):
     name = Column(String, nullable=False, index=True)
     name_key = Column(String, nullable=True, index=True)          # normalized name (companies are matched on it)
     domain = Column(String, nullable=True, unique=True)
-    domain_source = Column(String, nullable=True)                # csv | email-finder | ai-lookup | linkedin
+    domain_source = Column(String, nullable=True)                # csv | email-finder | ai-lookup | linkedin | linkedhelper | email-domain | name-pattern
     linkedin_url = Column(String, nullable=True, index=True)
     industry = Column(String, nullable=True)
     country = Column(String, nullable=True)
@@ -125,6 +125,11 @@ class MetroLead(MetroBase):
     email_checked_at = Column(DateTime, nullable=True)
     shortlisted = Column(Boolean, nullable=False, default=False)
     enriched_at = Column(DateTime, nullable=True)
+    # F3 (Linked Helper "Data Enrichment" badges); None = the file did not say
+    open_profile = Column(Boolean, nullable=True)                # an Open Profile can get a free InMail (nothing sends from this yet)
+    premium = Column(Boolean, nullable=True)
+    hiring = Column(Boolean, nullable=True)
+    job_seeker = Column(Boolean, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

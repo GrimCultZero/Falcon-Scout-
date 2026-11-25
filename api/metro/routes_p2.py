@@ -429,7 +429,10 @@ async def email_import(cid: int, file: UploadFile = File(...), source: str = Que
                     return ef.import_results(s, raw, campaign_id=cid, source=source, filename=file.filename, dry_run=True)
                 with progress.track("email-import", f"Importing emails from {file.filename or 'a file'}", campaign_id=cid) as t:
                     r = ef.import_results(s, raw, campaign_id=cid, source=source, filename=file.filename, dry_run=False)
-                    t["result"] = f"Emails imported: {r.get('stored', 0)} stored, {r.get('no_matching_lead', 0)} without a matching lead"
+                    from .leads import enrichment_line
+                    e = r.get("enrichment") or {}
+                    t["result"] = (f"Emails imported: {r.get('stored', 0)} stored, {r.get('no_matching_lead', 0)} without a matching lead"
+                                   + (". Linked Helper data: " + enrichment_line(e) if e.get("matched") else ""))
                     return r
             except ValueError as e:
                 raise HTTPException(400, str(e))
