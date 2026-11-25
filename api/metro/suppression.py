@@ -75,7 +75,9 @@ def normalize(kind: str, value) -> str | None:
         v = v.lower()
         return v if re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", v) else None
     if kind == "profile_url":
-        m = re.search(r"linkedin\.com/(in|sales/lead|sales/people)/([^/?#\s]+)", v, re.I)
+        # Sales Navigator ids look like `ACwAA...,JWJg,NAME_SEARCH`: only the part before the first comma is the
+        # person; the rest changes with every search, so it must not be part of the key (F1, 25 Nov).
+        m = re.search(r"linkedin\.com/(in|sales/lead|sales/people)/([^/?#\s,]+)", v, re.I)
         return f"linkedin.com/{m.group(1).lower()}/{m.group(2).lower()}" if m else None
     if kind == "domain":
         v = v.lower()

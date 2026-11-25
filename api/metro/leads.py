@@ -173,6 +173,7 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
 
     res = Counter()
     other = Counter()
+    filled_fields = Counter()
     seen: set[tuple[str, str]] = set()
     seen_nc: dict[str, list] = {}
     added_ids: list[MetroLead] = []
@@ -220,6 +221,14 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
         if existing is not None:
             if existing.campaign_id == campaign.id:
                 res["duplicate"] += 1
+                filled = _fill_existing(s, existing, n, row, campaign=campaign, rules=rules, sup=sup,
+                                        companies=companies, domains=domains, dry_run=dry_run, is_lh=is_lh)
+                if filled:
+                    res["filled"] += 1
+                    for f in filled:
+                        filled_fields[f] += 1
+                    for k2 in _lead_keys(existing):
+                        known.setdefault(k2, existing)
                 if _update_existing(existing, n):
                     res["updated"] += 1
             else:
@@ -308,7 +317,8 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
         "dry_run": dry_run, "filename": filename, "list_source": list_source, "delimiter": delim,
         "rows_read": len(rows), "is_linked_helper": is_lh, "same_file_imported_before": prior > 0,
         "columns": {k: v for k, v in cols.items() if v},
-        "added": res["added"], "updated": res["updated"], "duplicate": res["duplicate"],
+        "added": res["added"], "updated": res["updated"], "filled": res["filled"], "filled_fields": dict(filled_fields),
+        "duplicate": res["duplicate"],
         "duplicate_in_file": res["duplicate_in_file"], "invalid": res["invalid"],
         "same_name_other_profile": res["same_name_other_profile"],
         "in_other_campaign": res["in_other_campaign"], "in_other_campaign_by": dict(other),
@@ -346,6 +356,119 @@ def _update_existing(lead: MetroLead, n: dict) -> bool:
     return changed
 
 
+_SALES_RE = re.compile(r"linkedin\.com/sales/(people|lead)/", re.I)
+
+
+def _is_sales_url(u: str | None) -> bool:
+    return bool(u and _SALES_RE.search(u))
+
+
+def _fill_existing(s: Session, lead: MetroLead, n: dict, row: dict, *, campaign: MetroCampaign, rules: dict, sup,
+                   companies: dict, domains: dict, dry_run: bool, is_lh: bool) -> list[str]:
+    """F1 item 1: a repeat sighting of a person already in this campaign fills every EMPTY field from the new row.
+    A value that is already there is never overwritten (status only moves forward: see `_update_existing`).
+    Returns the names of the fields that were filled (empty list = nothing new). The lead's layer-0 verdict is
+    computed again (unless a person decided it) and the new company / domain / email are checked against the
+    suppression list, because a lead with no name could not be checked before."""
+    filled: list[str] = []
+
+    def fill(attr: str, value, label: str | None = None):
+        if value in (None, "", False):
+            return
+        if getattr(lead, attr) in (None, ""):
+            setattr(lead, attr, value)
+            filled.append(label or attr)
+
+    fill("full_name", n["full_name"], "name")
+    fill("first_name", n["first_name"])
+    fill("last_name", n["last_name"])
+    fill("title", n["title"])
+    fill("location", n["location"])
+    fill("member_id", n["member_id"])
+    fill("company_name", n["company_name"], "company")
+    fill("name_company_key", n["name_company_key"])
+    if n["email"] and not lead.email:
+        lead.email, lead.email_source, lead.email_type = n["email"], ("linkedhelper" if is_lh else "csv"), n["email_type"]
+        filled.append("email")
+    # Profile URL forms: the first one fills the empty slot; a second, different form is kept in the raw data.
+    try:
+        raw = json.loads(lead.raw_json) if lead.raw_json else {}
+    except ValueError:
+        raw = {}
+    mapped = raw.setdefault("mapped", {})
+    if n["profile_url"] and not lead.profile_url:
+        lead.profile_url, lead.profile_key = n["profile_url"], n["profile_key"]
+        filled.append("profile_url")
+    elif n["profile_url"] and n["profile_key"] != lead.profile_key:
+        alts = mapped.setdefault("other_profile_urls", [])
+        if n["profile_url"] not in alts:
+            alts.append(n["profile_url"])
+            filled.append("profile_url_form")
+        if _is_sales_url(n["profile_url"]) and not _is_sales_url(lead.profile_url):
+            mapped.setdefault("sales_url", n["profile_url"])
+    if _is_sales_url(lead.profile_url):
+        mapped.setdefault("sales_url", lead.profile_url)
+    for k in ("headline", "summary"):
+        if n.get(k) and not mapped.get(k):
+            mapped[k] = n[k]
+            filled.append(k)
+    if n.get("job_seeker_badge") and not mapped.get("job_seeker_badge"):
+        mapped["job_seeker_badge"] = True
+    old_row = raw.setdefault("row", {})
+    for k, v in row.items():
+        if v and k not in old_row:
+            old_row[k] = v
+    if filled:
+        lead.raw_json = json.dumps(raw, ensure_ascii=False)
+
+    # The company and its domain.
+    if lead.company_id is None and (n["company_key"] or n["domain"]):
+        company = companies.get(n["company_key"]) if n["company_key"] else None
+        if company is None and n["domain"]:
+            company = domains.get(n["domain"])
+        if company is None and not dry_run:
+            company = MetroCompany(name=n["company_name"] or n["domain"], name_key=n["company_key"], domain=n["domain"],
+                                   domain_source="csv" if n["domain"] else None)
+            s.add(company)
+            s.flush()
+            if n["company_key"]:
+                companies[n["company_key"]] = company
+            if n["domain"]:
+                domains[n["domain"]] = company
+        if company is not None:
+            lead.company_id = company.id
+            filled.append("company_link")
+
+    if not filled:
+        return filled
+
+    # Layer 0 again with what we know now, and the suppression check the empty row could not take.
+    if lead.status in ("new", "junk"):
+        hit = sup.hit(member_id=lead.member_id, profile_key=lead.profile_key, email=lead.email,
+                      company_name=lead.company_name, domain=n["domain"])
+        strength, why = hit if hit else (None, None)
+        if strength == "hard":
+            lead.status, lead.suppressed_reason = "suppressed", why
+        elif strength == "soft" and not (is_lh and lead.invite_status in ("invited", "connected")):
+            lead.prior_contact_reason = lead.prior_contact_reason or why
+            if not lead.persona_locked and lead.invite_status in (None, "none"):
+                lead.status = "previously_contacted"
+        if lead.status in ("new", "junk") and not lead.persona_locked:
+            _rescore_lead(lead, rules, campaign)
+    return filled
+
+
+def _rescore_lead(l: MetroLead, rules: dict, campaign: MetroCampaign) -> dict:
+    extra = json.loads(l.raw_json or "{}").get("mapped", {})
+    p = _persona_for({"title": l.title, "headline": extra.get("headline"), "summary": extra.get("summary"),
+                      "company_name": l.company_name, "location": l.location,
+                      "job_seeker_badge": extra.get("job_seeker_badge")}, rules, campaign)
+    l.status = "junk" if p["verdict"] == "junk" else "new"
+    l.persona_score, l.persona_verdict = p["score"], p["verdict"]
+    l.score_notes_json = json.dumps({"persona": p})
+    return p
+
+
 def rescore_campaign(s: Session, campaign: MetroCampaign) -> dict:
     """Run layer 0 again with the current rules. Locked leads (a person's own decision) and suppressed
     leads are not touched; only `new` and `junk` can change status."""
@@ -354,15 +477,10 @@ def rescore_campaign(s: Session, campaign: MetroCampaign) -> dict:
     for l in s.query(MetroLead).filter_by(campaign_id=campaign.id).all():
         if l.persona_locked or l.status not in ("new", "junk"):
             continue
-        extra = json.loads(l.raw_json or "{}").get("mapped", {})
-        p = _persona_for({"title": l.title, "headline": extra.get("headline"), "summary": extra.get("summary"),
-                          "company_name": l.company_name, "location": l.location,
-                          "job_seeker_badge": extra.get("job_seeker_badge")}, rules, campaign)
-        new_status = "junk" if p["verdict"] == "junk" else "new"
-        if (l.status, l.persona_verdict) != (new_status, p["verdict"]):
+        before = (l.status, l.persona_verdict)
+        p = _rescore_lead(l, rules, campaign)
+        if before != (l.status, p["verdict"]):
             changed["changed"] += 1
-        l.persona_score, l.persona_verdict, l.status = p["score"], p["verdict"], new_status
-        l.score_notes_json = json.dumps({"persona": p})
         changed[p["verdict"]] += 1
     s.commit()
     return dict(changed)
