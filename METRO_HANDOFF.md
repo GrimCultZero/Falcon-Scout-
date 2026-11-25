@@ -168,3 +168,53 @@ which reads the newest entry, checks it against METRO_PLAN.md and writes the nex
   - Metro > Senders: make Artem's account the messenger, check the caps. Metro > Settings: optionally paste a PageSpeed API key; review the fit rules.
   - Import the USA CAN Claude export into its campaign, then try Enrich on a few ticked leads, Score, look at one lead's evidence, then queue the deep readings in a Metro week.
 - Suggested next task: after the live run above, fix whatever the selectors miss, then Phase 3 (chains and export for the first live campaign), starting from the shortlist, the hooks and `emailable()`.
+
+---
+
+### 2026-11-25 14:45 Kyiv - F1, Fixes from Oleh's first live test (items 1-10) - DONE (live Chrome and live-site runs not done)
+- Model and effort used: Claude Sonnet 5.5 (claude-sonnet-5-5) in Claude Code; the effort setting is not visible to me.
+- Branch / commits: metro/fix-1 (from main), merged into main and pushed.
+  - dfaded7 fix(metro): F1 items 1-2 - re-import fills empty fields, stable Sales Navigator keys
+  - 13e36c3 feat(metro): F1 item 3 - delete a draft campaign, remove ticked leads
+  - 53ee53f fix(metro): F1 item 10 - Linked Helper week blocks LinkedIn jobs only
+  - 500dacc feat(metro): F1 items 5-6 backend - explicit scopes, ids route, enriched filter
+  - d2663a1 feat(metro): F1 item 9 backend - draft a niche brief from the niche and the KB's case studies (never saved)
+  - af02aab feat(metro): F1 items 4-10 - front end (list refresh, scopes, Enrich next N, create button, line filter, templates), docs, tests
+  - 76802a1 Merge metro/fix-1 into main (main is pushed; frontend/dist is rebuilt)
+- Done (numbers = METRO_TASK.md):
+  1. Re-import fills gaps: a row matching a lead in the same campaign fills every EMPTY field (name, title, headline, summary, company, location, member id, email, profile URL; a second URL form goes to the raw data), never overwrites, status only forward. Layer 0 runs again (not on a lead a person decided), the company record is made, and suppression is checked again with the new company / domain / email (a hard hit suppresses). The import summary has `filled` and `filled_fields`.
+  2. Sales Navigator: the key of `/sales/people/<id>,<search>,NAME_SEARCH` drops the changing tail; rows match across files by member id (the real files share all 326).
+  3. Delete: a draft campaign can be deleted (confirm pop-up with lead and import-record counts); ticked leads can be removed (confirm). Only Metro's own tables; companies and the suppression list stay; a lead with a sent message or reply is kept and reported; a non-draft campaign is refused.
+  4. The Leads campaign list reloads whenever the tab is shown and after any campaign change.
+  5. "What you see runs": one resolver for every card button (ticked rows, else every row the filters show, asked from the backend). Enrich, Score, queue-deep, hooks and Rescore send those ids; an explicit empty list now means nobody (before, null / empty meant the whole campaign, which was the bug).
+  6. "Enrich next 20" and "Enrich next 50": best of the current filter and sort, usable, company not enriched yet, persona keep first; the number that remain is shown.
+  7. The empty Leads page has a "Create campaign" button (opens the chooser in Campaigns).
+  8. The header "Agency line / Niche line" are toggles that filter Campaigns and Leads; the active one is highlighted; click again for both.
+  9. New campaign asks agency or niche. Agency arrives with your brief word for word (editable). Niche has "Draft the brief": the niche and the KB's case-study titles and tags go through `/claude`; the code keeps only KB tags, takes case-study titles and URLs from the KB by id, drops a pain with a figure, adds the standing do-not-claim list. Nothing is saved until Create.
+  10. A Linked Helper week blocks LinkedIn jobs only (backend gate, the extension, the pop-up text); Ads Transparency, Maps / Business Profile and Ahrefs run. METRO_PLAN.md and DESIGN.md updated.
+- Not done / deferred, and why:
+  - Nothing was run in your Chrome. The new screens were driven in the built-in browser against a COPY of the live database (a scratch backend on port 8001; the live backend and live database were not touched; site fetchers were stubbed so no real website was visited).
+  - The Linked Helper email export (Emails dialog) is still the whole shortlist, not the ticked rows: it is defined as the shortlist. Say if you want it scoped too.
+  - Leads with no company cannot be enriched and are not counted in "not enriched yet".
+- Acceptance checks:
+  - Re-import fills gaps: PASSED. Synthetic test (5 nameless rows + TierA-shaped rows: 5 filled, 3 added, same file again 0 and 0; a present name is never overwritten; status never goes back; a locked verdict survives). On a copy of the live DB with the REAL files: TierA first (495 added), then the real 326-row Linked Helper export: 0 added, all 326 matched by member id.
+  - Delete and the redo flow in the browser: PASSED on the copy (the pop-up showed 326 leads and 1 import record; "USA CAN Claude" was created from the agency template; its brief was stored word for word).
+  - What you see runs: PASSED in the browser: filter "seo" -> "Enrich 7 shown"; the request carried exactly those 7 ids. "Enrich next 20" enriched 20 companies (32 leads); the counter went 494 -> 462.
+  - Line filter and Create button: PASSED in the browser. Draft the brief: PASSED live through the real `/claude` (dental clinics, US): sensible who, 3 pains, KB tags, 3 KB case studies (one, a beauty-sector Google Ads case, is a loose fit: edit it out), offer; nothing saved. Note this made one real model call through your live backend.
+  - Linked Helper week: PASSED in tests (300 asks: no LinkedIn job, no visit counted; an Ads Transparency job is handed out; the extension refuses LinkedIn kinds only).
+- Tests: `node tests/run_all.mjs --python`: 69 JS suites, 0 failing; 44 Python suites, 0 failing. New: tests/metro/test_metro_fix1.py (about 60 checks), tests/metro/fix1-ui.test.js. Updated: test_metro_phase2.py (Linked Helper week test), tests/no-top3-claim.test.js (see decisions).
+- Files changed: api/metro/{leads,suppression,gate,db,enrich,scoring,routes_p1,routes_p2}.py; new api/metro/{removal,briefdraft}.py; frontend/src/metro/{MetroApp.jsx, components/{LeadsTab,CampaignsTab,EnrichPanel,WeekSwitch}.jsx, lib/templates.js}; metro-linkedin/{limits,background,popup}.js; METRO_PLAN.md, DESIGN.md, WORKLOG.md, METRO_TASK.md; the tests above.
+- Decisions made on my own (need Oleh's OK):
+  - "Top 3% of Google Partners" is in the agency template's Do not claim list, as you wrote it. A guard test forbids that text anywhere in the app's sources, so I exempted exactly two files (the template and the brief drafter); the test checks they mention it only inside the do-not-claim list.
+  - New column `metro_companies.enrich_tried_at` (set whenever an enrichment pass is attempted, even with no domain), so a company that cannot be resolved is not picked again by "Enrich next N". Added by the automatic migration on the first /metro call.
+  - Hooks run on rows merely shown are limited to the shortlisted; hooks on ticked rows ignore the threshold (your own choice), as before.
+  - The agency template keeps "Allowed case tags" empty (your brief had none); add tags in the campaign if you want hooks to pick a case tag.
+- Questions for Oleh: should the Linked Helper email export also follow the ticked / shown rows? Is the third case study in a niche draft worth restricting to a closer industry match?
+- What Oleh must do by hand before the next task:
+  1. Restart falconscout.bat (new routes; the new column migrates on the first /metro call).
+  2. Redo the import, exactly in this order:
+     a. Metro > Campaigns > open "US CAN agencies" > "Delete campaign" > confirm (it is a draft with 326 nameless leads).
+     b. New campaign > Agency line > name it "USA CAN Claude", region US/CA, check the pre-filled brief, Create.
+     c. Metro > Leads > Import CSV: first `Claude outputs/US_CA_agency_owners_TierA.csv` (preview, then import; expect 495 added), then the Linked Helper export(s) (`Profiles downloaded ... .csv`; they match TierA by member id, so they add nothing new, and carry the invited / connected status once Linked Helper has visited the profiles).
+  3. Try "Enrich next 20" first (it scans real sites, paced) before using the bigger buttons; then Score and look at the shortlist.
+- Suggested next task: the first live Chrome run (extension selectors, Linked Helper import column format), then Phase 3 (chains and export for the first live campaign) from the shortlist, hooks and `emailable()`.
