@@ -26,8 +26,7 @@ from sqlalchemy.orm import Session
 from . import aiclient, domainfinder as df, gate, pagespeed, progress, webscan
 from .db import (MetroCampaign, MetroCompany, MetroLead, MetroScrapeJob, MetroSetting, get_engine, get_setting, put_setting, utcnow)
 
-FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "me.com",
-             "aol.com", "proton.me", "protonmail.com", "gmx.com", "mail.com", "msn.com", "yandex.com", "qq.com", "ymail.com"}
+from .csvimport import FREE_MAIL          # one list for free-mail providers (F3 widened it)
 GENERIC_NAME_WORDS = df.GENERIC_NAME_WORDS
 FAILED_RETRY_DAYS = 1
 

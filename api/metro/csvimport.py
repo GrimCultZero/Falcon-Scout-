@@ -52,6 +52,14 @@ _COL_KEYS = {
     "website":  ("companywebsite", "companydomain", "domain", "companyurl", "website"),
     "industry": ("companyindustry", "industry"),
     "job_seeker": ("badgesjobseeker",),
+    "open_link": ("badgesopenlink",),
+    "premium":  ("badgespremium",),
+    "hiring":   ("badgeshiring",),
+    "influencer": ("badgesinfluencer",),
+    "skills":   ("skills",),
+    "followers": ("followers",),
+    "connections": ("connectionscount",),
+    "co_industry": ("currentcompanyindustry",),
     "invited_iso": ("inviteddateiso",),
     "invited":  ("inviteddate",),
     "connected_iso": ("connectedatiso",),
@@ -163,6 +171,99 @@ def linkedhelper_status(row: dict, cols: dict) -> tuple[str, datetime | None, da
     return "none", None, None
 
 
+def _flag(v: str) -> bool:
+    return str(v).strip().lower() in ("true", "1", "yes", "y")
+
+
+FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "yahoo.ca", "yahoo.co.uk", "hotmail.com", "hotmail.ca",
+             "outlook.com", "live.com", "live.ca", "msn.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me",
+             "protonmail.com", "pm.me", "gmx.com", "gmx.net", "gmx.de", "mail.com", "yandex.com", "yandex.ru", "ya.ru",
+             "mail.ru", "inbox.ru", "bk.ru", "list.ru", "ukr.net", "i.ua", "meta.ua", "qq.com", "163.com", "126.com",
+             "zoho.com", "fastmail.com", "tutanota.com", "rocketmail.com", "comcast.net", "verizon.net", "att.net",
+             "sbcglobal.net", "bellsouth.net", "cox.net", "shaw.ca", "rogers.com", "sympatico.ca", "bell.net", "telus.net"}
+
+
+def email_is_free_mail(email: str) -> bool:
+    return email.rsplit("@", 1)[-1].lower() in FREE_MAIL
+
+
+def _type_word(raw: str | None) -> str | None:
+    w = (raw or "").strip().lower()
+    if not w:
+        return None
+    if "personal" in w or "private" in w:
+        return "personal"
+    if any(x in w for x in ("business", "work", "professional", "company", "corporate")):
+        return "business"
+    return w
+
+
+def pick_email(raw: str, type_raw: str | None = None) -> tuple[str | None, str | None]:
+    """(address, type). A cell may hold several addresses (Linked Helper "Email (Any)"): the first BUSINESS one wins
+    (a non-free-mail domain), else the first. The type is Linked Helper's word when it gave one, else judged by the
+    domain; "personal" is kept so the address is never used as if it were business."""
+    found = []
+    for part in re.split(r"[,;|\s]+", raw or ""):
+        e = normalize("email", part) if part else None
+        if e and e not in found:
+            found.append(e)
+    if not found:
+        return None, _type_word(type_raw)
+    biz = next((e for e in found if not email_is_free_mail(e)), None)
+    pick = biz or found[0]
+    given = _type_word(type_raw)
+    if len(found) > 1 or not given:                    # several addresses: the type is about the one chosen, not about the cell
+        given = "business" if biz else "personal"
+    return pick, given
+
+
+ORG_FIELDS = ("organization", "organization_id", "organization_url", "organization_title", "organization_start", "organization_end",
+              "organization_description", "organization_location", "organization_website", "organization_domain")
+_ORG_RE = re.compile(r"^(organization(?:_[a-z]+)*)_(\d+)$", re.I)
+_OPEN_END = {"", "present", "current", "now", "ongoing", "-"}
+
+
+def extract_orgs(row: dict) -> list[dict]:
+    """The numbered organization_* columns as a list of positions {index, name, end, open, domain, website, ...extra}.
+    `extra` holds any other organization_<x>_N column that has a value (industry, size ...): names we do not know yet."""
+    by: dict[int, dict] = {}
+    for h, v in row.items():
+        m = _ORG_RE.match((h or "").strip())
+        if not m or not v:
+            continue
+        field, idx = m.group(1).lower(), int(m.group(2))
+        by.setdefault(idx, {})[field] = v
+    out = []
+    for idx in sorted(by):
+        o = by[idx]
+        end = (o.get("organization_end") or "").strip()
+        out.append({"index": idx, "name": o.get("organization") or "", "end": end, "open": end.lower() in _OPEN_END,
+                    "domain": o.get("organization_domain") or "", "website": o.get("organization_website") or "",
+                    "location": o.get("organization_location") or "", "description": o.get("organization_description") or "",
+                    "extra": {k: v for k, v in o.items() if k not in ORG_FIELDS}})
+    return out
+
+
+# Headers we know: read, or read on purpose into the row's raw data only (the person's own sites, twitter ...).
+_KNOWN_EXTRA = {"firstname", "lastname", "fullname", "publicid", "profileurl", "memberid", "email", "emailtype", "summary", "industry",
+                "locationname", "skills", "languages", "followers", "connectionscount", "badgespremium", "badgesinfluencer",
+                "badgesjobseeker", "badgesopenlink", "badgeshiring", "currentcompany", "currentcompanyposition",
+                "currentcompanyindustry", "twitters", "inviteddateiso", "connectedatiso", "memberdistance", "headline",
+                "website1", "website2", "website3", "metroleadid"}
+
+
+def unmapped_columns(row: dict, cols: dict) -> list[str]:
+    """Non-empty columns of this row that Metro neither reads nor knowingly ignores (so the next run can map them)."""
+    mapped = {_key(h) for h in cols.values() if h}
+    out = []
+    for h, v in row.items():
+        k = _key(h)
+        if not v or k in mapped or k in _KNOWN_EXTRA or _ORG_RE.match((h or "").strip()):
+            continue
+        out.append(h)
+    return out
+
+
 def normalize_row(row: dict, cols: dict) -> dict:
     """One CSV row -> the lead fields Metro stores (before dedup)."""
     g = lambda f: (row.get(cols[f], "") if cols.get(f) else "").strip()
@@ -171,7 +272,7 @@ def normalize_row(row: dict, cols: dict) -> dict:
     profile_key = normalize("profile_url", g("url")) if g("url") else None
     if not profile_key and g("public_id"):
         profile_key = normalize("profile_url", "linkedin.com/in/" + g("public_id"))
-    email = normalize("email", g("email")) if g("email") else None
+    email, email_type = pick_email(g("email"), g("email_type"))
     company = g("company") or g("org1")
     status, invited_at, connected_at = linkedhelper_status(row, cols)
     domain = normalize("domain", g("website")) if g("website") else None
@@ -191,7 +292,13 @@ def normalize_row(row: dict, cols: dict) -> dict:
         "profile_key": profile_key,
         "profile_url": g("url") or None,
         "email": email,
-        "email_type": g("email_type") or None,
+        "email_type": email_type,
+        "industry_person": g("industry") or None,
+        "skills": g("skills") or None,
+        "followers": g("followers") or None,
+        "connections": g("connections") or None,
+        "co_industry": g("co_industry") or None,
+        "badges": {k: _flag(g(k)) for k in ("open_link", "premium", "hiring", "job_seeker") if cols.get(k) and g(k) != ""},
         "invite_status": status,
         "invited_at": invited_at,
         "connected_at": connected_at,

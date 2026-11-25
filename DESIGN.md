@@ -1840,3 +1840,26 @@ Haiku from memory ("do not guess"), so small agencies came back null; nothing sa
   is the primary button, "Enrich all N shown" asks above 50; a "just enriched (last run)" filter and sort, a badge on the row
   and a "Show just enriched" button (the last run is remembered in `metro_settings.last_enrich_run`); the Linked Helper
   email export takes the ticked rows, else the shown rows that are shortlisted (`POST /campaigns/{id}/email-export`).
+
+### How F3 built it (2026-11-25): Linked Helper "Data Enrichment" exports
+Why: Oleh runs a Linked Helper "Data Enrichment" campaign on the same TierA people (email, profile info, badges, company data;
+no LinkedIn visits). Its export is a normal "Profiles downloaded" CSV, but Metro read only the email from it, so the company
+websites we had failed to find were ignored. Code: `api/metro/lhenrich.py`, plus `csvimport.py` (columns), `leads.py` and
+`emailfinder.import_results` (both import paths call the same functions).
+**Where a company's domain may come from, in order** (the first that gives a usable one wins; the rest leave a trail line):
+1. already on the company (a different Linked Helper domain is recorded as "disagrees", never applied);
+2. Linked Helper, the lead's CURRENT organization: `organization_domain_N`, else `organization_website_N` (source `linkedhelper`).
+   Current = the open position (no end date) whose name matches `current_company`, or the only open position when
+   `current_company` is empty. Never an older job; never `website_1..3` (the person's own sites);
+3. a business email of the lead, its domain unless free-mail (source `email-domain`);
+4. the F2 domain finder (name patterns, AI with web search, LinkedIn), which skips any company that already has a domain.
+1-3 are first-party: no site check, but parked / generic (linkedin, facebook, google ...) / free-mail / builder-placeholder
+(wixsite, godaddysites ...) domains are rejected by name. A company that gets a domain this way and has no site scan yet gets
+`enrich_tried_at` cleared so "Enrich next N" picks it up.
+Other rules: one cell may hold several addresses (the business one wins; `email_type` is kept, "personal" is never a sending
+address: `emailable()` is false for it); a business address replaces an unverified personal one. Badges are lead columns
+(`open_profile`, `premium`, `hiring`, `job_seeker`; schema 5), "Open Profile" shows as a badge in the Leads table. Person facts
+(summary, skills, industry, followers, connections) and company facts (description, location, extra `organization_*_N` columns)
+are kept in the lead's raw_json `mapped` only when empty; the company's `industry` is filled when empty (nothing else reads a
+new company field yet, so none was added). Any other non-empty column is kept in the row's raw data and listed, with counts,
+in the import summary (`enrichment.unmapped_columns`) so the next run can map it.

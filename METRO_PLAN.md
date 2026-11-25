@@ -34,6 +34,7 @@ Falcon Scout gets a second half, **Metro**: outbound to white-label agency partn
 | Prices | Never in any message; enforced by a code check |
 | Language, style | English only. DevScout's writing rules as the base, Artem's tone from the Upwork corpus, no deliberate typos or lowercase "i" |
 | AI | Every call through the existing `/claude` proxy on the CLI bridge (subscription) |
+| CRM and reminders (25 Nov) | **Auto card, stage Prospect**: the top 15% of each campaign by fit score, only leads with 2+ hooks (never mixed with Replied). **Any real reply** (either channel) makes a card or moves a Prospect card to Replied and raises its temperature (cold / warm / hot, suggested, accepted with a click); auto-replies never count (DevScout's classifier). **"Remove me / not interested"**: no card, the person goes to the hard suppression list, the reply is kept as junk. **No reply for 12 months**: the card is archived (hidden, history kept), never deleted. **Reminders**: a "due today" pop-up (Remind later / Dismiss for today), a desktop alert on a new reply plus a dot on the CRM tab, a once-a-day reminder email to Oleh's own inbox when sends are due. No weekly report for now. Copy from DevScout: `dueModal.js`, `realDue.js`, `desktopNotify.js`, `replyWatcher.js` (15-minute interval with back-off), `crmFromReplies.js`, `autoReply.js`, `crmAutoReply.js` |
 
 ## Architecture
 
@@ -154,8 +155,9 @@ Seven phases. After Phase 3 the first campaign can run, with sending through Lin
 2. Own Message-ID per email; follow-ups reply with In-Reply-To / References; copy saved to Sent via IMAP.
 3. Scheduler (Kyiv time, only while the app runs).
 4. Inbox sweep: replies, bounces (address-level), auto-replies (not replies), opt-outs; any reply stops every channel for that person.
-5. CRM card on reply.
+5. CRM card on reply, auto-reply handling, temperature, Prospect cards for the top 15% (2+ hooks), opt-outs to hard suppression with no card, 12-month archive (see the "CRM and reminders" decision).
 6. Pre-campaign seed test: one email to a check address; refuse to start if it lands in spam.
+7. Reminders: "due today" pop-up, desktop alert on a new reply, daily reminder email to Oleh's inbox; reply watcher every 15 minutes while the app runs.
 
 **Accept when:** in test mode, a 3-email chain to Oleh's own addresses threads correctly in Gmail; a planted bounce and an out-of-office are classified right; a reply stops the rest.
 
@@ -181,7 +183,7 @@ Seven phases. After Phase 3 the first campaign can run, with sending through Lin
 These hold in every phase; breaking one means stopping and asking Oleh.
 
 **Boundaries**
-- No Metro code in `api/main.py` beyond mounting the router, and none in `JobDetail.jsx`. Shared helpers are extracted into small modules, never imported from those two files.
+- No Metro code in `api/main.py` beyond mounting the router, and none in `JobDetail.jsx`. (Oleh, 25 Nov: a generic, non-Metro pass-through in the `/claude` proxy, such as the web flag, is allowed; it carries no Metro logic.) Shared helpers are extracted into small modules, never imported from those two files.
 - Never change the `jobs` or `proposals` tables or the Upwork feed.
 - `baba-leada` is read-only except the Phase 0 extension rename.
 - **Metro never imports leads sourced from Upwork** (jobs, proposals, Upwork clients). Upwork-derived data may only *propose* suppression entries (for example client domains), which Oleh approves or rejects one by one in Metro Settings; nothing is suppressed until approved.

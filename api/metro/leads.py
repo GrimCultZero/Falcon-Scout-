@@ -37,6 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import csvimport as ci
+from . import lhenrich
 from . import persona as pe
 from .db import MetroCampaign, MetroCompany, MetroImport, MetroLead, MetroSuppression, utcnow
 from .suppression import normalize
@@ -174,6 +175,9 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
     res = Counter()
     other = Counter()
     filled_fields = Counter()
+    enr_stats = Counter()                            # F3: what the enrichment columns gave (see lhenrich)
+    unmapped = Counter()
+    pending_domains: set[str] = set()
     seen: set[tuple[str, str]] = set()
     seen_nc: dict[str, list] = {}
     added_ids: list[MetroLead] = []
@@ -188,6 +192,9 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
 
     for row in rows:
         n = ci.normalize_row(row, cols)
+        enr = lhenrich.row_enrichment(row, n, cols)
+        for h in enr["unmapped"]:
+            unmapped[h] += 1
         keys = _row_keys(n)
         if not keys:
             res["invalid"] += 1
@@ -222,7 +229,9 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
             if existing.campaign_id == campaign.id:
                 res["duplicate"] += 1
                 filled = _fill_existing(s, existing, n, row, campaign=campaign, rules=rules, sup=sup,
-                                        companies=companies, domains=domains, dry_run=dry_run, is_lh=is_lh)
+                                        companies=companies, domains=domains, dry_run=dry_run, is_lh=is_lh,
+                                        enr=enr, enr_stats=enr_stats, pending=pending_domains)
+                enr_stats["matched"] += 1
                 if filled:
                     res["filled"] += 1
                     for f in filled:
@@ -281,11 +290,18 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
         else:
             status = "new"
         res["added"] += 1
+        enr_stats["new_leads"] += 1
+        if n["email"]:
+            enr_stats[f"email_{n['email_type'] or 'unknown'}"] += 1
+        if company is not None or n["company_key"] or n["domain"]:
+            lhenrich.apply_company(s, company, enr, domains=domains, pending=pending_domains, stats=enr_stats,
+                                   dry_run=dry_run, email=n["email"])
         res[f"invite_{n['invite_status']}"] += 1
         res[f"persona_{p['verdict']}"] += 1
         if n["email"]:
             res["with_email"] += 1
         if dry_run:
+            lhenrich.apply_lead(MetroLead(raw_json=None), n, enr, stats=enr_stats, dry_run=True)
             continue
 
         lead = MetroLead(
@@ -306,6 +322,7 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
                                  "row": {k: v for k, v in row.items() if v}}, ensure_ascii=False),
         )
         s.add(lead)
+        lhenrich.apply_lead(lead, n, enr, stats=enr_stats, dry_run=False)
         added_ids.append(lead)
         for k in keys:
             known.setdefault(k, lead)
@@ -327,6 +344,7 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
         "kept_despite_soft_hit": res["kept_soft"], "junk": res["junk"], "with_email": res["with_email"],
         "invite": {k: res[f"invite_{k}"] for k in ("none", "invited", "connected")},
         "persona": {k: res[f"persona_{k}"] for k in ("keep", "review", "junk")},
+        "enrichment": enrichment_summary(enr_stats, unmapped),
     }
     if dry_run:
         s.rollback()
@@ -335,6 +353,26 @@ def run_import(s: Session, campaign: MetroCampaign, raw: bytes, *, filename: str
         s.commit()
         result["import_id"] = imp.id
     return result
+
+
+def enrichment_summary(st: Counter, unmapped: Counter) -> dict:
+    """The F3 numbers, one dict, shared by both imports (the dry run shows it, the progress dock's result line says it)."""
+    return {"matched": st["matched"], "emails": {"business": st["email_business"], "personal": st["email_personal"]},
+            "domains_set": {"linkedhelper": st["domain_set_linkedhelper"], "email-domain": st["domain_set_email"]},
+            "domains_disagreeing": st["domain_disagree"], "domains_rejected": st["domain_rejected"],
+            "domains_taken_by_another_company": st["domain_taken"],
+            "open_profiles": st["open_profile"], "company_facts_filled": st["company_facts"], "person_facts_filled": st["person_facts"],
+            "unmapped_columns": dict(unmapped.most_common())}
+
+
+def enrichment_line(e: dict) -> str:
+    d = e["domains_set"]
+    bits = [f"{d['linkedhelper']} domains from Linked Helper", f"{d['email-domain']} from business emails",
+            f"{e['domains_disagreeing']} disagreeing", f"{e['open_profiles']} open profiles",
+            f"{e['company_facts_filled']} company facts"]
+    if e["unmapped_columns"]:
+        bits.append(f"{len(e['unmapped_columns'])} unmapped columns")
+    return ", ".join(bits)
 
 
 def _update_existing(lead: MetroLead, n: dict) -> bool:
@@ -364,7 +402,8 @@ def _is_sales_url(u: str | None) -> bool:
 
 
 def _fill_existing(s: Session, lead: MetroLead, n: dict, row: dict, *, campaign: MetroCampaign, rules: dict, sup,
-                   companies: dict, domains: dict, dry_run: bool, is_lh: bool) -> list[str]:
+                   companies: dict, domains: dict, dry_run: bool, is_lh: bool, enr: dict | None = None,
+                   enr_stats: Counter | None = None, pending: set | None = None) -> list[str]:
     """F1 item 1: a repeat sighting of a person already in this campaign fills every EMPTY field from the new row.
     A value that is already there is never overwritten (status only moves forward: see `_update_existing`).
     Returns the names of the fields that were filled (empty list = nothing new). The lead's layer-0 verdict is
@@ -390,6 +429,14 @@ def _fill_existing(s: Session, lead: MetroLead, n: dict, row: dict, *, campaign:
     if n["email"] and not lead.email:
         lead.email, lead.email_source, lead.email_type = n["email"], ("linkedhelper" if is_lh else "csv"), n["email_type"]
         filled.append("email")
+        if enr_stats is not None:
+            enr_stats[f"email_{n['email_type'] or 'unknown'}"] += 1
+    elif (n["email"] and lead.email and n["email"] != lead.email and lead.email_type == "personal" and n["email_type"] == "business"
+          and lead.email_status != "verified"):
+        lead.email, lead.email_source, lead.email_type = n["email"], ("linkedhelper" if is_lh else "csv"), "business"
+        filled.append("email")                     # F3: a business address replaces an unverified personal one
+        if enr_stats is not None:
+            enr_stats["email_business"] += 1
     # Profile URL forms: the first one fills the empty slot; a second, different form is kept in the raw data.
     try:
         raw = json.loads(lead.raw_json) if lead.raw_json else {}
@@ -439,6 +486,9 @@ def _fill_existing(s: Session, lead: MetroLead, n: dict, row: dict, *, campaign:
             lead.company_id = company.id
             filled.append("company_link")
 
+    if enr is not None and enr_stats is not None:
+        _enrich_existing(s, lead, n, enr, enr_stats, pending if pending is not None else set(), domains, dry_run, filled)
+
     if not filled:
         return filled
 
@@ -456,6 +506,18 @@ def _fill_existing(s: Session, lead: MetroLead, n: dict, row: dict, *, campaign:
         if lead.status in ("new", "junk") and not lead.persona_locked:
             _rescore_lead(lead, rules, campaign)
     return filled
+
+
+def _enrich_existing(s, lead, n, enr, st, pending, domains, dry_run, filled) -> None:
+    """F3 for a lead already stored: its company's domain and facts, its badges, person facts. (The company link itself,
+    including creating a company the lead had none of, is the step just above.)"""
+    company = s.get(MetroCompany, lead.company_id) if lead.company_id else None
+    if company is not None or n["company_key"]:
+        lhenrich.apply_company(s, company, enr, domains=domains, pending=pending, stats=st, dry_run=dry_run,
+                               email=lead.email or n["email"])
+    for c in lhenrich.apply_lead(lead, n, enr, stats=st, dry_run=dry_run):
+        if c not in filled:
+            filled.append(c)
 
 
 def _rescore_lead(l: MetroLead, rules: dict, campaign: MetroCampaign) -> dict:
