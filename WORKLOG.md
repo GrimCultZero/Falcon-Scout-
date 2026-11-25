@@ -11323,3 +11323,6 @@ session on Telegram's side.
   Scan of the last 800 jobs: 42 (5%) match, mostly "video call(s)", "weekly call", "Zoom call", "screen share". `tests/live-session.test.js`.
 - Not changed: the prompt text still says a live walkthrough is a hard SKIP 2-4 for the model's own scoring; the code only
   guarantees it is never green. Owner may want the prompt reworded to say yellow.
+- Prompt reworded to match (owner 2026-11-25): the analyser prompt's "LIVE WALKTHROUGH ... = HARD SKIP, score 2-4, ZERO
+  exceptions" is now "YELLOW ZONE, NEVER GREEN": MAYBE, score <= 6, flag quoting the phrase; lower (2-4 SKIP) only when live
+  interaction is the CORE of the engagement. The PPC-audit "APPLY 7-9" line carries the same exception. Code guard unchanged.

@@ -55,6 +55,11 @@ const assert = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL
     'JobDetail runs the live-session guard AFTER the audit override and the test-week guard')
   assert(/import \{ applyLiveSessionGuard \} from '\.\.\/lib\/liveSession'/.test(jd), 'JobDetail imports the guard')
 
+  // the prompt tells the model the same thing the code enforces: yellow, not hard SKIP, and no APPLY 7-9 for audit jobs
+  assert(/LIVE WALKTHROUGH[^\n]*= YELLOW ZONE, NEVER GREEN/.test(jd) && !/LIVE WALKTHROUGH[^\n]*= HARD SKIP/.test(jd),
+    'prompt: a live session is "yellow zone, never green", no longer "hard skip"')
+  assert(/ONE exception: if the posting REQUIRES a live session/.test(jd), 'prompt: the audit-job "APPLY 7-9" line carves out live sessions')
+
   console.log(bad ? `\n${bad} FAILURES` : '\nall pass')
   process.exit(bad ? 1 : 0)
 })()
