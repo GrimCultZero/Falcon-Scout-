@@ -3,9 +3,10 @@
 Fail closed. Everything an extension may do on the web is decided HERE, by the backend, never by the
 extension:
 
-  * Week mode is `metro` or `linked_helper`. In a Linked Helper week the backend hands out NO scrape job
-    at all (not LinkedIn, not Ads Transparency, not Business Profile, not Ahrefs); messages and reply
-    checks are another code path and are never blocked by this module.
+  * Week mode is `metro` or `linked_helper`. In a Linked Helper week the backend hands out NO LinkedIn
+    job (profile or company page); jobs that never touch LinkedIn (Ads Transparency, Google Maps /
+    Business Profile, Ahrefs) still run (F1, 25 Nov). Messages and reply checks are another code path
+    and are never blocked by this module.
   * Switching to a Metro week needs a confirmation AND the Linked Helper program to be closed (Windows
     process list). If the process list cannot be read, the switch is refused.
   * A LinkedIn page visit is counted BEFORE the job is handed out, and only if the account is under its
@@ -221,12 +222,16 @@ def next_job(s: Session, sender_id: int, kinds: list[str] | None = None, *, now:
     if sender is None or sender.kind != "linkedin" or not sender.active:
         return {"job": None, "reason": "unknown or inactive account"}
     mode = week_mode(s)
-    if mode != "metro":
-        return {"job": None, "reason": "Linked Helper week: no scrape jobs", "week_mode": mode}
     day = today(now)
     _roll_day(sender, day)
     _expire_leases(s, now)
     allowed = [k for k in (kinds or ALL_KINDS) if k in ALL_KINDS]
+    if mode != "metro":
+        # Linked Helper week: no LinkedIn job at all; jobs on other sites keep running.
+        allowed = [k for k in allowed if k not in LINKEDIN_KINDS]
+        if not allowed:
+            s.commit()
+            return {"job": None, "reason": "Linked Helper week: no LinkedIn jobs", "week_mode": mode}
 
     # pacing: the gap since this account's last handed-out job
     last = s.query(MetroVisitLog).filter_by(sender_id=sender.id).order_by(MetroVisitLog.id.desc()).first()
@@ -262,6 +267,9 @@ def next_job(s: Session, sender_id: int, kinds: list[str] | None = None, *, now:
         return {"job": None, "reason": "pacing", "wait_seconds": wait, "visits_today": sender.visits_today, "cap": cap}
 
     # Reserve: check the cap, count the visit and lease the job in ONE transaction.
+    if pick.kind in LINKEDIN_KINDS and mode != "metro":       # belt and braces: never reached (filtered above)
+        s.commit()
+        return {"job": None, "reason": "Linked Helper week: no LinkedIn jobs", "week_mode": mode}
     if pick.kind in LINKEDIN_KINDS:
         if sender.visits_today >= cap:
             s.commit()

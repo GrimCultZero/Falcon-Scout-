@@ -34,7 +34,7 @@ export default function WeekSwitch({ week, onChanged }) {
   return (
     <>
       <button type="button" onClick={show} data-testid="week-chip" aria-haspopup="dialog"
-        title="Click to switch the week. Linked Helper weeks: no scraping. Metro weeks: Metro scrapes. Messages and reply checks are always allowed."
+        title="Click to switch the week. Linked Helper weeks: no LinkedIn visits. Metro weeks: Metro may visit LinkedIn. Messages and reply checks are always allowed."
         style={{ cursor: 'pointer', border: '1px solid rgba(55,187,213,0.45)', borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 700,
           fontFamily: METRO.font, color: METRO.ice, background: mode === 'linked_helper' ? 'rgba(230,38,31,0.35)' : 'rgba(55,187,213,0.12)' }}>
         {WEEK_LABEL[mode]} ▾
@@ -47,7 +47,7 @@ export default function WeekSwitch({ week, onChanged }) {
             <h3 style={{ margin: '0 0 8px', fontSize: 17, color: METRO.teal }}>Switch to a {WEEK_LABEL[target]}?</h3>
             {target === 'linked_helper' ? (
               <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.5 }}>
-                From now on Metro hands out <b>no scrape jobs at all</b>: no LinkedIn profile or company visits, and no Ads Transparency, Business Profile or Ahrefs reads.
+                From now on Metro hands out <b>no LinkedIn jobs at all</b>: no LinkedIn profile or company visits. Reads on other sites (Ads Transparency, Google Maps / Business Profile, Ahrefs) keep running.
                 Jobs already queued wait. Linked Helper may use the account. Messages and reply checks are not affected.
               </p>
             ) : (

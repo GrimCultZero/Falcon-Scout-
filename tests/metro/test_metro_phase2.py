@@ -410,16 +410,27 @@ with new_session() as s:
     check(gate.enqueue(s, "ads_transparency", "x.example") is None, "the same job is not queued twice")
     s.commit()
 
-    # Linked Helper week: nothing
+    # Linked Helper week: no LinkedIn job (F1: jobs that never touch LinkedIn still run)
     gate.set_week_mode(s, "linked_helper", confirmed=True)
-    r = gate.next_job(s, A)
-    check(r["job"] is None and "Linked Helper week" in r["reason"], "ACCEPTANCE: in a Linked Helper week the backend hands out no job at all")
+    r = gate.next_job(s, A, ["linkedin_profile", "linkedin_company"])
+    check(r["job"] is None and "Linked Helper week" in r["reason"], "ACCEPTANCE: in a Linked Helper week the backend hands out no LinkedIn job")
     visits_before = s.get(mdb.MetroSender, A).visits_today
+    r = gate.next_job(s, A)          # no kinds given = everything the extension knows
+    check(r["job"] is not None and r["job"]["kind"] == "ads_transparency",
+          "F1: in a Linked Helper week a job that never touches LinkedIn (Ads Transparency) is still handed out")
     for _ in range(50):
-        gate.next_job(s, A)
-        gate.next_job(s, B)
-    check(s.query(mdb.MetroVisitLog).count() == 0 and s.get(mdb.MetroSender, A).visits_today == visits_before,
-          "ACCEPTANCE: no LinkedIn visit is logged or counted while the week mode is Linked Helper (100 asks)")
+        for k in (None, ["linkedin_profile"], ["linkedin_company", "linkedin_profile", "ads_transparency"]):
+            r = gate.next_job(s, A, k)
+            check(r["job"] is None or r["job"]["kind"] not in gate.LINKEDIN_KINDS, "F1: no LinkedIn job is ever handed out in a Linked Helper week")
+            r = gate.next_job(s, B, k)
+            check(r["job"] is None or r["job"]["kind"] not in gate.LINKEDIN_KINDS, "F1: no LinkedIn job for the second account either")
+    check(s.query(mdb.MetroVisitLog).filter(mdb.MetroVisitLog.kind.in_(gate.LINKEDIN_KINDS)).count() == 0
+          and s.get(mdb.MetroSender, A).visits_today == visits_before,
+          "ACCEPTANCE: no LinkedIn visit is logged or counted while the week mode is Linked Helper (300 asks)")
+    # put the Ads Transparency job back for the tests that follow
+    s.query(mdb.MetroVisitLog).delete()
+    s.query(mdb.MetroScrapeJob).filter(mdb.MetroScrapeJob.kind == "ads_transparency").update({"status": "queued", "sender_id": None, "lease_until": None})
+    s.commit()
     gate.set_week_mode(s, "metro", confirmed=True, lister=lambda: [])
 
     # the cap can never be passed, however often the extension asks
@@ -502,8 +513,8 @@ check(r.status_code == 400, "PUT /metro/week without a confirmation is a 400")
 r = client.put("/metro/week", json={"mode": "linked_helper", "confirmed": True})
 check(r.status_code == 200 and r.json()["week_mode"] == "linked_helper", "PUT /metro/week confirmed switches")
 sid = client.get("/metro/accounts").json()["accounts"][0]["id"]
-r = client.get(f"/metro/jobs/next?sender_id={sid}")
-check(r.json()["job"] is None, "GET /metro/jobs/next in a Linked Helper week hands out nothing")
+r = client.get(f"/metro/jobs/next?sender_id={sid}&kinds=linkedin_profile,linkedin_company")
+check(r.json()["job"] is None, "GET /metro/jobs/next?kinds=LinkedIn in a Linked Helper week hands out nothing")
 r = client.get("/metro/week/check")
 check(r.status_code == 200 and "linked_helper_running" in r.json(), "GET /metro/week/check answers for the pop-up")
 gate_s = new_session()
@@ -785,11 +796,12 @@ with new_session() as s:
     check(en.queue_deep(s, ag)["queued"]["ahrefs"] == 0, "Ahrefs is never queued for an agency campaign")
     mdb.put_setting(s, "week_mode", "linked_helper")
     s.commit()
-    visits_before = s.query(mdb.MetroVisitLog).count()
+    visits_before = s.query(mdb.MetroVisitLog).filter(mdb.MetroVisitLog.kind.in_(gate.LINKEDIN_KINDS)).count()
     sid_ = gate.register_account(s, account_ref="linkedin.com/in/sample-account", label="Sample").id
     leased = [gate.next_job(s, sid_, now=datetime(2027, 1, 5, 9, 0, 0) + timedelta(minutes=i)) for i in range(40)]
-    check(all(x["job"] is None for x in leased) and s.query(mdb.MetroVisitLog).count() == visits_before,
-          "ACCEPTANCE: with ~60 jobs queued and the week mode Linked Helper, no LinkedIn visit is handed out or logged")
+    check(all(x["job"] is None or x["job"]["kind"] not in gate.LINKEDIN_KINDS for x in leased)
+          and s.query(mdb.MetroVisitLog).filter(mdb.MetroVisitLog.kind.in_(gate.LINKEDIN_KINDS)).count() == visits_before,
+          "ACCEPTANCE: with ~60 jobs queued and the week mode Linked Helper, no LinkedIn visit is handed out or logged (Ahrefs reads may run)")
     mdb.put_setting(s, "week_mode", "metro")
     s.commit()
 

@@ -64,8 +64,11 @@ async function tick(reason) {
     if (!st.sender_id) { setBadge('?', '#b36b00'); await note({ status: 'No account yet: open linkedin.com/feed in this Chrome profile once.' }); return }
     const wk = await api('/week')
     if (!wk.ok) { setBadge('!', '#e6261f'); await note({ status: 'Metro backend not reachable' }); return }
-    if (wk.body.week_mode !== 'metro') { setBadge('LH', '#005669'); await note({ status: 'Linked Helper week: nothing is scraped.' }); return }
-    const nx = await api(`/jobs/next?sender_id=${encodeURIComponent(st.sender_id)}&kinds=${L().JOB_KINDS.join(',')}`)
+    // Linked Helper week: no LinkedIn page is ever opened; jobs on other sites (Ads Transparency, Maps, Ahrefs) still run.
+    const lhWeek = wk.body.week_mode !== 'metro'
+    if (lhWeek) setBadge('LH', '#005669')
+    const kinds = lhWeek ? L().JOB_KINDS.filter((k) => !L().LINKEDIN_KINDS.includes(k)) : L().JOB_KINDS
+    const nx = await api(`/jobs/next?sender_id=${encodeURIComponent(st.sender_id)}&kinds=${kinds.join(',')}`)
     if (!nx.ok) { setBadge('!', '#e6261f'); await note({ status: `Backend said ${nx.status}` }); return }
     const job = nx.body.job
     if (!job) { setBadge('', null); await note({ status: `Idle: ${nx.body.reason || 'no job'}`, visits: nx.body.visits_today, cap: nx.body.cap }); return }

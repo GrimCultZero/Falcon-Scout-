@@ -7,7 +7,7 @@ async function render() {
   $('week').innerHTML = week
     ? (week.week_mode === 'metro'
       ? `Metro week. Visits today: <b>${week.visits} of ${week.cap}</b>`
-      : '<span class="lh">Linked Helper week: this extension does nothing.</span>')
+      : '<span class="lh">Linked Helper week: no LinkedIn page is opened (other sites still run).</span>')
     : '<span class="warn">Metro backend not reachable (is falconscout.bat running?)</span>'
   $('acct').innerHTML = state.sender_id
     ? `Signed in as <b>${state.account_label || state.account_ref}</b> (${state.role || 'scraper'})`
