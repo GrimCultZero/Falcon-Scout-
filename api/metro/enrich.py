@@ -177,6 +177,7 @@ def enrich_company(s: Session, company: MetroCompany, *, fetch: webscan.Fetcher,
     out: dict = {"company_id": company.id, "name": company.name, "did": [], "skipped": []}
     leads = s.query(MetroLead).filter_by(company_id=company.id).order_by(MetroLead.persona_score.desc()).all()
 
+    company.enriched_at = now            # attempted: "Enrich next N" never picks this company again
     r = resolve_domain(s, company, leads, fetch=fetch, ask=ask, use_ai=use_ai, sleep=sleep)
     out["domain"], out["domain_source"] = r["domain"], r["source"]
     if r["tried"]:
@@ -250,7 +251,7 @@ def stop() -> None:
 def _company_ids(s: Session, campaign_id: int, lead_ids: list[int] | None) -> list[int]:
     q = s.query(MetroLead.company_id).filter(MetroLead.campaign_id == campaign_id, MetroLead.status == "new",
                                              MetroLead.company_id.isnot(None))
-    if lead_ids:
+    if lead_ids is not None:             # an explicit (possibly empty) list is the scope; None = the whole campaign (API only)
         q = q.filter(MetroLead.id.in_(lead_ids))
     seen, out = set(), []
     for (cid,) in q.order_by(MetroLead.persona_score.desc()).all():
@@ -318,7 +319,7 @@ def queue_deep(s: Session, campaign: MetroCampaign, lead_ids: list[int] | None =
     min_fit = float(get_setting(s, "shortlist_min_fit", 50))
     from .scoring import shortlist_filter
     q = s.query(MetroLead).filter(MetroLead.campaign_id == campaign.id, MetroLead.status == "new")
-    if lead_ids:
+    if lead_ids is not None:
         q = q.filter(MetroLead.id.in_(lead_ids))
     queued = {"linkedin_company": 0, "linkedin_profile": 0, "ahrefs": 0}
     considered = 0

@@ -469,12 +469,15 @@ def _rescore_lead(l: MetroLead, rules: dict, campaign: MetroCampaign) -> dict:
     return p
 
 
-def rescore_campaign(s: Session, campaign: MetroCampaign) -> dict:
+def rescore_campaign(s: Session, campaign: MetroCampaign, lead_ids: list[int] | None = None) -> dict:
     """Run layer 0 again with the current rules. Locked leads (a person's own decision) and suppressed
     leads are not touched; only `new` and `junk` can change status."""
     rules = rules_of(s)
     changed = Counter()
-    for l in s.query(MetroLead).filter_by(campaign_id=campaign.id).all():
+    q = s.query(MetroLead).filter_by(campaign_id=campaign.id)
+    if lead_ids is not None:
+        q = q.filter(MetroLead.id.in_(lead_ids))
+    for l in q.all():
         if l.persona_locked or l.status not in ("new", "junk"):
             continue
         before = (l.status, l.persona_verdict)

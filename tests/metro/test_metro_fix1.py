@@ -216,5 +216,58 @@ r2 = run(c4, csv_of(LH_HEAD, [lh_empty(i) for i in range(1, 6)]), "lh to process
 check(r1["added"] >= 7 and r2["added"] == 0 and r2["duplicate"] >= 4,
       f"redo: TierA first, then the Linked Helper rows match by member id ({r1['added']} added, {r2['duplicate']} matched)")
 
+
+# -- 5 and 6. what you see runs; batches of the best not yet enriched ----------
+from metro import enrich as en                 # noqa: E402
+from metro import scoring as sc                # noqa: E402
+
+TIER = [tier_a(i) for i in range(101, 131)]
+for i, r_ in enumerate(TIER):                  # a mix of titles so the persona verdicts differ
+    r_["headline"] = "Founder at " + r_["current_company"] if i % 3 else "Student at " + r_["current_company"]
+with Session(eng) as s:
+    c6 = camp.create(s, name="Batch test", type="agency", region="US/CA", month=None, offer=None).id
+run(c6, csv_of(TIER_A_HEAD, TIER), "TierA-30.csv")
+q = f"/metro/leads?campaign_id={c6}"
+allr = cl.get(q + "&limit=500").json()
+check(allr["total"] == 30, "30 leads in the batch campaign")
+ids_all = cl.get(f"/metro/leads/ids?campaign_id={c6}").json()
+check(ids_all["total"] == 30 and len(ids_all["ids"]) == 30 and not ids_all["truncated"], "the ids route returns every id the filters show")
+kept = cl.get(f"/metro/leads/ids?campaign_id={c6}&verdict=keep").json()
+check(0 < kept["total"] < 30 and set(kept["ids"]) <= set(ids_all["ids"]), f"it follows the filters ({kept['total']} keep)")
+
+# an explicit EMPTY list must act on nothing, never on the whole campaign
+with Session(eng) as s:
+    check(sc.score_campaign(s, s.get(mdb.MetroCampaign, c6), lead_ids=[])["scored"] == 0, "score with an empty scope scores nothing (not the whole campaign)")
+    check(sc.score_campaign(s, s.get(mdb.MetroCampaign, c6), lead_ids=ids_all["ids"][:4])["scored"] == 4, "score with a scope runs on those leads")
+check(en.start_run(c6, [], fetch=lambda u: (404, u, ""), get_json=lambda u: (404, u, ""), ask=None, use_ai=False, background=False,
+                   sleep=lambda x: None)["total"] == 0, "enrich with an empty scope runs on no company (not the whole campaign)")
+r = cl.post(f"/metro/campaigns/{c6}/deep", json={"lead_ids": []}).json()
+check(r["shortlisted_considered"] == 0, "queue-deep with an empty scope considers nobody")
+r = cl.post(f"/metro/campaigns/{c6}/hooks", json={"lead_ids": []}).json()
+check(r.get("started") is False, "hooks with an empty scope start nothing")
+r = cl.post(f"/metro/campaigns/{c6}/rescore", json={"lead_ids": []}).json()
+check(r in ({}, {"changed": 0}) or sum(r.values()) == 0, "rescore with an empty scope touches nothing")
+sc_ids = ids_all["ids"][:5]
+st_ = en.start_run(c6, sc_ids, fetch=lambda u: (404, u, ""), get_json=lambda u: (404, u, ""), ask=None, use_ai=False, background=False,
+                   sleep=lambda x: None)
+check(st_["total"] <= 5, f"enrich with 5 ids runs on at most those 5 companies ({st_['total']})")
+
+# "Enrich next N": the best-scored not enriched yet, keep first, in the chosen sort
+rem0 = cl.get(f"/metro/leads?campaign_id={c6}&status=new&enriched=no&limit=1").json()["total"]
+nxt = cl.get(f"/metro/leads?campaign_id={c6}&status=new&enriched=no&keep_first=true&sort=persona&limit=7").json()["leads"]
+check(len(nxt) == 7 and all(l["status"] == "new" for l in nxt), "the batch takes the next 7 usable leads that are not enriched yet")
+verd = [l["persona_verdict"] for l in nxt]
+check(verd == sorted(verd, key=lambda v: v != "keep"), f"persona keep comes first ({verd})")
+sc_ = [l["persona_score"] for l in nxt if l["persona_verdict"] == "keep"]
+check(sc_ == sorted(sc_, reverse=True), "and within that, the best score first")
+done = en.start_run(c6, [l["id"] for l in nxt], fetch=lambda u: (404, u, ""), get_json=lambda u: (404, u, ""), ask=None, use_ai=False,
+                    background=False, sleep=lambda x: None)
+rem1 = cl.get(f"/metro/leads?campaign_id={c6}&status=new&enriched=no&limit=1").json()["total"]
+check(done["total"] == 7 and rem1 == rem0 - 7, f"after the batch {rem1} remain ({rem0} - 7); the same companies are never picked again")
+nxt2 = cl.get(f"/metro/leads?campaign_id={c6}&status=new&enriched=no&keep_first=true&limit=7").json()["leads"]
+check(not ({l["id"] for l in nxt} & {l["id"] for l in nxt2}), "the next batch holds different leads")
+yes = cl.get(f"/metro/leads?campaign_id={c6}&enriched=yes&limit=500").json()["total"]
+check(yes >= 7, f"enriched=yes lists the ones already tried ({yes})")
+
 print("all passed" if not bad else f"{bad} FAILED")
 sys.exit(1 if bad else 0)
