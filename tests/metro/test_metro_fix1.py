@@ -269,5 +269,42 @@ check(not ({l["id"] for l in nxt} & {l["id"] for l in nxt2}), "the next batch ho
 yes = cl.get(f"/metro/leads?campaign_id={c6}&enriched=yes&limit=500").json()["total"]
 check(yes >= 7, f"enriched=yes lists the ones already tried ({yes})")
 
+
+# -- 9. the niche brief is drafted, checked, and never saved ----------------------
+from metro import briefdraft as bd             # noqa: E402
+from sqlalchemy import text as sqltext          # noqa: E402
+
+with Session(eng) as s:
+    s.execute(sqltext("INSERT INTO kb_entries (type, title, content, tags, source_url, is_core) VALUES "
+                      "('case_study', '[Case Study] SEO for a dental clinic', 'x', 'auto_imported, SEO, Dentistry', 'https://itforce.ua/cases/dental/', 0),"
+                      "('case_study', '[Case Study] Ads for a flower shop', 'x', 'auto_imported, PPC, Flowers', 'https://itforce.ua/cases/flowers/', 0),"
+                      "('note', 'not a case', 'x', 'Secret', NULL, 0)"))
+    s.commit()
+    cat = bd.catalogue(s)
+    check(len(cat) == 2 and cat[0]["tags"] == ["SEO", "Dentistry"] and cat[0]["title"] == "SEO for a dental clinic", "the catalogue reads the KB's case studies only")
+    ids_ = {c["title"]: c["id"] for c in cat}
+    seen_prompt = []
+
+    def fake_ask(prompt, **kw):
+        seen_prompt.append(prompt)
+        return json.dumps({"who": "Owners of dental clinics", "pains": ["Few new patients from search", "Ads that burn budget", "Cut 40% of costs"],
+                           "case_tags": ["Dentistry", "Invented Tag"], "case_ids": [ids_["SEO for a dental clinic"], 99999],
+                           "offer": "A free mini-audit of your Google Ads"})
+    n_camp = s.query(mdb.MetroCampaign).count()
+    d_ = bd.draft(s, "dental clinics, US", "US/CA", ask=fake_ask)
+    check("dental clinics, US" in seen_prompt[0] and "SEO for a dental clinic" in seen_prompt[0], "the model is given the niche and the case studies")
+    check(d_["case_tags"] == ["Dentistry"], "a tag that is not in the KB is dropped")
+    check(d_["case_studies"] == [{"title": "SEO for a dental clinic", "url": "https://itforce.ua/cases/dental/"}], "case studies come from the KB by id; an unknown id is dropped")
+    check(d_["pains"] == ["Few new patients from search", "Ads that burn budget"], "a pain with a figure is dropped")
+    check(set(bd.STANDING_DO_NOT_CLAIM) <= set(d_["do_not_claim"]) and d_["saved"] is False and len(d_["dropped"]) == 3,
+          f"the standing do-not-claim list is added; the drops are reported ({len(d_['dropped'])})")
+    check(s.query(mdb.MetroCampaign).count() == n_camp, "nothing is saved by drafting")
+    try:
+        bd.draft(s, "  ", ask=fake_ask)
+        ok_ = False
+    except ValueError:
+        ok_ = True
+    check(ok_, "an empty niche is refused before any model call")
+
 print("all passed" if not bad else f"{bad} FAILED")
 sys.exit(1 if bad else 0)

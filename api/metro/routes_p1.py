@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
+from . import aiclient
+from . import briefdraft
 from . import campaigns as camp
 from . import candidates as cand
 from . import leads as leadsmod
@@ -42,6 +44,11 @@ class CampaignPatch(BaseModel):
     brief: dict | None = None
     launch_kit: dict | None = None
     status: str | None = None
+
+
+class DraftBriefIn(BaseModel):
+    niche: str
+    region: str | None = None
 
 
 class ScopeIn(BaseModel):
@@ -94,6 +101,18 @@ def campaigns_create(body: CampaignIn):
         except ValueError as e:
             raise _bad(e)
         return camp.to_dict(s, c)
+
+
+@p1.post("/campaigns/draft-brief")
+def campaigns_draft_brief(body: DraftBriefIn):
+    """Draft a niche brief through /claude from the niche and the KB's case studies. NOTHING is saved."""
+    with Session(get_engine()) as s:
+        try:
+            return briefdraft.draft(s, body.niche, body.region)
+        except ValueError as e:
+            raise _bad(e)
+        except aiclient.AIError as e:
+            raise HTTPException(502, f"the model did not answer: {e}")
 
 
 @p1.get("/campaigns/{cid}")
