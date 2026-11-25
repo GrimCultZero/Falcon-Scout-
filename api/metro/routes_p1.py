@@ -8,14 +8,17 @@ import json
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
+from . import aiclient
+from . import briefdraft
 from . import campaigns as camp
 from . import candidates as cand
 from . import leads as leadsmod
 from . import persona as pe
-from .db import MetroCampaign, MetroImport, MetroLead, MetroSetting, get_engine, utcnow
+from . import removal
+from .db import MetroCampaign, MetroCompany, MetroImport, MetroLead, MetroSetting, get_engine, utcnow
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
@@ -41,6 +44,20 @@ class CampaignPatch(BaseModel):
     brief: dict | None = None
     launch_kit: dict | None = None
     status: str | None = None
+
+
+class DraftBriefIn(BaseModel):
+    niche: str
+    region: str | None = None
+
+
+class ScopeIn(BaseModel):
+    lead_ids: list[int] | None = None
+
+
+class RemoveLeadsIn(BaseModel):
+    lead_ids: list[int]
+    dry_run: bool = False
 
 
 class CheckIn(BaseModel):
@@ -86,6 +103,18 @@ def campaigns_create(body: CampaignIn):
         return camp.to_dict(s, c)
 
 
+@p1.post("/campaigns/draft-brief")
+def campaigns_draft_brief(body: DraftBriefIn):
+    """Draft a niche brief through /claude from the niche and the KB's case studies. NOTHING is saved."""
+    with Session(get_engine()) as s:
+        try:
+            return briefdraft.draft(s, body.niche, body.region)
+        except ValueError as e:
+            raise _bad(e)
+        except aiclient.AIError as e:
+            raise HTTPException(502, f"the model did not answer: {e}")
+
+
 @p1.get("/campaigns/{cid}")
 def campaigns_get(cid: int):
     with Session(get_engine()) as s:
@@ -101,6 +130,32 @@ def campaigns_patch(cid: int, body: CampaignPatch):
         except ValueError as e:
             raise _bad(e)
         return camp.to_dict(s, c)
+
+
+@p1.get("/campaigns/{cid}/delete-preview")
+def campaigns_delete_preview(cid: int):
+    """What deleting this campaign would remove (the confirm pop-up shows these counts)."""
+    with Session(get_engine()) as s:
+        c = _campaign(s, cid)
+        return {**removal.campaign_counts(s, c), "deletable": c.status == "draft"}
+
+
+@p1.delete("/campaigns/{cid}")
+def campaigns_delete(cid: int):
+    """Delete a DRAFT campaign with its leads and import records. Metro's own tables only."""
+    with Session(get_engine()) as s:
+        c = _campaign(s, cid)
+        try:
+            return removal.delete_draft(s, c)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+
+
+@p1.post("/campaigns/{cid}/leads/remove")
+def campaigns_remove_leads(cid: int, body: RemoveLeadsIn):
+    """Remove ticked leads from the campaign (leads with a sent message or a reply are kept)."""
+    with Session(get_engine()) as s:
+        return removal.remove_leads(s, _campaign(s, cid), body.lead_ids, dry_run=body.dry_run)
 
 
 @p1.post("/campaigns/{cid}/start")
@@ -152,10 +207,11 @@ def campaigns_imports(cid: int):
 
 
 @p1.post("/campaigns/{cid}/rescore")
-def campaigns_rescore(cid: int):
-    """Layer 0 again with the persona rules as they are now. Locked and suppressed leads are untouched."""
+def campaigns_rescore(cid: int, body: ScopeIn | None = None):
+    """Layer 0 again with the persona rules as they are now. Locked and suppressed leads are untouched.
+    `lead_ids` limits it to those leads (the app sends the rows it shows)."""
     with Session(get_engine()) as s:
-        return leadsmod.rescore_campaign(s, _campaign(s, cid))
+        return leadsmod.rescore_campaign(s, _campaign(s, cid), lead_ids=(body.lead_ids if body else None))
 
 
 @p1.get("/campaigns/{cid}/pipeline")
@@ -189,35 +245,64 @@ def lead_dict(l: MetroLead) -> dict:
             "connected_at": l.connected_at.isoformat() if l.connected_at else None}
 
 
+def _lead_filter(s: Session, *, campaign_id, status, verdict, invite, has_email, q, enriched):
+    """(base query of the campaign, the same query with every filter applied): the one place the filters live,
+    so "the rows the filters show" means the same thing for the table, the ids and the batch buttons."""
+    base = s.query(MetroLead)
+    if campaign_id is not None:
+        base = base.filter(MetroLead.campaign_id == campaign_id)
+    qq = base
+    if status:
+        qq = qq.filter(MetroLead.status == status)
+    if verdict:
+        qq = qq.filter(MetroLead.persona_verdict == verdict)
+    if invite:
+        qq = qq.filter(MetroLead.invite_status == invite)
+    if has_email is True:
+        qq = qq.filter(MetroLead.email.isnot(None))
+    if has_email is False:
+        qq = qq.filter(MetroLead.email.is_(None))
+    if q and q.strip():
+        like = f"%{q.strip().lower()}%"
+        qq = qq.filter(or_(func.lower(MetroLead.full_name).like(like), func.lower(MetroLead.title).like(like),
+                           func.lower(MetroLead.company_name).like(like), func.lower(MetroLead.location).like(like)))
+    if enriched in ("no", "yes"):
+        qq = qq.join(MetroCompany, MetroCompany.id == MetroLead.company_id)       # a lead without a company cannot be enriched
+        done = or_(MetroCompany.enrich_tried_at.isnot(None), MetroCompany.website_scan_at.isnot(None))
+        qq = qq.filter(done if enriched == "yes" else ~done)
+    return base, qq
+
+
 @p1.get("/leads")
 def leads_list(campaign_id: int | None = None, status: str | None = None, verdict: str | None = None,
                invite: str | None = None, has_email: bool | None = None, q: str | None = None,
+               enriched: str | None = None, keep_first: bool = False,
                sort: str = "persona", limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
     with Session(get_engine()) as s:
-        base = s.query(MetroLead)
-        if campaign_id is not None:
-            base = base.filter(MetroLead.campaign_id == campaign_id)
+        base, qq = _lead_filter(s, campaign_id=campaign_id, status=status, verdict=verdict, invite=invite,
+                                has_email=has_email, q=q, enriched=enriched)
         counts = dict(base.with_entities(MetroLead.status, func.count()).group_by(MetroLead.status).all())
-        qq = base
-        if status:
-            qq = qq.filter(MetroLead.status == status)
-        if verdict:
-            qq = qq.filter(MetroLead.persona_verdict == verdict)
-        if invite:
-            qq = qq.filter(MetroLead.invite_status == invite)
-        if has_email is True:
-            qq = qq.filter(MetroLead.email.isnot(None))
-        if has_email is False:
-            qq = qq.filter(MetroLead.email.is_(None))
-        if q and q.strip():
-            like = f"%{q.strip().lower()}%"
-            qq = qq.filter(or_(func.lower(MetroLead.full_name).like(like), func.lower(MetroLead.title).like(like),
-                               func.lower(MetroLead.company_name).like(like), func.lower(MetroLead.location).like(like)))
         total = qq.count()
         order = {"persona": MetroLead.persona_score.desc(), "name": MetroLead.full_name.asc(),
                  "company": MetroLead.company_name.asc(), "newest": MetroLead.id.desc()}.get(sort, MetroLead.persona_score.desc())
-        rows = qq.order_by(order, MetroLead.id).offset(offset).limit(limit).all()
+        orders = [order, MetroLead.id]
+        if keep_first:          # persona `keep` first, then the chosen sort
+            orders.insert(0, case((MetroLead.persona_verdict == "keep", 0), else_=1))
+        rows = qq.order_by(*orders).offset(offset).limit(limit).all()
         return {"total": total, "counts": counts, "leads": [lead_dict(l) for l in rows]}
+
+
+@p1.get("/leads/ids")
+def leads_ids(campaign_id: int | None = None, status: str | None = None, verdict: str | None = None,
+              invite: str | None = None, has_email: bool | None = None, q: str | None = None,
+              enriched: str | None = None, limit: int = Query(5000, ge=1, le=20000)):
+    """Every lead id the filters show (not just the loaded page): what a card button runs on when nothing is ticked."""
+    with Session(get_engine()) as s:
+        _, qq = _lead_filter(s, campaign_id=campaign_id, status=status, verdict=verdict, invite=invite,
+                             has_email=has_email, q=q, enriched=enriched)
+        total = qq.count()
+        ids = [r[0] for r in qq.with_entities(MetroLead.id).order_by(MetroLead.id).limit(limit).all()]
+        return {"total": total, "ids": ids, "truncated": total > len(ids)}
 
 
 @p1.patch("/leads/{lead_id}")

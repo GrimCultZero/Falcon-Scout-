@@ -3,6 +3,8 @@
 // buttons. Every action applies to the rows the filters show, or to the ticked rows when any are
 // ticked, and each button carries the number it will actually process. Phase 1 has one live action
 // (Import); Enrich is live from Phase 2; Write and Send show their counts and the phase that turns them on.
+// F1 (25 Nov): "what you see runs" is enforced in ONE place, `targetIds()`: ticked rows, else EVERY row the
+// filters show (asked from the backend, not only the loaded page), never the whole campaign.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api.js'
 import { METRO } from '../theme.js'
@@ -13,7 +15,7 @@ import { Btn, Err, Pill, card, input, lineColor } from './ui.jsx'
 const PAGE = 100
 const STATUS_COLOR = { new: METRO.teal, junk: '#b36b00', suppressed: METRO.agencyLine, previously_contacted: '#7a5af8' }
 
-export default function LeadsTab({ campaignId, onCampaign }) {
+export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null, active = true, rev = 0, onCreateCampaign }) {
   const [campaigns, setCampaigns] = useState([])
   const [data, setData] = useState({ total: 0, counts: {}, leads: [] })
   const [pipe, setPipe] = useState(null)
@@ -25,43 +27,94 @@ export default function LeadsTab({ campaignId, onCampaign }) {
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
   const [tick, setTick] = useState(0)
+  const [usable, setUsable] = useState(0)          // usable (status new) leads among the rows the filters show
+  const [remaining, setRemaining] = useState(0)    // of those, the ones whose company is not enriched yet
+  const [confirmRemove, setConfirmRemove] = useState(false)
 
-  useEffect(() => { api('/campaigns').then((j) => setCampaigns(j.campaigns)).catch((e) => setError(e.message)) }, [])
+  // The campaign list is read again every time this tab is shown and after any campaign change (create, delete, edit).
+  const loadCampaigns = useCallback(() => api('/campaigns').then((j) => setCampaigns(j.campaigns)).catch((e) => setError(e.message)), [])
+  useEffect(() => { if (active) loadCampaigns() }, [active, rev, loadCampaigns])
+  // The header line filter: a picked campaign of the other line is not shown (it stays picked for when the filter is cleared).
+  const picked = campaigns.find((c) => c.id === pickedId) || null
+  const campaignId = picked && line && picked.type !== line ? null : pickedId
   const campaign = campaigns.find((c) => c.id === campaignId) || null
+  const listed = campaigns.filter((c) => !line || c.type === line)
+
+  // The filters as query parameters: the same for the table, the ids and the batch buttons.
+  const filterParams = useCallback(() => {
+    const p = new URLSearchParams({ campaign_id: campaignId })
+    for (const k of ['status', 'verdict', 'invite', 'has_email', 'q']) if (f[k] !== '') p.set(k, f[k])
+    return p
+  }, [campaignId, f])
 
   const load = useCallback(async () => {
     if (!campaignId) return
-    const p = new URLSearchParams({ campaign_id: campaignId, limit, sort: f.sort })
-    for (const k of ['status', 'verdict', 'invite', 'has_email', 'q']) if (f[k] !== '') p.set(k, f[k])
+    const p = filterParams()
+    p.set('limit', limit); p.set('sort', f.sort)
+    // usable rows among the shown ones, and how many of those are not enriched yet (status is forced to new)
+    const u = filterParams(); u.set('limit', 1)
+    const noStatus = f.status !== '' && f.status !== 'new'
+    u.set('status', 'new')
+    const r = new URLSearchParams(u); r.set('enriched', 'no')
     try {
-      const [d, pl] = await Promise.all([api(`/leads?${p}`), api(`/campaigns/${campaignId}/pipeline`)])
-      setData(d); setPipe(pl); setError('')
+      const [d, pl, uu, rr] = await Promise.all([api(`/leads?${p}`), api(`/campaigns/${campaignId}/pipeline`),
+        noStatus ? { total: 0 } : api(`/leads?${u}`), noStatus ? { total: 0 } : api(`/leads?${r}`)])
+      setData(d); setPipe(pl); setUsable(uu.total); setRemaining(rr.total); setError('')
     } catch (e) { setError(e.message) }
-  }, [campaignId, f, limit])
+  }, [campaignId, f, limit, filterParams])
   useEffect(() => { const t = setTimeout(load, f.q ? 250 : 0); return () => clearTimeout(t) }, [load])
   useEffect(() => { setTicked(new Set()) }, [campaignId, f.status, f.verdict, f.invite, f.has_email, f.q])
 
   const shown = data.leads
   const scope = ticked.size > 0 ? { n: ticked.size, what: 'ticked' } : { n: data.total, what: 'shown' }
-  const eligible = useMemo(() => {
-    const rows = ticked.size ? shown.filter((l) => ticked.has(l.id)) : shown
-    return rows.filter((l) => l.status === 'new').length
-  }, [shown, ticked])
+  // How many a card button will really process: ticked rows that are usable, else the usable rows the filters show.
+  const eligible = useMemo(() => (ticked.size ? shown.filter((l) => ticked.has(l.id) && l.status === 'new').length : usable),
+    [shown, ticked, usable])
+
+  // WHAT YOU SEE RUNS: the ticked ids, else every id the filters show. Never the whole campaign.
+  const targetIds = useCallback(async () => {
+    if (ticked.size) return [...ticked]
+    const r = await api(`/leads/ids?${filterParams()}`)
+    return r.ids
+  }, [ticked, filterParams])
 
   const decide = async (l, decision) => {
     try { await api(`/leads/${l.id}`, { method: 'PATCH', json: { decision } }); load() } catch (e) { setError(e.message) }
   }
   const rescore = async () => {
-    try { const r = await api(`/campaigns/${campaignId}/rescore`, { method: 'POST' }); setNote(`Rescored: ${r.changed || 0} changed`); load() }
-    catch (e) { setError(e.message) }
+    try {
+      const ids = await targetIds()
+      if (!ids.length) { setNote('No leads shown'); return }
+      const r = await api(`/campaigns/${campaignId}/rescore`, { method: 'POST', json: { lead_ids: ids } })
+      setNote(`Rescored ${ids.length}: ${r.changed || 0} changed`); load()
+    } catch (e) { setError(e.message) }
   }
-  const enrich = async () => {
-    const ids = ticked.size ? [...ticked] : null
+  const runEnrich = async (ids) => {
+    if (!ids.length) { setNote('Nothing to enrich in this view'); return }
     try {
       const r = await api(`/campaigns/${campaignId}/enrich`, { method: 'POST', json: { lead_ids: ids } })
       setNote(r.started ? `Enriching ${r.total} companies (domain, website scan, PageSpeed; browser reads are queued)` : r.reason)
-      setTick((x) => x + 1)
+      setError(''); setTick((x) => x + 1); load()
     } catch (e) { setError(e.message) }
+  }
+  const enrich = async () => {
+    try { await runEnrich(await targetIds()) } catch (e) { setError(e.message) }
+  }
+  // "Enrich next N": the best-scored usable leads of the current filter and sort whose company is not enriched yet, persona keep first.
+  const enrichNext = async (n) => {
+    try {
+      const p = filterParams()
+      p.set('status', 'new'); p.set('enriched', 'no'); p.set('keep_first', 'true'); p.set('sort', f.sort); p.set('limit', n)
+      const r = await api(`/leads?${p}`)
+      await runEnrich(r.leads.map((l) => l.id))
+    } catch (e) { setError(e.message) }
+  }
+  const removeTicked = async () => {
+    try {
+      const r = await api(`/campaigns/${campaignId}/leads/remove`, { method: 'POST', json: { lead_ids: [...ticked] } })
+      setNote(`Removed ${r.removed} lead${r.removed === 1 ? '' : 's'}${r.kept_with_history ? `; ${r.kept_with_history} kept (a message was sent or a reply came)` : ''}`)
+      setConfirmRemove(false); setTicked(new Set()); load(); loadCampaigns()
+    } catch (e) { setError(e.message); setConfirmRemove(false) }
   }
   const toggleAll = () => setTicked(ticked.size === shown.length ? new Set() : new Set(shown.map((l) => l.id)))
 
@@ -74,13 +127,18 @@ export default function LeadsTab({ campaignId, onCampaign }) {
         <select style={{ ...sel, minWidth: 240, fontWeight: 700 }} value={campaignId || ''} data-testid="leads-campaign"
           onChange={(e) => onCampaign(Number(e.target.value) || null)}>
           <option value="">Choose a campaign...</option>
-          {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.leads})</option>)}
+          {listed.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.leads})</option>)}
         </select>
         {campaign && <Pill color={lineColor(campaign.type)}>{campaign.type} · {campaign.status}</Pill>}
         <Err error={error} />
       </div>
 
-      {!campaignId && <div style={{ ...card, fontSize: 13 }}>Choose a campaign (or create one in Campaigns) to see its leads and import a list.</div>}
+      {!campaignId && (
+        <div style={{ ...card, fontSize: 13, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }} data-testid="leads-empty">
+          <span>{listed.length ? 'Choose a campaign above to see its leads and import a list, or start a new one.' : 'No campaign yet. Create one to import a list into.'}</span>
+          <Btn onClick={() => onCreateCampaign?.()} data-testid="create-campaign">Create campaign</Btn>
+        </div>
+      )}
 
       {campaignId && pipe && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }} data-testid="pipeline">
@@ -89,7 +147,14 @@ export default function LeadsTab({ campaignId, onCampaign }) {
             <Btn small onClick={() => setShowImport(true)} data-testid="open-import">Import CSV</Btn>
           </Stage>
           <Stage n="2" title="Enrich" line={`${pipe.enrich.ready} ready`} sub="Domain, website scan, PageSpeed; then browser reads">
-            <Btn small onClick={enrich} disabled={eligible === 0} title="Domain, website scan and PageSpeed run on the backend, paced and cached per domain. Browser reads are queued and run only in a Metro week." data-testid="enrich-btn">{`Enrich ${eligible} ${scope.what}`}</Btn>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <Btn small onClick={enrich} disabled={eligible === 0} title="Domain, website scan and PageSpeed run on the backend, paced and cached per domain. Browser reads are queued and run only in a Metro week. Runs on the ticked rows, or on every row the filters show." data-testid="enrich-btn">{`Enrich ${eligible} ${scope.what}`}</Btn>
+              {[20, 50].map((n) => (
+                <Btn key={n} small kind="ghost" onClick={() => enrichNext(n)} disabled={remaining === 0} data-testid={`enrich-next-${n}`}
+                  title="The best-scored leads in the current filter and sort whose company is not enriched yet (persona keep first)">{`Enrich next ${Math.min(n, remaining)}`}</Btn>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: 'rgba(0,12,14,0.6)', marginTop: 4 }} data-testid="enrich-remaining">{remaining} not enriched yet in this view</div>
           </Stage>
           <Stage n="3" title="Write" line={`${pipe.write.ready} ready`} sub={`Phase ${pipe.write.phase}`}>
             <Btn small disabled title="Chain writing arrives in Phase 3">{`Write 0 ${scope.what}`}</Btn>
@@ -100,7 +165,8 @@ export default function LeadsTab({ campaignId, onCampaign }) {
         </div>
       )}
 
-      {campaignId && campaign && <EnrichPanel campaign={campaign} refreshKey={tick} onChanged={load} />}
+      {campaignId && campaign && <EnrichPanel campaign={campaign} refreshKey={tick} onChanged={load} targetIds={targetIds}
+        scope={scope} ticked={ticked.size > 0} />}
 
       {campaignId && (
         <div style={card}>
@@ -125,7 +191,14 @@ export default function LeadsTab({ campaignId, onCampaign }) {
             <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700 }} data-testid="scope">
               {scope.n} {scope.what}{ticked.size ? ' (ticked)' : ''}
             </span>
-            <Btn kind="ghost" small onClick={rescore} title="Run layer 0 again with the current persona rules">Rescore</Btn>
+            <Btn kind="ghost" small onClick={rescore} title="Run layer 0 again with the current persona rules, on the ticked rows or the rows shown">Rescore</Btn>
+            {ticked.size > 0 && !confirmRemove && <Btn kind="ghost" small onClick={() => setConfirmRemove(true)} data-testid="remove-ticked">{`Remove ${ticked.size} ticked`}</Btn>}
+            {confirmRemove && (
+              <span role="dialog" aria-label="Remove leads" data-testid="remove-dialog" style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12, border: `1px solid ${METRO.agencyLine}`, borderRadius: 8, padding: '3px 8px' }}>
+                Remove {ticked.size} lead{ticked.size === 1 ? '' : 's'} from this campaign? Not undoable.
+                <Btn small onClick={removeTicked} data-testid="confirm-remove">Remove</Btn><Btn small kind="ghost" onClick={() => setConfirmRemove(false)}>Keep</Btn>
+              </span>
+            )}
             {note && <span style={{ fontSize: 12, color: '#1a9d5c' }}>{note}</span>}
           </div>
 
@@ -179,7 +252,7 @@ export default function LeadsTab({ campaignId, onCampaign }) {
       )}
 
       {showImport && campaign && <ImportDialog campaign={campaign} onClose={() => setShowImport(false)}
-        onDone={() => { load(); api('/campaigns').then((j) => setCampaigns(j.campaigns)) }} />}
+        onDone={() => { load(); loadCampaigns() }} />}
     </div>
   )
 }

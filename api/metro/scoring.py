@@ -228,10 +228,14 @@ def score_lead(s: Session, lead: MetroLead, campaign_type: str, *, rules: dict |
     return {"fit": l1, "deep": l2}
 
 
-def score_campaign(s: Session, campaign, *, rules: dict | None = None) -> dict:
+def score_campaign(s: Session, campaign, *, rules: dict | None = None, lead_ids: list[int] | None = None) -> dict:
+    """Layer 1 and 2 for the campaign's usable leads; `lead_ids` (an explicit list, possibly empty) limits it to those."""
     rules = rules or rules_of(s)
     n = 0
-    for lead in s.query(MetroLead).filter(MetroLead.campaign_id == campaign.id, MetroLead.status.in_(("new", "junk"))).all():
+    q = s.query(MetroLead).filter(MetroLead.campaign_id == campaign.id, MetroLead.status.in_(("new", "junk")))
+    if lead_ids is not None:
+        q = q.filter(MetroLead.id.in_(lead_ids))
+    for lead in q.all():
         score_lead(s, lead, campaign.type, rules=rules)
         n += 1
     s.commit()

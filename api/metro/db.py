@@ -77,6 +77,7 @@ class MetroCompany(MetroBase):
     ahrefs_at = Column(DateTime, nullable=True)
     linkedin_page_json = Column(Text, nullable=True)
     linkedin_page_at = Column(DateTime, nullable=True)
+    enrich_tried_at = Column(DateTime, nullable=True)            # an enrichment pass was attempted (F1: "not enriched yet")
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

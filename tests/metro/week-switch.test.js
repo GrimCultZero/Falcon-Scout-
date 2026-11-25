@@ -17,7 +17,7 @@ assert(/role="dialog"/.test(w) && /data-testid="week-dialog"/.test(w), 'a pop-up
 assert(/confirmed: true/.test(w) && /onClick=\{confirm\}/.test(w) && !/onClick=\{show\}[^]*confirmed: true[^]*onClick=\{show\}/.test(w), 'the switch is sent only from the confirm button')
 assert(/api\('\/week\/check'\)/.test(w) && /target === 'metro'/.test(w), 'entering a Metro week asks the backend about Linked Helper first')
 assert(/disabled=\{busy \|\| blocked\}/.test(w) && /!check\.readable \|\| check\.linked_helper_running\.length > 0/.test(w), 'the confirm button is disabled while Linked Helper runs or the process list is unreadable')
-assert(/no scrape jobs at all/.test(w) && /Messages and reply checks are not affected/.test(w), 'the pop-up says what a Linked Helper week means')
+assert(/no LinkedIn jobs at all/.test(w) && /Messages and reply checks are not affected/.test(w), 'the pop-up says what a Linked Helper week means')
 const app = read('MetroApp.jsx')
 assert(/<WeekSwitch/.test(app) && /\/metro\/week/.test(app) && /Visits \{week\?\.visits \?\? 0\} of \{week\?\.cap \?\? 60\}/.test(app), 'the header shows the week switch and the backend visit counter against the cap')
 assert(!/A placeholder until Phase 2/.test(app), 'the visits chip is no longer a placeholder')

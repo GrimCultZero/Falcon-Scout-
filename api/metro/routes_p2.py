@@ -177,9 +177,10 @@ def jobs_summary(campaign_id: int | None = None):
 # ───────────────────────── enrichment, scores, shortlist ─────────────────────────
 
 class RunIn(BaseModel):
-    lead_ids: list[int] | None = None
+    lead_ids: list[int] | None = None         # None = the whole campaign (API callers); the app always sends the rows it shows
     limit: int | None = None
     use_ai: bool = True
+    shortlist_only: bool = False              # hooks: keep only the shortlisted among lead_ids
 
 
 @p2.post("/campaigns/{cid}/enrich")
@@ -203,9 +204,9 @@ def enrich_stop():
 
 
 @p2.post("/campaigns/{cid}/score")
-def campaign_score(cid: int):
+def campaign_score(cid: int, body: RunIn | None = None):
     with Session(get_engine()) as s:
-        return sc.score_campaign(s, _campaign(s, cid))
+        return sc.score_campaign(s, _campaign(s, cid), lead_ids=(body.lead_ids if body else None))
 
 
 @p2.post("/campaigns/{cid}/deep")
@@ -270,9 +271,11 @@ def campaign_hooks(cid: int, body: RunIn | None = None):
         c = _campaign(s, cid)
         threshold = float(get_setting(s, "shortlist_min_fit", 50))
         q = s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.status == "new")
-        if body.lead_ids:
+        if body.lead_ids is not None:
             q = q.filter(MetroLead.id.in_(body.lead_ids))
-        ids = [l.id for l in q.all() if sc.shortlist_filter(l, threshold) or body.lead_ids]
+        # ticked leads are the person's own choice (they bypass the threshold); rows merely shown are shortlisted only
+        explicit = body.lead_ids is not None and not body.shortlist_only
+        ids = [l.id for l in q.all() if sc.shortlist_filter(l, threshold) or explicit]
         if body.limit:
             ids = ids[:body.limit]
     if not ids:

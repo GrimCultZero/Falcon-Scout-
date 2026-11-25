@@ -19,7 +19,7 @@ Falcon Scout gets a second half, **Metro**: outbound to white-label agency partn
 | Where and name | Inside Falcon Scout as a walled-off module named **Metro**; header switch **Falcon Scout \| Metro**, each side with its own tabs. Metro's logo is a metro wagon carrying the IT Force mark; IT Force colours (ink #000c0e, teal #005669, cyan #37bbd5, ice #eaf6f9) and the Manrope typeface. Agency line colour: red #e6261f; niche line: cyan |
 | DevScout code | Free to copy and adapt; pure logic and the extension are lifted with their tests; storage goes through Falcon Scout's backend |
 | LinkedIn sending | Linked Helper sends connection requests; Metro sends messages after acceptance and checks replies; Linked Helper CSV (custom variables) is the fallback |
-| LinkedIn safety | Alternating weeks. In a Linked Helper week no scraping (pop-up confirm + a check that the Linked Helper program is closed); messages and reply checks are always allowed. Scraping cap 60/day default, adjustable to 80 |
+| LinkedIn safety | Alternating weeks. In a Linked Helper week no LinkedIn visits (pop-up confirm + a check that the Linked Helper program is closed); messages and reply checks are always allowed. Scraping cap 60/day default, adjustable to 80 |
 | Accounts | Artem's account is the only messenger; extra accounts later are scraper-only; one Chrome profile per account |
 | Email | IMAP/SMTP on the itforce.ua mailbox (hosting at Ukraine.com.ua; SPF, DKIM, DMARC pass; mail-tester 10/10); plain text; start at up to 20-30/day |
 | Campaigns | Two types: Agency (US/Canada, then Europe) and Niche (one per month, with a niche brief); months alternate; a lead or company is in one active campaign at a time |
@@ -65,7 +65,7 @@ One FastAPI process (`:8000`) and one SQLite file hold all Metro data, so every 
 ### Accounts and weeks
 
 - The backend hands scrape jobs to whichever scraper account has visits left today; message and reply jobs go only to Artem's account.
-- Week mode is a switch in the Metro header. In a Linked Helper week the backend issues no scrape jobs at all; messages and reply checks still run.
+- Week mode is a switch in the Metro header. In a Linked Helper week the backend issues no LinkedIn job (profile or company page); jobs that never touch LinkedIn (Ads Transparency, Google Maps / Business Profile, Ahrefs) still run (changed 25 Nov, task F1); messages and reply checks still run.
 
 ## What to copy from DevScout, and what to rewrite
 
@@ -129,7 +129,7 @@ Seven phases. After Phase 3 the first campaign can run, with sending through Lin
 8. Email-finder round trip: export the shortlist's profile URLs; import Linked Helper / Apollo results; keep only verified addresses for email.
 
 **Phase 2 as built (24 Nov, Oleh's answers):**
-- Week mode: a switch in the Metro header with a confirm pop-up in both directions. Entering a Metro week also checks the Windows process list for Linked Helper (`linked-helper.exe`, a setting); a running Linked Helper or an unreadable list refuses the switch. In a Linked Helper week the backend hands out **no extension job at all** (LinkedIn, Ads Transparency, Business Profile, Ahrefs). The backend's own website scan and PageSpeed make no LinkedIn visit and are not affected.
+- Week mode: a switch in the Metro header with a confirm pop-up in both directions. Entering a Metro week also checks the Windows process list for Linked Helper (`linked-helper.exe`, a setting); a running Linked Helper or an unreadable list refuses the switch. In a Linked Helper week the backend hands out **no LinkedIn job** (profile or company page); Ads Transparency, Google Maps / Business Profile and Ahrefs jobs still run, because they never touch LinkedIn (changed 25 Nov, F1; Phase 2 first blocked every extension job). The extension repeats the check by itself and asks the backend only for the kinds it may run. The backend's own website scan and PageSpeed make no LinkedIn visit and are not affected.
 - Each LinkedIn visit is counted **before** the job is handed out, per account and Kyiv day; the default cap is 60 and no setting can raise it above 80. Jobs are paced (30-75 s between LinkedIn pages) and Ahrefs runs in short batches (15 a day on the shared Standard seat, Oleh's own seat in his browser).
 - Website scan and PageSpeed run on the backend (paced, cached per domain, lifetimes in Settings). Ads Transparency, Business Profile, Ahrefs and the LinkedIn pages are read in Oleh's Chrome by the new `metro-linkedin/` extension (Google Business Profile is read from Maps in the browser; Google's Places API is a paid service and is not used). Domain resolution: CSV, email finder, AI lookup (the model only proposes; the site must carry the company name), LinkedIn company page.
 - Hooks are written through `/claude` from a numbered evidence list of stored fields; code throws away any hook with an invented number, a URL, a price, hedged wording, a do-not-claim phrase or an evidence id that does not exist.

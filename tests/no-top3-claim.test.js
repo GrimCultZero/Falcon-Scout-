@@ -31,7 +31,16 @@ function walk(dir, exts, out = []) {
     ...walk(path.join(ROOT, 'upwork-enricher'), ['.js']),
     path.join(ROOT, 'cli-bridge.js'),
   ].filter(f => fs.existsSync(f));
-  const hits = files.filter(f => CLAIM.test(fs.readFileSync(f, 'utf8'))).map(f => path.relative(ROOT, f));
+  // Metro's campaign briefs carry "Top 3% of Google Partners" as a DO NOT CLAIM entry (owner's brief, 2026-11-25).
+  // These two files only list it as forbidden; they never say it.
+  const FORBIDDEN_LIST = [path.join('frontend', 'src', 'metro', 'lib', 'templates.js'), path.join('api', 'metro', 'briefdraft.py')];
+  const hits = files.filter(f => !FORBIDDEN_LIST.includes(path.relative(ROOT, f)))
+    .filter(f => CLAIM.test(fs.readFileSync(f, 'utf8'))).map(f => path.relative(ROOT, f));
+  for (const f of FORBIDDEN_LIST) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const rest = src.split(/\r?\n/).filter(l => !/do_not_claim|DO_NOT_CLAIM|['"]Top 3% of Google Partners['"]/i.test(l)).join('\n');
+    assert(!CLAIM.test(rest), `${f} mentions Top 3% only inside the do-not-claim list`);
+  }
   assert(files.length > 40, `scanned ${files.length} prompt / guard / lib / backend / extension sources`);
   assert(hits.length === 0, `no source contains "Top 3%" (found in: ${hits.join(', ') || 'none'})`);
 

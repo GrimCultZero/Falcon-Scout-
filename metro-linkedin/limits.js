@@ -42,7 +42,7 @@
   function refuse(job, state) {
     if (!job || typeof job !== 'object') return 'no job'
     if (!JOB_KINDS.includes(job.kind)) return 'unknown job kind'
-    if (state && state.week_mode && state.week_mode !== 'metro') return 'Linked Helper week'
+    if (LINKEDIN_KINDS.includes(job.kind) && state && state.week_mode && state.week_mode !== 'metro') return 'Linked Helper week'
     if (LINKEDIN_KINDS.includes(job.kind) && state && Number.isFinite(state.visits_today) && Number.isFinite(state.cap)
         && state.visits_today > Math.min(state.cap, HARD_MAX_VISITS)) return 'daily visit cap'
     if (!urlFor(job.kind, job.target)) return 'target does not look right for this kind of job'
