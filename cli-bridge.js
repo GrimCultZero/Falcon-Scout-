@@ -75,6 +75,11 @@ const EMPTY_TOOL_LIST = process.platform === 'win32' ? '""' : '';
 const CLAUDE_ARGS_BASE = ['-p', '--tools', EMPTY_TOOL_LIST, '--permission-mode', 'dontAsk',
   '--strict-mcp-config', '--disable-slash-commands'];
 
+// A call that sets `web: true` (Metro's domain finder) may search and read the web and still nothing else:
+// the tool list is exactly WebSearch + WebFetch, both read-only, no files, no shell, no MCP.
+const CLAUDE_ARGS_WEB = ['-p', '--tools', 'WebSearch,WebFetch', '--allowedTools', 'WebSearch,WebFetch', '--permission-mode', 'dontAsk',
+  '--strict-mcp-config', '--disable-slash-commands'];
+
 function tokenOk(req) {
   const got = req.headers['x-falcon-token'];
   if (typeof got !== 'string' || !got) return false;
@@ -185,8 +190,8 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       if (tooBig) return;
       const body = Buffer.concat(chunks).toString('utf8');
-      let prompt, reqModel;
-      try { const b = JSON.parse(body); prompt = b.prompt; reqModel = b.model; } catch { prompt = body; }
+      let prompt, reqModel, web = false;
+      try { const b = JSON.parse(body); prompt = b.prompt; reqModel = b.model; web = b.web === true; } catch { prompt = body; }
 
       if (!prompt || typeof prompt !== 'string') {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -201,7 +206,7 @@ const server = http.createServer((req, res) => {
       const modelAlias = /haiku/i.test(reqModel || '') ? 'haiku'
                        : /opus/i.test(reqModel || '') ? 'opus'
                        : 'sonnet';
-      console.log(`→ ${prompt.length} chars  model=${modelAlias}${reqModel ? ` (req ${reqModel})` : ''}`);
+      console.log(`→ ${prompt.length} chars  model=${modelAlias}${reqModel ? ` (req ${reqModel})` : ''}${web ? '  WEB (search + fetch only)' : ''}`);
 
       // On Windows `claude` is a .cmd shim — Node's spawn won't resolve it
       // without shell:true. The prompt goes via stdin (not argv), so there's
@@ -212,7 +217,7 @@ const server = http.createServer((req, res) => {
       // --disable-slash-commands → skip skill discovery.
       // cwd = neutral dir → skip project CLAUDE.md auto-injection.
       // All pure text-in/text-out; no tools needed for analyse/generate.
-      const child = spawn(CLAUDE_BIN, [...CLAUDE_ARGS_BASE, '--model', modelAlias], {
+      const child = spawn(CLAUDE_BIN, [...(web ? CLAUDE_ARGS_WEB : CLAUDE_ARGS_BASE), '--model', modelAlias], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, CLAUDE_CONFIG_DIR: ARTEM_CONFIG_DIR },
         shell: isWin,

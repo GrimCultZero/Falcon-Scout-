@@ -1,62 +1,65 @@
 # Current Metro task
 
 Written by the planning chat. Replaced for every new task (git history keeps the old ones).
-Model: Sonnet 5.5 · Effort: medium · New session: yes
-Task id: F1 (fixes from Oleh's first live test, 25 Nov) · Written: 2026-11-25 14:00 Kyiv
+Model: Sonnet 5.5 · Effort: high · New session: yes
+Task id: F2 (domain finder, progress bar, fixes from the 25 Nov live run) · Written: 2026-11-25 15:05 Kyiv
 
-## Before anything
-Read CLAUDE.md, METRO_PLAN.md and the newest entry of METRO_HANDOFF.md. Work on a branch metro/fix-1
-from main. Show Oleh your plan as a short list and wait for his OK.
+## How to work
+Read CLAUDE.md, METRO_PLAN.md and the newest entry of METRO_HANDOFF.md. Branch metro/fix-2 from main.
+Start right away, no plan approval needed. Anything you decide yourself or want to ask goes into the
+handoff entry. Stop and ask only if something would break a Hard rule in METRO_PLAN.md.
 
-## What the live test showed
-Oleh created campaign "US CAN agencies" and imported a Linked Helper export of the running campaign
-"USA CAN Claude" (`Profiles downloaded ... 2026-11-25T11-45-06.118Z.csv`, 326 rows, `;`). In that export
-324 of 326 rows carry only `profile_url` (Sales Navigator URL) and `member_id`: Linked Helper has not
-visited those profiles yet, so names, titles, companies and locations are empty, and it is the
-"Profiles to process" tab, so no invite/connect dates. All 326 member ids are in
-`Claude outputs/US_CA_agency_owners_TierA.csv` (495 rows, full names, headline, company, location).
-Metro now shows 326 "(no name)" leads.
+## What the live run showed (campaign "USA CAN Agency Claude 1", 495 leads from TierA)
+"Enrich next 20" finished, but 19 of 20 companies got NO domain, so no scan and no fit score. Only
+FIREBELLY Marketing resolved (ai-lookup); its ads and Business Profile readings worked. Causes:
+TierA has no company website; no emails yet; the AI lookup asks Haiku from memory with no web search
+and "do not guess", so it returns null for small agencies (about 1.5 s each); the LinkedIn company page
+is queued only when company.linkedin_url is known, and TierA only has the person's profile URL.
+`enrich_tried_at` is now set on those 19, so "Enrich next N" skips them.
 
-## Fixes (do all; one commit per numbered item is fine)
-1. Re-import fills gaps: when an imported row matches an existing lead in the campaign, fill every
-   EMPTY field (name, title, headline, company, location, profile URL forms, email) from the new row;
-   never overwrite a non-empty value; status still only moves forward. Report "filled" in the import
-   summary. So importing TierA into the campaign fills the 326 and adds the other 169.
-2. Linked Helper import accepts Sales Navigator profile URLs (`/sales/people/<id>,...`) and the
-   `member_id`, and matches them to leads imported from other files by member id.
-3. Delete: a campaign in `draft` can be deleted (with its leads and import records, after a confirm
-   that shows the counts); and ticked leads can be removed from a campaign. Never touches other tables.
-4. Leads tab bug: the campaign list does not refresh after a campaign is created in Campaigns (the
-   new campaign was missing from the drop-down until F5). Refresh it whenever the Leads tab is shown
-   and after any campaign change.
-5. Enrich with nothing ticked must act on the rows the filters SHOW, never the whole campaign
-   ("what you see runs"). Same check for Score, Write and every other card action.
-6. Batch buttons on the Enrich card: "Enrich next 20" and "Enrich next 50" = the best-scored leads in
-   the current filter and sort that are not enriched yet (persona `keep` first). Show how many remain.
-7. Empty Leads page: a "Create campaign" button, not only a sentence pointing to the other tab.
-8. Header legend "Agency line / Niche line" becomes a filter: click one to show only that type in
-   Campaigns and Leads, click again for both; the active one is visibly selected.
-9. Campaign templates: "New campaign" asks agency or niche; agency arrives pre-filled with this brief
-   (editable):
-   - Who: Owners, founders and managing partners of small digital marketing agencies (1-50 people)
-     that sell Google Ads, SEO or web services to their own clients.
-   - Pains: They sell more Google Ads and SEO work than their team can deliver / A client needs deeper
-     technical SEO or Google Ads expertise than they have in-house / Hiring senior PPC or SEO
-     specialists is slow and expensive / They need reliable white-label delivery that never contacts
-     their client.
-   - Do not claim: Top 3% of Google Partners / Any number of years other than "since 2015" /
-     Guaranteed results or rankings / Client names without permission / Prices or rates.
-   - Offer: Send us one client you're struggling to deliver for and we'll scope it, or start with a
-     free pilot audit, delivered under your brand.
-   Niche campaigns get a "Draft the brief" button: Oleh types the niche ("dental clinics, US"), the
-   brief is drafted through /claude from the niche and IT Force's case studies for that industry,
-   and Oleh edits it. Nothing is saved until he does.
-10. Linked Helper week: allow extension jobs that never touch LinkedIn (Ads Transparency, Google
-    Maps / Business Profile, Ahrefs); keep blocking every LinkedIn job. Update METRO_PLAN.md.
+## 1. Domain finder (the main item)
+Resolve a company's domain in this order, cheapest first, and accept a candidate ONLY when
+`verify_domain_matches_name` passes on the fetched site (keep that rule; tighten it if needed so a
+parked or for-sale page never passes):
+  a. CSV / email-finder export / existing data (as now).
+  b. Name patterns: from the company name build at most 6 candidates (e.g. "FIREBELLY Marketing" ->
+     firebellymarketing.com, firebelly.com, firebelly-marketing.com; drop legal and generic suffix
+     words such as LLC, Inc, Agency, Marketing, Digital, Group in some variants; .ca as well for
+     Canadian locations). Fetch paced, stop at the first verified hit. Source label `name-pattern`.
+  c. AI lookup WITH web search through the existing /claude path on the CLI bridge (check how
+     cli-bridge.js and DevScout's `web: true` do it; on the API provider use the web search tool only if
+     it is already enabled there; no new paid service). Sonnet, not Haiku. Same verification.
+     Log the real reason when it fails (bridge error, no answer, rejected) instead of swallowing it.
+  d. LinkedIn, Metro weeks only, counted against visits: a `linkedin_profile` job on the lead's
+     profile reads the current company's LinkedIn URL; then the existing `linkedin_company` job reads
+     the website from the company page. Queue this only for leads with persona `keep`.
+Show per company in the UI why a domain is missing ("tried: name-pattern x6, ai: no answer, linkedin:
+queued") and a "Retry domain" action. Migration: clear `enrich_tried_at` on companies that have no
+domain, so the 19 are eligible again. Tests with stub fetchers; then one live run on a COPY of the
+live DB for the 19 real companies (real site fetches are fine; report how many resolve and by which
+step; no LinkedIn jobs in that run).
+
+## 2. Progress bar (copy DevScout, adapt to Metro)
+Copy DevScout's `src/components/ProgressDock.jsx` and `src/utils/progressJobs.js`
+(C:\Users\syzov\baba-leada, read-only) into frontend/src/metro, restyle in Metro colours. One dock for
+every long Metro action: import, enrich and "Enrich next N", score, deep readings (follow the
+extension jobs as they come back), hooks, email import, and later write and send. A colour-filling bar
+when the total is known, an indeterminate bar with elapsed time when not; the current item by name
+("Enriching: Rank Media Agency, 7 of 20 - website scan"); ETA; Stop where an abort exists; a one-line
+result at the end ("Enriched 20 - 17 domains found, 3 not found"). The backend owns progress: expose a
+progress endpoint per run so the dock survives a tab reload and shows a run that is still going.
+
+## 3. Small fixes from the same run
+- Rename the buttons so it is clear which score they compute: persona (on import) vs fit
+  ("Score fit N shown").
+- "Enrich next 20" becomes the primary button on the Enrich card; "Enrich all shown" asks for a
+  confirm above 50 leads, showing the count.
+- After an enrich run, flag the leads it touched (a "just enriched" filter or sort), so they are easy
+  to find in a list sorted by persona.
+- The Linked Helper email export follows "what you see runs" (ticked rows, else the shown rows that are
+  shortlisted), like every other button.
 
 ## Finish
-Run both test suites (add tests for 1, 2, 3, 5, 6, 10). Write the checks in WORKLOG.md, commit
-(including this file), push, merge into main if all tests pass, rebuild frontend/dist, tell Oleh to
-restart falconscout.bat. Then tell Oleh in the handoff exactly how to redo the import:
-delete the draft campaign, create "USA CAN Claude" (agency, US/CA), import TierA first, then the
-Linked Helper export(s). As the very last step append your entry to METRO_HANDOFF.md.
+Run both test suites. Write the checks in WORKLOG.md, commit (including this file), push, merge into
+main if all tests pass, rebuild frontend/dist, tell Oleh to restart falconscout.bat. As the very last
+step append your entry to METRO_HANDOFF.md, including the domain-finder numbers from the live copy run.

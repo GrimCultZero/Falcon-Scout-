@@ -67,7 +67,10 @@ function request(port, { method = 'GET', urlPath = '/ping', headers = {}, body =
     'claude -p is spawned with an empty --tools list and --permission-mode dontAsk');
   assert(/EMPTY_TOOL_LIST = process\.platform === 'win32' \? '""' : ''/.test(src),
     'on Windows the empty list is a literal "" so cmd.exe does not drop it');
-  assert(/spawn\(CLAUDE_BIN, \[\.\.\.CLAUDE_ARGS_BASE,/.test(src), 'the spawn uses CLAUDE_ARGS_BASE');
+  // F2 (25 Nov 2026): ONE caller kind may search the web (Metro's domain finder, `web: true` in the /ai body). Its tool list is exactly
+  // WebSearch + WebFetch (read-only, no files, no shell, no MCP); anything that does not set web === true keeps the empty list.
+  assert(/spawn\(CLAUDE_BIN, \[\.\.\.\(web \? CLAUDE_ARGS_WEB : CLAUDE_ARGS_BASE\), /.test(src) && /web = b\.web === true/.test(src), 'the spawn uses CLAUDE_ARGS_BASE unless the body says web === true');
+  assert(/CLAUDE_ARGS_WEB = \['-p', '--tools', 'WebSearch,WebFetch', '--allowedTools', 'WebSearch,WebFetch', '--permission-mode', 'dontAsk',/.test(src), 'the web mode has exactly WebSearch and WebFetch, still dontAsk');
   assert(/CLAUDE_BIN = process\.env\.FALCON_BRIDGE_CLAUDE_BIN \|\| 'claude'/.test(src),
     'CLAUDE_BIN defaults to the real claude CLI -- the test override is opt-in only, never set in a real launch');
 

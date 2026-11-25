@@ -19,7 +19,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
   const [campaigns, setCampaigns] = useState([])
   const [data, setData] = useState({ total: 0, counts: {}, leads: [] })
   const [pipe, setPipe] = useState(null)
-  const [f, setF] = useState({ status: '', verdict: '', invite: '', has_email: '', q: '', sort: 'persona' })
+  const [f, setF] = useState({ status: '', verdict: '', invite: '', has_email: '', q: '', enriched: '', sort: 'persona' })
   const [ticked, setTicked] = useState(new Set())
   const [limit, setLimit] = useState(PAGE)
   const [showImport, setShowImport] = useState(false)
@@ -29,6 +29,9 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
   const [tick, setTick] = useState(0)
   const [usable, setUsable] = useState(0)          // usable (status new) leads among the rows the filters show
   const [remaining, setRemaining] = useState(0)    // of those, the ones whose company is not enriched yet
+  const [noDomain, setNoDomain] = useState(0)      // of the usable rows shown, the ones whose company has no domain
+  const [lastRun, setLastRun] = useState(null)     // when the last enrich run started (the "just enriched" mark)
+  const [confirmAll, setConfirmAll] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
 
   // The campaign list is read again every time this tab is shown and after any campaign change (create, delete, edit).
@@ -43,7 +46,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
   // The filters as query parameters: the same for the table, the ids and the batch buttons.
   const filterParams = useCallback(() => {
     const p = new URLSearchParams({ campaign_id: campaignId })
-    for (const k of ['status', 'verdict', 'invite', 'has_email', 'q']) if (f[k] !== '') p.set(k, f[k])
+    for (const k of ['status', 'verdict', 'invite', 'has_email', 'q', 'enriched']) if (f[k] !== '') p.set(k, f[k])
     return p
   }, [campaignId, f])
 
@@ -56,14 +59,21 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
     const noStatus = f.status !== '' && f.status !== 'new'
     u.set('status', 'new')
     const r = new URLSearchParams(u); r.set('enriched', 'no')
+    const nd = new URLSearchParams(u); nd.set('domain', 'no'); nd.set('enriched', 'yes')
     try {
-      const [d, pl, uu, rr] = await Promise.all([api(`/leads?${p}`), api(`/campaigns/${campaignId}/pipeline`),
-        noStatus ? { total: 0 } : api(`/leads?${u}`), noStatus ? { total: 0 } : api(`/leads?${r}`)])
-      setData(d); setPipe(pl); setUsable(uu.total); setRemaining(rr.total); setError('')
+      const [d, pl, uu, rr, nn] = await Promise.all([api(`/leads?${p}`), api(`/campaigns/${campaignId}/pipeline`),
+        noStatus ? { total: 0 } : api(`/leads?${u}`), noStatus ? { total: 0 } : api(`/leads?${r}`), noStatus ? { total: 0 } : api(`/leads?${nd}`)])
+      setData(d); setPipe(pl); setUsable(uu.total); setRemaining(rr.total); setNoDomain(nn.total); setLastRun(d.last_run); setError('')
     } catch (e) { setError(e.message) }
   }, [campaignId, f, limit, filterParams])
   useEffect(() => { const t = setTimeout(load, f.q ? 250 : 0); return () => clearTimeout(t) }, [load])
-  useEffect(() => { setTicked(new Set()) }, [campaignId, f.status, f.verdict, f.invite, f.has_email, f.q])
+  useEffect(() => { setTicked(new Set()) }, [campaignId, f.status, f.verdict, f.invite, f.has_email, f.q, f.enriched])
+  // The progress dock shows the run; when it ends the table is read again so the new domains and marks appear.
+  useEffect(() => {
+    const h = () => { setTimeout(load, 1500) }
+    window.addEventListener('metro-progress', h)
+    return () => window.removeEventListener('metro-progress', h)
+  }, [load])
 
   const shown = data.leads
   const scope = ticked.size > 0 ? { n: ticked.size, what: 'ticked' } : { n: data.total, what: 'shown' }
@@ -86,7 +96,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
       const ids = await targetIds()
       if (!ids.length) { setNote('No leads shown'); return }
       const r = await api(`/campaigns/${campaignId}/rescore`, { method: 'POST', json: { lead_ids: ids } })
-      setNote(`Rescored ${ids.length}: ${r.changed || 0} changed`); load()
+      setNote(`Persona rescored for ${ids.length}: ${r.changed || 0} changed`); load()
     } catch (e) { setError(e.message) }
   }
   const runEnrich = async (ids) => {
@@ -95,10 +105,31 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
       const r = await api(`/campaigns/${campaignId}/enrich`, { method: 'POST', json: { lead_ids: ids } })
       setNote(r.started ? `Enriching ${r.total} companies (domain, website scan, PageSpeed; browser reads are queued)` : r.reason)
       setError(''); setTick((x) => x + 1); load()
+      window.dispatchEvent(new Event('metro-progress'))
     } catch (e) { setError(e.message) }
   }
+  // "Enrich all shown" above 50 companies asks first and shows the count.
   const enrich = async () => {
-    try { await runEnrich(await targetIds()) } catch (e) { setError(e.message) }
+    try {
+      const ids = await targetIds()
+      if (eligible > 50 && !confirmAll) { setConfirmAll(eligible); return }
+      setConfirmAll(false)
+      await runEnrich(ids)
+    } catch (e) { setError(e.message) }
+  }
+  const retryDomains = async (ids) => {
+    try {
+      const r = await api(`/campaigns/${campaignId}/retry-domain`, { method: 'POST', json: { lead_ids: ids } })
+      setNote(r.started ? `Looking for the website of ${r.total} compan${r.total === 1 ? 'y' : 'ies'} again` : r.reason)
+      setTick((x) => x + 1); load(); window.dispatchEvent(new Event('metro-progress'))
+    } catch (e) { setError(e.message) }
+  }
+  const retryShown = async () => {
+    try {
+      const p = filterParams(); p.set('status', 'new'); p.set('domain', 'no'); p.set('enriched', 'yes')
+      const r = await api(`/leads/ids?${p}`)
+      await retryDomains(ticked.size ? [...ticked] : r.ids)
+    } catch (e) { setError(e.message) }
   }
   // "Enrich next N": the best-scored usable leads of the current filter and sort whose company is not enriched yet, persona keep first.
   const enrichNext = async (n) => {
@@ -148,12 +179,19 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
           </Stage>
           <Stage n="2" title="Enrich" line={`${pipe.enrich.ready} ready`} sub="Domain, website scan, PageSpeed; then browser reads">
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <Btn small onClick={enrich} disabled={eligible === 0} title="Domain, website scan and PageSpeed run on the backend, paced and cached per domain. Browser reads are queued and run only in a Metro week. Runs on the ticked rows, or on every row the filters show." data-testid="enrich-btn">{`Enrich ${eligible} ${scope.what}`}</Btn>
-              {[20, 50].map((n) => (
-                <Btn key={n} small kind="ghost" onClick={() => enrichNext(n)} disabled={remaining === 0} data-testid={`enrich-next-${n}`}
-                  title="The best-scored leads in the current filter and sort whose company is not enriched yet (persona keep first)">{`Enrich next ${Math.min(n, remaining)}`}</Btn>
-              ))}
+              <Btn small kind={remaining === 0 ? 'ghost' : 'primary'} onClick={() => enrichNext(20)} disabled={remaining === 0} data-testid="enrich-next-20"
+                title="The best-scored leads in the current filter and sort whose company is not enriched yet (persona keep first): finds the website, reads it, measures PageSpeed, queues the browser readings">{`Enrich next ${Math.min(20, remaining)}`}</Btn>
+              <Btn key={50} small kind="ghost" onClick={() => enrichNext(50)} disabled={remaining === 0} data-testid="enrich-next-50"
+                title="The best-scored leads in the current filter and sort whose company is not enriched yet (persona keep first)">{`Enrich next ${Math.min(50, remaining)}`}</Btn>
+              <Btn small kind="ghost" onClick={enrich} disabled={eligible === 0} title="Domain, website scan and PageSpeed run on the backend, paced and cached per domain. Browser reads are queued and run only in a Metro week. Runs on the ticked rows, or on every row the filters show; above 50 it asks first." data-testid="enrich-btn">{ticked.size ? `Enrich ${eligible} ticked` : `Enrich all ${eligible} shown`}</Btn>
+              {noDomain > 0 && <Btn small kind="ghost" onClick={retryShown} data-testid="retry-domains" title="Run the domain finder again (name patterns, then an AI lookup with web search) for the companies in this view that still have no domain">{`Retry domain (${ticked.size ? 'ticked' : `${noDomain} without`})`}</Btn>}
             </div>
+            {confirmAll && (
+              <div role="dialog" aria-label="Enrich all shown" data-testid="enrich-all-confirm" style={{ marginTop: 6, fontSize: 12, border: `1px solid ${METRO.agencyLine}`, borderRadius: 8, padding: '5px 8px' }}>
+                Enrich all {confirmAll} companies in this view? It runs paced, about a minute per company at worst.
+                <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}><Btn small onClick={enrich} data-testid="enrich-all-yes">Enrich {confirmAll}</Btn><Btn small kind="ghost" onClick={() => setConfirmAll(false)}>Cancel</Btn></span>
+              </div>
+            )}
             <div style={{ fontSize: 11, color: 'rgba(0,12,14,0.6)', marginTop: 4 }} data-testid="enrich-remaining">{remaining} not enriched yet in this view</div>
           </Stage>
           <Stage n="3" title="Write" line={`${pipe.write.ready} ready`} sub={`Phase ${pipe.write.phase}`}>
@@ -185,13 +223,17 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
             <select style={sel} value={f.has_email} onChange={setFilter('has_email')} aria-label="Email">
               <option value="">Email or not</option><option value="true">has email</option><option value="false">no email</option>
             </select>
-            <select style={sel} value={f.sort} onChange={setFilter('sort')} aria-label="Sort">
-              <option value="persona">best persona first</option><option value="name">name</option><option value="company">company</option><option value="newest">newest</option>
+            <select style={sel} value={f.enriched} onChange={setFilter('enriched')} aria-label="Enriched" data-testid="filter-enriched">
+              <option value="">Enriched or not</option><option value="recent">just enriched (last run)</option><option value="yes">enriched</option><option value="no">not enriched yet</option>
+            </select>
+            <select style={sel} value={f.sort} onChange={setFilter('sort')} aria-label="Sort" data-testid="sort">
+              <option value="persona">best persona first</option><option value="just_enriched">just enriched first</option><option value="name">name</option><option value="company">company</option><option value="newest">newest</option>
             </select>
             <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700 }} data-testid="scope">
               {scope.n} {scope.what}{ticked.size ? ' (ticked)' : ''}
             </span>
-            <Btn kind="ghost" small onClick={rescore} title="Run layer 0 again with the current persona rules, on the ticked rows or the rows shown">Rescore</Btn>
+            <Btn kind="ghost" small onClick={rescore} data-testid="rescore-btn" title="Persona score (layer 0, from the CSV): run it again with the current persona rules, on the ticked rows or the rows shown. The fit score (layers 1 and 2) is computed by Score fit in the Enrichment card.">{`Rescore persona (${scope.n} ${scope.what})`}</Btn>
+            {lastRun && f.enriched !== 'recent' && <Btn kind="ghost" small onClick={() => setF({ ...f, enriched: 'recent', sort: 'just_enriched' })} data-testid="show-just-enriched" title="Only the companies the last enrich run touched">Show just enriched</Btn>}
             {ticked.size > 0 && !confirmRemove && <Btn kind="ghost" small onClick={() => setConfirmRemove(true)} data-testid="remove-ticked">{`Remove ${ticked.size} ticked`}</Btn>}
             {confirmRemove && (
               <span role="dialog" aria-label="Remove leads" data-testid="remove-dialog" style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12, border: `1px solid ${METRO.agencyLine}`, borderRadius: 8, padding: '3px 8px' }}>
@@ -207,7 +249,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
               <thead>
                 <tr style={{ textAlign: 'left', color: METRO.teal, fontSize: 12 }}>
                   <th style={{ width: 28 }}><input type="checkbox" aria-label="Tick all shown" checked={shown.length > 0 && ticked.size === shown.length} onChange={toggleAll} /></th>
-                  <th>Name</th><th>Title</th><th>Company</th><th>Place</th><th>Persona</th><th>Fit</th><th>Linked Helper</th><th>Email</th><th>Status</th><th />
+                  <th>Name</th><th>Title</th><th>Company</th><th>Website</th><th>Place</th><th>Persona</th><th>Fit</th><th>Linked Helper</th><th>Email</th><th>Status</th><th />
                 </tr>
               </thead>
               <tbody>
@@ -218,7 +260,15 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                     <td style={{ fontWeight: 700 }}>{l.profile_url
                       ? <a href={l.profile_url} target="_blank" rel="noreferrer" style={{ color: METRO.ink }}>{l.full_name || '(no name)'}</a> : (l.full_name || '(no name)')}</td>
                     <td style={{ maxWidth: 220 }}>{l.title}</td>
-                    <td>{l.company_name}</td>
+                    <td>{l.company_name}{l.just_enriched && <div><Pill color="#1a9d5c">just enriched</Pill></div>}</td>
+                    <td style={{ fontSize: 12, maxWidth: 230 }} data-testid="domain-cell">
+                      {l.domain ? <>{l.domain}<div style={{ fontSize: 10, color: 'rgba(0,12,14,0.5)' }}>{l.domain_source}</div></>
+                        : l.company_id ? <>
+                          <span style={{ color: '#b36b00' }}>no domain</span>
+                          <div style={{ fontSize: 10, color: 'rgba(0,12,14,0.6)' }} data-testid="domain-why">{l.domain_why}</div>
+                          {l.status === 'new' && <Btn kind="ghost" small onClick={() => retryDomains([l.id])} data-testid="retry-domain-row">Retry domain</Btn>}
+                        </> : '-'}
+                    </td>
                     <td style={{ maxWidth: 150 }}>{l.location}</td>
                     <td>
                       <button type="button" onClick={() => setOpen(open === l.id ? null : l.id)} title="Why this score"

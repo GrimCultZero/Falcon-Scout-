@@ -5,6 +5,7 @@ Nothing here sends anything to anyone.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
@@ -12,13 +13,15 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from . import aiclient
+from . import enrich as en
+from . import progress
 from . import briefdraft
 from . import campaigns as camp
 from . import candidates as cand
 from . import leads as leadsmod
 from . import persona as pe
 from . import removal
-from .db import MetroCampaign, MetroCompany, MetroImport, MetroLead, MetroSetting, get_engine, utcnow
+from .db import MetroCampaign, MetroCompany, MetroImport, MetroLead, MetroSetting, get_engine, get_setting, utcnow
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
@@ -188,12 +191,22 @@ async def campaigns_import(cid: int, file: UploadFile = File(...), dry_run: bool
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "file too large")
-    with Session(get_engine()) as s:
-        c = _campaign(s, cid)
-        try:
-            return leadsmod.run_import(s, c, raw, filename=file.filename, list_source=list_source, dry_run=dry_run)
-        except ValueError as e:
-            raise _bad(e)
+    from starlette.concurrency import run_in_threadpool
+
+    def work():
+        with Session(get_engine()) as s:
+            c = _campaign(s, cid)
+            try:
+                if dry_run:
+                    return leadsmod.run_import(s, c, raw, filename=file.filename, list_source=list_source, dry_run=True)
+                with progress.track("import", f"Importing {file.filename or 'a file'}", campaign_id=cid) as t:
+                    r = leadsmod.run_import(s, c, raw, filename=file.filename, list_source=list_source, dry_run=False)
+                    t["result"] = (f"Imported {file.filename or 'the file'}: {r.get('added', 0)} added" +
+                                   (f", {r['filled']} filled" if r.get("filled") else "") + (f", {r['duplicates']} already there" if r.get("duplicates") else ""))
+                    return r
+            except ValueError as e:
+                raise _bad(e)
+    return await run_in_threadpool(work)
 
 
 @p1.get("/campaigns/{cid}/imports")
@@ -211,7 +224,11 @@ def campaigns_rescore(cid: int, body: ScopeIn | None = None):
     """Layer 0 again with the persona rules as they are now. Locked and suppressed leads are untouched.
     `lead_ids` limits it to those leads (the app sends the rows it shows)."""
     with Session(get_engine()) as s:
-        return leadsmod.rescore_campaign(s, _campaign(s, cid), lead_ids=(body.lead_ids if body else None))
+        c = _campaign(s, cid)
+        with progress.track("rescore", "Persona score (layer 0)", campaign_id=cid) as t:
+            r = leadsmod.rescore_campaign(s, c, lead_ids=(body.lead_ids if body else None))
+            t["result"] = f"Persona score: {len(body.lead_ids) if body and body.lead_ids is not None else 'all'} checked, {r.get('changed', 0)} changed"
+            return r
 
 
 @p1.get("/campaigns/{cid}/pipeline")
@@ -231,9 +248,14 @@ def campaigns_pipeline(cid: int):
 
 # ───────────────────────── leads ─────────────────────────
 
-def lead_dict(l: MetroLead) -> dict:
+def lead_dict(l: MetroLead, comp: MetroCompany | None = None, last_run: datetime | None = None) -> dict:
     notes = json.loads(l.score_notes_json).get("persona") if l.score_notes_json else None
-    return {"id": l.id, "campaign_id": l.campaign_id, "full_name": l.full_name, "title": l.title,
+    extra = {}
+    if comp is not None:
+        extra = {"company_id": comp.id, "domain": comp.domain, "domain_source": comp.domain_source,
+                 "domain_why": en.domain_why(comp), "enrich_tried_at": comp.enrich_tried_at.isoformat() if comp.enrich_tried_at else None,
+                 "just_enriched": bool(last_run and comp.enrich_tried_at and comp.enrich_tried_at >= last_run)}
+    return {**extra, "id": l.id, "campaign_id": l.campaign_id, "full_name": l.full_name, "title": l.title,
             "company_name": l.company_name, "location": l.location, "profile_url": l.profile_url,
             "email": l.email, "email_source": l.email_source, "email_verified": bool(l.email_verified),
             "invite_status": l.invite_status, "persona_score": l.persona_score, "persona_verdict": l.persona_verdict,
@@ -245,7 +267,15 @@ def lead_dict(l: MetroLead) -> dict:
             "connected_at": l.connected_at.isoformat() if l.connected_at else None}
 
 
-def _lead_filter(s: Session, *, campaign_id, status, verdict, invite, has_email, q, enriched):
+def _last_run_start(s: Session) -> datetime | None:
+    v = get_setting(s, "last_enrich_run", None)
+    try:
+        return datetime.strptime(v["started_at"], "%Y-%m-%dT%H:%M:%S") if v else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _lead_filter(s: Session, *, campaign_id, status, verdict, invite, has_email, q, enriched, domain=None, join_company=False):
     """(base query of the campaign, the same query with every filter applied): the one place the filters live,
     so "the rows the filters show" means the same thing for the table, the ids and the batch buttons."""
     base = s.query(MetroLead)
@@ -266,40 +296,55 @@ def _lead_filter(s: Session, *, campaign_id, status, verdict, invite, has_email,
         like = f"%{q.strip().lower()}%"
         qq = qq.filter(or_(func.lower(MetroLead.full_name).like(like), func.lower(MetroLead.title).like(like),
                            func.lower(MetroLead.company_name).like(like), func.lower(MetroLead.location).like(like)))
-    if enriched in ("no", "yes"):
-        qq = qq.join(MetroCompany, MetroCompany.id == MetroLead.company_id)       # a lead without a company cannot be enriched
+    if enriched in ("no", "yes", "recent") or domain in ("yes", "no") or join_company:
+        qq = qq.join(MetroCompany, MetroCompany.id == MetroLead.company_id, isouter=not (enriched in ("no", "yes", "recent") or domain in ("yes", "no")))
+    if enriched in ("no", "yes"):                                                  # a lead without a company cannot be enriched
         done = or_(MetroCompany.enrich_tried_at.isnot(None), MetroCompany.website_scan_at.isnot(None))
         qq = qq.filter(done if enriched == "yes" else ~done)
+    if enriched == "recent":                                                       # F2: the companies the last enrich run touched
+        since = _last_run_start(s)
+        qq = qq.filter(MetroCompany.enrich_tried_at >= since) if since else qq.filter(False)
+    if domain == "yes":
+        qq = qq.filter(MetroCompany.domain.isnot(None))
+    if domain == "no":
+        qq = qq.filter(MetroCompany.domain.is_(None))
     return base, qq
 
 
 @p1.get("/leads")
 def leads_list(campaign_id: int | None = None, status: str | None = None, verdict: str | None = None,
                invite: str | None = None, has_email: bool | None = None, q: str | None = None,
-               enriched: str | None = None, keep_first: bool = False,
+               enriched: str | None = None, keep_first: bool = False, domain: str | None = None,
                sort: str = "persona", limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
     with Session(get_engine()) as s:
         base, qq = _lead_filter(s, campaign_id=campaign_id, status=status, verdict=verdict, invite=invite,
-                                has_email=has_email, q=q, enriched=enriched)
+                                has_email=has_email, q=q, enriched=enriched, domain=domain, join_company=(sort == "just_enriched"))
         counts = dict(base.with_entities(MetroLead.status, func.count()).group_by(MetroLead.status).all())
         total = qq.count()
         order = {"persona": MetroLead.persona_score.desc(), "name": MetroLead.full_name.asc(),
-                 "company": MetroLead.company_name.asc(), "newest": MetroLead.id.desc()}.get(sort, MetroLead.persona_score.desc())
-        orders = [order, MetroLead.id]
+                 "company": MetroLead.company_name.asc(), "newest": MetroLead.id.desc(),
+                 "just_enriched": case((MetroCompany.enrich_tried_at.is_(None), 1), else_=0).asc()}.get(sort, MetroLead.persona_score.desc())
+        if sort == "just_enriched":                 # F2: the most recently touched companies first, then best persona
+            orders_first = [case((MetroCompany.enrich_tried_at.is_(None), 1), else_=0).asc(), MetroCompany.enrich_tried_at.desc()]
+            order = MetroLead.persona_score.desc()
+        orders = [*(orders_first if sort == "just_enriched" else []), order, MetroLead.id]
         if keep_first:          # persona `keep` first, then the chosen sort
             orders.insert(0, case((MetroLead.persona_verdict == "keep", 0), else_=1))
         rows = qq.order_by(*orders).offset(offset).limit(limit).all()
-        return {"total": total, "counts": counts, "leads": [lead_dict(l) for l in rows]}
+        comps = {c.id: c for c in s.query(MetroCompany).filter(MetroCompany.id.in_([l.company_id for l in rows if l.company_id])).all()} if rows else {}
+        since = _last_run_start(s)
+        return {"total": total, "counts": counts, "last_run": since.isoformat() if since else None,
+                "leads": [lead_dict(l, comps.get(l.company_id), since) for l in rows]}
 
 
 @p1.get("/leads/ids")
 def leads_ids(campaign_id: int | None = None, status: str | None = None, verdict: str | None = None,
               invite: str | None = None, has_email: bool | None = None, q: str | None = None,
-              enriched: str | None = None, limit: int = Query(5000, ge=1, le=20000)):
+              enriched: str | None = None, domain: str | None = None, limit: int = Query(5000, ge=1, le=20000)):
     """Every lead id the filters show (not just the loaded page): what a card button runs on when nothing is ticked."""
     with Session(get_engine()) as s:
         _, qq = _lead_filter(s, campaign_id=campaign_id, status=status, verdict=verdict, invite=invite,
-                             has_email=has_email, q=q, enriched=enriched)
+                             has_email=has_email, q=q, enriched=enriched, domain=domain)
         total = qq.count()
         ids = [r[0] for r in qq.with_entities(MetroLead.id).order_by(MetroLead.id).limit(limit).all()]
         return {"total": total, "ids": ids, "truncated": total > len(ids)}

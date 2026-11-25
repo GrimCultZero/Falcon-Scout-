@@ -27,8 +27,8 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
   const leads = read('components', 'LeadsTab.jsx')
   assert(/WHAT YOU SEE RUNS/.test(leads) && /ticked\.size > 0 \? \{ n: ticked\.size, what: 'ticked' \} : \{ n: data\.total, what: 'shown' \}/.test(leads),
     'scope = the ticked rows, else the rows the filters show')
-  assert(/Enrich \$\{eligible\} \$\{scope\.what\}/.test(leads), 'the Enrich button carries the number it would process')
-  assert(/<Btn small onClick=\{enrich\}[^>]*>\{`Enrich \$\{eligible\} \$\{scope\.what\}`\}/.test(leads), 'Enrich is live from Phase 2 and still carries its number')
+  assert(/Enrich \$\{eligible\} ticked/.test(leads) && /Enrich all \$\{eligible\} shown/.test(leads), 'the Enrich button carries the number it would process (F2: "Enrich all N shown" / "Enrich N ticked")')
+  assert(/<Btn small kind="ghost" onClick=\{enrich\}[^>]*data-testid="enrich-btn"/.test(leads), 'Enrich is live from Phase 2 and still carries its number')
   for (const label of ['Write', 'Send']) {
     assert(new RegExp(`<Btn small disabled title="[^"]*">\{\`${label} `).test(leads), `${label} is disabled until its phase`)
   }

@@ -32,7 +32,7 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
   useEffect(() => { if (wasRunning.current && !running) onChanged?.(); wasRunning.current = running }, [running, onChanged])
 
   const act = async (fn, msg) => {
-    try { const r = await fn(); setNote(typeof msg === 'function' ? msg(r) : msg); setError(''); load(); onChanged?.() } catch (e) { setError(e.message) }
+    try { const r = await fn(); setNote(typeof msg === 'function' ? msg(r) : msg); setError(''); load(); onChanged?.(); window.dispatchEvent(new Event('metro-progress')) } catch (e) { setError(e.message) }
   }
   // Resolve the scope first; an empty scope runs nothing (the backend also treats an explicit empty list as "nobody").
   const scoped = (fn, msg) => async () => {
@@ -64,10 +64,10 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
     <div style={card} data-testid="enrich-panel">
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 15, color: METRO.teal }}>Enrichment and shortlist</h3>
-        <Btn kind="ghost" small onClick={score} title="Layer 1 and 2 from what is stored, with the rules in Settings. Runs on the ticked rows, or on every row the filters show." data-testid="score-btn">Score {scope.n} {scope.what}</Btn>
+        <Btn kind="ghost" small onClick={score} title="The FIT score (layers 1 and 2, from what is stored, with the rules in Settings). The persona score is a different one: it is computed on import from the CSV (Rescore persona in the table toolbar). Runs on the ticked rows, or on every row the filters show." data-testid="score-btn">Score fit {scope.n} {scope.what}</Btn>
         <Btn kind="ghost" small onClick={deep} title="Queue the LinkedIn pages and (niche) Ahrefs for the shortlisted leads among the ticked or shown rows. LinkedIn pages run only in a Metro week." data-testid="deep-btn">Queue deep readings ({scope.n} {scope.what}, shortlisted only)</Btn>
         <Btn kind="ghost" small onClick={hooks} disabled={running || !sl?.shortlisted} title="Hooks, angle and case tag through /claude; every hook is checked against the stored fields. Ticked rows, or the shortlisted ones among the rows shown." data-testid="hooks-btn">Write hooks ({scope.n} {scope.what}{ticked ? '' : ', shortlisted only'})</Btn>
-        <Btn kind="ghost" small onClick={() => setEmailDlg(true)}>Emails (Linked Helper)</Btn>
+        <Btn kind="ghost" small onClick={() => setEmailDlg(true)} data-testid="emails-btn" title="The Linked Helper email-finder list for the ticked rows, or the shown rows that are shortlisted">Emails (Linked Helper)</Btn>
         {en?.running && <Btn kind="ghost" small onClick={stop}>Stop run</Btn>}
         {note && <span style={{ fontSize: 12, color: '#1a9d5c' }}>{note}</span>}
       </div>
@@ -138,19 +138,39 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
           )}
         </div>
       )}
-      {emailDlg && <EmailDialog campaign={campaign} onClose={() => setEmailDlg(false)} onDone={() => { load(); onChanged?.() }} />}
+      {emailDlg && <EmailDialog campaign={campaign} targetIds={targetIds} ticked={ticked} scope={scope} onClose={() => setEmailDlg(false)} onDone={() => { load(); onChanged?.(); window.dispatchEvent(new Event('metro-progress')) }} />}
     </div>
   )
 }
 
-function EmailDialog({ campaign, onClose, onDone }) {
+function EmailDialog({ campaign, targetIds, ticked, scope, onClose, onDone }) {
   const [prev, setPrev] = useState(null)
   const [file, setFile] = useState(null)
   const [source, setSource] = useState('linkedhelper')
   const [res, setRes] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  useEffect(() => { api(`/campaigns/${campaign.id}/email-export/preview`).then(setPrev).catch((e) => setError(e.message)) }, [campaign.id])
+  // The export follows "what you see runs": the ticked rows, else the shown rows that are shortlisted.
+  const [ids, setIds] = useState(null)
+  useEffect(() => {
+    let alive = true
+    targetIds().then((x) => {
+      if (!alive) return
+      setIds(x)
+      return api(`/campaigns/${campaign.id}/email-export/preview`, { method: 'POST', json: { lead_ids: x, shortlist_only: !ticked } }).then((p) => alive && setPrev(p))
+    }).catch((e) => alive && setError(e.message))
+    return () => { alive = false }
+  }, [campaign.id, targetIds, ticked])
+  const download = async () => {
+    try {
+      const r = await fetch(`/metro/campaigns/${campaign.id}/email-export`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_ids: ids || [], shortlist_only: !ticked }) })
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+      const url = URL.createObjectURL(await r.blob())
+      const a = document.createElement('a'); a.href = url; a.download = `metro-email-finder-campaign-${campaign.id}.csv`; a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
+    } catch (e) { setError(e.message) }
+  }
 
   const send = async (dry) => {
     setBusy(true); setError('')
@@ -166,8 +186,8 @@ function EmailDialog({ campaign, onClose, onDone }) {
       <div style={{ background: '#fff', borderRadius: 12, padding: '20px 24px', width: 560, maxWidth: '94vw', maxHeight: '90vh', overflow: 'auto', fontSize: 13 }}>
         <h3 style={{ margin: '0 0 8px', color: METRO.teal }}>Emails through Linked Helper</h3>
         <ol style={{ margin: '0 0 10px', paddingLeft: 18, lineHeight: 1.6 }}>
-          <li><b>Export</b> the shortlist's profile URLs: {prev ? `${prev.exported} lead(s) without an email` : '...'}{prev && Object.keys(prev.skipped).length ? ` (skipped: ${Object.entries(prev.skipped).map(([k, n]) => `${n} ${k}`).join(', ')})` : ''}.
-            <div><a href={`/metro/campaigns/${campaign.id}/email-export`} style={{ color: METRO.teal, fontWeight: 700 }} download>Download the Linked Helper list (CSV)</a></div></li>
+          <li><b>Export</b> the profile URLs of {ticked ? `the ${scope.n} ticked rows` : `the shortlisted ones among the ${scope.n} rows shown`}: {prev ? `${prev.exported} lead(s) without an email` : '...'}{prev && Object.keys(prev.skipped).length ? ` (skipped: ${Object.entries(prev.skipped).map(([k, n]) => `${n} ${k}`).join(', ')})` : ''}.
+            <div><Btn small kind="ghost" onClick={download} disabled={!ids || !prev?.exported} data-testid="email-export-download">Download the Linked Helper list (CSV)</Btn></div></li>
           <li>In Linked Helper: import it as a list, run its email finder (Data credits), export the results.</li>
           <li><b>Import</b> the results here. Emails are stored as <i>unverified</i>; only an address the provider calls verified, or one you mark, can ever be emailed.</li>
         </ol>

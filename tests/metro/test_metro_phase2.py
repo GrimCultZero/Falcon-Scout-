@@ -348,7 +348,7 @@ with new_session() as s:
     s.commit()
     out = en.enrich_company(s, comp, fetch=lambda u: (404, u, ""), ask=lambda *a, **k: "no idea", sleep=lambda x: None, use_ai=True,
                             campaign=s.get(mdb.MetroCampaign, cid), now=NOW)
-    check("no domain" in out["skipped"] and any("LinkedIn company page" in d for d in out["did"]), "no domain: the LinkedIn company page is queued")
+    check("no domain" in out["skipped"] and any("queued the company page" in d for d in out["did"]), "no domain: the LinkedIn company page is queued")
 
 # ═════════════════ E. the gate ═════════════════
 with new_session() as s:
