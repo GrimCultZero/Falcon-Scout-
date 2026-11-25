@@ -51,6 +51,33 @@ def usable_domain(raw: str | None) -> tuple[str | None, str]:
     return d, "ok"
 
 
+_COMPANY_PAGE_RE = re.compile(r"^https?://(?:[a-z0-9-]+\.)*linkedin\.com/company/([^/?#\s]+)", re.I)
+
+
+def company_page(raw: str | None) -> str | None:
+    """F4: `organization_url_N` as the company's LinkedIn page in the one form the rest of Metro stores
+    (`https://www.linkedin.com/company/<slug>/`), or None when it is not a company page (a school, a person, a Sales
+    Navigator link, an empty cell)."""
+    m = _COMPANY_PAGE_RE.match((raw or "").strip())
+    if not m or m.group(1).lower() in ("unavailable", "linkedin"):
+        return None
+    return f"https://www.linkedin.com/company/{m.group(1)}/"
+
+
+def stash_other_email(lead: MetroLead, old: str | None) -> None:
+    """F4: an address a better one replaced is kept in the lead's raw data (`mapped.other_emails`), never lost silently."""
+    if not old:
+        return
+    try:
+        raw = json.loads(lead.raw_json) if lead.raw_json else {}
+    except ValueError:
+        raw = {}
+    alts = raw.setdefault("mapped", {}).setdefault("other_emails", [])
+    if old not in alts:
+        alts.append(old)
+        lead.raw_json = json.dumps(raw, ensure_ascii=False)
+
+
 def _fuzzy_same(a: str | None, b: str | None) -> bool:
     if not a or not b:
         return False
@@ -81,7 +108,7 @@ def row_enrichment(row: dict, n: dict, cols: dict) -> dict:
                 cand, _why = usable_domain(raw)
                 if cand:
                     break
-    return {"org": cur, "lh_domain": cand,
+    return {"org": cur, "lh_domain": cand, "lh_company_page": company_page((cur or {}).get("url")),
             "lh_domain_rejected": (usable_domain(cand_raw)[1] if cand_raw and not cand else None),
             "co_industry": n.get("co_industry") or (cur or {}).get("extra", {}).get("organization_industry"),
             "co_description": (cur or {}).get("description") or None, "co_location": (cur or {}).get("location") or None,
@@ -147,6 +174,16 @@ def apply_company(s: Session, company: MetroCompany | None, enr: dict, *, domain
                     _set_domain(company, d, "email-domain", {"step": "email-domain", "result": f"set {d} (business email)"}, domains)
         else:
             stats["domain_rejected"] += 1
+    page = enr.get("lh_company_page")
+    if page:                                  # F4: the current company's LinkedIn page, for the LinkedIn domain step
+        have = company.linkedin_url if company is not None else None
+        if not have:
+            stats["company_pages"] += 1
+            if company is not None and not dry_run:
+                company.linkedin_url = page
+                _trail_add(company, {"step": "linkedhelper", "result": f"company page {page} (current organization)"})
+        elif have and have.rstrip("/").lower() != page.rstrip("/").lower():
+            stats["company_page_disagree"] += 1
     if company is not None and enr.get("co_industry") and not company.industry:
         if not dry_run:
             company.industry = enr["co_industry"]
@@ -191,3 +228,31 @@ def apply_lead(lead: MetroLead, n: dict, enr: dict, *, stats: Counter, dry_run: 
         if not dry_run:
             lead.raw_json = json.dumps(raw, ensure_ascii=False)
     return changed
+
+
+def backfill_company_pages(s: Session) -> dict:
+    """F4, once (db.f4_company_pages): the Linked Helper rows already imported kept every non-empty column in the lead's raw data,
+    so a company that has no LinkedIn page yet gets the one its lead's CURRENT organization names (same rule as the website).
+    Returns {"leads_with_row": n, "pages_set": n, "no_page_in_row": n}."""
+    out = Counter()
+    for lead in s.query(MetroLead).filter(MetroLead.company_id.isnot(None), MetroLead.raw_json.isnot(None)).all():
+        try:
+            row = (json.loads(lead.raw_json) or {}).get("row") or {}
+        except ValueError:
+            continue
+        orgs = ci.extract_orgs(row)
+        if not orgs:
+            continue
+        out["leads_with_row"] += 1
+        cur = current_org(orgs, lead.company_name)
+        page = company_page((cur or {}).get("url"))
+        comp = s.get(MetroCompany, lead.company_id)
+        if not page or comp is None:
+            out["no_page_in_row"] += 1
+            continue
+        if not comp.linkedin_url:
+            comp.linkedin_url = page
+            _trail_add(comp, {"step": "linkedhelper", "result": f"company page {page} (current organization, from the stored import)"})
+            out["pages_set"] += 1
+    s.commit()
+    return dict(out)

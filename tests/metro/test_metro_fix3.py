@@ -160,7 +160,7 @@ def run_variant(delim, tag):
         f = comp("Fox Labs")
         check(f.domain == f"foxlabs{tag}.com" and f.domain_source == "email-domain", f"F: sedo.com rejected, the business address of two gives the domain ({f.domain})")
         check(lead("1006").email == "fay@foxlabs%s.com" % tag and lead("1006").email_type == "business", "F: of two addresses the business one is kept")
-        check(lead("1002").email_type == "personal" and not ef.emailable(_verified(lead("1002"))), "B: a personal address is marked and is not a sending address")
+        check(lead("1002").email_type == "personal" and ef.emailable(_verified(lead("1002"))), "B: a personal address stays marked personal; once verified it is a sending address (F4 reversed F3's rule)")
         la = lead("1001")
         check(la.open_profile is True and la.premium is False and lead("1002").hiring is True, "badges stored on the lead")
         raw_a = json.loads(la.raw_json)["mapped"]

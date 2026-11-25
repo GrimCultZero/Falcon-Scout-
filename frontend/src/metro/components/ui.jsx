@@ -1,16 +1,45 @@
 // Small building blocks shared by the Metro tabs (IT Force colours, Manrope).
+import { useEffect, useRef, useState } from 'react'
+import '../metro.css'
 import { METRO } from '../theme.js'
+import { noticeFromResult, notices, notify } from '../lib/notices.js'
 
 export const card = { background: '#fff', borderRadius: 12, border: '1px solid rgba(0,86,105,0.15)', padding: '18px 20px',
   boxShadow: '0 1px 2px rgba(0,12,14,0.05)' }
 
-export function Btn({ children, onClick, kind = 'primary', disabled, title, small, ...rest }) {
-  const primary = kind === 'primary'
+// F4 (items 2 and 3): the one button of Metro.
+//   * While a request runs it is disabled and shows a spinner, so a click is never "lost" or doubled.
+//   * What it did is said afterwards, where it cannot be missed (lib/notices.js, shown by NoticeHost): the handler returns a string
+//     (a success line), { text, kind, detail } or nothing (then the thing that started shows in the header strip). A handler that
+//     throws, or a request that is refused, shows its reason and stays until dismissed.
+//   * Looks (metro.css): acid blue for the primary action, teal outline otherwise, a visible hover, a 120 ms press (nothing under
+//     prefers-reduced-motion).
+export function Btn({ children, onClick, kind = 'primary', disabled, title, small, busy: busyProp = false, className = '', ...rest }) {
+  const [busy, setBusy] = useState(false)
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])   // (re-armed: React StrictMode mounts, unmounts and mounts again)
+  const what = typeof children === 'string' ? children : (rest['aria-label'] || title || 'The action')
+  const fail = (err) => { if (!err || !err.notified) notify.error(`${String(what).slice(0, 60)}: ${(err && err.message) || 'it failed'}`) }
+  const click = (e) => {
+    if (busy || busyProp || disabled || !onClick) return
+    let r
+    try { r = onClick(e) } catch (err) { fail(err); return }
+    if (r && typeof r.then === 'function') {
+      setBusy(true)
+      window.dispatchEvent(new Event('metro-click'))             // the header strip asks the backend now, so a run is seen at once
+      r.then((v) => { const n = noticeFromResult(v); if (n) notices.push(n.kind, n.text, n.detail) }, fail)
+        .finally(() => { if (alive.current) setBusy(false) })
+    } else {
+      const n = noticeFromResult(r)
+      if (n) notices.push(n.kind, n.text, n.detail)
+    }
+  }
+  const working = busy || busyProp
   return (
-    <button type="button" onClick={onClick} disabled={disabled} title={title} {...rest}
-      style={{ border: `1px solid ${primary ? METRO.teal : 'rgba(0,86,105,0.35)'}`, borderRadius: 8, cursor: disabled ? 'not-allowed' : 'pointer',
-        padding: small ? '4px 10px' : '8px 14px', fontFamily: METRO.font, fontSize: small ? 12 : 13, fontWeight: 700,
-        background: disabled ? 'rgba(0,12,14,0.06)' : primary ? METRO.teal : '#fff', color: disabled ? 'rgba(0,12,14,0.4)' : primary ? '#fff' : METRO.teal }}>
+    <button type="button" onClick={click} disabled={disabled || working} title={title} aria-busy={working || undefined} {...rest}
+      className={`mt-btn mt-btn--${kind === 'primary' ? 'primary' : 'ghost'}${small ? ' mt-btn--small' : ''}${working ? ' mt-btn--busy' : ''} ${className}`.trim()}
+      style={{ fontFamily: METRO.font, ...(rest.style || {}) }}>
+      {working && <span className="mt-spinner" aria-hidden="true" />}
       {children}
     </button>
   )

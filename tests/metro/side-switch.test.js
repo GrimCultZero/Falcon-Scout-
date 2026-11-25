@@ -71,7 +71,7 @@ function memStore(init = {}) {
     'App stays mounted; the switch only toggles display')
   assert(!/location\.reload|window\.location\s*=|location\.href\s*=/.test(shell), 'no page reload on switch')
   const app = fs.readFileSync(path.join(SRC, 'App.jsx'), 'utf8')
-  assert(/export default function App\(\{ sideSwitch = null \} = \{\}\)/.test(app) && /\{sideSwitch\}/.test(app), 'App.jsx renders the switch it is given')
+  assert(/export default function App\(\{ sideSwitch = null, activityStrip = null \} = \{\}\)/.test(app) && /\{activityStrip\}/.test(app) && /\{sideSwitch\}/.test(app), 'App.jsx renders the switch it is given')
   assert(!/import .*metro/i.test(app), 'App.jsx imports nothing from Metro')
   const metro = fs.readFileSync(path.join(SRC, 'metro', 'MetroApp.jsx'), 'utf8') + fs.readFileSync(path.join(SRC, 'metro', 'theme.js'), 'utf8')
   for (const c of ['#000c0e', '#005669', '#37bbd5', '#eaf6f9', '#e6261f']) assert(metro.includes(c), `Metro uses IT Force colour ${c}`)

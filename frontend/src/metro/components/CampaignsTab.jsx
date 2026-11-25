@@ -9,10 +9,10 @@ import { templateFor } from '../lib/templates.js'
 
 const fmt = (iso) => (iso ? new Date(iso + 'Z').toLocaleString() : '')
 
-export default function CampaignsTab({ openCampaign, onOpenLeads, line = null, onChanged, startNew = false, onStartedNew }) {
+export default function CampaignsTab({ selected = null, openCampaign, onOpenLeads, line = null, onChanged, startNew = false, onStartedNew }) {
   const [list, setList] = useState(null)
   const [meta, setMeta] = useState({ types: ['agency', 'niche'], regions: ['US/CA', 'EU'] })
-  const [sel, setSel] = useState(() => Number(window.localStorage.getItem('falconscout.metro.campaign')) || null)
+  const sel = selected                              // F4: the campaign shown on the right is the one MetroApp holds (Leads' "Brief and settings" sets it)
   const [creating, setCreating] = useState(false)      // false | 'choose' | 'agency' | 'niche'
   const [error, setError] = useState('')
 
@@ -28,7 +28,8 @@ export default function CampaignsTab({ openCampaign, onOpenLeads, line = null, o
   useEffect(() => { if (startNew) { setCreating('choose'); onStartedNew?.() } }, [startNew, onStartedNew])
   const changed = async () => { await load(); onChanged?.() }
 
-  const pick = (id) => { setSel(id); window.localStorage.setItem('falconscout.metro.campaign', String(id)); openCampaign?.(id) }
+  const pick = (id) => { openCampaign?.(id) }             // a freshly created campaign is shown here, to fill in its brief
+  const openItsLeads = (id) => { setCreating(false); onOpenLeads?.(id) }   // F4: a click on a campaign in the list opens ITS leads
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
@@ -40,7 +41,7 @@ export default function CampaignsTab({ openCampaign, onOpenLeads, line = null, o
         {list && list.length > 0 && !(list || []).some((c) => !line || c.type === line) && (
           <div style={{ ...card, fontSize: 13 }}>No {line} campaigns. Click the {line} line in the header to show both.</div>)}
         {(list || []).filter((c) => !line || c.type === line).map((c) => (
-          <button key={c.id} type="button" onClick={() => { setCreating(false); pick(c.id) }} data-campaign={c.id}
+          <button key={c.id} type="button" onClick={() => openItsLeads(c.id)} data-campaign={c.id} title="Open this campaign's leads. The brief and settings are one click away on the Leads page."
             style={{ ...card, textAlign: 'left', cursor: 'pointer', padding: '12px 14px', fontFamily: METRO.font,
               borderLeft: `5px solid ${lineColor(c.type)}`, outline: sel === c.id && !creating ? `2px solid ${METRO.cyan}` : 'none' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
@@ -61,7 +62,7 @@ export default function CampaignsTab({ openCampaign, onOpenLeads, line = null, o
           ? <NewCampaign key={creating} type={creating} meta={meta} onCancel={() => setCreating(false)} onCreated={async (c) => { setCreating(false); await changed(); pick(c.id) }} />
           : sel && (list || []).some((c) => c.id === sel)
             ? <CampaignDetail key={sel} id={sel} meta={meta} onChanged={changed} onOpenLeads={onOpenLeads}
-              onDeleted={async () => { setSel(null); window.localStorage.removeItem('falconscout.metro.campaign'); openCampaign?.(null); await changed() }} />
+              onDeleted={async () => { openCampaign?.(null); await changed() }} />
             : <div style={{ ...card, fontSize: 13, color: 'rgba(0,12,14,0.6)' }}>Pick a campaign, or create one.</div>}
       </div>
     </div>

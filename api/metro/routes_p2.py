@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from . import emailfinder as ef
+from .filenames import content_disposition, download_name
 from . import enrich as en
 from . import gate
 from . import hooks as hk
@@ -202,7 +203,15 @@ def enrich_status():
 def progress_get(campaign_id: int | None = None):
     """Every long action: running ones first, then the recently finished, each with counts, the current item and step,
     elapsed time and an estimate. The page only draws this; a reloaded tab shows a run that is still going."""
-    return progress.snapshot(campaign_id)
+    snap = progress.snapshot(campaign_id)
+    ids = {r["campaign_id"] for r in snap["runs"] if r.get("campaign_id")}
+    names: dict = {}
+    if ids:
+        with Session(get_engine()) as s:
+            names = {c.id: c.name for c in s.query(MetroCampaign).filter(MetroCampaign.id.in_(ids)).all()}
+    for r in snap["runs"]:
+        r["campaign_name"] = names.get(r.get("campaign_id"))
+    return snap
 
 
 @p2.post("/progress/{run_id}/stop")
@@ -358,13 +367,13 @@ class EmailMark(BaseModel):
 def email_export(cid: int, include_with_email: bool = False, shortlist_only: bool = True):
     """The Linked Helper list for its email finder: usable shortlisted leads without an email."""
     with Session(get_engine()) as s:
-        _campaign(s, cid)
+        c = _campaign(s, cid)
         threshold = float(get_setting(s, "shortlist_min_fit", 50))
         leads = s.query(MetroLead).filter(MetroLead.campaign_id == cid).order_by(MetroLead.id).all()
         if shortlist_only:
             leads = [l for l in leads if sc.shortlist_filter(l, threshold)]
         text, info = ef.export_csv(leads, include_with_email=include_with_email)
-        headers = {"Content-Disposition": f'attachment; filename="metro-email-finder-campaign-{cid}.csv"',
+        headers = {"Content-Disposition": content_disposition(download_name(c.name, "linked-helper-email-list")),
                    "X-Metro-Exported": str(info["exported"]), "X-Metro-Skipped": json.dumps(info["skipped"])}
         return Response(content=text.encode("utf-8"), media_type="text/csv; charset=utf-8", headers=headers)
 
@@ -387,9 +396,9 @@ def _scoped_leads(s: Session, cid: int, body: EmailScopeIn) -> list[MetroLead]:
 def email_export_scoped(cid: int, body: EmailScopeIn):
     """The Linked Helper list for the rows the person sees: ticked rows, else the shown rows that are shortlisted."""
     with Session(get_engine()) as s:
-        _campaign(s, cid)
+        c = _campaign(s, cid)
         text, info = ef.export_csv(_scoped_leads(s, cid, body), include_with_email=body.include_with_email)
-        headers = {"Content-Disposition": f'attachment; filename="metro-email-finder-campaign-{cid}.csv"',
+        headers = {"Content-Disposition": content_disposition(download_name(c.name, "linked-helper-email-list")),
                    "X-Metro-Exported": str(info["exported"]), "X-Metro-Skipped": json.dumps(info["skipped"])}
         return Response(content=text.encode("utf-8"), media_type="text/csv; charset=utf-8", headers=headers)
 
@@ -441,11 +450,10 @@ async def email_import(cid: int, file: UploadFile = File(...), source: str = Que
 
 @p2.post("/campaigns/{cid}/email-check")
 def email_check(cid: int):
-    """The free domain check (syntax + DNS). Never marks an address verified."""
+    """The free domain check (syntax + DNS) as a progress run. Never marks an address verified (F4: `domain_ok` = "the domain accepts mail")."""
     with Session(get_engine()) as s:
         _campaign(s, cid)
-        leads = s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.email.isnot(None)).all()
-        return ef.check_emails(s, leads)
+    return ef.start_mx_check(cid)
 
 
 @p2.post("/leads/{lead_id}/email-status")

@@ -17,8 +17,10 @@ from . import enrich as en
 from . import progress
 from . import briefdraft
 from . import campaigns as camp
+from . import importer
 from . import candidates as cand
 from . import leads as leadsmod
+from .emailfinder import email_kind, emailable
 from . import persona as pe
 from . import removal
 from .db import MetroCampaign, MetroCompany, MetroImport, MetroLead, MetroSetting, get_engine, get_setting, utcnow
@@ -210,6 +212,25 @@ async def campaigns_import(cid: int, file: UploadFile = File(...), dry_run: bool
     return await run_in_threadpool(work)
 
 
+@p1.post("/campaigns/{cid}/import-file")
+async def campaigns_import_file(cid: int, file: UploadFile = File(...), list_source: str = Query(""), force: bool = Query(False)):
+    """F4: the ONE import for every CSV (lead list, Linked Helper export, email-finder results). It imports at once and
+    answers with a summary in plain words; it stops before writing only when the file looks wrong (see importer.py)."""
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "file too large (the limit is 20 MB)")
+    from starlette.concurrency import run_in_threadpool
+
+    def work():
+        with Session(get_engine()) as s:
+            c = _campaign(s, cid)
+            try:
+                return importer.import_file(s, c, raw, filename=file.filename, list_source=list_source, force=force)
+            except ValueError as e:
+                raise _bad(e)
+    return await run_in_threadpool(work)
+
+
 @p1.get("/campaigns/{cid}/imports")
 def campaigns_imports(cid: int):
     with Session(get_engine()) as s:
@@ -262,7 +283,7 @@ def lead_dict(l: MetroLead, comp: MetroCompany | None = None, last_run: datetime
             "invite_status": l.invite_status, "persona_score": l.persona_score, "persona_verdict": l.persona_verdict,
             "persona_reasons": (notes or {}).get("reasons", []),
             "fit_score": l.fit_score, "deep_score": l.deep_score, "email_status": l.email_status,
-            "emailable": bool(l.email and l.email_status == "verified" and l.status == "new" and (l.email_type or "") != "personal"), "persona_locked": bool(l.persona_locked),
+            "emailable": emailable(l), "email_kind": email_kind(l), "persona_locked": bool(l.persona_locked),
             "status": l.status, "suppressed_reason": l.suppressed_reason, "prior_contact_reason": l.prior_contact_reason, "list_source": l.list_source,
             "open_profile": bool(l.open_profile), "premium": l.premium, "hiring": l.hiring, "email_type": l.email_type,
             "invited_at": l.invited_at.isoformat() if l.invited_at else None,
@@ -337,6 +358,41 @@ def leads_list(campaign_id: int | None = None, status: str | None = None, verdic
         since = _last_run_start(s)
         return {"total": total, "counts": counts, "last_run": since.isoformat() if since else None,
                 "leads": [lead_dict(l, comps.get(l.company_id), since) for l in rows]}
+
+
+@p1.get("/campaigns/{cid}/enrich-next")
+def campaigns_enrich_next(cid: int, ns: str = "20,50", take: int | None = Query(None, ge=1, le=500), verdict: str | None = None,
+                          invite: str | None = None, has_email: bool | None = None, q: str | None = None, sort: str = "persona"):
+    """F4: what "Enrich next N" will take. Usable leads whose company is not enriched yet, in the order of the current filter,
+    but companies WITH a domain first (then persona `keep` first, then the chosen sort): the companies with no domain wait
+    behind them (they are for "Retry domain"). One lead per company. `ns` = the sizes the buttons show a count for;
+    `take` = also return the lead ids of the first N companies (what the click runs)."""
+    with Session(get_engine()) as s:
+        _campaign(s, cid)
+        _, qq = _lead_filter(s, campaign_id=cid, status="new", verdict=verdict, invite=invite, has_email=has_email, q=q,
+                             enriched="no", domain=None)
+        second = {"name": MetroLead.full_name.asc(), "company": MetroLead.company_name.asc(), "newest": MetroLead.id.desc()}.get(sort, MetroLead.persona_score.desc())
+        rows = (qq.with_entities(MetroLead.id, MetroLead.company_id, MetroCompany.domain)
+                .order_by(case((MetroCompany.domain.isnot(None), 0), else_=1), case((MetroLead.persona_verdict == "keep", 0), else_=1), second, MetroLead.id).all())
+        seen, picks = set(), []
+        for lid, comp_id, dom in rows:
+            if comp_id in seen:
+                continue
+            seen.add(comp_id)
+            picks.append((lid, bool(dom)))
+
+        def plan(n: int) -> dict:
+            first = picks[:n]
+            wd = sum(1 for _l, d in first if d)
+            return {"n": n, "companies": len(first), "with_domain": wd, "without_domain": len(first) - wd}
+        sizes = [int(x) for x in ns.split(",") if x.strip().isdigit()][:6]
+        wd_all = sum(1 for _l, d in picks if d)
+        out = {"pool": {"companies": len(picks), "with_domain": wd_all, "without_domain": len(picks) - wd_all},
+               "plans": {str(n): plan(n) for n in sizes}}
+        if take:
+            out["lead_ids"] = [lid for lid, _d in picks[:take]]
+            out["plan"] = plan(take)
+        return out
 
 
 @p1.get("/leads/ids")

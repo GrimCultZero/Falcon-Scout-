@@ -15,7 +15,7 @@ import { Btn, Err, Pill, card, input, lineColor } from './ui.jsx'
 const PAGE = 100
 const STATUS_COLOR = { new: METRO.teal, junk: '#b36b00', suppressed: METRO.agencyLine, previously_contacted: '#7a5af8' }
 
-export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null, active = true, rev = 0, onCreateCampaign }) {
+export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null, active = true, rev = 0, onCreateCampaign, onOpenBrief }) {
   const [campaigns, setCampaigns] = useState([])
   const [data, setData] = useState({ total: 0, counts: {}, leads: [] })
   const [pipe, setPipe] = useState(null)
@@ -25,12 +25,12 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
   const [showImport, setShowImport] = useState(false)
   const [open, setOpen] = useState(null)
   const [error, setError] = useState('')
-  const [note, setNote] = useState('')
   const [tick, setTick] = useState(0)
   const [usable, setUsable] = useState(0)          // usable (status new) leads among the rows the filters show
   const [remaining, setRemaining] = useState(0)    // of those, the ones whose company is not enriched yet
   const [noDomain, setNoDomain] = useState(0)      // of the usable rows shown, the ones whose company has no domain
   const [lastRun, setLastRun] = useState(null)     // when the last enrich run started (the "just enriched" mark)
+  const [plans, setPlans] = useState(null)           // what "Enrich next N" would take: companies with a domain first
   const [confirmAll, setConfirmAll] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
 
@@ -50,6 +50,14 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
     return p
   }, [campaignId, f])
 
+  // What "Enrich next N" takes: the same filters (not status / enriched, the backend forces those) and the chosen sort.
+  const nextParams = useCallback(() => {
+    const p = new URLSearchParams()
+    for (const k of ['verdict', 'invite', 'has_email', 'q']) if (f[k] !== '') p.set(k, f[k])
+    p.set('sort', f.sort)
+    return p
+  }, [f])
+
   const load = useCallback(async () => {
     if (!campaignId) return
     const p = filterParams()
@@ -61,11 +69,12 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
     const r = new URLSearchParams(u); r.set('enriched', 'no')
     const nd = new URLSearchParams(u); nd.set('domain', 'no'); nd.set('enriched', 'yes')
     try {
-      const [d, pl, uu, rr, nn] = await Promise.all([api(`/leads?${p}`), api(`/campaigns/${campaignId}/pipeline`),
-        noStatus ? { total: 0 } : api(`/leads?${u}`), noStatus ? { total: 0 } : api(`/leads?${r}`), noStatus ? { total: 0 } : api(`/leads?${nd}`)])
-      setData(d); setPipe(pl); setUsable(uu.total); setRemaining(rr.total); setNoDomain(nn.total); setLastRun(d.last_run); setError('')
+      const [d, pl, uu, rr, nn, pn] = await Promise.all([api(`/leads?${p}`), api(`/campaigns/${campaignId}/pipeline`),
+        noStatus ? { total: 0 } : api(`/leads?${u}`), noStatus ? { total: 0 } : api(`/leads?${r}`), noStatus ? { total: 0 } : api(`/leads?${nd}`),
+        api(`/campaigns/${campaignId}/enrich-next?${nextParams()}&ns=20,50`)])
+      setData(d); setPipe(pl); setUsable(uu.total); setRemaining(rr.total); setNoDomain(nn.total); setLastRun(d.last_run); setPlans(pn); setError('')
     } catch (e) { setError(e.message) }
-  }, [campaignId, f, limit, filterParams])
+  }, [campaignId, f, limit, filterParams, nextParams])
   useEffect(() => { const t = setTimeout(load, f.q ? 250 : 0); return () => clearTimeout(t) }, [load])
   useEffect(() => { setTicked(new Set()) }, [campaignId, f.status, f.verdict, f.invite, f.has_email, f.q, f.enriched])
   // The progress dock shows the run; when it ends the table is read again so the new domains and marks appear.
@@ -88,64 +97,60 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
     return r.ids
   }, [ticked, filterParams])
 
-  const decide = async (l, decision) => {
-    try { await api(`/leads/${l.id}`, { method: 'PATCH', json: { decision } }); load() } catch (e) { setError(e.message) }
-  }
+  // F4 (item 2): every handler below RETURNS what it did (a line, or { kind: 'warn', text }) or throws; the Btn shows it in a notice that stays,
+  // and a refused request shows its reason by itself (api.js). Nothing is said in a small line a page may scroll away.
+  const decide = async (l, decision) => { await api(`/leads/${l.id}`, { method: 'PATCH', json: { decision } }); load() }
   const rescore = async () => {
-    try {
-      const ids = await targetIds()
-      if (!ids.length) { setNote('No leads shown'); return }
-      const r = await api(`/campaigns/${campaignId}/rescore`, { method: 'POST', json: { lead_ids: ids } })
-      setNote(`Persona rescored for ${ids.length}: ${r.changed || 0} changed`); load()
-    } catch (e) { setError(e.message) }
+    const ids = await targetIds()
+    if (!ids.length) return { kind: 'warn', text: 'No leads shown, so there is nothing to rescore.' }
+    const r = await api(`/campaigns/${campaignId}/rescore`, { method: 'POST', json: { lead_ids: ids } })
+    load()
+    return `Persona rescored for ${ids.length} lead${ids.length === 1 ? '' : 's'}: ${r.changed || 0} changed`
   }
-  const runEnrich = async (ids) => {
-    if (!ids.length) { setNote('Nothing to enrich in this view'); return }
-    try {
-      const r = await api(`/campaigns/${campaignId}/enrich`, { method: 'POST', json: { lead_ids: ids } })
-      setNote(r.started ? `Enriching ${r.total} companies (domain, website scan, PageSpeed; browser reads are queued)` : r.reason)
-      setError(''); setTick((x) => x + 1); load()
-      window.dispatchEvent(new Event('metro-progress'))
-    } catch (e) { setError(e.message) }
+  const runEnrich = async (ids, plan) => {
+    if (!ids.length) return { kind: 'warn', text: 'Nothing to enrich in this view: every company here was tried already, or the filters hide them.' }
+    const r = await api(`/campaigns/${campaignId}/enrich`, { method: 'POST', json: { lead_ids: ids } })
+    setTick((x) => x + 1); load()
+    window.dispatchEvent(new Event('metro-progress'))
+    if (!r.started) return { kind: 'warn', text: `Enrich did not start: ${r.reason || 'the backend refused'}${r.current ? ` (it is on ${r.current})` : ''}` }
+    const mix = plan ? ` (${plan.with_domain} with a domain${plan.without_domain ? `, ${plan.without_domain} without` : ''})` : ''
+    return `Enriching ${r.total} companies${mix}. Domain, website scan, PageSpeed; browser reads are queued. Progress is in the header.`
   }
   // "Enrich all shown" above 50 companies asks first and shows the count.
   const enrich = async () => {
-    try {
-      const ids = await targetIds()
-      if (eligible > 50 && !confirmAll) { setConfirmAll(eligible); return }
-      setConfirmAll(false)
-      await runEnrich(ids)
-    } catch (e) { setError(e.message) }
+    const ids = await targetIds()
+    if (eligible > 50 && !confirmAll) { setConfirmAll(eligible); return undefined }
+    setConfirmAll(false)
+    return runEnrich(ids)
   }
   const retryDomains = async (ids) => {
-    try {
-      const r = await api(`/campaigns/${campaignId}/retry-domain`, { method: 'POST', json: { lead_ids: ids } })
-      setNote(r.started ? `Looking for the website of ${r.total} compan${r.total === 1 ? 'y' : 'ies'} again` : r.reason)
-      setTick((x) => x + 1); load(); window.dispatchEvent(new Event('metro-progress'))
-    } catch (e) { setError(e.message) }
+    const r = await api(`/campaigns/${campaignId}/retry-domain`, { method: 'POST', json: { lead_ids: ids } })
+    setTick((x) => x + 1); load(); window.dispatchEvent(new Event('metro-progress'))
+    return r.started ? `Looking for the website of ${r.total} compan${r.total === 1 ? 'y' : 'ies'} again. Progress is in the header.` : { kind: 'warn', text: r.reason || 'Nothing was started' }
   }
   const retryShown = async () => {
-    try {
-      const p = filterParams(); p.set('status', 'new'); p.set('domain', 'no'); p.set('enriched', 'yes')
-      const r = await api(`/leads/ids?${p}`)
-      await retryDomains(ticked.size ? [...ticked] : r.ids)
-    } catch (e) { setError(e.message) }
+    const p = filterParams(); p.set('status', 'new'); p.set('domain', 'no'); p.set('enriched', 'yes')
+    const r = await api(`/leads/ids?${p}`)
+    return retryDomains(ticked.size ? [...ticked] : r.ids)
   }
-  // "Enrich next N": the best-scored usable leads of the current filter and sort whose company is not enriched yet, persona keep first.
+  // "Enrich next N": the next N COMPANIES of the current filter and sort that are not enriched yet. Companies with a domain come first,
+  // the ones with no domain only after them (the backend decides, so the count on the button is what really runs).
   const enrichNext = async (n) => {
-    try {
-      const p = filterParams()
-      p.set('status', 'new'); p.set('enriched', 'no'); p.set('keep_first', 'true'); p.set('sort', f.sort); p.set('limit', n)
-      const r = await api(`/leads?${p}`)
-      await runEnrich(r.leads.map((l) => l.id))
-    } catch (e) { setError(e.message) }
+    const p = nextParams(); p.set('take', n); p.set('ns', '')
+    const r = await api(`/campaigns/${campaignId}/enrich-next?${p}`)
+    return runEnrich(r.lead_ids || [], r.plan)
   }
   const removeTicked = async () => {
-    try {
-      const r = await api(`/campaigns/${campaignId}/leads/remove`, { method: 'POST', json: { lead_ids: [...ticked] } })
-      setNote(`Removed ${r.removed} lead${r.removed === 1 ? '' : 's'}${r.kept_with_history ? `; ${r.kept_with_history} kept (a message was sent or a reply came)` : ''}`)
-      setConfirmRemove(false); setTicked(new Set()); load(); loadCampaigns()
-    } catch (e) { setError(e.message); setConfirmRemove(false) }
+    const r = await api(`/campaigns/${campaignId}/leads/remove`, { method: 'POST', json: { lead_ids: [...ticked] } })
+    setConfirmRemove(false); setTicked(new Set()); load(); loadCampaigns()
+    return `Removed ${r.removed} lead${r.removed === 1 ? '' : 's'}${r.kept_with_history ? `; ${r.kept_with_history} kept (a message was sent or a reply came)` : ''}`
+  }
+  // the label of an "Enrich next N" button: how many companies, and how many of them have a domain
+  const nextLabel = (n) => {
+    const pl = plans?.plans?.[String(n)]
+    if (!pl || !pl.companies) return `Enrich next 0`
+    const mix = pl.without_domain ? (pl.with_domain ? `${pl.with_domain} with a domain + ${pl.without_domain} without` : `${pl.without_domain}, none has a domain`) : `${pl.with_domain} with a domain`
+    return `Enrich next ${pl.companies} · ${mix}`
   }
   const toggleAll = () => setTicked(ticked.size === shown.length ? new Set() : new Set(shown.map((l) => l.id)))
 
@@ -161,6 +166,8 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
           {listed.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.leads})</option>)}
         </select>
         {campaign && <Pill color={lineColor(campaign.type)}>{campaign.type} · {campaign.status}</Pill>}
+        {campaign && <Btn kind="ghost" small onClick={() => onOpenBrief?.(campaign.id)} data-testid="open-brief"
+          title="The campaign page: brief, offer, launch checklist, import records">Brief and settings</Btn>}
         <Err error={error} />
       </div>
 
@@ -180,9 +187,9 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
           <Stage n="2" title="Enrich" line={`${pipe.enrich.ready} ready`} sub="Domain, website scan, PageSpeed; then browser reads">
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <Btn small kind={remaining === 0 ? 'ghost' : 'primary'} onClick={() => enrichNext(20)} disabled={remaining === 0} data-testid="enrich-next-20"
-                title="The best-scored leads in the current filter and sort whose company is not enriched yet (persona keep first): finds the website, reads it, measures PageSpeed, queues the browser readings">{`Enrich next ${Math.min(20, remaining)}`}</Btn>
+                title="The next 20 companies of the current filter and sort that are not enriched yet. Companies WITH a domain come first; ones with no domain only after them (or through Retry domain). Finds nothing it cannot read: reads the website, measures PageSpeed, queues the browser readings.">{nextLabel(20)}</Btn>
               <Btn key={50} small kind="ghost" onClick={() => enrichNext(50)} disabled={remaining === 0} data-testid="enrich-next-50"
-                title="The best-scored leads in the current filter and sort whose company is not enriched yet (persona keep first)">{`Enrich next ${Math.min(50, remaining)}`}</Btn>
+                title="The next 50 companies, companies with a domain first">{nextLabel(50)}</Btn>
               <Btn small kind="ghost" onClick={enrich} disabled={eligible === 0} title="Domain, website scan and PageSpeed run on the backend, paced and cached per domain. Browser reads are queued and run only in a Metro week. Runs on the ticked rows, or on every row the filters show; above 50 it asks first." data-testid="enrich-btn">{ticked.size ? `Enrich ${eligible} ticked` : `Enrich all ${eligible} shown`}</Btn>
               {noDomain > 0 && <Btn small kind="ghost" onClick={retryShown} data-testid="retry-domains" title="Run the domain finder again (name patterns, then an AI lookup with web search) for the companies in this view that still have no domain">{`Retry domain (${ticked.size ? 'ticked' : `${noDomain} without`})`}</Btn>}
             </div>
@@ -192,7 +199,9 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                 <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}><Btn small onClick={enrich} data-testid="enrich-all-yes">Enrich {confirmAll}</Btn><Btn small kind="ghost" onClick={() => setConfirmAll(false)}>Cancel</Btn></span>
               </div>
             )}
-            <div style={{ fontSize: 11, color: 'rgba(0,12,14,0.6)', marginTop: 4 }} data-testid="enrich-remaining">{remaining} not enriched yet in this view</div>
+            <div style={{ fontSize: 11, color: 'rgba(0,12,14,0.6)', marginTop: 4 }} data-testid="enrich-remaining">
+              {remaining} not enriched yet in this view{plans?.pool ? `: ${plans.pool.with_domain} companies with a domain wait, ${plans.pool.without_domain} without` : ''}
+            </div>
           </Stage>
           <Stage n="3" title="Write" line={`${pipe.write.ready} ready`} sub={`Phase ${pipe.write.phase}`}>
             <Btn small disabled title="Chain writing arrives in Phase 3">{`Write 0 ${scope.what}`}</Btn>
@@ -241,7 +250,6 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                 <Btn small onClick={removeTicked} data-testid="confirm-remove">Remove</Btn><Btn small kind="ghost" onClick={() => setConfirmRemove(false)}>Keep</Btn>
               </span>
             )}
-            {note && <span style={{ fontSize: 12, color: '#1a9d5c' }}>{note}</span>}
           </div>
 
           <div style={{ overflowX: 'auto' }}>
@@ -281,7 +289,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                     </td>
                     <td title={l.deep_score != null ? `deep ${l.deep_score}` : ''}>{l.fit_score ?? '-'}</td>
                     <td>{l.invite_status === 'connected' ? 'connected' : l.invite_status === 'invited' ? 'invited' : '-'}</td>
-                    <td style={{ fontSize: 12 }}>{l.email ? <>{l.email}<div style={{ fontSize: 10, color: 'rgba(0,12,14,0.5)' }}>{l.email_source}{l.email_verified ? ', verified' : ', unverified'}{l.email_type === 'personal' ? ', personal' : ''}</div></> : '-'}
+                    <td style={{ fontSize: 12 }}>{l.email ? <>{l.email}<div style={{ fontSize: 10, color: 'rgba(0,12,14,0.5)' }}>{l.email_source}, {emailStatusText(l)}{l.email_type === 'personal' ? ', personal (used only because there is no business address)' : ''}</div></> : '-'}
                       {l.open_profile && <div data-testid="open-profile-badge" title="Open Profile: can get a free InMail" style={{ display: 'inline-block', marginTop: 2, fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 8, background: 'rgba(0,128,128,0.12)', color: METRO.teal }}>Open Profile</div>}</td>
                     <td><Pill color={STATUS_COLOR[l.status] || METRO.teal}>{l.status}</Pill>
                       {(l.suppressed_reason || l.prior_contact_reason) && <div style={{ fontSize: 10, color: 'rgba(0,12,14,0.55)', maxWidth: 160 }}>
@@ -307,6 +315,10 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
     </div>
   )
 }
+
+// F4: the words for an address's status. "domain_ok" is the free DNS check: the DOMAIN accepts mail, the mailbox is not proven.
+const emailStatusText = (l) => (l.email_status === 'verified' || l.email_verified ? 'verified'
+  : l.email_status === 'domain_ok' ? 'domain accepts mail, not verified' : l.email_status === 'invalid' ? 'invalid (no such domain)' : 'unverified')
 
 function Stage({ n, title, line, sub, children }) {
   return (

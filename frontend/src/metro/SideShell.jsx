@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from 'react'
 import App from '../App.jsx'
 import MetroApp from './MetroApp.jsx'
 import SideSwitch from './SideSwitch.jsx'
+import ActivityStrip from './components/ActivityStrip.jsx'
+import { buildActivities, stripTitlePrefix, tabTitle } from './lib/activity.js'
+import { requestGoto } from './lib/nav.js'
+import { useProgress } from './lib/progressStore.js'
 import { readSide, writeSide, hashForcesFalcon, hashOnSwitch, isSwitchKey, otherSide } from './lib/side.js'
 
 const store = typeof window !== 'undefined' ? window.localStorage : null
@@ -47,14 +51,42 @@ export default function SideShell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // F4: the activity strip in both headers; a click on a chip opens the Metro screen where it runs (switching sides if needed).
+  const goto = (where) => {
+    change('metro')
+    requestGoto(where || { tab: 'leads' })
+  }
+
+  // The browser tab says what runs: "(Enriching 7/20) Metro". Only the prefix is ours; whatever else sets the title (the Falcon
+  // Scout new-jobs bell) is left alone and kept after it.
+  const { runs, dismissed } = useProgress()
+  const running = buildActivities(runs, dismissed).running
+  const prefix = tabTitle(running, '')
+  // On the Metro side the tab is called "Metro" (Falcon Scout's background "new jobs" bell keeps rewriting the title; a
+  // MutationObserver puts ours back). On the Falcon Scout side whatever the app set is kept and only the prefix is added.
+  const applied = useRef('')
+  useEffect(() => {
+    const apply = () => {
+      const cur = document.title
+      const want = side === 'metro' ? `${prefix}Metro` : prefix + stripTitlePrefix(cur, applied.current)
+      applied.current = prefix
+      if (cur !== want) document.title = want
+    }
+    apply()
+    const el = document.querySelector('title')
+    const mo = el ? new MutationObserver(apply) : null
+    mo?.observe(el, { childList: true, characterData: true, subtree: true })
+    return () => mo?.disconnect()
+  }, [prefix, side])
+
   return (
     <>
       <div data-side-panel="falcon" style={{ display: side === 'falcon' ? 'block' : 'none', height: '100%' }}>
-        <App sideSwitch={<SideSwitch side={side} onChange={change} />} />
+        <App sideSwitch={<SideSwitch side={side} onChange={change} />} activityStrip={<ActivityStrip onGo={goto} showIdle={false} />} />
       </div>
       {metroSeen && (
         <div data-side-panel="metro" style={{ display: side === 'metro' ? 'block' : 'none', height: '100%' }}>
-          <MetroApp side={side} onSideChange={change} />
+          <MetroApp side={side} onSideChange={change} activityStrip={<ActivityStrip onGo={goto} />} />
         </div>
       )}
     </>

@@ -361,6 +361,7 @@ def enrichment_summary(st: Counter, unmapped: Counter) -> dict:
             "domains_set": {"linkedhelper": st["domain_set_linkedhelper"], "email-domain": st["domain_set_email"]},
             "domains_disagreeing": st["domain_disagree"], "domains_rejected": st["domain_rejected"],
             "domains_taken_by_another_company": st["domain_taken"],
+            "company_pages": st["company_pages"], "company_pages_disagreeing": st["company_page_disagree"],
             "open_profiles": st["open_profile"], "company_facts_filled": st["company_facts"], "person_facts_filled": st["person_facts"],
             "unmapped_columns": dict(unmapped.most_common())}
 
@@ -370,6 +371,8 @@ def enrichment_line(e: dict) -> str:
     bits = [f"{d['linkedhelper']} domains from Linked Helper", f"{d['email-domain']} from business emails",
             f"{e['domains_disagreeing']} disagreeing", f"{e['open_profiles']} open profiles",
             f"{e['company_facts_filled']} company facts"]
+    if e.get("company_pages"):
+        bits.append(f"{e['company_pages']} company LinkedIn pages")
     if e["unmapped_columns"]:
         bits.append(f"{len(e['unmapped_columns'])} unmapped columns")
     return ", ".join(bits)
@@ -431,10 +434,13 @@ def _fill_existing(s: Session, lead: MetroLead, n: dict, row: dict, *, campaign:
         filled.append("email")
         if enr_stats is not None:
             enr_stats[f"email_{n['email_type'] or 'unknown'}"] += 1
-    elif (n["email"] and lead.email and n["email"] != lead.email and lead.email_type == "personal" and n["email_type"] == "business"
-          and lead.email_status != "verified"):
+    elif n["email"] and lead.email and n["email"] != lead.email and lead.email_type == "personal" and n["email_type"] == "business":
+        # F4 ("Personal emails" decision): a business address always wins, even over a verified personal one. The new address
+        # starts unverified (the old status was about the old address); the old one is kept in the lead's raw data.
+        lhenrich.stash_other_email(lead, lead.email)
         lead.email, lead.email_source, lead.email_type = n["email"], ("linkedhelper" if is_lh else "csv"), "business"
-        filled.append("email")                     # F3: a business address replaces an unverified personal one
+        lead.email_status, lead.email_verified, lead.email_checked_at = "unverified", False, None
+        filled.append("email")
         if enr_stats is not None:
             enr_stats["email_business"] += 1
     # Profile URL forms: the first one fills the empty slot; a second, different form is kept in the raw data.

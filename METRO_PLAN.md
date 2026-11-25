@@ -35,6 +35,7 @@ Falcon Scout gets a second half, **Metro**: outbound to white-label agency partn
 | Language, style | English only. DevScout's writing rules as the base, Artem's tone from the Upwork corpus, no deliberate typos or lowercase "i" |
 | AI | Every call through the existing `/claude` proxy on the CLI bridge (subscription) |
 | CRM and reminders (25 Nov) | **Auto card, stage Prospect**: the top 15% of each campaign by fit score, only leads with 2+ hooks (never mixed with Replied). **Any real reply** (either channel) makes a card or moves a Prospect card to Replied and raises its temperature (cold / warm / hot, suggested, accepted with a click); auto-replies never count (DevScout's classifier). **"Remove me / not interested"**: no card, the person goes to the hard suppression list, the reply is kept as junk. **No reply for 12 months**: the card is archived (hidden, history kept), never deleted. **Reminders**: a "due today" pop-up (Remind later / Dismiss for today), a desktop alert on a new reply plus a dot on the CRM tab, a once-a-day reminder email to Oleh's own inbox when sends are due. No weekly report for now. Copy from DevScout: `dueModal.js`, `realDue.js`, `desktopNotify.js`, `replyWatcher.js` (15-minute interval with back-off), `crmFromReplies.js`, `autoReply.js`, `crmAutoReply.js` |
+| Personal emails (25 Nov) | A business address always wins. A personal address (gmail etc.) is a sending address only when the lead has no business one; it stays marked "personal". Reverses F3's rule that `emailable()` is false for every personal address (done in F4: a verified personal address is emailable; a business address found later replaces it, even a verified one) |
 
 ## Architecture
 
@@ -145,6 +146,7 @@ Seven phases. After Phase 3 the first campaign can run, with sending through Lin
 3. Chain writer, one lead per call: touches = distinct hooks, split across the channels the lead can receive, ledger forbids reuse, cap about 6; under 2 hooks gets the base chain of about 3.
 4. Checks in code (DevScout's `lintChain` + Falcon Scout's grounding): no prices, no URLs written by the AI, no placeholders, no em dashes, banned phrases, a hook must exist in the lead's data. A failing chain shows "Do not send as is".
 5. Review drawer per lead; "Send anyway" with a stored date.
+   Leads table layout (Oleh, 25 Nov): few columns, not DevScout's many: person + company, fit, a **Channels** cell (email: business / personal / none; LinkedIn: connected / invited / not; Open Profile), hooks count, and a **Chain** cell (not written / written N touches / issues / approved / sending step X). A click on a row opens the drawer: a short summary of everything known (company facts, why it scored, hooks with their evidence), then the chain in send order, each touch with channel, day and text, editable, with the checks' flags and Approve / Send anyway.
 6. Exports: Linked Helper CSV with one custom variable per LinkedIn message; email CSV.
 
 **Accept when:** 10 real leads per segment produce chains Oleh would send after light edits; the price and URL checks catch planted test cases; the Linked Helper import shows the right message per person on one test profile.
@@ -220,3 +222,9 @@ None blocks Phases 0-2; the first two must be settled before Phases 3-4.
 - [ ] **Next niche** after Medicine / Health / Aesthetics, ranked by contract value and IT Force's strength.
 - [x] **React 19 upgrade** (Phase 0 step 3) - kept (Oleh, 24 Nov).
 - [ ] **Email volume research** - on request.
+
+## Queued for the next fix task (planning chat, 25 Nov evening)
+F4 (25 Nov) did every item of the queue except the three below.
+- ETA in the header strip: the strip shows `7/20`, the bar, the item and the step; the estimate ("~3 min left") is only in the bottom dock, which stays as the detail view. Add it to the chip if Oleh misses it.
+- Email verification path before Phase 4: the free domain check is built ("domain accepts mail", never verified); what makes an address `verified` is Oleh's decision (proposal in METRO_HANDOFF.md, F4).
+- Company LinkedIn pages for companies already imported: the backfill found no stored rows (the first Data Enrichment file went through the email-results path, which kept none). Import that file once more with the new Import button and the pages are stored.

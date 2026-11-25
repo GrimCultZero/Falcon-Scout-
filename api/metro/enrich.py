@@ -316,17 +316,28 @@ def stop() -> None:
     Run.stop_flag.set()
 
 
+def order_group(domain: str | None, scanned_at) -> int:
+    """F4: the order a run takes companies in. 0 = has a domain and no website scan yet (the cheap, useful ones), 1 = has a
+    domain and a scan (a refresh), 2 = no domain (name patterns, AI lookup: slow, often fruitless, so they go last).
+    "Enrich next N" and every other run share this, so the button's count and the run agree."""
+    if domain:
+        return 1 if scanned_at else 0
+    return 2
+
+
 def _company_ids(s: Session, campaign_id: int, lead_ids: list[int] | None) -> list[int]:
-    q = s.query(MetroLead.company_id).filter(MetroLead.campaign_id == campaign_id, MetroLead.status == "new",
-                                             MetroLead.company_id.isnot(None))
+    q = (s.query(MetroLead.company_id, MetroCompany.domain, MetroCompany.website_scan_at)
+         .join(MetroCompany, MetroCompany.id == MetroLead.company_id)
+         .filter(MetroLead.campaign_id == campaign_id, MetroLead.status == "new", MetroLead.company_id.isnot(None)))
     if lead_ids is not None:             # an explicit (possibly empty) list is the scope; None = the whole campaign (API only)
         q = q.filter(MetroLead.id.in_(lead_ids))
-    seen, out = set(), []
-    for (cid,) in q.order_by(MetroLead.persona_score.desc()).all():
+    seen, rows = set(), []
+    for cid, dom, scan in q.order_by(MetroLead.persona_score.desc(), MetroLead.id).all():
         if cid not in seen:
             seen.add(cid)
-            out.append(cid)
-    return out
+            rows.append((order_group(dom, scan), len(rows), cid))
+    rows.sort()                          # stable: inside a group the best persona stays first
+    return [cid for _g, _i, cid in rows]
 
 
 def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: webscan.Fetcher | None = None,

@@ -49,16 +49,20 @@ export function visibleRuns(runs, serverNow, dismissed = new Set()) {
 // A page-side tracker for work that never reaches the backend (building a download). Same run shape as the backend's.
 export function createLocalRuns({ now = () => Date.now() / 1000 } = {}) {
   const runs = new Map()
+  const listeners = new Set()
   let seq = 0
+  const changed = () => { for (const f of listeners) { try { f() } catch { /* a bad listener never breaks a run */ } } }
   return {
     start(label, { total = 0 } = {}) {
       const id = `local-${++seq}`
       runs.set(id, { id, kind: 'local', label, status: 'running', total, done: 0, failed: 0, current: null, step: null, started_at: now(), finished_at: null, result: null, can_stop: false })
+      changed()
       return id
     },
-    update(id, patch) { const r = runs.get(id); if (r && r.status === 'running') Object.assign(r, patch) },
-    end(id, result = 'Done', ok = true) { const r = runs.get(id); if (r) { r.status = ok ? 'done' : 'failed'; r.result = result; r.finished_at = now() } },
+    update(id, patch) { const r = runs.get(id); if (r && r.status === 'running') { Object.assign(r, patch); changed() } },
+    end(id, result = 'Done', ok = true) { const r = runs.get(id); if (r) { r.status = ok ? 'done' : 'failed'; r.result = result; r.finished_at = now(); changed() } },
     list() { return [...runs.values()] },
+    subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
   }
 }
 export const localRuns = createLocalRuns()

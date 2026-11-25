@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { METRO } from '../theme.js'
-import { Btn, Err, Pill, card, input } from './ui.jsx'
+import { Btn, Err, Pill, card } from './ui.jsx'
+import ImportDialog from './ImportDialog.jsx'
 
 export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds, scope = { n: 0, what: 'shown' }, ticked = false }) {
   const cid = campaign.id
@@ -14,8 +15,7 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
   const [sl, setSl] = useState(null)
   const [open, setOpen] = useState(null)
   const [detail, setDetail] = useState(null)
-  const [error, setError] = useState('')
-  const [note, setNote] = useState('')
+  const [error, setError] = useState('')            // only a failed background refresh; what a BUTTON did is said by the notices
   const [emailDlg, setEmailDlg] = useState(false)
 
   const load = useCallback(async () => {
@@ -31,30 +31,28 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
   const wasRunning = useRef(false)
   useEffect(() => { if (wasRunning.current && !running) onChanged?.(); wasRunning.current = running }, [running, onChanged])
 
-  const act = async (fn, msg) => {
-    try { const r = await fn(); setNote(typeof msg === 'function' ? msg(r) : msg); setError(''); load(); onChanged?.(); window.dispatchEvent(new Event('metro-progress')) } catch (e) { setError(e.message) }
-  }
+  // What a button does is said in a notice that stays (ui.jsx Btn + lib/notices.js); a refused request says why by itself (api.js).
+  const refresh = () => { load(); onChanged?.(); window.dispatchEvent(new Event('metro-progress')) }
   // Resolve the scope first; an empty scope runs nothing (the backend also treats an explicit empty list as "nobody").
   const scoped = (fn, msg) => async () => {
-    try {
-      const ids = await targetIds()
-      if (!ids.length) { setNote('No leads shown, nothing to do'); return }
-      await act(() => fn(ids), msg)
-    } catch (e) { setError(e.message) }
+    const ids = await targetIds()
+    if (!ids.length) return { kind: 'warn', text: 'No leads shown, so there is nothing to do. Change the filters or tick some rows.' }
+    const r = await fn(ids)
+    refresh()
+    return typeof msg === 'function' ? msg(r) : msg
   }
-  const score = scoped((ids) => api(`/campaigns/${cid}/score`, { method: 'POST', json: { lead_ids: ids } }), (r) => `Scored ${r.scored} leads`)
+  const score = scoped((ids) => api(`/campaigns/${cid}/score`, { method: 'POST', json: { lead_ids: ids } }),
+    (r) => `Scored fit for ${r.scored} lead${r.scored === 1 ? '' : 's'}`)
   const deep = scoped((ids) => api(`/campaigns/${cid}/deep`, { method: 'POST', json: { lead_ids: ids } }),
     (r) => `Queued for the browser: ${Object.entries(r.queued).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`).join(', ')} (LinkedIn jobs run only in a Metro week)`)
   const hooks = scoped((ids) => api(`/campaigns/${cid}/hooks`, { method: 'POST', json: { lead_ids: ids, shortlist_only: !ticked } }),
-    (r) => r.started ? `Writing hooks for ${r.total} leads` : r.reason)
-  const stop = () => act(() => api('/enrich/stop', { method: 'POST' }), 'Stopping after the current company')
+    (r) => (r.started ? `Writing hooks for ${r.total} leads (see the header)` : { kind: 'warn', text: r.reason || 'Hooks were not started' }))
+  const stop = async () => { await api('/enrich/stop', { method: 'POST' }); refresh(); return 'Stopping after the current company' }
   const openLead = async (l) => {
     setOpen(l.id); setDetail(null)
     try { setDetail(await api(`/leads/${l.id}/evidence`)) } catch (e) { setError(e.message) }
   }
-  const markEmail = async (l, status) => {
-    try { await api(`/leads/${l.id}/email-status`, { method: 'POST', json: { status } }); load() } catch (e) { setError(e.message) }
-  }
+  const markEmail = async (l, status) => { await api(`/leads/${l.id}/email-status`, { method: 'POST', json: { status } }); load(); return `${l.email} marked ${status}` }
 
   const en = st?.enrich
   const hk = st?.hooks
@@ -69,7 +67,6 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
         <Btn kind="ghost" small onClick={hooks} disabled={running || !sl?.shortlisted} title="Hooks, angle and case tag through /claude; every hook is checked against the stored fields. Ticked rows, or the shortlisted ones among the rows shown." data-testid="hooks-btn">Write hooks ({scope.n} {scope.what}{ticked ? '' : ', shortlisted only'})</Btn>
         <Btn kind="ghost" small onClick={() => setEmailDlg(true)} data-testid="emails-btn" title="The Linked Helper email-finder list for the ticked rows, or the shown rows that are shortlisted">Emails (Linked Helper)</Btn>
         {en?.running && <Btn kind="ghost" small onClick={stop}>Stop run</Btn>}
-        {note && <span style={{ fontSize: 12, color: '#1a9d5c' }}>{note}</span>}
       </div>
       <Err error={error} />
 
@@ -138,20 +135,19 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
           )}
         </div>
       )}
-      {emailDlg && <EmailDialog campaign={campaign} targetIds={targetIds} ticked={ticked} scope={scope} onClose={() => setEmailDlg(false)} onDone={() => { load(); onChanged?.(); window.dispatchEvent(new Event('metro-progress')) }} />}
+      {emailDlg && <EmailDialog campaign={campaign} targetIds={targetIds} ticked={ticked} scope={scope} onClose={() => setEmailDlg(false)} onDone={refresh} />}
     </div>
   )
 }
 
+// The email-finder round trip. Step 1 downloads the list for Linked Helper (a name with campaign, date and time, so it never
+// overwrites a file you keep); step 3 is the ONE import dialog (it knows the finder's results). The free domain check is a run.
 function EmailDialog({ campaign, targetIds, ticked, scope, onClose, onDone }) {
   const [prev, setPrev] = useState(null)
-  const [file, setFile] = useState(null)
-  const [source, setSource] = useState('linkedhelper')
-  const [res, setRes] = useState(null)
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  // The export follows "what you see runs": the ticked rows, else the shown rows that are shortlisted.
   const [ids, setIds] = useState(null)
+  const [error, setError] = useState('')
+  const [importing, setImporting] = useState(false)
+  // The export follows "what you see runs": the ticked rows, else the shown rows that are shortlisted.
   useEffect(() => {
     let alive = true
     targetIds().then((x) => {
@@ -162,25 +158,24 @@ function EmailDialog({ campaign, targetIds, ticked, scope, onClose, onDone }) {
     return () => { alive = false }
   }, [campaign.id, targetIds, ticked])
   const download = async () => {
+    let r
     try {
-      const r = await fetch(`/metro/campaigns/${campaign.id}/email-export`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      r = await fetch(`/metro/campaigns/${campaign.id}/email-export`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lead_ids: ids || [], shortlist_only: !ticked }) })
-      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-      const url = URL.createObjectURL(await r.blob())
-      const a = document.createElement('a'); a.href = url; a.download = `metro-email-finder-campaign-${campaign.id}.csv`; a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 2000)
-    } catch (e) { setError(e.message) }
+    } catch { throw new Error('Cannot reach the backend (is falconscout.bat running?)') }
+    if (!r.ok) { let d = ''; try { d = (await r.json()).detail } catch { /* no body */ } throw new Error(`The list was refused: ${d || `${r.status} ${r.statusText}`}`) }
+    // the backend names the file: campaign, what it is, date and time (never the same twice)
+    const name = /filename="?([^";]+)"?/i.exec(r.headers.get('Content-Disposition') || '')?.[1] || downloadName(campaign.name, 'linked-helper-email-list')
+    const url = URL.createObjectURL(await r.blob())
+    const a = document.createElement('a'); a.href = url; a.download = name; a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+    return `Saved ${name} to your Downloads folder (${prev?.exported ?? '?'} leads). Import it into Linked Helper as a list.`
   }
-
-  const send = async (dry) => {
-    setBusy(true); setError('')
-    try {
-      const form = new FormData(); form.append('file', file)
-      setRes(await api(`/campaigns/${campaign.id}/email-import?source=${source}&dry_run=${dry}`, { method: 'POST', form }))
-      if (!dry) onDone()
-    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  const check = async () => {
+    const r = await api(`/campaigns/${campaign.id}/email-check`, { method: 'POST' })
+    onDone()
+    return r.started ? `Checking ${r.total} email domain${r.total === 1 ? '' : 's'} (see the header). A domain that accepts mail is not a verified mailbox.` : { kind: 'warn', text: r.reason || 'Nothing to check' }
   }
-  const check = async () => { try { setRes({ check: await api(`/campaigns/${campaign.id}/email-check`, { method: 'POST' }) }); onDone() } catch (e) { setError(e.message) } }
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,12,14,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#fff', borderRadius: 12, padding: '20px 24px', width: 560, maxWidth: '94vw', maxHeight: '90vh', overflow: 'auto', fontSize: 13 }}>
@@ -189,23 +184,23 @@ function EmailDialog({ campaign, targetIds, ticked, scope, onClose, onDone }) {
           <li><b>Export</b> the profile URLs of {ticked ? `the ${scope.n} ticked rows` : `the shortlisted ones among the ${scope.n} rows shown`}: {prev ? `${prev.exported} lead(s) without an email` : '...'}{prev && Object.keys(prev.skipped).length ? ` (skipped: ${Object.entries(prev.skipped).map(([k, n]) => `${n} ${k}`).join(', ')})` : ''}.
             <div><Btn small kind="ghost" onClick={download} disabled={!ids || !prev?.exported} data-testid="email-export-download">Download the Linked Helper list (CSV)</Btn></div></li>
           <li>In Linked Helper: import it as a list, run its email finder (Data credits), export the results.</li>
-          <li><b>Import</b> the results here. Emails are stored as <i>unverified</i>; only an address the provider calls verified, or one you mark, can ever be emailed.</li>
+          <li><b>Import</b> the results with the same Import button as every other CSV. Emails are stored as <i>unverified</i>; only an address the provider calls verified, or one you mark, can ever be emailed.
+            <div><Btn small onClick={() => setImporting(true)} data-testid="email-import-open">Import the results (CSV)</Btn></div></li>
         </ol>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="file" accept=".csv,text/csv" onChange={(e) => { setFile(e.target.files[0] || null); setRes(null) }} />
-          <select style={{ ...input, width: 'auto' }} value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source">
-            <option value="linkedhelper">Linked Helper</option><option value="apollo">Apollo (fallback)</option></select>
-          <Btn small kind="ghost" disabled={!file || busy} onClick={() => send(true)}>Preview</Btn>
-          <Btn small disabled={!file || busy || !res || res.dry_run !== true} onClick={() => send(false)}>Import</Btn>
-        </div>
         <Err error={error} />
-        {res && !res.check && <pre style={{ fontSize: 11, background: 'rgba(0,86,105,0.06)', padding: 8, borderRadius: 8, whiteSpace: 'pre-wrap' }}>{JSON.stringify(res, null, 1)}</pre>}
-        {res?.check && <div style={{ marginTop: 8 }}>Checked: {JSON.stringify(res.check)}</div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
-          <Btn kind="ghost" small onClick={check} title="Syntax and DNS only; never marks an address verified">Check the domains (free)</Btn>
+          <Btn kind="ghost" small onClick={check} data-testid="email-check" title="Looks up each address's domain (free): does it accept mail? Marks it domain ok or invalid. It never marks an address verified.">Check the domains (free)</Btn>
           <Btn kind="ghost" onClick={onClose}>Close</Btn>
         </div>
       </div>
+      {importing && <ImportDialog campaign={campaign} onClose={() => setImporting(false)} onDone={onDone} />}
     </div>
   )
+}
+
+// the same shape as the backend's api/metro/filenames.py, for the case the header cannot be read
+function downloadName(campaign, what) {
+  const d = new Date(), p = (n) => String(n).padStart(2, '0')
+  const slug = (s) => String(s || 'campaign').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'campaign'
+  return `metro_${slug(campaign)}_${what}_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.csv`
 }
