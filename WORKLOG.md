@@ -11367,3 +11367,28 @@ end `resultLines.js`); a finished run is told in the header strip only; plain en
 wagon on the progress bar and empty states, small transform / opacity animations; the Leads page lighter (More menus, collapsed
 domain trails). Browser check on the scratch launcher with a copy: before / after screenshots in docs/metro-f5/.
 Tests: node tests/run_all.mjs --python (new: tests/metro/test_metro_fix5.py, tests/metro/fix5-ui.test.js). Details: DESIGN.md section 25.
+
+## 2026-11-26 - Metro Phase 3 (P3): agency hooks done right, the chain writer, review and export (branch metro/phase-3)
+Why: the planning chat's hook review (84 hooks for the 13 shortlisted leads of "USA CAN Agency Claude 1") found ~75% "your own site
+lacks X" audits (insulting for an agency), the same company written 3 times, "0 service pages" scanner misses and nothing about who
+their clients are; Monday 30 Nov Oleh shows Metro's chains next to a generic message.
+Built (details in DESIGN.md section 25 "How Phase 3 built it"): hooks per COMPANY (written once, shared) and per PERSON, one model call
+per company; the evidence now carries the Linked Helper extras and a code-derived service gap; hook kinds enforced in code by segment
+(agency campaigns refuse audit kinds by kind, cited field and wording); website scan v2 (services by slug / capabilities / headings,
+industries, case studies, careers + PPC/SEO roles, partner badges, logos, founding year), old scans re-read automatically; the 89
+English IT Force case pages imported with tags, one case link attached by code; a company is one account (primary contact, colleagues
+held, a reply stops all); the chain writer (code plans the touches and channels by the locked order, one /claude call per lead, the
+ledger, the checks in code); the Leads table's five columns and the lead panel (edit, Approve, Send anyway with its date); the Linked
+Helper and email exports; Metro opens where Oleh left it; the attention-only strip on the Falcon side; the ETA on the chip; badge
+padding and the wagon outline.
+Live run on a COPY of the live DB through tools/scratch_check.py (real site fetches, real model calls through the CLI bridge): 89 cases
+imported; hooks for 13 leads / 8 companies (84 kept, 13 thrown away by the checks on the first run). Three defects showed up in the
+real output and were fixed in code, then hooks were written again: niche word counts read as client counts ("250 e-commerce
+businesses"), "has a careers page, so they are recruiting", a duplicated HubSpot badge; then ", so ..." inferences and he / she were
+added to the refusals. Chains for the 8 primaries (5 colleagues held): first run 1 clean / 7 flagged (mostly "quietly"), after the prompt
+carried the banned list 5 clean / 3, after a targeted rewrite 7 clean / 1 (a "likely" guess, left for an edit). The run also found a
+number-check bug ("since 2021" vs a hook's "2021.06"), fixed and pinned. Before / after hook lists and 3 sample chains: METRO_HANDOFF.md P3.
+Found in passing: a scratch backend's Metro model calls went to the LIVE backend's /claude (METRO_SELF_URL was never set); the launcher
+now points them at itself.
+Tests: node tests/run_all.mjs --python: 74 JS suites, 49 Python suites, 0 failing (new: tests/metro/test_metro_phase3.py,
+tests/metro/phase3-ui.test.js; updated for the new design: activity-strip, fix1-ui, fix5-ui, metro-ui, test_metro_phase1/2).

@@ -12,7 +12,7 @@
 
 export const SHORT = {
   enrich: 'Enriching', deep: 'Reading', hooks: 'Hooks', score: 'Scoring', rescore: 'Scoring', import: 'Importing',
-  'email-import': 'Importing', 'mx-check': 'Checking emails', local: 'Working',
+  'email-import': 'Importing', 'mx-check': 'Checking emails', local: 'Working', chains: 'Chains', cases: 'Cases',
 }
 // every Metro job lives on the Leads screen of its campaign
 export const whereOf = (run) => ({ tab: 'leads', campaignId: run.campaign_id || null })
@@ -29,6 +29,7 @@ export function activityFromRun(run) {
     campaignId: run.campaign_id || null, campaignName: run.campaign_name || null,
     canStop: !!run.can_stop && status === 'running', stopping: !!run.stopping, result: run.result || null,
     startedAt: num(run.started_at), finishedAt: run.finished_at ? num(run.finished_at) : null, where: whereOf(run), local: run.kind === 'local',
+    eta: run.eta_s == null ? null : num(run.eta_s), attention: !!run.attention,
   }
 }
 
@@ -90,4 +91,19 @@ export function nextDelay({ running = false, burstActive = false, failing = fals
   if (running) return failing ? 5000 : 1500
   if (burstActive) return 700
   return null
+}
+
+// The estimate on the chip (P3 queue item; the dock had it alone): "~3 min left", "~40 s left"; '' until the backend has one
+// (it gives one after two units of a run with a known total).
+export function chipEta(a) {
+  if (!a || a.status !== 'running' || a.eta == null || !Number.isFinite(a.eta)) return ''
+  const s = Math.max(0, Math.round(a.eta))
+  if (s < 60) return `~${Math.max(5, Math.round(s / 5) * 5)} s left`
+  return `~${Math.round(s / 60)} min left`
+}
+
+// Oleh, 26 Nov: on the Falcon Scout side the Metro strip shows ONLY a running chip and what needs attention (a failed or stopped
+// run; later a new reply or a send that needs confirming). Ordinary finished results stay on the Metro side.
+export function attentionOnly({ running, finished }) {
+  return { running, finished: finished.filter((a) => a.status === 'failed' || a.status === 'stopped' || a.attention) }
 }

@@ -51,6 +51,14 @@ def emailable(lead: MetroLead) -> bool:
     return bool(lead.email and lead.email_status == "verified" and lead.status == "new")
 
 
+def email_sendable(lead: MetroLead) -> bool:
+    """Phase 3: the address a chain is PLANNED for, by the decision row "Email verification" (25 Nov, review 25 Dec): an address
+    is sendable when its domain accepts mail (`domain_ok`, the free MX check) or the provider calls it verified; never an
+    `invalid` or unchecked one. Used to pick the channel order and the Channels cell. Sending itself (Phase 4) still asks
+    `emailable()`, which wants `verified`: whether Phase 4 moves to this rule is the planning chat's call (see METRO_HANDOFF P3)."""
+    return bool(lead.email and lead.email_status in ("verified", "domain_ok") and lead.status == "new")
+
+
 def email_kind(lead: MetroLead) -> str | None:
     """business | personal | None (no address). An address Linked Helper did not type counts as business."""
     if not lead.email:

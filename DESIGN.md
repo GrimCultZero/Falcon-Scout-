@@ -1954,3 +1954,66 @@ spent its slots on companies with no domain. Progress had to be "impossible to m
   More, the small line says "N companies with a website, M not tried yet"; Write and Send are plain cards; the Enrichment card keeps
   Write hooks and Emails, deep readings and Rescore fit are behind More, its run lines are gone (the strip has them) and the browser
   jobs are one short status; a long domain trail is "no website - details"; "Rescore persona" is behind More in the table toolbar.
+
+### How Phase 3 built it (2026-11-26): agency hooks done right, the chain writer, review and export
+Why: the hook review of 26 Nov found ~75% of the agency hooks were "your own site lacks X" (the insulting audit tone), the same
+company's hooks written again for every lead, "0 service pages" on sites that clearly list services, and nothing about who their
+clients are. Monday 30 Nov Oleh shows Metro's chains next to a generic message, so the chains had to be specific and safe.
+- **Hooks per company (`hooks.py`, `evidence.py`).** One model call per COMPANY covers the company and the leads asked for. Company
+  hooks are stored ONCE (`metro_hooks.scope = company`, `lead_id` NULL; the table was rebuilt once so `lead_id` may be NULL) and every
+  lead of the company sees them; person hooks (`scope = person`) come from the person's own data. Pre-Phase 3 rows (scope NULL) are
+  treated as person hooks and replaced on the next write. A rewrite deletes the unused hooks and CLEARS any draft chain written from
+  them (its hooks are freed); a hook held by an approved, scheduled or sent touch stays. The angle and case tag are the company's.
+- **Evidence.** Company: the website scan, ads, Business Profile, Ahrefs, the LinkedIn page, the Linked Helper company facts the leads'
+  rows carry (description, industry, location) and ONE item derived by code, `derived.service_gap` ("the service pages found (16)
+  cover SEO, social media, branding; none is about paid search / Google Ads"; it says so when the words appear elsewhere in the text).
+  Person: title, headline, location, summary, top skills (names only), industry, followers, current position and since when, the
+  hiring badge. Two raw fields are reshaped because they invited false facts in the first live run: niche WORD COUNTS became "client
+  counts" ("250 e-commerce businesses"), so niches are names only, most mentioned first; a careers page with no PPC / SEO role is not
+  evidence at all ("they have a careers page, so they are recruiting").
+- **Kinds, enforced in code by segment.** `KINDS` (service_gap, services, clients_niche, case_study, partner_badge, geography, runs_ads,
+  hiring, team_size, agency_age, founder_background, public_voice, reviews, role; niche only: site_tracking, site_booking, site_pages,
+  site_content, site_speed). For an AGENCY campaign the audit fields are not even in the evidence, and a hook is refused by its kind,
+  by the fields it cites (the cited fields decide the kind over the model's label) and by its words ("page source", "pixel", "booking
+  tool", "location pages", "blog post", "page speed" ...). `hiring` needs a named role or the badge; `runs_ads` needs the Ads reading;
+  `reviews` the Business Profile. Also refused: an inference (", so they ...", "which means"), he / she (hooks say they / their).
+- **Website scan v2 (`webscan.py`, `SCAN_VERSION = 2`).** Services by path prefix (`/services/`, `/capabilities/`, `/our-*-services/`)
+  AND by slug (`/search-engine-optimization`, `/hubspot-services`), and on one-page sites by their headings; link texts that are calls
+  to action ("Let's Build Something") give way to the slug's words. New: industries pages, niche words, case-study titles, the careers
+  page (read) and PPC / SEO / paid-media roles on it, partner badges (Google / Premier, HubSpot with tier, Shopify, Meta, Microsoft,
+  Salesforce, Amazon, Klaviyo, Semrush, TikTok, BigCommerce, Clutch), client-logo alt texts, founding year, team size, "nationwide"
+  phrases. Up to 7 pages: home, services, work, careers, industries, contact, blog. A good scan of the older scanner is re-read by the
+  next enrich run AND by "Write hooks" before it writes (so one click after the upgrade is enough). On the 8 shortlisted agencies the
+  "0 service pages" became 24 / 12 / 9 / 16 / 15 / 9 / 60, and the one-page site lists its 6 services from its headings.
+- **Case pages (`cases.py`).** The 9 listing pages of itforce.ua/en/cases (89 English cases) are read: URL, title, industry tags, service
+  tags (PPC, SEO, SMM ...), country, task. `best_case(tag)`: the industry tag the hook writer matched to THEIR clients, then the company's
+  industry; among the hits a PPC / SEO case first, then a client outside Ukraine, then the newest. No match = no link.
+- **A company is one account (`accounts.py`).** Primary = a real person (a "lead" named like the company is a company page, never
+  primary), a hand choice ("Make this the primary contact"), then persona, then reach (connected > sendable email > invited), then
+  seniority, then the older lead. The others are HELD (never written). `stop_company`: a reply from anyone cancels every unsent touch
+  of every lead of the company (Phase 4/5 call it).
+- **Chain writer (`chains.py`).** Code plans: touches = unused hooks (agency-refused kinds left out), cap 6, under 2 = the base chain of
+  3; track by the locked channel order: connected = LinkedIn first (3) then email (starting 5 days after the last LinkedIn message);
+  a sendable address = email first; invited without an address = LinkedIn first "waiting for the acceptance"; neither = email "needs an
+  address". Days: LinkedIn 0/3/8, email 0/3/7/12/18/25. "Sendable" is the decision row of 25 Nov (`email_sendable`: verified or
+  domain_ok); `emailable()` (verified only) is unchanged for Phase 4's sending. One `/claude` call per lead gets the plan, the hooks
+  (H1..), the brief, the offer, IT Force's allowed facts (since 2015, white-label, European time zone), the case title and the style
+  rules (with the banned words); code maps each touch to the ledger (a hook is marked used by the touch that carries it, so a colleague
+  cannot reuse it), appends the case link under ONE touch (the first email after step 1), applies DevScout's contractions and runs the
+  checks. Edits keep the code's case line, re-run the checks and clear the approval; Approve needs a clean chain; Send anyway stores its
+  date on the failing touches. The sender's name is the setting `sender_name` (default Artem).
+- **Checks (`chaincheck.py`).** Per touch: price / currency, a URL or domain in the model's text, placeholders, em / en dash, "!",
+  lowercase "i", DevScout's banned phrases plus the Phase 3 buzzwords, call asks, guesses about them ("I'd guess", "likely", "probably"),
+  the do-not-claim list, non-English text, a greeting to the wrong name, LinkedIn over 300 characters, email over 120 words or no
+  subject, a hook not in the ledger, held by another lead, or refused for agencies, and any number that no cited hook (or IT Force's
+  "2015") carries; digits inside words (B2B, GA4) are not numbers. Per chain: a hook used twice, missing steps, the channel order.
+- **Review and export.** The Leads table has Oleh's five columns (person + company, fit, Channels, hooks, Chain); a row opens the lead
+  panel (`LeadPanel.jsx`: summary, company facts incl. the service gap, colleagues, hooks with their evidence, the chain in send order,
+  editable, flags, "Do not send as is", Approve / Send anyway / Rewrite). Exports (`exports.py`): the Linked Helper CSV (one row per
+  approved lead with LinkedIn touches; custom variables `metro_message_1..3` and `metro_day_1..3`) and the email CSV (one row per
+  approved email, in send order, only to a sendable address); held, suppressed and stopped leads never appear; unique file names.
+- **Small items.** Metro opens where Oleh left it (`lib/metroState.js`: per campaign the Leads filters, sort and open panel; the
+  remembered campaign is kept while the list loads and dropped only when it is gone). The Falcon Scout side shows only a compact
+  running chip and failed / stopped runs (`activity.attentionOnly`); the ETA ("~3 min left") is on the chip; the badge has header
+  padding; the wagon on the dark chip has a light outline by CSS (the SVGs are untouched). The scratch launcher now sets
+  `METRO_SELF_URL` to itself: before, a scratch backend's Metro model calls went to the LIVE backend's `/claude`.

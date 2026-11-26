@@ -357,8 +357,9 @@ check(up.json()["added"] == 2 and up.json()["list_source"] == "Seat A", "the rea
 lst = c.get(f"/metro/leads?campaign_id={aid}&q=person700").json()
 check(lst["total"] == 1 and lst["leads"][0]["list_source"] == "Seat A" and lst["counts"].get("new") == 2, "GET /metro/leads filters and counts")
 pl = c.get(f"/metro/campaigns/{aid}/pipeline").json()
-check(pl["import"]["leads"] == 2 and pl["enrich"]["ready"] == 2 and pl["write"]["live"] is False and pl["send"]["live"] is False,
-      "pipeline cards: Import live, Enrich counts the ready leads, Write and Send not live yet")
+check(pl["import"]["leads"] == 2 and pl["enrich"]["ready"] == 2 and pl["write"]["live"] is True and pl["write"]["ready"] == 0
+      and pl["send"]["live"] is False and pl["send"]["ready"] == 0,
+      "pipeline cards: Import live, Enrich counts the ready leads, Write live from Phase 3 (nothing shortlisted yet), Send not live yet")
 check(c.get(f"/metro/campaigns/{aid}/imports").json()["imports"][0]["result"]["added"] == 2, "import history keeps its counts")
 check(c.post(f"/metro/campaigns/{aid}/start").json()["status"] == "active", "POST start")
 ck = c.post(f"/metro/campaigns/{aid}/checklist/featured_swapped", json={"done": True}).json()

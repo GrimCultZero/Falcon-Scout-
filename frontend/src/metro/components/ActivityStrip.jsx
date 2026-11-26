@@ -7,14 +7,14 @@
 // The bottom dock stays as the detail view.
 import { useEffect, useState } from 'react'
 import '../metro.css'
-import { buildActivities, chipCount, chipDetail, chipPct, chipTitle, summarize } from '../lib/activity.js'
+import { attentionOnly, buildActivities, chipCount, chipDetail, chipEta, chipPct, chipTitle, summarize } from '../lib/activity.js'
 import { dismiss, dismissMany, stopRun, useProgress } from '../lib/progressStore.js'
 import { notify } from '../lib/notices.js'
 import { Wagon } from './Marks.jsx'
 
 const NARROW_BELOW = 1100          // the strip has its own bar under the header, so it only collapses in a really narrow window
 
-function Chip({ a, onGo, onStop }) {
+function Chip({ a, onGo, onStop, compact = false }) {
   const go = () => onGo?.(a.where, a)
   const key = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go() } }
   if (a.status !== 'running') {
@@ -33,6 +33,20 @@ function Chip({ a, onGo, onStop }) {
   }
   const pct = chipPct(a)
   const detail = chipDetail(a)
+  const eta = chipEta(a)
+  if (compact) {           // the Falcon Scout side: a small chip, no bar and no detail (a click opens the Metro screen)
+    return (
+      <div className="mt-chip mt-chip--compact" role="button" tabIndex={0} onClick={go} onKeyDown={key} data-testid="strip-chip" data-kind={a.kind}
+        title={`Metro: ${chipTitle(a)}${detail ? `: ${detail}` : ''}${eta ? `, ${eta}` : ''}. Click to open it.`}>
+        <div className="mt-chip-row">
+          <span className="mt-chip-dot" aria-hidden="true" />
+          <span className="mt-chip-title">Metro: {a.label}</span>
+          <span className="mt-chip-count" data-testid="strip-count">{chipCount(a) || 'working'}</span>
+          {eta && <span className="mt-chip-eta" data-testid="strip-eta">{eta}</span>}
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="mt-chip" role="button" tabIndex={0} onClick={go} onKeyDown={key} data-testid="strip-chip" data-kind={a.kind}
       title={`${chipTitle(a)}${detail ? `: ${detail}` : ''}. Click to open it.`}>
@@ -40,6 +54,7 @@ function Chip({ a, onGo, onStop }) {
         <span className="mt-chip-dot" aria-hidden="true" />
         <span className="mt-chip-title">{a.label}{a.campaignName ? ` · ${a.campaignName}` : ''}</span>
         <span className="mt-chip-count" data-testid="strip-count">{chipCount(a) || 'working'}</span>
+        {eta && <span className="mt-chip-eta" data-testid="strip-eta">{eta}</span>}
         {a.canStop && !a.stopping && (
           <button type="button" className="mt-chip-stop" data-testid="strip-stop" onClick={(e) => { e.stopPropagation(); onStop(a) }}>Stop</button>
         )}
@@ -56,7 +71,7 @@ function Chip({ a, onGo, onStop }) {
   )
 }
 
-export default function ActivityStrip({ onGo, showIdle = true }) {
+export default function ActivityStrip({ onGo, showIdle = true, falconSide = false }) {
   const view = useProgress()
   const [open, setOpen] = useState(false)
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < NARROW_BELOW)
@@ -65,7 +80,8 @@ export default function ActivityStrip({ onGo, showIdle = true }) {
     window.addEventListener('resize', on)
     return () => window.removeEventListener('resize', on)
   }, [])
-  const acts = buildActivities(view.runs, view.dismissed)
+  const built = buildActivities(view.runs, view.dismissed)
+  const acts = falconSide ? attentionOnly(built) : built
   const s = summarize(acts, { narrow })
   const stop = async (a) => { try { await stopRun(a.key) } catch (e) { if (!e.notified) notify.error(`Could not stop: ${e.message}`) } }
   const go = (where, a) => { setOpen(false); onGo?.(where, a) }
@@ -78,7 +94,7 @@ export default function ActivityStrip({ onGo, showIdle = true }) {
   if (s.mode === 'chips') {
     return (
       <div className="mt-strip-bar"><div className="mt-strip" data-testid="strip" data-mode="chips">
-        {s.visible.map((a) => <Chip key={a.key} a={a} onGo={go} onStop={stop} />)}
+        {s.visible.map((a) => <Chip key={a.key} a={a} onGo={go} onStop={stop} compact={falconSide && a.status === 'running'} />)}
         {s.more.length > 0 && (
           <div className="mt-chip" role="button" tabIndex={0} aria-expanded={open} data-testid="strip-more" style={{ minWidth: 0 }} onClick={() => setOpen((o) => !o)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o) } }} title="Earlier results, still here until you dismiss them">
