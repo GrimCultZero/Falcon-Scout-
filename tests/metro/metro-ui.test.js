@@ -29,10 +29,11 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
     'scope = the ticked rows, else the rows the filters show')
   assert(/Enrich \$\{eligible\} ticked/.test(leads) && /Enrich all \$\{eligible\} shown/.test(leads), 'the Enrich button carries the number it would process (F2: "Enrich all N shown" / "Enrich N ticked")')
   assert(/<Btn small kind="ghost" onClick=\{enrich\}[^>]*data-testid="enrich-btn"/.test(leads), 'Enrich is live from Phase 2 and still carries its number')
+  // F5 (item 7): Write and Send are two plain cards with no always-visible disabled button; they say which phase turns them on.
   for (const label of ['Write', 'Send']) {
-    assert(new RegExp(`<Btn small disabled title="[^"]*">\{\`${label} `).test(leads), `${label} is disabled until its phase`)
+    assert(new RegExp(`<Stage n="[34]" title="${label}"[^>]*sub=\\{[^}]*Phase`).test(leads) && !new RegExp(`\\{\`${label} 0 `).test(leads), `${label} is a plain card until its phase (no disabled button)`)
   }
-  assert(/Nothing is ever sent without a button press and a confirm/.test(leads), 'the Send card repeats the safety rule')
+  assert(/Nothing is sent without a button and a confirm/.test(leads), 'the Send card repeats the safety rule')
   assert(!/\/send|method: 'POST'.*send/i.test(leads), 'the Leads tab never calls a send route')
 
   const imp = read('components', 'ImportDialog.jsx')

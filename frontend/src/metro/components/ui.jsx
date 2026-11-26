@@ -70,3 +70,29 @@ export function Err({ error }) {
 }
 
 export const lineColor = (type) => (type === 'agency' ? METRO.agencyLine : METRO.nicheLine)
+
+// F5 (item 7): the buttons that are rare, or that the app now does by itself, wait behind one small "More" button.
+// A plain disclosure: click to open, click outside or Escape to close. The items are ordinary Btn buttons.
+export function MoreMenu({ children, label = 'More', testid = 'more-menu', align = 'left' }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', away)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+  return (
+    <span ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button type="button" className="mt-btn mt-btn--ghost mt-btn--small" aria-haspopup="menu" aria-expanded={open} data-testid={testid}
+        onClick={() => setOpen((o) => !o)} style={{ fontFamily: METRO.font }}>{label} <span aria-hidden="true">{open ? '▴' : '▾'}</span></button>
+      {open && (
+        <div role="menu" className="mt-more" data-testid={`${testid}-items`} style={{ [align === 'right' ? 'right' : 'left']: 0 }} onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
+    </span>
+  )
+}

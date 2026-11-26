@@ -372,7 +372,7 @@ res = en.start_run(c2, lead_ids, fetch=spy_fetch, get_json=lambda u: (404, {}), 
 snap = progress.snapshot()
 run_ = next(r_ for r_ in snap["runs"] if r_["kind"] == "enrich")
 check(res["started"] and run_["status"] == "done" and run_["total"] == 5 and run_["done"] == 5, f"the enrich run is registered with its total and ends done ({run_['done']}/{run_['total']})")
-check(re.fullmatch(r"Enriched 5 - 1 domains found, 4 not found", run_["result"] or ""), f"it ends with ONE result line ({run_['result']})")
+check(re.fullmatch(r"Enriched 5 - 1 new website found, 4 still missing", run_["result"] or ""), f"it ends with ONE result line, F5 wording ({run_['result']})")
 check(mid and mid[0][1] and mid[0][2], f"while it ran the registry named the current company and the step ({mid[:2]})")
 check(len({m[1] for m in mid}) >= 2 and mid[-1][0] > mid[0][0], "the done count moved from one company to the next")
 check(run_["eta_s"] is None and run_["elapsed_s"] >= 0 and run_["can_stop"] is False, "a finished run has no estimate and no Stop")
@@ -442,7 +442,7 @@ with Session(eng) as s:
         j.status = "done"
     s.commit()
 r_ = next(x for x in progress.snapshot()["runs"] if x["id"] == rid)
-check(r_["status"] == "done" and r_["done"] == r_["total"] and r_["result"].startswith("Deep readings:"), f"when every job is back the run closes by itself ({r_['result']})")
+check(r_["status"] == "done" and r_["done"] == r_["total"] and r_["result"].startswith("Deep readings"), f"when every job is back the run closes by itself ({r_['result']})")
 check(en.follow_jobs(c3, []) is None, "nothing queued, nothing to follow")
 
 # the routes

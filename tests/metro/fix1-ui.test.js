@@ -49,7 +49,7 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
   assert(/if \(!ids\.length\) return \{ kind: 'warn', text: 'No leads shown, so there is nothing to do/.test(enrich), '5: an empty view runs nothing, with a warning notice')
 
   // 6
-  assert(/enrichNext\(20\)/.test(leads) && /enrichNext\(50\)/.test(leads) && /nextLabel\(20\)/.test(leads) && /nextLabel\(50\)/.test(leads) && /Enrich next \$\{pl\.companies\}/.test(leads), '6: "Enrich next 20" and "Enrich next 50" buttons (F2: next 20 is the primary one)')
+  assert(/enrichNext\(20\)/.test(leads) && /enrichNext\(50\)/.test(leads) && /nextLabel\(20\)/.test(leads) && /nextLabel\(50\)/.test(leads) && /enrichNextLabel\(/.test(leads), '6: "Enrich next 20" and "Enrich next 50" buttons (F2: next 20 is the primary one)')
   assert(/enrich-next\?\$\{p\}/.test(leads) && /p\.set\('take', n\)/.test(leads) && /p\.set\('sort', f\.sort\)/.test(leads),
     '6: the batch is asked from the backend: the next N companies of the current filter and sort (F4: companies with a domain first)')
   assert(/not enriched yet in this view/.test(leads) && /data-testid="enrich-remaining"/.test(leads), '6: it shows how many remain')

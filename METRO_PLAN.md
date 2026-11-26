@@ -36,6 +36,8 @@ Falcon Scout gets a second half, **Metro**: outbound to white-label agency partn
 | AI | Every call through the existing `/claude` proxy on the CLI bridge (subscription) |
 | CRM and reminders (25 Nov) | **Auto card, stage Prospect**: the top 15% of each campaign by fit score, only leads with 2+ hooks (never mixed with Replied). **Any real reply** (either channel) makes a card or moves a Prospect card to Replied and raises its temperature (cold / warm / hot, suggested, accepted with a click); auto-replies never count (DevScout's classifier). **"Remove me / not interested"**: no card, the person goes to the hard suppression list, the reply is kept as junk. **No reply for 12 months**: the card is archived (hidden, history kept), never deleted. **Reminders**: a "due today" pop-up (Remind later / Dismiss for today), a desktop alert on a new reply plus a dot on the CRM tab, a once-a-day reminder email to Oleh's own inbox when sends are due. No weekly report for now. Copy from DevScout: `dueModal.js`, `realDue.js`, `desktopNotify.js`, `replyWatcher.js` (15-minute interval with back-off), `crmFromReplies.js`, `autoReply.js`, `crmAutoReply.js` |
 | Personal emails (25 Nov) | A business address always wins. A personal address (gmail etc.) is a sending address only when the lead has no business one; it stays marked "personal". Reverses F3's rule that `emailable()` is false for every personal address (done in F4: a verified personal address is emailable; a business address found later replaces it, even a verified one) |
+| Email verification (25 Nov, review 25 Dec) | No paid verifier for now. An address is sendable when its domain accepts mail (`domain_ok`, free MX check) or the provider calls it verified; the new mailbox sends 5-10 a day; any hard bounce suppresses that ADDRESS at once (never the company). If the bounce rate gets in the way, consider a paid bulk verifier for the shortlist. Oleh and the planning chat review this on 25 Dec 2026 |
+| PageSpeed by segment (25 Nov) | PageSpeed runs ONLY for niche (direct client) campaigns. Agency campaigns skip it: we sell them delivery capacity, not fixes to their own site, and "your site is slow" would read as an insult. An agency's fit rests on what its site says it sells, size and clients. The fit score's agency layer must not count a missing PageSpeed as missing data |
 
 ## Architecture
 
@@ -199,6 +201,11 @@ These hold in every phase; breaking one means stopping and asking Oleh.
 - A hook is stated only when a stored field supports it (with its date); an assumed fact is never written as a fact.
 - AI calls go only through `/claude`; no new paid service is called without Oleh's OK.
 
+**Live database (added 26 Nov, F5, after a real incident)**
+- Browser checks run ONLY through `tools/scratch_check.py` (scratch backend on :8001 + its own Vite on :5190 whose proxy points at the scratch backend). It refuses to start unless its database is a COPY outside the repo (never `upwork_jobs.db`, its `-wal`/`-shm`, a link to it, or the file `.env`'s DATABASE_URL names); `--copy-live` makes the copy. A page on :5180 always reaches the LIVE backend on :8000, so no check ever drives :5180.
+- Never import `api.main` (or run any script that does) against the live database from a shell: its import runs the startup prune, which deletes old job postings. Use a copy, or the scratch launcher.
+- A handoff may say "a copy was used" only for a run that went through the scratch launcher; it names the copy's path.
+
 **Data and secrets**
 - Mailbox password, API keys and tokens are entered by Oleh in Settings; never typed, logged or committed.
 - Lead data (CSVs, exports, scraped pages) stays out of git; add any new data file to `.gitignore` before the first commit.
@@ -224,7 +231,10 @@ None blocks Phases 0-2; the first two must be settled before Phases 3-4.
 - [ ] **Email volume research** - on request.
 
 ## Queued for the next fix task (planning chat, 25 Nov evening)
-F4 (25 Nov) did every item of the queue except the three below.
+F4 (25 Nov) did every item of the queue but the three below; F5 (26 Nov) did the live-database incident, PageSpeed by segment, the
+automatic fit score, result lines, enrich labels, one place per message, the emblem and motion and the first pass on the Leads page.
+Still open:
 - ETA in the header strip: the strip shows `7/20`, the bar, the item and the step; the estimate ("~3 min left") is only in the bottom dock, which stays as the detail view. Add it to the chip if Oleh misses it.
-- Email verification path before Phase 4: the free domain check is built ("domain accepts mail", never verified); what makes an address `verified` is Oleh's decision (proposal in METRO_HANDOFF.md, F4).
+- Email verification path before Phase 4: the free domain check is built ("domain accepts mail", never verified); the decision row "Email verification" (25 Nov, review 25 Dec) says what counts as sendable for now.
 - Company LinkedIn pages for companies already imported: the backfill found no stored rows (the first Data Enrichment file went through the email-results path, which kept none). Import that file once more with the new Import button and the pages are stored.
+- Leads page, second pass (after Phase 3's table layout): the table still has 12 columns; F5 only cut the cards, buttons and trails.

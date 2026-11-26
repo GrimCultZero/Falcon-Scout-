@@ -159,7 +159,7 @@ const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - 
   assert(/onClick=\{\(\) => openItsLeads\(c\.id\)\}/.test(camps) && /const openItsLeads = \(id\) => \{ setCreating\(false\); onOpenLeads\?\.\(id\) \}/.test(camps), 'a click on a campaign in the list opens its leads')
   assert(/data-testid="open-brief"/.test(leads) && /onOpenBrief\?\.\(campaign\.id\)/.test(leads) && /openBrief = \(id\) => \{ chooseCampaign\(id\); pick\('campaigns'\) \}/.test(metro), '"Brief and settings" on Leads opens the campaign page')
   assert(/data-testid="leads-campaign"/.test(leads), 'the dropdown on Leads stays for switching')
-  assert(/Enrich next \$\{pl\.companies\}/.test(leads) && /with a domain/.test(leads) && /without/.test(leads), 'the "Enrich next N" label says how many have a domain and how many do not')
+  assert(/enrichNextLabel\(/.test(leads) && !/with a domain \+/.test(leads) && /with a website/.test(leads) && /not tried yet/.test(leads), 'F5: the "Enrich next N" label is plain; the with / without detail is in the small line')
   assert(!/metro-email-finder-campaign/.test(enrich) && /Content-Disposition/.test(enrich), 'the email list download takes its unique name from the backend (campaign, date and time)')
   assert(/export-file|import-file/.test(read('components', 'ImportDialog.jsx')) && /ImportDialog/.test(enrich) && !/email-import\?source/.test(enrich), 'the email results use the same Import dialog')
   const buttonsReturn = (leads.match(/return \{ kind: 'warn'/g) || []).length

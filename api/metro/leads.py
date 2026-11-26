@@ -367,15 +367,13 @@ def enrichment_summary(st: Counter, unmapped: Counter) -> dict:
 
 
 def enrichment_line(e: dict) -> str:
+    from . import lines as _l
     d = e["domains_set"]
-    bits = [f"{d['linkedhelper']} domains from Linked Helper", f"{d['email-domain']} from business emails",
-            f"{e['domains_disagreeing']} disagreeing", f"{e['open_profiles']} open profiles",
-            f"{e['company_facts_filled']} company facts"]
-    if e.get("company_pages"):
-        bits.append(f"{e['company_pages']} company LinkedIn pages")
-    if e["unmapped_columns"]:
-        bits.append(f"{len(e['unmapped_columns'])} unmapped columns")
-    return ", ".join(bits)
+    bits = [_l.part(d["linkedhelper"], "domain", tail="from Linked Helper"), _l.part(d["email-domain"], "domain", tail="from business emails"),
+            _l.part(e["domains_disagreeing"], "domain", tail="disagreeing"), _l.part(e["open_profiles"], "open profile"),
+            _l.part(e["company_facts_filled"], "company fact"), _l.part(e.get("company_pages"), "company LinkedIn page"),
+            _l.part(len(e["unmapped_columns"]), "unmapped column") if e["unmapped_columns"] else None]
+    return _l.join(bits) or "nothing new from it"
 
 
 def _update_existing(lead: MetroLead, n: dict) -> bool:

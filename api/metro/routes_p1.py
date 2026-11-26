@@ -203,8 +203,9 @@ async def campaigns_import(cid: int, file: UploadFile = File(...), dry_run: bool
                     return leadsmod.run_import(s, c, raw, filename=file.filename, list_source=list_source, dry_run=True)
                 with progress.track("import", f"Importing {file.filename or 'a file'}", campaign_id=cid) as t:
                     r = leadsmod.run_import(s, c, raw, filename=file.filename, list_source=list_source, dry_run=False)
-                    t["result"] = (f"Imported {file.filename or 'the file'}: {r.get('added', 0)} added" +
-                                   (f", {r['filled']} filled" if r.get("filled") else "") + (f", {r['duplicates']} already there" if r.get("duplicates") else "") +
+                    from . import lines as _l
+                    t["result"] = (_l.line(f"Imported {file.filename or 'the file'}", _l.part(r.get("added"), "lead", tail="added") or "no new leads",
+                                           _l.part(r.get("filled"), "lead", tail="filled in"), _l.part(r.get("duplicates"), "row", tail="already there")) +
                                    ((". Linked Helper data: " + leadsmod.enrichment_line(r["enrichment"])) if r.get("enrichment", {}).get("matched") else ""))
                     return r
             except ValueError as e:
@@ -249,7 +250,10 @@ def campaigns_rescore(cid: int, body: ScopeIn | None = None):
         c = _campaign(s, cid)
         with progress.track("rescore", "Persona score (layer 0)", campaign_id=cid) as t:
             r = leadsmod.rescore_campaign(s, c, lead_ids=(body.lead_ids if body else None))
-            t["result"] = f"Persona score: {len(body.lead_ids) if body and body.lead_ids is not None else 'all'} checked, {r.get('changed', 0)} changed"
+            from . import lines as _l
+            n_checked = len(body.lead_ids) if body and body.lead_ids is not None else None
+            head = f"Persona score checked for {_l.plural(n_checked, 'lead')}" if n_checked else "Persona score checked"
+            t["result"] = _l.line(head, _l.part(r.get("changed"), "lead", tail="changed") or "none changed")
             return r
 
 

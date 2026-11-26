@@ -1925,3 +1925,32 @@ spent its slots on companies with no domain. Progress had to be "impossible to m
 - **The free domain check is a run** (`emailfinder.start_mx_check`): 8 parallel `nslookup`s, progress with Stop, one result line,
   statuses `domain_ok` ("domain accepts mail, not verified") / `invalid`; never `verified`. It also starts by itself after an import
   that stored emails (only addresses not judged yet). See METRO_HANDOFF.md F4 for the verification path proposed before Phase 4.
+
+### How F5 built it (2026-11-26): live-DB safety, PageSpeed by segment, automatic fit, one line per message, the marks
+
+- **Live database safety.** The F4 browser check wrote 3 leads, 3 companies and 2 import rows into the LIVE database. Two real
+  causes, both closed: (1) a page on :5180 always reaches the live backend on :8000 (Vite's proxy), whatever scratch backend runs
+  beside it; (2) `api/main.py` runs `load_dotenv(.env, override=True)` and `.env` names the live file, so a scratch backend started
+  with a `DATABASE_URL` variable still served the live file. `tools/scratch_check.py` is now the only way a check meets a page: it
+  refuses unless the database is a COPY (not the live file, its `-wal`/`-shm`, a link to it, a file inside the repo, a missing file),
+  `--copy-live` makes one with SQLite's backup API, it pins `DATABASE_URL` against `.env` and PROVES that before importing the app,
+  drops every background loop (feed, prune, backup, ghost sweep, bridge) and starts its own Vite (:5190, `FALCON_BACKEND_URL`) whose
+  proxy points at the scratch backend (:8001); `--offline` stubs site fetches, PageSpeed and the model. Hard rule in METRO_PLAN.md.
+- **PageSpeed by segment** (decision row of 25 Nov): `enrich.pagespeed_wanted(campaign)`; an agency run never calls the API. The
+  agency fit leaves out any rule that reads `pagespeed.*` (`scoring.SEGMENT_SKIPPED_ROOTS`): not in the rules total, not under "not
+  measured", no drop in "measured %". The default agency rules had none; this protects edited rule sets. Niche is unchanged.
+- **Fit score without a button.** `scoring.score_companies` runs at the end of every enrich run (also a stopped one, over the companies
+  it touched, guarded: a scoring error never fails a run) and in `results.complete_job` after any reading that lands (ads, Business
+  Profile, Ahrefs, LinkedIn page or profile). "Rescore fit" is a small item behind More for after a rules change.
+- **Result lines** (`api/metro/lines.py` and `frontend/src/metro/lib/resultLines.js`, same rules): a zero count is never printed.
+  "Enriched 20 - all 20 already had a website, nothing new found" / "Enriched 20 - 3 new websites found, 2 still missing".
+- **One place per message.** A finished run's result is the header strip's only; the bottom dock shows only what is running now; a
+  handler that started a run returns nothing (the chip is the answer). Refusals and errors: a notice AND the strip.
+- **Marks and motion.** `metro-badge.svg` is the header mark and the tab icon (`lib/favicon.js`); `metro-wagon.svg` rides the strip's
+  bar (`--p` and container units, transform only) and sits on empty and loading states. Both are inlined from byte-identical copies in
+  `src/metro/assets` (a test pins them to the masters in `public`). Badge headlights pulse while anything runs; the side switch's filled
+  half slides; tabs and sides slide in 14 px. Transform / opacity only, nothing under `prefers-reduced-motion`.
+- **Leads page, first pass.** Enrich card: "Enrich next 20 / 50" plain, "Enrich all" and "Retry domain (N tried, not found)" behind
+  More, the small line says "N companies with a website, M not tried yet"; Write and Send are plain cards; the Enrichment card keeps
+  Write hooks and Emails, deep readings and Rescore fit are behind More, its run lines are gone (the strip has them) and the browser
+  jobs are one short status; a long domain trail is "no website - details"; "Rescore persona" is behind More in the table toolbar.

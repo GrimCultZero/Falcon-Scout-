@@ -124,7 +124,22 @@ def complete_job(s: Session, job_id: int, sender_id: int, *, result: dict | None
                     notes.append(f"domain {n[0]} from the LinkedIn company page")
     job.status, job.result_json, job.finished_at, job.error = "done", json.dumps(snap, ensure_ascii=False), now, None
     s.commit()
+    _score_after_reading(s, job, company, lead, notes)
     return {"status": "done", "notes": notes}
+
+
+def _score_after_reading(s: Session, job: MetroScrapeJob, company: MetroCompany | None, lead: MetroLead | None, notes: list[str]) -> None:
+    """F5: a reading that lands (ads, Business Profile, Ahrefs, a LinkedIn page or profile) is scored at once, so the Fit column
+    follows the evidence without a button. The reading is already saved; a scoring problem never fails the job."""
+    from . import scoring
+    try:
+        cid = company.id if company is not None else (lead.company_id if lead is not None else None)
+        if cid:
+            r = scoring.score_companies(s, [cid])
+            if r.get("scored"):
+                notes.append(f"fit score updated for {r['scored']} lead(s)")
+    except Exception:
+        s.rollback()
 
 
 def _company_from_profile(s: Session, lead: MetroLead, data: dict, job: MetroScrapeJob) -> list[str]:

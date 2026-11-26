@@ -46,7 +46,8 @@ export default function ProgressDock({ campaignId = null }) {
 
   const nowS = Date.now() / 1000 + view.offset
   const all = campaignId ? view.runs.filter((r) => !r.campaign_id || r.campaign_id === campaignId) : view.runs
-  const shown = visibleRuns(all, nowS, dismissed)
+  // F5 (item 5): a finished run's result is told in the header strip ONLY; the dock is the detail view of what is running now.
+  const shown = visibleRuns(all, nowS, dismissed).filter((r) => r.status === 'running')
   if (!shown.length) return <style>{CSS}</style>
 
   return (

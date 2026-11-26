@@ -23,7 +23,7 @@ from typing import Callable
 
 from sqlalchemy.orm import Session
 
-from . import aiclient, domainfinder as df, gate, pagespeed, progress, webscan
+from . import aiclient, domainfinder as df, gate, lines, pagespeed, progress, scoring, webscan
 from .db import (MetroCampaign, MetroCompany, MetroLead, MetroScrapeJob, MetroSetting, get_engine, get_setting, put_setting, utcnow)
 
 from .csvimport import FREE_MAIL          # one list for free-mail providers (F3 widened it)
@@ -218,6 +218,11 @@ def domain_why(company: MetroCompany) -> str | None:
 
 # ───────────────────────── one company ─────────────────────────
 
+def pagespeed_wanted(campaign: MetroCampaign | None) -> bool:
+    """PageSpeed runs only for niche (direct-client) campaigns. No campaign given (a direct call) keeps the old behaviour."""
+    return campaign is None or campaign.type != "agency"
+
+
 def _cache_days(s: Session) -> dict:
     return get_setting(s, "cache_days", {}) or {}
 
@@ -269,9 +274,11 @@ def enrich_company(s: Session, company: MetroCompany, *, fetch: webscan.Fetcher,
         out["skipped"].append("website scan is fresh")
     s.commit()
 
-    # step 3a: PageSpeed (only for a site that answered)
+    # step 3a: PageSpeed (only for a site that answered, and ONLY for niche campaigns: decision "PageSpeed by segment", 25 Nov.
+    # We sell an agency delivery capacity, not fixes to its own site, so an agency run never measures it; the agency's fit does
+    # not count it as missing data either, see scoring.SEGMENT_SKIPPED_ROOTS)
     scan_ok = snapshot_ok(company.website_scan_json)
-    if scan_ok and get_json is not None:
+    if scan_ok and get_json is not None and pagespeed_wanted(campaign):
         step("PageSpeed")
         if not fresh(company.pagespeed_at, int(days.get("pagespeed", 14)), ok=snapshot_ok(company.pagespeed_json), now=now):
             key_row = s.get(MetroSetting, "pagespeed_api_key")
@@ -365,6 +372,7 @@ def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: web
     get_json = get_json or pagespeed.http_json_getter()
 
     def work():
+        touched: list[int] = []
         try:
             for cid in ids:
                 if Run.stop_flag.is_set():
@@ -374,6 +382,7 @@ def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: web
                     comp = s.get(MetroCompany, cid)
                     camp = s.get(MetroCampaign, campaign_id)
                     Run.state["current"] = comp.name if comp else cid
+                    touched.append(cid)
                     progress.update(rid, current=comp.name if comp else str(cid), step="starting")
                     try:
                         res = enrich_company(s, comp, fetch=fetch, get_json=get_json, ask=ask, use_ai=use_ai, campaign=camp, sleep=sleep,
@@ -393,13 +402,20 @@ def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: web
                 progress.update(rid, done=Run.state["done"], failed=Run.state["failed"])
         finally:
             st = Run.state
+            # F5: the fit score needs no button. Every run ends by scoring the leads of the companies it touched (a stopped run
+            # too), so what was just read is already in the Fit column. A scoring problem never turns a finished run into a failed one.
+            progress.update(rid, step="scoring")
+            try:
+                with Session(get_engine()) as s2:
+                    st["scored"] = scoring.score_companies(s2, touched, campaign_id=campaign_id).get("scored", 0)
+            except Exception as e:
+                st["scored"] = 0
+                st["score_error"] = f"{type(e).__name__}: {e}"[:160]
             Run.state["running"] = False
             Run.state["current"] = None
             Run.state["finished_at"] = utcnow().isoformat()
-            line = (f"Enriched {st['done']}" + (f" of {st['total']} (stopped)" if st.get("stopped") else "") +
-                    f" - {st['domains_found']} domains found, {st['domains_missing']} not found" +
-                    (f", {st['domains_had']} already had one" if st["domains_had"] else "") +
-                    (f", {st['failed']} failed" if st["failed"] else ""))
+            line = lines.enrich_line(done=st["done"], total=st["total"], found=st["domains_found"], had=st["domains_had"],
+                                     missing=st["domains_missing"], failed=st["failed"], stopped=bool(st.get("stopped")))
             progress.finish(rid, line, "stopped" if st.get("stopped") else "done")
 
     if background:
@@ -479,7 +495,8 @@ def follow_jobs(campaign_id: int, job_ids: list[int], label: str = "Deep reading
             detail = f"{waiting} waiting for the browser extension"
         out = {"total": len(rows), "done": done + failed, "failed": failed, "detail": detail}
         if rows and waiting == 0:
-            out.update(finished=True, result=f"Deep readings: {done} read" + (f", {failed} failed" if failed else ""))
+            out.update(finished=True, result=lines.line("Deep readings", lines.part(done, "page", tail="read") or "nothing could be read",
+                                                        lines.part(failed, "failed", "failed")))
         return out
 
     return progress.start("deep", label, total=len(ids), campaign_id=campaign_id, poll=poll)

@@ -10,7 +10,9 @@ import { api } from '../api.js'
 import { METRO } from '../theme.js'
 import ImportDialog from './ImportDialog.jsx'
 import EnrichPanel from './EnrichPanel.jsx'
-import { Btn, Err, Pill, card, input, lineColor } from './ui.jsx'
+import { Btn, Err, MoreMenu, Pill, card, input, lineColor } from './ui.jsx'
+import { Empty } from './Marks.jsx'
+import { enrichNextLabel, join, part, plural } from '../lib/resultLines.js'
 
 const PAGE = 100
 const STATUS_COLOR = { new: METRO.teal, junk: '#b36b00', suppressed: METRO.agencyLine, previously_contacted: '#7a5af8' }
@@ -103,9 +105,9 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
   const rescore = async () => {
     const ids = await targetIds()
     if (!ids.length) return { kind: 'warn', text: 'No leads shown, so there is nothing to rescore.' }
-    const r = await api(`/campaigns/${campaignId}/rescore`, { method: 'POST', json: { lead_ids: ids } })
+    await api(`/campaigns/${campaignId}/rescore`, { method: 'POST', json: { lead_ids: ids } })     // its result line is the header strip's
     load()
-    return `Persona rescored for ${ids.length} lead${ids.length === 1 ? '' : 's'}: ${r.changed || 0} changed`
+    return undefined
   }
   const runEnrich = async (ids, plan) => {
     if (!ids.length) return { kind: 'warn', text: 'Nothing to enrich in this view: every company here was tried already, or the filters hide them.' }
@@ -113,8 +115,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
     setTick((x) => x + 1); load()
     window.dispatchEvent(new Event('metro-progress'))
     if (!r.started) return { kind: 'warn', text: `Enrich did not start: ${r.reason || 'the backend refused'}${r.current ? ` (it is on ${r.current})` : ''}` }
-    const mix = plan ? ` (${plan.with_domain} with a domain${plan.without_domain ? `, ${plan.without_domain} without` : ''})` : ''
-    return `Enriching ${r.total} companies${mix}. Domain, website scan, PageSpeed; browser reads are queued. Progress is in the header.`
+    return undefined          // a run that started is told by the header strip (item 5: one place per message)
   }
   // "Enrich all shown" above 50 companies asks first and shows the count.
   const enrich = async () => {
@@ -126,7 +127,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
   const retryDomains = async (ids) => {
     const r = await api(`/campaigns/${campaignId}/retry-domain`, { method: 'POST', json: { lead_ids: ids } })
     setTick((x) => x + 1); load(); window.dispatchEvent(new Event('metro-progress'))
-    return r.started ? `Looking for the website of ${r.total} compan${r.total === 1 ? 'y' : 'ies'} again. Progress is in the header.` : { kind: 'warn', text: r.reason || 'Nothing was started' }
+    return r.started ? undefined : { kind: 'warn', text: r.reason || 'Nothing was started' }
   }
   const retryShown = async () => {
     const p = filterParams(); p.set('status', 'new'); p.set('domain', 'no'); p.set('enriched', 'yes')
@@ -143,15 +144,10 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
   const removeTicked = async () => {
     const r = await api(`/campaigns/${campaignId}/leads/remove`, { method: 'POST', json: { lead_ids: [...ticked] } })
     setConfirmRemove(false); setTicked(new Set()); load(); loadCampaigns()
-    return `Removed ${r.removed} lead${r.removed === 1 ? '' : 's'}${r.kept_with_history ? `; ${r.kept_with_history} kept (a message was sent or a reply came)` : ''}`
+    return join([part(r.removed, 'lead', 'leads', 'removed') || 'No lead removed', part(r.kept_with_history, 'lead', 'leads', 'kept (a message was sent or a reply came)')])
   }
-  // the label of an "Enrich next N" button: how many companies, and how many of them have a domain
-  const nextLabel = (n) => {
-    const pl = plans?.plans?.[String(n)]
-    if (!pl || !pl.companies) return `Enrich next 0`
-    const mix = pl.without_domain ? (pl.with_domain ? `${pl.with_domain} with a domain + ${pl.without_domain} without` : `${pl.without_domain}, none has a domain`) : `${pl.with_domain} with a domain`
-    return `Enrich next ${pl.companies} · ${mix}`
-  }
+  // The label of an "Enrich next N" button is plain (F5, Oleh 25 Nov): how many it will take. What those companies have is said in the small line.
+  const nextLabel = (n) => enrichNextLabel(Math.min(n, plans?.plans?.[String(n)]?.companies ?? n))
   const toggleAll = () => setTicked(ticked.size === shown.length ? new Set() : new Set(shown.map((l) => l.id)))
 
   const setFilter = (k) => (e) => { setF({ ...f, [k]: e.target.value }); setLimit(PAGE) }
@@ -173,7 +169,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
 
       {!campaignId && (
         <div style={{ ...card, fontSize: 13, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }} data-testid="leads-empty">
-          <span>{listed.length ? 'Choose a campaign above to see its leads and import a list, or start a new one.' : 'No campaign yet. Create one to import a list into.'}</span>
+          <Empty>{listed.length ? 'Choose a campaign above to see its leads and import a list, or start a new one.' : 'No campaign yet. Create one to import a list into.'}</Empty>
           <Btn onClick={() => onCreateCampaign?.()} data-testid="create-campaign">Create campaign</Btn>
         </div>
       )}
@@ -181,17 +177,21 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
       {campaignId && pipe && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }} data-testid="pipeline">
           <Stage n="1" title="Import" line={`${pipe.import.leads} lead${pipe.import.leads === 1 ? '' : 's'} in this campaign`}
-            sub={`${pipe.import.new} ready · ${pipe.import.junk} junk · ${pipe.import.suppressed} suppressed · ${pipe.import.previously_contacted || 0} previously contacted`}>
+            sub={join([part(pipe.import.new, 'ready', 'ready'), part(pipe.import.junk, 'junk', 'junk'), part(pipe.import.suppressed, 'suppressed', 'suppressed'),
+              part(pipe.import.previously_contacted, 'previously contacted', 'previously contacted')]).replace(/, /g, ' · ')}>
             <Btn small onClick={() => setShowImport(true)} data-testid="open-import">Import CSV</Btn>
           </Stage>
-          <Stage n="2" title="Enrich" line={`${pipe.enrich.ready} ready`} sub="Domain, website scan, PageSpeed; then browser reads">
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <Stage n="2" title="Enrich" line={`${pipe.enrich.ready} ready`}
+            sub={campaign?.type === 'agency' ? 'Domain and website scan, then the browser readings' : 'Domain, website scan and PageSpeed, then the browser readings'}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <Btn small kind={remaining === 0 ? 'ghost' : 'primary'} onClick={() => enrichNext(20)} disabled={remaining === 0} data-testid="enrich-next-20"
-                title="The next 20 companies of the current filter and sort that are not enriched yet. Companies WITH a domain come first; ones with no domain only after them (or through Retry domain). Finds nothing it cannot read: reads the website, measures PageSpeed, queues the browser readings.">{nextLabel(20)}</Btn>
+                title="The next 20 companies of the current filter and sort that are not enriched yet. Companies with a website come first; the ones without a website only after them.">{nextLabel(20)}</Btn>
               <Btn key={50} small kind="ghost" onClick={() => enrichNext(50)} disabled={remaining === 0} data-testid="enrich-next-50"
-                title="The next 50 companies, companies with a domain first">{nextLabel(50)}</Btn>
-              <Btn small kind="ghost" onClick={enrich} disabled={eligible === 0} title="Domain, website scan and PageSpeed run on the backend, paced and cached per domain. Browser reads are queued and run only in a Metro week. Runs on the ticked rows, or on every row the filters show; above 50 it asks first." data-testid="enrich-btn">{ticked.size ? `Enrich ${eligible} ticked` : `Enrich all ${eligible} shown`}</Btn>
-              {noDomain > 0 && <Btn small kind="ghost" onClick={retryShown} data-testid="retry-domains" title="Run the domain finder again (name patterns, then an AI lookup with web search) for the companies in this view that still have no domain">{`Retry domain (${ticked.size ? 'ticked' : `${noDomain} without`})`}</Btn>}
+                title="The next 50 companies, companies with a website first">{nextLabel(50)}</Btn>
+              <MoreMenu testid="enrich-more">
+                <Btn small kind="ghost" onClick={enrich} disabled={eligible === 0} title="Runs on the ticked rows, or on every row the filters show; above 50 it asks first." data-testid="enrich-btn">{ticked.size ? `Enrich ${eligible} ticked` : `Enrich all ${eligible} shown`}</Btn>
+                {noDomain > 0 && <Btn small kind="ghost" onClick={retryShown} data-testid="retry-domains" title="Run the website finder again (name patterns, then an AI lookup with web search) for the companies in this view that were tried and still have no website">{`Retry domain (${ticked.size ? 'ticked' : `${noDomain} tried, not found`})`}</Btn>}
+              </MoreMenu>
             </div>
             {confirmAll && (
               <div role="dialog" aria-label="Enrich all shown" data-testid="enrich-all-confirm" style={{ marginTop: 6, fontSize: 12, border: `1px solid ${METRO.agencyLine}`, borderRadius: 8, padding: '5px 8px' }}>
@@ -200,15 +200,12 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
               </div>
             )}
             <div style={{ fontSize: 11, color: 'rgba(0,12,14,0.6)', marginTop: 4 }} data-testid="enrich-remaining">
-              {remaining} not enriched yet in this view{plans?.pool ? `: ${plans.pool.with_domain} companies with a domain wait, ${plans.pool.without_domain} without` : ''}
+              {remaining === 0 ? 'Everything in this view is enriched' : `${remaining} not enriched yet in this view`}
+              {plans?.pool && (plans.pool.with_domain > 0 || plans.pool.without_domain > 0) ? `: ${join([part(plans.pool.with_domain, 'company', 'companies', 'with a website'), part(plans.pool.without_domain, 'company', 'companies', 'not tried yet')])}` : ''}
             </div>
           </Stage>
-          <Stage n="3" title="Write" line={`${pipe.write.ready} ready`} sub={`Phase ${pipe.write.phase}`}>
-            <Btn small disabled title="Chain writing arrives in Phase 3">{`Write 0 ${scope.what}`}</Btn>
-          </Stage>
-          <Stage n="4" title="Send" line={`${pipe.send.ready} ready`} sub={`Phase ${pipe.send.phase}. Nothing is ever sent without a button press and a confirm.`}>
-            <Btn small disabled title="Sending arrives in Phases 4-5">{`Send 0 ${scope.what}`}</Btn>
-          </Stage>
+          <Stage n="3" title="Write" line={`${pipe.write.ready} ready`} sub={`Arrives in Phase ${pipe.write.phase}`} />
+          <Stage n="4" title="Send" line={`${pipe.send.ready} ready`} sub={`Phase ${pipe.send.phase}. Nothing is sent without a button and a confirm.`} />
         </div>
       )}
 
@@ -241,7 +238,9 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
             <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700 }} data-testid="scope">
               {scope.n} {scope.what}{ticked.size ? ' (ticked)' : ''}
             </span>
-            <Btn kind="ghost" small onClick={rescore} data-testid="rescore-btn" title="Persona score (layer 0, from the CSV): run it again with the current persona rules, on the ticked rows or the rows shown. The fit score (layers 1 and 2) is computed by Score fit in the Enrichment card.">{`Rescore persona (${scope.n} ${scope.what})`}</Btn>
+            <MoreMenu testid="toolbar-more" align="right">
+              <Btn kind="ghost" small onClick={rescore} data-testid="rescore-btn" title="Persona score (layer 0, from the CSV): run it again with the current persona rules, on the ticked rows or the rows shown. The fit score is worked out by itself after every enrich run and every browser reading.">{`Rescore persona (${scope.n} ${scope.what})`}</Btn>
+            </MoreMenu>
             {lastRun && f.enriched !== 'recent' && <Btn kind="ghost" small onClick={() => setF({ ...f, enriched: 'recent', sort: 'just_enriched' })} data-testid="show-just-enriched" title="Only the companies the last enrich run touched">Show just enriched</Btn>}
             {ticked.size > 0 && !confirmRemove && <Btn kind="ghost" small onClick={() => setConfirmRemove(true)} data-testid="remove-ticked">{`Remove ${ticked.size} ticked`}</Btn>}
             {confirmRemove && (
@@ -272,9 +271,11 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                     <td style={{ fontSize: 12, maxWidth: 230 }} data-testid="domain-cell">
                       {l.domain ? <>{l.domain}<div style={{ fontSize: 10, color: 'rgba(0,12,14,0.5)' }}>{l.domain_source}</div></>
                         : l.company_id ? <>
-                          <span style={{ color: '#b36b00' }}>no domain</span>
-                          <div style={{ fontSize: 10, color: 'rgba(0,12,14,0.6)' }} data-testid="domain-why">{l.domain_why}</div>
-                          {l.status === 'new' && <Btn kind="ghost" small onClick={() => retryDomains([l.id])} data-testid="retry-domain-row">Retry domain</Btn>}
+                          <details className="mt-trail" data-testid="domain-trail">
+                            <summary>{l.domain_why && l.domain_why !== 'not tried yet' ? 'no website · details' : 'no website · not tried yet'}</summary>
+                            <div className="mt-trail-body" data-testid="domain-why">{l.domain_why}</div>
+                          </details>
+                          {l.status === 'new' && l.domain_why && l.domain_why !== 'not tried yet' && <Btn kind="ghost" small onClick={() => retryDomains([l.id])} data-testid="retry-domain-row">Retry domain</Btn>}
                         </> : '-'}
                     </td>
                     <td style={{ maxWidth: 150 }}>{l.location}</td>
@@ -302,7 +303,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                 ))}
               </tbody>
             </table>
-            {shown.length === 0 && <div style={{ padding: 16, fontSize: 13, color: 'rgba(0,12,14,0.6)' }}>No leads match. Import a CSV, or relax the filters.</div>}
+            {shown.length === 0 && <div style={{ padding: 16, fontSize: 13, color: 'rgba(0,12,14,0.6)' }}><Empty>No leads match. Import a CSV, or relax the filters.</Empty></div>}
           </div>
           {data.total > shown.length && (
             <div style={{ marginTop: 10, textAlign: 'center' }}><Btn kind="ghost" small onClick={() => setLimit(limit + PAGE)}>Show more ({shown.length} of {data.total})</Btn></div>
@@ -326,7 +327,7 @@ function Stage({ n, title, line, sub, children }) {
       <div style={{ fontSize: 11, fontWeight: 800, color: METRO.teal, letterSpacing: '0.06em' }}>{n}. {title.toUpperCase()}</div>
       <div style={{ fontSize: 14, fontWeight: 800, margin: '4px 0 2px' }}>{line}</div>
       <div style={{ fontSize: 11, color: 'rgba(0,12,14,0.6)', minHeight: 28 }}>{sub}</div>
-      <div style={{ marginTop: 8 }}>{children}</div>
+      {children && <div style={{ marginTop: 8 }}>{children}</div>}
     </div>
   )
 }
