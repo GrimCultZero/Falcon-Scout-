@@ -26,7 +26,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def utcnow() -> datetime:
@@ -130,15 +130,28 @@ class MetroLead(MetroBase):
     premium = Column(Boolean, nullable=True)
     hiring = Column(Boolean, nullable=True)
     job_seeker = Column(Boolean, nullable=True)
+    # Phase 3: the company is one account. One primary contact (best persona) gets the chain; the others are held as
+    # "same company" until the primary's chain ends; a reply from anyone stops all of them (accounts.py).
+    account_role = Column(String, nullable=True)                 # primary | held (None = not decided yet)
+    primary_lead_id = Column(Integer, nullable=True)             # for a held lead: the company's primary contact
+    chain_track = Column(String, nullable=True)                  # linkedin_first | email_first (chains.py)
+    chain_written_at = Column(DateTime, nullable=True)
+    chain_approved_at = Column(DateTime, nullable=True)          # Approve, or "Send anyway" (then send_anyway_at on the touches)
+    chain_json = Column(Text, nullable=True)                     # the writer's notes: summary, plan, chain-level check flags
+    stopped_reason = Column(String, nullable=True)               # a reply (from this lead or a colleague) stopped every channel
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class MetroHook(MetroBase):
-    """The ledger: one stored fact, where it came from and when; the touch that used it."""
+    """The ledger: one stored fact, where it came from and when; the touch that used it.
+
+    Phase 3: a hook is about the COMPANY (scope `company`, lead_id NULL, written once and shared by every lead of that
+    company) or about one PERSON (scope `person`, lead_id set). `kind` is one of hooks.KINDS and is enforced by segment
+    (agency campaigns refuse the "audit of their own site" kinds). Rows written before Phase 3 have no scope (per lead)."""
     __tablename__ = "metro_hooks"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    lead_id = Column(Integer, ForeignKey("metro_leads.id"), nullable=False, index=True)
+    lead_id = Column(Integer, ForeignKey("metro_leads.id"), nullable=True, index=True)
     company_id = Column(Integer, ForeignKey("metro_companies.id"), nullable=True, index=True)
     fact = Column(Text, nullable=False)
     source_field = Column(String, nullable=False)                # the stored field that supports it
@@ -147,6 +160,9 @@ class MetroHook(MetroBase):
     kind = Column(String, nullable=True)
     cycle = Column(Integer, nullable=False, default=1)
     used_touch_id = Column(Integer, ForeignKey("metro_touches.id"), nullable=True, index=True)
+    scope = Column(String, nullable=True, index=True)            # company | person (None = written before Phase 3)
+    evidence_json = Column(Text, nullable=True)                  # the cited evidence items (path, value, date) as the hook was written
+    campaign_id = Column(Integer, nullable=True, index=True)     # the campaign whose brief it was written for
     created_at = Column(DateTime, default=utcnow)
 
 
@@ -169,6 +185,13 @@ class MetroTouch(MetroBase):
     message_id = Column(String, nullable=True)
     in_reply_to = Column(String, nullable=True)
     thread_ref = Column(String, nullable=True)
+    # Phase 3 (chain writer)
+    day = Column(Integer, nullable=True)                         # day of the chain this touch goes out (0 = the start of its track)
+    hook_ids_json = Column(Text, nullable=True)                  # the ledger hooks this touch uses
+    case_link_id = Column(Integer, nullable=True)                # the case page attached BY CODE (never written by the model)
+    model_body = Column(Text, nullable=True)                     # what the model wrote, before any edit
+    edited_at = Column(DateTime, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -250,6 +273,9 @@ class MetroCaseLink(MetroBase):
     title = Column(String, nullable=True)
     industry_tags = Column(String, nullable=True)                # comma-separated
     kb_entry_id = Column(Integer, nullable=True)                 # kb_entries.id, read-only reference
+    service_tags = Column(String, nullable=True)                 # Phase 3: PPC, SEO, SMM ... (the site's service categories)
+    country = Column(String, nullable=True)
+    task = Column(Text, nullable=True)                           # the case card's one-line task
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -428,9 +454,33 @@ def f4_company_pages(eng: Engine) -> dict | None:
     return res
 
 
+def p3_hooks_lead_nullable(eng: Engine) -> bool:
+    """Phase 3, once: `metro_hooks.lead_id` becomes nullable (a company hook belongs to no single lead). SQLite cannot drop
+    a NOT NULL, so the table is rebuilt: renamed, its indexes dropped, created from the model, rows copied, old table dropped.
+    Only `metro_hooks` is touched. Returns True when it rebuilt."""
+    insp = inspect(eng)
+    if not insp.has_table("metro_hooks"):
+        return False
+    cols = {c["name"]: c for c in insp.get_columns("metro_hooks")}
+    if "lead_id" not in cols or cols["lead_id"].get("nullable", True):
+        return False
+    with eng.begin() as conn:
+        conn.exec_driver_sql('ALTER TABLE "metro_hooks" RENAME TO "metro_hooks_p3old"')
+        for (name,) in conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='metro_hooks_p3old' "
+                                            "AND name NOT LIKE 'sqlite_autoindex%'").fetchall():
+            conn.exec_driver_sql(f'DROP INDEX "{name}"')
+        MetroHook.__table__.create(conn)
+        keep = [c.name for c in MetroHook.__table__.columns if c.name in cols]
+        names = ", ".join(f'"{c}"' for c in keep)
+        conn.exec_driver_sql(f'INSERT INTO "metro_hooks" ({names}) SELECT {names} FROM "metro_hooks_p3old"')
+        conn.exec_driver_sql('DROP TABLE "metro_hooks_p3old"')
+    return True
+
+
 def init_db(eng: Engine) -> None:
     MetroBase.metadata.create_all(eng)
     migrate(eng)
+    p3_hooks_lead_nullable(eng)
     classify_suppression(eng)
     f2_retry_domainless(eng)
     with Session(eng) as s:

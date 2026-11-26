@@ -641,7 +641,7 @@ with new_session() as s:
     res = hk.extract_hooks(s, lead, camp_n, ask=lambda p, **k: (prompts.append(p), json.dumps(answer))[1])
     check(res["hooks"] == 3 and len(res["rejected"]) == 3, f"3 hooks survive, 3 are thrown away by code ({res['hooks']} kept, {len(res['rejected'])} rejected)")
     stored = hk.hooks_for(s, lead.id)
-    rows = s.query(mdb.MetroHook).filter_by(lead_id=lead.id).all()
+    rows = hk.hooks_query(s, lead).all()          # Phase 3: company hooks are shared (lead_id NULL), person hooks are the lead's
     check(all(h.source_field and h.seen_at and h.source_ref for h in rows), "ACCEPTANCE: every stored hook has its stored field(s), its date and its source")
     stored_paths = {e["path"] for e in ev_list}
     check(all(all(p.strip() in stored_paths for p in h.source_field.split(",")) for h in rows), "ACCEPTANCE: every cited field is one that exists in the stored data")
@@ -654,17 +654,17 @@ with new_session() as s:
     check(notes["case_tag"] == "dental" and notes["angle"], "the angle and an ALLOWED case tag are kept")
     check("E1 |" in prompts[0] and "dental, medical" in prompts[0] and "ONLY the evidence" in prompts[0], "the prompt carries the numbered evidence and the allowed tags")
     answer2 = dict(answer, case_tag="jewelry", hooks=[answer["hooks"][0]])
-    s.query(mdb.MetroHook).filter_by(lead_id=lead.id).first().used_touch_id = None
-    # mark one hook as used by a touch: it must survive a re-run
-    t = mdb.MetroTouch(lead_id=lead.id, cycle=1, step=1, channel="linkedin", status="draft")
+    # mark one hook as used by a touch: it must survive a re-run (Phase 3: a touch that is approved or sent; a DRAFT chain
+    # written from replaced hooks is cleared and its hooks freed)
+    t = mdb.MetroTouch(lead_id=lead.id, cycle=1, step=1, channel="linkedin", status="sent")
     s.add(t)
     s.flush()
-    first = s.query(mdb.MetroHook).filter_by(lead_id=lead.id).order_by(mdb.MetroHook.id).first()
+    first = hk.hooks_query(s, lead).order_by(mdb.MetroHook.id).first()
     first.used_touch_id = t.id
     first_fact = first.fact
     s.commit()
     hk.extract_hooks(s, lead, camp_n, ask=lambda p, **k: json.dumps(answer2))
-    left = s.query(mdb.MetroHook).filter_by(lead_id=lead.id).all()
+    left = hk.hooks_query(s, lead).all()
     check(any(h.fact == first_fact and h.used_touch_id == t.id for h in left), "a hook already used by a touch stays in the ledger when hooks are written again")
     check(json.loads(lead.score_notes_json)["case_tag"] is None, "a case tag the campaign does not allow is dropped")
     bare = mdb.MetroLead(campaign_id=cid, full_name="Bare Lead", title="Owner", company_name="Bare Co", status="new", persona_verdict="keep", source_file="t.csv")
@@ -824,10 +824,15 @@ with new_session() as s:
     total = 0
     for l in leads_s[:20]:
         total += hk.extract_hooks(s, l, camp_s, ask=model)["hooks"]
-    rows = s.query(mdb.MetroHook).join(mdb.MetroLead, mdb.MetroLead.id == mdb.MetroHook.lead_id).filter(mdb.MetroLead.campaign_id == sample_id).all()
+    rows, owner = [], {}
+    for l in leads_s[:20]:
+        for h in hk.hooks_query(s, l).all():
+            if h.id not in owner:
+                owner[h.id] = l
+                rows.append(h)
     ok_all = True
     for h in rows:
-        l = s.get(mdb.MetroLead, h.lead_id)
+        l = owner[h.id]
         co = s.get(mdb.MetroCompany, h.company_id)
         evl = {e["path"]: e for e in hk.build_evidence(s, l, co)}
         for p in [x.strip() for x in h.source_field.split(",")]:

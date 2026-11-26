@@ -250,6 +250,9 @@ def run(argv=None) -> int:
     url = f"sqlite:///{db.as_posix()}"
     os.environ["DATABASE_URL"] = url
     os.environ["FALCON_SCRATCH"] = "1"
+    # Metro's model calls go to the backend's own /claude (aiclient.py). Without this they went to :8000, the LIVE backend
+    # (found 26 Nov, Phase 3): the scratch backend must call ITSELF, so any record of the call lands in the copy.
+    os.environ["METRO_SELF_URL"] = f"http://127.0.0.1:{args.backend_port}"
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "api"))
     try:

@@ -79,3 +79,7 @@ router.include_router(_p1)
 
 from .routes_p2 import p2 as _p2   # noqa: E402  Phase 2 routes (week gate, accounts, job queue, enrichment, shortlist, email finder)
 router.include_router(_p2)
+
+
+from .routes_p3 import p3 as _p3   # noqa: E402  Phase 3 routes (case pages, chains, review, exports)
+router.include_router(_p3)

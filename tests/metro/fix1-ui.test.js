@@ -64,7 +64,7 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
   // 8
   assert(/aria-pressed=\{!!on\}/.test(app) && /toggleLine = \(k\) => setLine\(\(cur\) => \(cur === k \? null : k\)\)/.test(app),
     '8: the legend items are toggle buttons; the active one is aria-pressed, clicking it again shows both')
-  assert(/line=\{line\}/.test(app) && /filter\(\(c\) => !line \|\| c\.type === line\)/.test(camps) && /campaigns\.filter\(\(c\) => !line \|\| c\.type === line\)/.test(leads),
+  assert(/line=\{line\}/.test(app) && /filter\(\(c\) => !line \|\| c\.type === line\)/.test(camps) && /all\.filter\(\(c\) => !line \|\| c\.type === line\)/.test(leads),
     '8: Campaigns and Leads show only the chosen line')
   assert(/border: `1px solid \$\{on \? METRO\.cyan/.test(app) && /fontWeight: on \? 800 : 600/.test(app), '8: the active line is visibly selected')
 

@@ -233,8 +233,11 @@ None blocks Phases 0-2; the first two must be settled before Phases 3-4.
 ## Queued for the next fix task (planning chat, 25 Nov evening)
 F4 (25 Nov) did every item of the queue but the three below; F5 (26 Nov) did the live-database incident, PageSpeed by segment, the
 automatic fit score, result lines, enrich labels, one place per message, the emblem and motion and the first pass on the Leads page.
+P3 (26 Nov, Phase 3) did: the ETA on the strip chip, Metro opening where Oleh left it, the header badge padding and the wagon outline,
+the company as one account, the hook review's six fixes, the attention-only strip on the Falcon Scout side, and the Leads table's
+second pass (five columns and the lead panel). See METRO_HANDOFF.md, entry P3.
 Still open:
-- ETA in the header strip: the strip shows `7/20`, the bar, the item and the step; the estimate ("~3 min left") is only in the bottom dock, which stays as the detail view. Add it to the chip if Oleh misses it.
-- Email verification path before Phase 4: the free domain check is built ("domain accepts mail", never verified); the decision row "Email verification" (25 Nov, review 25 Dec) says what counts as sendable for now.
+- Email verification path before Phase 4: the free domain check is built ("domain accepts mail", never verified); the decision row "Email verification" (25 Nov, review 25 Dec) says what counts as sendable for now. P3 plans chains by that row (`email_sendable`: verified or domain_ok) but sending (Phase 4) still asks `emailable()` (verified only); the planning chat decides whether Phase 4 moves to the row.
 - Company LinkedIn pages for companies already imported: the backfill found no stored rows (the first Data Enrichment file went through the email-results path, which kept none). Import that file once more with the new Import button and the pages are stored.
-- Leads page, second pass (after Phase 3's table layout): the table still has 12 columns; F5 only cut the cards, buttons and trails.
+- The header legend still shows the Agency line in red (the brand refresh removes red: Agency line becomes lime #B8F82C once the look is approved).
+- Falcon Scout notices on the Metro side (the other half of Oleh's 26 Nov strip rule): nothing of Falcon Scout draws on the Metro side today (its app is hidden while Metro shows); when Falcon Scout gets a notice that needs attention there, it must use the same attention-only rule.

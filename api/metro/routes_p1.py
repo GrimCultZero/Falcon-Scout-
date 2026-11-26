@@ -268,8 +268,15 @@ def campaigns_pipeline(cid: int):
                            "suppressed": by.get("suppressed", 0),
                            "previously_contacted": by.get("previously_contacted", 0)},
                 "enrich": {"ready": by.get("new", 0), "live": False, "phase": "2"},
-                "write": {"ready": 0, "live": False, "phase": "3"},
-                "send": {"ready": 0, "live": False, "phase": "4-5"}}
+                "write": {"ready": _shortlisted(s, cid), "live": True, "phase": "3"},
+                "send": {"ready": s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.chain_approved_at.isnot(None)).count(),
+                         "live": False, "phase": "4-5", "exports": True}}
+
+
+def _shortlisted(s: Session, cid: int) -> int:
+    from . import scoring as _sc
+    th = float(get_setting(s, "shortlist_min_fit", 50))
+    return sum(1 for l in s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.status == "new").all() if _sc.shortlist_filter(l, th))
 
 
 # ───────────────────────── leads ─────────────────────────
@@ -360,8 +367,10 @@ def leads_list(campaign_id: int | None = None, status: str | None = None, verdic
         rows = qq.order_by(*orders).offset(offset).limit(limit).all()
         comps = {c.id: c for c in s.query(MetroCompany).filter(MetroCompany.id.in_([l.company_id for l in rows if l.company_id])).all()} if rows else {}
         since = _last_run_start(s)
+        from .routes_p3 import p3_cells                 # Phase 3 cells: Channels, hooks, Chain, account role
+        cells = p3_cells(s, rows)
         return {"total": total, "counts": counts, "last_run": since.isoformat() if since else None,
-                "leads": [lead_dict(l, comps.get(l.company_id), since) for l in rows]}
+                "leads": [{**lead_dict(l, comps.get(l.company_id), since), **cells.get(l.id, {})} for l in rows]}
 
 
 @p1.get("/campaigns/{cid}/enrich-next")

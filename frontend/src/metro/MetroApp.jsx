@@ -73,7 +73,7 @@ export default function MetroApp({ side, onSideChange, activityStrip = null }) {
   return (
     <div data-testid="metro-app" style={{ display: 'flex', flexDirection: 'column', height: '100%',
       background: METRO.ice, color: METRO.ink, fontFamily: METRO.font, overflow: 'hidden' }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 14, height: 66, boxSizing: 'border-box', padding: '0 20px 0 14px', flexShrink: 0,
+      <header className="mt-header" style={{ display: 'flex', alignItems: 'center', gap: 14, height: 66, boxSizing: 'border-box', padding: '0 20px 0 22px', flexShrink: 0,
         background: `linear-gradient(90deg, ${METRO.ink} 0%, ${METRO.teal} 55%, ${METRO.ink} 100%)`,
         borderTop: `3px solid ${METRO.cyan}`, borderBottom: '1px solid rgba(55,187,213,0.35)' }}>
         <Badge running={anyRunning} size={46} />

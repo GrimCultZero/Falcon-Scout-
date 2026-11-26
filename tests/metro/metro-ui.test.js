@@ -29,11 +29,9 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
     'scope = the ticked rows, else the rows the filters show')
   assert(/Enrich \$\{eligible\} ticked/.test(leads) && /Enrich all \$\{eligible\} shown/.test(leads), 'the Enrich button carries the number it would process (F2: "Enrich all N shown" / "Enrich N ticked")')
   assert(/<Btn small kind="ghost" onClick=\{enrich\}[^>]*data-testid="enrich-btn"/.test(leads), 'Enrich is live from Phase 2 and still carries its number')
-  // F5 (item 7): Write and Send are two plain cards with no always-visible disabled button; they say which phase turns them on.
-  for (const label of ['Write', 'Send']) {
-    assert(new RegExp(`<Stage n="[34]" title="${label}"[^>]*sub=\\{[^}]*Phase`).test(leads) && !new RegExp(`\\{\`${label} 0 `).test(leads), `${label} is a plain card until its phase (no disabled button)`)
-  }
-  assert(/Nothing is sent without a button and a confirm/.test(leads), 'the Send card repeats the safety rule')
+  // P3: Write is live (Write chains) and Send exports files; Metro itself still sends nothing (Phase 4-5).
+  assert(/<Stage n="3" title="Write"/.test(leads) && /data-testid="write-chains"/.test(leads), 'Write is live from Phase 3 (Write chains)')
+  assert(/<Stage n="4" title="Send"/.test(leads) && /Metro itself sends nothing yet \(Phase 4-5\)/.test(leads), 'the Send card exports and says that Metro sends nothing yet')
   assert(!/\/send|method: 'POST'.*send/i.test(leads), 'the Leads tab never calls a send route')
 
   const imp = read('components', 'ImportDialog.jsx')

@@ -296,8 +296,7 @@ def campaign_shortlist(cid: int, min_fit: float | None = None, limit: int = Quer
         leads = [l for l in s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.status == "new").all()
                  if sc.shortlist_filter(l, threshold)]
         leads.sort(key=lambda l: (-(l.fit_score or 0), -(l.deep_score or 0), -(l.persona_score or 0)))
-        counts = dict(s.query(MetroHook.lead_id, func.count()).filter(MetroHook.lead_id.in_([l.id for l in leads]) if leads else False)
-                      .group_by(MetroHook.lead_id).all()) if leads else {}
+        counts = hk.hook_counts(s, leads)          # Phase 3: a lead's hooks = its company's (shared) + its own
         total_new = s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.status == "new").count()
         measured = s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.status == "new", MetroLead.fit_score.isnot(None)).count()
         return {"campaign": {"id": c.id, "type": c.type, "name": c.name}, "min_fit": threshold, "total_usable": total_new,

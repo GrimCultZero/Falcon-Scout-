@@ -66,8 +66,9 @@ const imp = (...p) => import(pathToFileURL(path.join(M, ...p)).href)
   assert(/<MoreMenu testid="toolbar-more" align="right">[\s\S]*data-testid="rescore-btn"/.test(leads), '"Rescore persona" is behind More in the table toolbar')
   assert(/<MoreMenu testid="panel-more"/.test(enrich) && /data-testid="deep-btn"/.test(enrich), '"Queue deep readings" is behind More on the Enrichment card')
   assert(/data-testid="browser-jobs"/.test(enrich) && !/queued\.join/.test(enrich), 'the browser-jobs line is one short status (detail in its tooltip)')
-  assert(/<details className="mt-trail" data-testid="domain-trail">/.test(leads) && /no website · details/.test(leads), 'a long domain trail is one line with "details"')
-  assert(/<Stage n="3" title="Write"[^>]*\/>/.test(leads) && /<Stage n="4" title="Send"[^>]*\/>/.test(leads), 'Write and Send are plain cards (no disabled buttons)')
+  assert(/<details className="mt-trail" data-testid="domain-trail"/.test(leads) && /no website · details/.test(leads), 'a long domain trail is one line with "details"')
+  // P3: Write and Send are live now (Write chains; the two exports): pinned by phase3-ui.test.js
+  assert(/data-testid="write-chains"/.test(leads) && /data-testid="export-lh"/.test(leads), 'Write and Send are live cards from Phase 3')
   assert(/data-testid="hooks-btn"/.test(enrich) && /data-testid="emails-btn"/.test(enrich) && /data-testid="open-import"/.test(leads) && /data-testid="enrich-next-20"/.test(leads), 'what is not moved stays: import, enrich next, hooks, emails')
   assert(/export function MoreMenu/.test(ui) && /e\.key === 'Escape'/.test(ui) && /mousedown/.test(ui), 'More closes on Escape and on a click outside')
 

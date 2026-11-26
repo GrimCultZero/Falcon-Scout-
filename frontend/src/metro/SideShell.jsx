@@ -86,7 +86,7 @@ export default function SideShell() {
   return (
     <>
       <div data-side-panel="falcon" style={{ display: side === 'falcon' ? 'block' : 'none', height: '100%' }}>
-        <App sideSwitch={<SideSwitch side={side} onChange={change} />} activityStrip={<ActivityStrip onGo={goto} showIdle={false} />} />
+        <App sideSwitch={<SideSwitch side={side} onChange={change} />} activityStrip={<ActivityStrip onGo={goto} showIdle={false} falconSide />} />
       </div>
       {metroSeen && (
         <div data-side-panel="metro" style={{ display: side === 'metro' ? 'block' : 'none', height: '100%' }}>

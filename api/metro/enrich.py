@@ -265,7 +265,8 @@ def enrich_company(s: Session, company: MetroCompany, *, fetch: webscan.Fetcher,
 
     # step 2: website scan
     step("website scan")
-    if not fresh(company.website_scan_at, int(days.get("website", 30)), ok=snapshot_ok(company.website_scan_json), now=now):
+    if (not fresh(company.website_scan_at, int(days.get("website", 30)), ok=snapshot_ok(company.website_scan_json), now=now)
+            or (snapshot_ok(company.website_scan_json) and not webscan.scan_current(company.website_scan_json))):   # Phase 3: older scanner
         scan = webscan.scan_site(dom, fetch, sleep=sleep, pace=pace)
         if scan.get("ok") or not snapshot_ok(company.website_scan_json):    # a failure never replaces a good reading
             company.website_scan_json, company.website_scan_at = json.dumps(scan, ensure_ascii=False), now
