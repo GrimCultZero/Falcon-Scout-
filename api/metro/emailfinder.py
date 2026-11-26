@@ -335,8 +335,14 @@ def start_mx_check(campaign_id: int, *, include_checked: bool = True, mx: MxLook
             n_ok = sum(1 for d, v in verdict.items() if v is True)
             n_bad = sum(1 for d, v in verdict.items() if v is False)
             n_unk = sum(1 for d, v in verdict.items() if v is None)
-            line = (f"Checked {len(verdict)} of {len(targets)} domains{' (stopped)' if stopped else ''}: {n_ok} accept mail, {n_bad} do not exist or take no mail"
-                    + (f", {n_unk} could not be checked" if n_unk else "") + f". Addresses: {res['domain_ok']} domain ok, {res['invalid']} invalid. Nothing is marked verified.")
+            from . import lines as _l
+            head = (f"Checked {len(verdict)} of {len(targets)} domains (stopped)" if stopped else f"Checked {_l.plural(len(verdict), 'domain')}")
+            if n_ok and not n_bad and not n_unk:
+                body = "all accept mail"
+            else:
+                body = _l.join([_l.part(n_ok, "domain", tail="accept mail"), _l.part(n_bad, "domain", tail="do not exist or take no mail"),
+                                _l.part(n_unk, "domain", tail="could not be checked")])
+            line = _l.line(head, body) + ". Nothing is marked verified."
             progress.finish(rid, line, "stopped" if stopped else "done")
         except Exception as e:
             progress.finish(rid, f"Domain check failed: {type(e).__name__}: {str(e)[:120]}", "failed")

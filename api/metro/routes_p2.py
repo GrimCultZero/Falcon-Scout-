@@ -258,7 +258,8 @@ def campaign_score(cid: int, body: RunIn | None = None):
         n = len(body.lead_ids) if body and body.lead_ids is not None else 0
         with progress.track("score", "Scoring fit (layers 1 and 2)", campaign_id=cid, total=0) as t:
             r = sc.score_campaign(s, c, lead_ids=(body.lead_ids if body else None))
-            t["result"] = f"Scored fit for {r['scored']} lead(s)"
+            from . import lines as _l
+            t["result"] = f"Scored fit for {_l.plural(r['scored'], 'lead')}" if r["scored"] else "Nothing to score here"
             return r
 
 
@@ -440,7 +441,9 @@ async def email_import(cid: int, file: UploadFile = File(...), source: str = Que
                     r = ef.import_results(s, raw, campaign_id=cid, source=source, filename=file.filename, dry_run=False)
                     from .leads import enrichment_line
                     e = r.get("enrichment") or {}
-                    t["result"] = (f"Emails imported: {r.get('stored', 0)} stored, {r.get('no_matching_lead', 0)} without a matching lead"
+                    from . import lines as _l
+                    t["result"] = (_l.line("Emails imported", _l.part(r.get("stored"), "address", "addresses", "stored") or "no new address",
+                                           _l.part(r.get("no_matching_lead"), "row", tail="matched no lead"))
                                    + (". Linked Helper data: " + enrichment_line(e) if e.get("matched") else ""))
                     return r
             except ValueError as e:

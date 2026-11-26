@@ -1,4 +1,4 @@
-// Metro: the outbound side of Falcon Scout. The header (wagon mark, side switch, tabs, status chips)
+// Metro: the outbound side of Falcon Scout. The header (badge mark, side switch, tabs, status chips)
 // and five tabs: Campaigns, Leads and Settings work from Phase 1, Senders (LinkedIn accounts) from Phase 2; CRM arrives later.
 import { useEffect, useRef, useState } from 'react'
 import '@fontsource/manrope/400.css'
@@ -13,6 +13,8 @@ import SendersTab from './components/SendersTab.jsx'
 import WeekSwitch from './components/WeekSwitch.jsx'
 import ProgressDock from './components/ProgressDock.jsx'
 import NoticeHost from './components/NoticeHost.jsx'
+import { Badge, Empty } from './components/Marks.jsx'
+import { useProgress } from './lib/progressStore.js'
 import './metro.css'
 import { takePending } from './lib/nav.js'
 import { METRO } from './theme.js'
@@ -37,6 +39,7 @@ export default function MetroApp({ side, onSideChange, activityStrip = null }) {
   const [line, setLine] = useState(null)
   const [campaignsRev, setCampaignsRev] = useState(0)
   const [wantNew, setWantNew] = useState(false)
+  const anyRunning = useProgress().runs.some((r) => r.status === 'running')   // F5: the badge's headlights pulse while something runs
 
   useEffect(() => {
     let alive = true
@@ -73,7 +76,7 @@ export default function MetroApp({ side, onSideChange, activityStrip = null }) {
       <header style={{ display: 'flex', alignItems: 'center', gap: 14, height: 66, boxSizing: 'border-box', padding: '0 20px 0 14px', flexShrink: 0,
         background: `linear-gradient(90deg, ${METRO.ink} 0%, ${METRO.teal} 55%, ${METRO.ink} 100%)`,
         borderTop: `3px solid ${METRO.cyan}`, borderBottom: '1px solid rgba(55,187,213,0.35)' }}>
-        <img src="/metro-wagon.svg" alt="Metro by IT Force" style={{ height: 40, width: 'auto', display: 'block' }} />
+        <Badge running={anyRunning} size={46} />
         <div style={{ lineHeight: 1.05 }}>
           <div style={{ fontWeight: 800, fontSize: 24, color: METRO.ice, letterSpacing: '0.01em' }}>Metro</div>
           <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(234,246,249,0.6)', letterSpacing: '0.08em', marginTop: 3 }}>
@@ -125,9 +128,10 @@ export default function MetroApp({ side, onSideChange, activityStrip = null }) {
             {COMING[key] && (
               <div style={{ maxWidth: 720, background: '#fff', borderRadius: 12, border: '1px solid rgba(0,86,105,0.15)',
                 padding: '22px 24px', boxShadow: '0 1px 2px rgba(0,12,14,0.05)' }}>
-                <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: METRO.teal }}>{label}</h2>
-                <p style={{ margin: '10px 0 0', fontSize: 14, lineHeight: 1.55, color: 'rgba(0,12,14,0.72)' }}>{COMING[key]}</p>
-                <p style={{ margin: '14px 0 0', fontSize: 12, color: 'rgba(0,12,14,0.5)' }}>Nothing here yet.</p>
+                <Empty testid="coming-soon">
+                  <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: METRO.teal }}>{label}</h2>
+                  <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: 1.55, color: 'rgba(0,12,14,0.72)' }}>{COMING[key]} Nothing here yet.</p>
+                </Empty>
               </div>
             )}
           </section>

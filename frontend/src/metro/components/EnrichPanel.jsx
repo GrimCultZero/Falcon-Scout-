@@ -5,7 +5,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { METRO } from '../theme.js'
-import { Btn, Err, Pill, card } from './ui.jsx'
+import { Btn, Err, MoreMenu, Pill, card } from './ui.jsx'
+import { Empty } from './Marks.jsx'
+import { join, part, queuedLine } from '../lib/resultLines.js'
 import ImportDialog from './ImportDialog.jsx'
 
 export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds, scope = { n: 0, what: 'shown' }, ticked = false }) {
@@ -41,49 +43,50 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
     refresh()
     return typeof msg === 'function' ? msg(r) : msg
   }
-  const score = scoped((ids) => api(`/campaigns/${cid}/score`, { method: 'POST', json: { lead_ids: ids } }),
-    (r) => `Scored fit for ${r.scored} lead${r.scored === 1 ? '' : 's'}`)
+  // F5 (item 2): the fit score is worked out by itself at the end of every enrich run and whenever a browser reading lands. This is
+  // only for after a rules change in Settings. Its result line ("Scored fit for 12 leads") is the header strip's (item 5).
+  const rescore = scoped((ids) => api(`/campaigns/${cid}/score`, { method: 'POST', json: { lead_ids: ids } }), () => undefined)
   const deep = scoped((ids) => api(`/campaigns/${cid}/deep`, { method: 'POST', json: { lead_ids: ids } }),
-    (r) => `Queued for the browser: ${Object.entries(r.queued).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`).join(', ')} (LinkedIn jobs run only in a Metro week)`)
+    (r) => (r.progress_id ? undefined : queuedLine(r.queued)))          // queued jobs are followed by a strip run; nothing queued has no run to say so
   const hooks = scoped((ids) => api(`/campaigns/${cid}/hooks`, { method: 'POST', json: { lead_ids: ids, shortlist_only: !ticked } }),
-    (r) => (r.started ? `Writing hooks for ${r.total} leads (see the header)` : { kind: 'warn', text: r.reason || 'Hooks were not started' }))
-  const stop = async () => { await api('/enrich/stop', { method: 'POST' }); refresh(); return 'Stopping after the current company' }
+    (r) => (r.started ? undefined : { kind: 'warn', text: r.reason || 'Hooks were not started' }))
   const openLead = async (l) => {
     setOpen(l.id); setDetail(null)
     try { setDetail(await api(`/leads/${l.id}/evidence`)) } catch (e) { setError(e.message) }
   }
   const markEmail = async (l, status) => { await api(`/leads/${l.id}/email-status`, { method: 'POST', json: { status } }); load(); return `${l.email} marked ${status}` }
 
-  const en = st?.enrich
-  const hk = st?.hooks
-  const queued = jobs ? Object.entries(jobs.jobs).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v.queued || 0} waiting, ${v.done || 0} done${v.failed ? `, ${v.failed} failed` : ''}`) : []
+  // One short status for the browser jobs (F5, item 7); the per-kind detail is its tooltip.
+  const kinds = jobs ? Object.entries(jobs.jobs) : []
+  const sum = (key) => kinds.reduce((n, [, v]) => n + (v[key] || 0), 0)
+  const waiting = sum('queued'), readDone = sum('done'), readFailed = sum('failed')
+  const metroWeek = jobs?.week_mode === 'metro'
+  const jobsLine = join([part(waiting, 'reading', 'readings', 'waiting'), part(readDone, 'reading', 'readings', 'done'), part(readFailed, 'reading', 'readings', 'failed')])
+  const jobsDetail = kinds.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${join([part(v.queued, 'waiting', 'waiting'), part(v.done, 'done', 'done'), part(v.failed, 'failed', 'failed')]) || 'nothing yet'}`).join(' · ')
 
   return (
     <div style={card} data-testid="enrich-panel">
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 15, color: METRO.teal }}>Enrichment and shortlist</h3>
-        <Btn kind="ghost" small onClick={score} title="The FIT score (layers 1 and 2, from what is stored, with the rules in Settings). The persona score is a different one: it is computed on import from the CSV (Rescore persona in the table toolbar). Runs on the ticked rows, or on every row the filters show." data-testid="score-btn">Score fit {scope.n} {scope.what}</Btn>
-        <Btn kind="ghost" small onClick={deep} title="Queue the LinkedIn pages and (niche) Ahrefs for the shortlisted leads among the ticked or shown rows. LinkedIn pages run only in a Metro week." data-testid="deep-btn">Queue deep readings ({scope.n} {scope.what}, shortlisted only)</Btn>
         <Btn kind="ghost" small onClick={hooks} disabled={running || !sl?.shortlisted} title="Hooks, angle and case tag through /claude; every hook is checked against the stored fields. Ticked rows, or the shortlisted ones among the rows shown." data-testid="hooks-btn">Write hooks ({scope.n} {scope.what}{ticked ? '' : ', shortlisted only'})</Btn>
         <Btn kind="ghost" small onClick={() => setEmailDlg(true)} data-testid="emails-btn" title="The Linked Helper email-finder list for the ticked rows, or the shown rows that are shortlisted">Emails (Linked Helper)</Btn>
-        {en?.running && <Btn kind="ghost" small onClick={stop}>Stop run</Btn>}
+        <MoreMenu testid="panel-more" align="right">
+          <Btn kind="ghost" small onClick={deep} title="Queue the LinkedIn pages and (niche) Ahrefs for the shortlisted leads among the ticked or shown rows. LinkedIn pages run only in a Metro week." data-testid="deep-btn">Queue deep readings ({scope.n} {scope.what}, shortlisted only)</Btn>
+          <Btn kind="ghost" small onClick={rescore} title="The fit score is worked out by itself after every enrich run and every browser reading. Use this only after you changed the fit rules in Settings. Runs on the ticked rows, or on every row the filters show." data-testid="score-btn">Rescore fit ({scope.n} {scope.what})</Btn>
+        </MoreMenu>
       </div>
       <Err error={error} />
 
-      {en && (en.running || en.total > 0) && (
-        <div style={{ fontSize: 12, marginBottom: 8 }} data-testid="run-status">
-          Website, PageSpeed and domains: {en.done} of {en.total} companies{en.running ? `, now ${en.current || '...'}` : en.stopped ? ', stopped' : ', finished'}{en.failed ? `, ${en.failed} failed` : ''}.
+      {jobsLine && (
+        <div style={{ fontSize: 12, marginBottom: 8, color: 'rgba(0,12,14,0.7)' }} data-testid="browser-jobs" title={jobsDetail}>
+          Browser readings: {jobsLine}{waiting > 0 && !metroWeek ? ' (waiting for a Metro week)' : ''}
         </div>
       )}
-      {hk && (hk.running || hk.total > 0) && (
-        <div style={{ fontSize: 12, marginBottom: 8 }}>Hooks: {hk.done} of {hk.total} leads, {hk.hooks} hooks kept, {hk.rejected} thrown away by the checks{hk.failed ? `, ${hk.failed} failed` : ''}.</div>
-      )}
-      {queued.length > 0 && <div style={{ fontSize: 12, marginBottom: 8, color: 'rgba(0,12,14,0.7)' }}>Browser jobs ({jobs.week_mode === 'metro' ? 'Metro week' : 'Linked Helper week: none are handed out'}): {queued.join(' · ')}</div>}
 
       {sl && (
         <>
           <div style={{ fontSize: 13, fontWeight: 700, margin: '4px 0 8px' }} data-testid="shortlist-count">
-            Shortlist: {sl.shortlisted} of {sl.total_usable} usable leads (layer 1 at {sl.min_fit} or more; {sl.measured} measured so far)
+            Shortlist: {sl.shortlisted} of {sl.total_usable} usable leads (fit {sl.min_fit} or more{sl.measured ? `; ${sl.measured} scored so far` : ''})
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }} data-testid="shortlist-table">
@@ -106,7 +109,7 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
               </tbody>
             </table>
             {sl.leads.length === 0 && <div style={{ padding: 12, fontSize: 13, color: 'rgba(0,12,14,0.6)' }}>
-              Nobody is shortlisted yet. Run Enrich on the leads, then Score.</div>}
+              <Empty>Nobody is shortlisted yet. Enrich some leads: each run scores them by itself.</Empty></div>}
           </div>
         </>
       )}
@@ -117,7 +120,7 @@ export default function EnrichPanel({ campaign, refreshKey, onChanged, targetIds
             <b>Hooks and the stored evidence behind them</b>
             <Btn kind="ghost" small onClick={() => { setOpen(null); setDetail(null) }}>Close</Btn>
           </div>
-          {!detail ? <div style={{ fontSize: 12 }}>Loading ...</div> : (
+          {!detail ? <div style={{ fontSize: 12 }}><Empty moving>Loading ...</Empty></div> : (
             <>
               {detail.angle && <p style={{ fontSize: 13 }}><b>Angle:</b> {detail.angle}{detail.case_tag ? ` · case tag: ${detail.case_tag}` : ''}</p>}
               {detail.hooks.length === 0 && <p style={{ fontSize: 12 }}>No hooks stored yet.</p>}
@@ -174,7 +177,7 @@ function EmailDialog({ campaign, targetIds, ticked, scope, onClose, onDone }) {
   const check = async () => {
     const r = await api(`/campaigns/${campaign.id}/email-check`, { method: 'POST' })
     onDone()
-    return r.started ? `Checking ${r.total} email domain${r.total === 1 ? '' : 's'} (see the header). A domain that accepts mail is not a verified mailbox.` : { kind: 'warn', text: r.reason || 'Nothing to check' }
+    return r.started ? undefined : { kind: 'warn', text: r.reason || 'Nothing to check' }
   }
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,12,14,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

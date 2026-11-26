@@ -7,6 +7,7 @@ import MetroApp from './MetroApp.jsx'
 import SideSwitch from './SideSwitch.jsx'
 import ActivityStrip from './components/ActivityStrip.jsx'
 import { buildActivities, stripTitlePrefix, tabTitle } from './lib/activity.js'
+import { applyFavicon } from './lib/favicon.js'
 import { requestGoto } from './lib/nav.js'
 import { useProgress } from './lib/progressStore.js'
 import { readSide, writeSide, hashForcesFalcon, hashOnSwitch, isSwitchKey, otherSide } from './lib/side.js'
@@ -56,6 +57,9 @@ export default function SideShell() {
     change('metro')
     requestGoto(where || { tab: 'leads' })
   }
+
+  // The tab icon: the badge on the Metro side, the Falcon Scout icons otherwise.
+  useEffect(() => { applyFavicon(document, side) }, [side])
 
   // The browser tab says what runs: "(Enriching 7/20) Metro". Only the prefix is ours; whatever else sets the title (the Falcon
   // Scout new-jobs bell) is left alone and kept after it.

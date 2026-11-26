@@ -24,6 +24,10 @@ from .db import MetroCompany, MetroLead, MetroSetting, utcnow
 OPS = ("true", "false", "lt", "lte", "gt", "gte", "eq", "contains_any", "len_gte", "len_lt")
 LAYERS = (1, 2)
 ROOTS = ("website", "pagespeed", "ads", "gbp", "ahrefs", "linkedin_company", "lead")
+# Decision "PageSpeed by segment" (25 Nov): an agency run never measures PageSpeed, so a rule that reads it is not part of an
+# agency's score at all: it is not counted in the rules total, not listed under "not measured", and it cannot lower coverage
+# ("measured %"). The default agency rules have none; this protects a rule set an owner edited in Settings.
+SEGMENT_SKIPPED_ROOTS = {"agency": ("pagespeed",)}
 
 
 def _r(id, layer, label, path, op, value, points):
@@ -190,12 +194,15 @@ def _test(op: str, val, arg) -> bool:
     return False
 
 
-def evaluate(rules: list[dict], ctx: dict, layer: int) -> dict:
-    """Score one layer. `score` is clipped to 0-100; `coverage` is the share of the layer's rules that could be read."""
+def evaluate(rules: list[dict], ctx: dict, layer: int, skip_roots: tuple = ()) -> dict:
+    """Score one layer. `score` is clipped to 0-100; `coverage` is the share of the layer's rules that could be read.
+    A rule whose path starts at one of `skip_roots` is left out altogether (see SEGMENT_SKIPPED_ROOTS)."""
     matched, unknown, total, readable = [], [], 0, 0
     pts = 0.0
     for r in rules:
         if r.get("layer") != layer:
+            continue
+        if str(r.get("path") or "").split(".")[0] in skip_roots:
             continue
         total += 1
         v = lookup(ctx, r["path"])
@@ -217,8 +224,9 @@ def score_lead(s: Session, lead: MetroLead, campaign_type: str, *, rules: dict |
     rs = rules.get(campaign_type) or []
     company = s.get(MetroCompany, lead.company_id) if lead.company_id else None
     ctx = context(company, lead)
-    l1 = evaluate(rs, ctx, 1)
-    l2 = evaluate(rs, ctx, 2)
+    skip = SEGMENT_SKIPPED_ROOTS.get(campaign_type, ())
+    l1 = evaluate(rs, ctx, 1, skip)
+    l2 = evaluate(rs, ctx, 2, skip)
     notes = json.loads(lead.score_notes_json or "{}")
     notes["fit"] = {**l1, "at": (now or utcnow()).strftime("%Y-%m-%dT%H:%M:%SZ")}
     notes["deep"] = {**l2, "at": notes["fit"]["at"]}
@@ -240,6 +248,36 @@ def score_campaign(s: Session, campaign, *, rules: dict | None = None, lead_ids:
         n += 1
     s.commit()
     return {"scored": n}
+
+
+def score_companies(s: Session, company_ids: list[int], *, campaign_id: int | None = None, rules: dict | None = None) -> dict:
+    """F5: the fit score without a button. Scores the usable leads (new, junk) of these companies, each by the type of ITS own
+    campaign (`campaign_id` limits it to one campaign). Called at the end of every enrich run and whenever a browser reading
+    lands. Never raises for one lead: a bad row is skipped and counted."""
+    from .db import MetroCampaign
+    ids = [int(c) for c in company_ids or [] if c]
+    if not ids:
+        return {"scored": 0, "skipped": 0}
+    rules = rules or rules_of(s)
+    q = s.query(MetroLead).filter(MetroLead.company_id.in_(ids), MetroLead.status.in_(("new", "junk")))
+    if campaign_id is not None:
+        q = q.filter(MetroLead.campaign_id == campaign_id)
+    types: dict[int, str | None] = {}
+    n = bad = 0
+    for lead in q.all():
+        if lead.campaign_id not in types:
+            c = s.get(MetroCampaign, lead.campaign_id)
+            types[lead.campaign_id] = c.type if c is not None else None
+        ctype = types[lead.campaign_id]
+        if ctype is None:
+            continue
+        try:
+            score_lead(s, lead, ctype, rules=rules)
+            n += 1
+        except Exception:
+            bad += 1
+    s.commit()
+    return {"scored": n, "skipped": bad}
 
 
 def shortlist_filter(lead: MetroLead, min_fit: float) -> bool:

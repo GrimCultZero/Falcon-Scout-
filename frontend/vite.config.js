@@ -11,7 +11,10 @@ import react from '@vitejs/plugin-react'
 // production build served by `vite preview`, used by the daily launcher) so
 // the two never drift apart — a route missing from preview.proxy would 404
 // in production but work fine in dev, silently.
-const PROXY = {
+// FALCON_BACKEND_URL is set ONLY by tools/scratch_check.py, so a browser check's page talks to its scratch backend and
+// can never reach the live one on :8000 (F5, after the F4 check wrote test leads into the live database).
+const B = process.env.FALCON_BACKEND_URL || 'http://localhost:8000'
+const PROXY_LIVE = {
   '/jobs': 'http://localhost:8000',
   '/enrich': 'http://localhost:8000',
   '/claude': 'http://localhost:8000',
@@ -47,6 +50,7 @@ const PROXY = {
   // the static /metro-wagon.svg and sends it to the backend (404).
   '/metro/': 'http://localhost:8000',
 }
+const PROXY = Object.fromEntries(Object.keys(PROXY_LIVE).map((k) => [k, B]))
 
 export default defineConfig({
   plugins: [react()],

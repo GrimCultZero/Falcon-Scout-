@@ -10,6 +10,7 @@ import '../metro.css'
 import { buildActivities, chipCount, chipDetail, chipPct, chipTitle, summarize } from '../lib/activity.js'
 import { dismiss, dismissMany, stopRun, useProgress } from '../lib/progressStore.js'
 import { notify } from '../lib/notices.js'
+import { Wagon } from './Marks.jsx'
 
 const NARROW_BELOW = 1100          // the strip has its own bar under the header, so it only collapses in a really narrow window
 
@@ -44,8 +45,11 @@ function Chip({ a, onGo, onStop }) {
         )}
         {a.stopping && <span style={{ fontSize: 10.5, opacity: 0.75 }}>stopping</span>}
       </div>
-      <div className="mt-chip-bar" aria-hidden="true">
-        {a.total ? <span className="mt-chip-fill" style={{ width: `${pct}%` }} /> : <span className="mt-chip-fill mt-chip-indet" />}
+      <div className="mt-chip-track" aria-hidden="true">
+        <span className={`mt-chip-wagon${a.total ? '' : ' is-roaming'}`} data-testid="strip-wagon" style={a.total ? { '--p': pct } : undefined}><Wagon width={26} /></span>
+        <div className="mt-chip-bar">
+          {a.total ? <span className="mt-chip-fill" style={{ width: `${pct}%` }} /> : <span className="mt-chip-fill mt-chip-indet" />}
+        </div>
       </div>
       {detail && <div className="mt-chip-detail" data-testid="strip-detail">{detail}</div>}
     </div>
@@ -63,7 +67,7 @@ export default function ActivityStrip({ onGo, showIdle = true }) {
   }, [])
   const acts = buildActivities(view.runs, view.dismissed)
   const s = summarize(acts, { narrow })
-  const stop = async (a) => { try { await stopRun(a.key); notify.ok(`Stopping ${a.label.toLowerCase()} after the current item`) } catch (e) { if (!e.notified) notify.error(`Could not stop: ${e.message}`) } }
+  const stop = async (a) => { try { await stopRun(a.key) } catch (e) { if (!e.notified) notify.error(`Could not stop: ${e.message}`) } }
   const go = (where, a) => { setOpen(false); onGo?.(where, a) }
   // the dropdown closes when the list empties
   useEffect(() => { if (s.mode === 'idle' || (s.mode === 'chips' && !s.more.length)) setOpen(false) }, [s.mode, s.more.length])

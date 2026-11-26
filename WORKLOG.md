@@ -11352,3 +11352,18 @@ fixed and pinned by tests. The first click that left no trace could not be repro
 Not done: the company-page backfill found no stored rows (re-import the Data Enrichment file once); nothing run in Oleh's Chrome.
 Tests: node tests/run_all.mjs --python: 72 JS suites, 47 Python suites, 0 failing (new: tests/metro/activity-strip.test.js,
 tests/metro/test_metro_fix4.py; updated: fix1-ui, metro-ui, progress-dock, side-switch, test_metro_fix3).
+
+## 2026-11-26 - Metro F5: live-DB safety, PageSpeed by segment, automatic fit score, one line per message, marks (branch metro/fix-5)
+The F4 browser check had written 3 test leads, 3 companies (404-406) and 2 import rows into the LIVE database. Removed them (after a
+backup copy), found two real causes (the :5180 proxy always reaches :8000; `.env` overrides a `DATABASE_URL` variable because
+`api/main.py` loads it with `override=True`) and made it impossible: `tools/scratch_check.py` (refuses anything but a copy outside
+the repo, pins DATABASE_URL before importing the app, own backend :8001 + own Vite :5190, `--offline`), a Hard rule in METRO_PLAN.md.
+While building it I made the mistake the new rule forbids: the first run of the new launcher imported `api.main` before the pin existed
+and the live startup prune deleted 108 old job postings (2759 to 2651; the app's own rule, it would have done the same within 6 h; no
+posting that was responded to, hired or starred is touched by it). The pin now runs and is proven BEFORE the import.
+Built: PageSpeed only for niche campaigns; the agency fit ignores PageSpeed rules; the fit score is worked out by itself after every
+enrich run and every browser reading (small "Rescore fit" behind More); no zero counts in any result line (backend `lines.py`, front
+end `resultLines.js`); a finished run is told in the header strip only; plain enrich labels; badge in the header and as the tab icon,
+wagon on the progress bar and empty states, small transform / opacity animations; the Leads page lighter (More menus, collapsed
+domain trails). Browser check on the scratch launcher with a copy: before / after screenshots in docs/metro-f5/.
+Tests: node tests/run_all.mjs --python (new: tests/metro/test_metro_fix5.py, tests/metro/fix5-ui.test.js). Details: DESIGN.md section 25.

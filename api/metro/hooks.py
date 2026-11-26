@@ -264,8 +264,11 @@ def start_hooks_run(campaign_id: int, lead_ids: list[int], *, ask=None, backgrou
         finally:
             st = HooksRun.state
             HooksRun.state["running"] = False
-            progress.finish(rid, f"Hooks for {st['done']} lead(s): {st['hooks']} kept, {st['rejected']} thrown away by the checks" +
-                            (f", {st['failed']} failed" if st["failed"] else "") + (" (stopped)" if st.get("stopped") else ""),
+            from . import lines as _lines
+            progress.finish(rid, _lines.line(f"Hooks for {_lines.plural(st['done'], 'lead')}" + (" (stopped)" if st.get("stopped") else ""),
+                                             _lines.part(st["hooks"], "hook", tail="kept") or "no hook could be written",
+                                             (f"{st['rejected']} thrown away by the checks" if st["rejected"] else None),
+                                             _lines.part(st["failed"], "failed", "failed")),
                             "stopped" if st.get("stopped") else "done")
 
     if background:
