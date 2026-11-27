@@ -4,7 +4,11 @@ export const METRO = {
   teal:  '#005669',
   cyan:  '#37bbd5',
   ice:   '#eaf6f9',
-  agencyLine: '#e6261f',   // Agency campaigns
+  agencyLine: '#B8F82C',   // Agency campaigns: lime (brand refresh, 27 Nov: no red anywhere)
+  lime: '#B8F82C',
+  acid: '#00E5FF',
+  error: '#F2711C',        // errors and warnings: deep orange, never red (Minor fixes #7)
+  errorText: '#A8460A',    // the same orange, dark enough for small text on white
   nicheLine:  '#37bbd5',   // Niche campaigns
   font: "'Manrope', 'Inter', sans-serif",
 }

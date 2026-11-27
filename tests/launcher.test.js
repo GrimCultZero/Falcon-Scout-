@@ -75,9 +75,9 @@ const setup = ({ provider, env }) => {
   if (provider !== undefined) fs.writeFileSync(p('ai_provider.json'), provider);
   if (env !== undefined) fs.writeFileSync(p('.env'), env);
 };
-const run = (bat_, args = [], cwd = tmp) => {
+const run = (bat_, args = [], cwd = tmp, extraEnv = null) => {
   const r = spawnSync('cmd.exe', ['/d', '/c', path.join(tmp, bat_), ...args], {
-    cwd, encoding: 'utf8', timeout: 60000, env: { ...process.env, FALCON_DRYRUN: '1' },
+    cwd, encoding: 'utf8', timeout: 60000, env: { ...process.env, FALCON_DRYRUN: '1', FALCON_ASSUME_DOWN: '1', ...(extraEnv || {}) },
   });
   const launches = (r.stdout || '').split(/\r?\n/).map((l) => l.match(/^LAUNCH \[(.*?)\] in \[(.*?)\] : (.*)$/)).filter(Boolean)
     .map((m) => ({ title: m[1], dir: m[2].replace(/[\\/]\.?$/, ''), cmd: m[3] }));
@@ -148,6 +148,17 @@ assert(install.includes(`Falcon Scout Enricher ${_mv}`) && !/Enricher 5\.1[0-5]
 assert(!/Opens four windows/.test(install) && /falconscout-dev\.bat/.test(install) && /no auto-reload|without .{0,12}reload/i.test(install), 'INSTALL.md describes the three-window, no-reload launcher and the dev variant');
 assert(/no Telegram listener any more/i.test(install) && !/python listener\.py/.test(install), 'INSTALL.md says there is no Telegram listener and no longer shows its command');
 assert(/falconscout-dev\.bat/.test(claude) && /listener[\s\S]{0,120}removed on 2026-11-09/i.test(claude) && !/python listener\.py/.test(claude), "CLAUDE.md's quick start lists the dev launcher, says the listener was removed, and no longer shows its command");
+
+// P3b (Minor fixes #4a, 27 Nov 2026): a second start while the app runs restarts NOTHING
+setup({ provider: '{"provider": "cli"}', env: ENV_OK });
+r = run('falconscout.bat', [], tmp, { FALCON_ASSUME_DOWN: '', FALCON_ASSUME_UP: '1' });
+assert(r.status === 0 && r.launches.length === 0 && /already running/i.test(r.out) && /nothing is restarted/i.test(r.out),
+  `the app is up -> no window is launched, it only opens the browser tab (got: ${names(r) || 'nothing'})`);
+const batNow = text('falconscout.bat');
+assert(/curl\.exe -s -f -o nul -m 4 http:\/\/127\.0\.0\.1:8000\/health/.test(batNow) && /http:\/\/localhost:5180\//.test(batNow) && /:8000 \.\*LISTENING/.test(batNow),
+  'it probes :8000/health (or sees :8000 listening) and :5180 before launching anything');
+assert(/if not defined BACKEND_UP call :launch "Falcon Scout - Backend/.test(batNow) && /if not defined FRONTEND_UP call :launch/.test(batNow)
+  && /if defined START_BRIDGE if not defined BACKEND_UP/.test(batNow), 'a part that is already up is never launched again (backend, its bridge, frontend)');
 
 try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* the junction target must never be followed */ }
 assert(fs.existsSync(path.join(ROOT, '.venv', 'Scripts', 'python.exe')), 'cleanup left the real .venv alone');

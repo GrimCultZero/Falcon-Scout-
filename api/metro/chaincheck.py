@@ -22,6 +22,9 @@ from .hooks import PRICE_RX, URL_RX, agency_hook_refusal
 NUM_RX = re.compile(r"(?<![A-Za-z\d])\d[\d,.]*(?![A-Za-z\d])")
 
 LINKEDIN_MAX_CHARS = 300
+NUMBERS_FREE_JOBS = ("value", "value4", "intro", "pointer")
+# in a tip, "takes about an hour" is a duration: a rate needs a currency ("$40 an hour" is caught by the symbol)
+PRICE_IN_TIP = re.compile(r"[$€£]|\b(usd|eur|gbp|cad|dollars?|euros?|pounds?|per hour|/hr|pricing|prices?|priced|fees?|rate of|retainers?)\b", re.I)
 EMAIL_MAX_WORDS = 120
 SUBJECT_MAX_CHARS = 70
 
@@ -40,6 +43,8 @@ BANNED = [
     "delve", "fast-paced", "ever-evolving", "in today's", "dive deep", "deep dive", "win-win", "paradigm", "disrupt",
     "low-hanging fruit", "move the needle", "at the end of the day", "i'd love to pick your brain", "kindly", "as per",
     "please find attached", "don't hesitate", "do not hesitate", "feel free to", "excited to", "thrilled",
+    # P3b (Oleh, 27 Nov): IT Force is not described by where it is from; an EMPTY invitation is never thanked
+    "from ukraine", "based in ukraine", "ukrainian team", "thanks for connecting", "thank you for connecting",
 ]
 # Guesses about THEM written as if known (the Hard rule: an assumed fact is never written as a fact).
 GUESSES = ["i'd guess", "i guess", "likely", "i assume", "i imagine", "i bet", "probably", "must be struggling", "you must", "i suspect",
@@ -69,8 +74,10 @@ def check_touch(touch: dict, *, lead_first: str | None, hooks: dict[int, dict], 
     low = full.replace("’", "'").lower()
     if not body.strip():
         return [_flag("empty", "the message is empty")]
-    if PRICE_RX.search(full):
-        flags.append(_flag("price", f"mentions a price or rate ({PRICE_RX.search(full).group(0)})"))
+    # the tip email talks PPC ("cost per lead", "trial-signup cost"): there only a currency, a rate or a fee is a price (P3b run)
+    price_rx = PRICE_IN_TIP if touch.get("job") in ("value", "value4") else PRICE_RX
+    if price_rx.search(full):
+        flags.append(_flag("price", f"mentions a price or rate ({price_rx.search(full).group(0)})"))
     if URL_RX.search(full):
         flags.append(_flag("url", f"a URL or domain written in the text ({URL_RX.search(full).group(0)}); the case link is added by code"))
     m = PLACEHOLDER.search(full)
@@ -108,7 +115,10 @@ def check_touch(touch: dict, *, lead_first: str | None, hooks: dict[int, dict], 
         words = len(re.findall(r"\b[\w'’-]+\b", body))
         if words > EMAIL_MAX_WORDS:
             flags.append(_flag("length", f"{words} words, an email body stays under {EMAIL_MAX_WORDS}"))
-        if not subject.strip():
+        if touch.get("reply"):
+            if subject.strip():
+                flags.append(_flag("subject", "a reply in the thread has no subject of its own"))
+        elif not subject.strip():
             flags.append(_flag("subject", "an email needs a subject"))
         elif len(subject) > SUBJECT_MAX_CHARS or subject.lower().startswith(("re:", "fwd:", "fw:")):
             flags.append(_flag("subject", "the subject is too long or pretends to be a reply"))
@@ -129,7 +139,8 @@ def check_touch(touch: dict, *, lead_first: str | None, hooks: dict[int, dict], 
         for n in NUM_RX.findall(h.get("fact", "")):
             have_nums.add(re.sub(r"[^\d]", "", n))
             have_nums.add(re.sub(r"[^\d]", "", re.split(r"\.(?=\d)", n)[0]))     # "since 2021.06" lets a message say "since 2021"
-    for n in {re.sub(r"[^\d]", "", x) for x in NUM_RX.findall(full)}:
+    free = touch.get("job") in NUMBERS_FREE_JOBS        # P3b: the tip gives advice ("3 to 5 ad groups"); intro / pointer are code's
+    for n in (set() if free else {re.sub(r"[^\d]", "", x) for x in NUM_RX.findall(full)}):
         if n and n not in have_nums:
             flags.append(_flag("number", f"the number {n} is in no hook this touch uses"))
     return flags
@@ -137,8 +148,9 @@ def check_touch(touch: dict, *, lead_first: str | None, hooks: dict[int, dict], 
 
 def check_chain(touches: list[dict], *, lead_first: str | None, hooks: dict[int, dict], other_leads_used: set[int], segment: str,
                 allowed_numbers: set[str], plan_channels: list[str] | None = None, do_not_claim: list[str] | None = None,
-                base_chain: bool = False) -> dict:
-    """{"ok", "touches": [{"step", "ok", "flags"}], "flags": [chain-level]}."""
+                base_chain: bool = False, require_hook_steps: list[int] | None = None) -> dict:
+    """{"ok", "touches": [{"step", "ok", "flags"}], "flags": [chain-level]}. `require_hook_steps` (P3b waves): the steps that must
+    carry a ledger fact (the hook email); None = P3's rule (step 1 unless a base chain)."""
     out, chain_flags, seen = [], [], {}
     if not touches:
         chain_flags.append(_flag("empty", "no touch was written"))
@@ -153,7 +165,10 @@ def check_chain(touches: list[dict], *, lead_first: str | None, hooks: dict[int,
         # reuse inside this chain is one chain-level flag (above); a hook another LEAD's touch holds is flagged on the touch
         f = check_touch(t, lead_first=lead_first, hooks=hooks, used_elsewhere=set(other_leads_used),
                         segment=segment, allowed_numbers=allowed_numbers, do_not_claim=do_not_claim)
-        if not base_chain and not mine and t.get("step") == 1:
+        if require_hook_steps is not None:
+            if t.get("step") in require_hook_steps and not mine:
+                f.append(_flag("no_hook", "the hook email carries no fact from the ledger"))
+        elif not base_chain and not mine and t.get("step") == 1:
             f.append(_flag("no_hook", "the first touch uses no hook"))
         out.append({"step": t.get("step"), "ok": not f, "flags": f})
     if plan_channels is not None and [t.get("channel") for t in touches] != plan_channels:

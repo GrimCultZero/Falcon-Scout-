@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Falcon Scout - Jobs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;font-family:Manrope,system-ui,sans-serif;color:#0b2a26}
+a{color:#005669}a:hover{color:#004150}
+.b{font:inherit;font-weight:700;font-size:13px;border-radius:9px;padding:8px 14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1.5px solid transparent;text-decoration:none;transition:transform .12s ease,box-shadow .15s ease,background-color .15s ease}
+.b:hover{box-shadow:0 0 0 4px rgba(46,230,166,.25)}
+.b:active{transform:translateY(2px)}
+.b:focus-visible{outline:3px solid #37bbd5;outline-offset:2px}
+.spin{width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.job:hover{background:#f1f8f5}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#eef6f3;display:flex;flex-direction:column">
+<header style="background:#0B3A34;color:#fff;display:flex;flex-wrap:wrap;align-items:center;gap:18px;padding:10px 22px">
+  <div style="display:flex;align-items:center;gap:10px"><img src="/_blob/8fc0b9b269163445dbd533f745f6e766" alt="" style="height:44px"><div style="line-height:1"><div style="font-weight:800;font-size:22px">Falcon Scout</div><div style="display:flex;align-items:center;gap:5px;font-size:11px;opacity:.85;margin-top:3px">by <svg width="17" height="10" viewBox="0 0 45 26" aria-hidden="true"><path d="M14.7872 10.8347L5.05022 20.5157L0 15.4957L5.41607 10.1121H24.7537L34.56 19.862L29.1248 25.2647L9.6461 5.90264L15.0837 0.5H34.0842L44.0626 10.4163L38.5438 15.9022L24.1631 1.60763L14.7872 10.8347Z" fill="#37bbd5"/></svg><b>itforce</b></div></div></div>
+  <div style="display:flex;padding:3px;border-radius:999px;border:1.5px solid rgba(255,255,255,.4)">
+    <span class="b" style="border-radius:999px;background:#2EE6A6;color:#000c0e">Falcon Scout</span>
+    <a class="b" href="Metro.dc.html" style="border-radius:999px;background:transparent;color:#fff">Metro</a>
+  </div>
+  <nav style="display:flex;gap:6px;flex-wrap:wrap">
+    <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5"><button class="b" onClick="{{t.go}}" style="background:{{t.bg}};color:#fff;border-color:{{t.bd}}">{{t.label}}</button></sc-for>
+  </nav>
+  <div style="flex:1"></div>
+  <span style="font-size:12px;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:5px 9px">800 jobs</span>
+  <span style="font-size:12px;border:1px solid rgba(46,230,166,.6);color:#2EE6A6;border-radius:8px;padding:5px 9px">● Feed live</span>
+  <span style="font-size:12px;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:5px 9px">today $0.07 · month $11.12</span>
+</header>
+<sc-if value="{{hasNotice}}" hint-placeholder-val="{{ false }}">
+  <div role="status" style="background:#0B3A34;padding:0 22px 10px"><span style="display:inline-flex;align-items:center;gap:10px;color:#fff;border:1.5px solid #2BB673;border-radius:9px;padding:7px 12px;font-size:13px;font-weight:600">✓ {{notice}}<button class="b" onClick="{{dismiss}}" aria-label="Dismiss" style="padding:1px 8px;background:transparent;color:#fff;border-color:rgba(255,255,255,.3)">×</button></span></div>
+</sc-if>
+<div style="display:flex;flex-wrap:wrap;flex:1;min-height:0">
+  <aside style="flex:1 1 300px;max-width:360px;border-right:1px solid #d3e6e0;background:#fff;display:flex;flex-direction:column">
+    <div style="padding:14px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #e3efeb">
+      <label style="font-size:12px;font-weight:700;color:#33605a">Search jobs<input placeholder="Search jobs..." style="margin-top:4px;width:100%;box-sizing:border-box;font:inherit;padding:9px 11px;border:1.5px solid #cfe3dd;border-radius:9px"></label>
+      <div style="display:flex;gap:8px"><button class="b" onClick="{{fetch}}" style="background:#00E5FF;color:#000c0e"><sc-if value="{{busyFetch}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>Fetch from API</button><span style="flex:1"></span><span style="font-size:12px;color:#0b5e43;align-self:center">● Feed is live</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <sc-for list="{{filters}}" as="f" hint-placeholder-count="8"><button class="b" onClick="{{f.go}}" style="padding:5px 10px;font-size:12px;background:{{f.bg}};color:{{f.fg}};border-color:#bfdcd4">{{f.label}}</button></sc-for>
+      </div>
+    </div>
+    <div style="overflow:auto">
+      <sc-for list="{{jobs}}" as="j" hint-placeholder-count="4">
+        <div class="job" style="padding:14px;border-bottom:1px solid #e3efeb;background:{{j.sel}};border-left:4px solid {{j.mark}}">
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#5a7f78"><span>{{j.n}}</span><span style="flex:1"></span><span style="background:#dff8ee;color:#0b5e43;font-weight:800;border-radius:6px;padding:2px 7px">{{j.score}}</span></div>
+          <button onClick="{{j.pick}}" style="font:inherit;font-weight:800;font-size:15px;text-align:left;background:none;border:0;padding:4px 0;color:#0b2a26;cursor:pointer">{{j.t}}</button>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px"><span style="border:1px solid #cfe3dd;border-radius:6px;padding:2px 7px">{{j.rate}}</span><span style="border:1px solid #cfe3dd;border-radius:6px;padding:2px 7px">{{j.country}}</span><span style="border:1px solid #cfe3dd;border-radius:6px;padding:2px 7px">{{j.apps}}</span></div>
+        </div>
+      </sc-for>
+    </div>
+  </aside>
+  <main style="flex:999 1 560px;min-width:0;display:flex;flex-wrap:wrap">
+    <section style="flex:1 1 380px;min-width:0;padding:22px;display:flex;flex-direction:column;gap:14px;border-right:1px solid #d3e6e0">
+      <h1 style="margin:0;font-size:24px">{{job.t}}</h1>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:13px;font-weight:700"><span style="background:#dff8ee;color:#0b5e43;border-radius:8px;padding:5px 10px">{{job.rate}}</span><span style="background:#fff;border:1px solid #cfe3dd;border-radius:8px;padding:5px 10px">{{job.country}}</span><span style="background:#fff;border:1px solid #cfe3dd;border-radius:8px;padding:5px 10px">Posted {{job.ago}}</span></div>
+      <div style="display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px 12px;font-size:13px"><span style="color:#5a7f78;font-weight:700">Category</span><span>Sales and marketing</span><span style="color:#5a7f78;font-weight:700">Keywords</span><span>{{job.kw}}</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="b" onClick="{{enrich}}" style="background:#fff;color:#0B3A34;border-color:#0B3A34"><sc-if value="{{busyEnrich}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>Enrich</button><button class="b" style="background:#fff;color:#0B3A34;border-color:#bfdcd4">Update bids</button><a class="b" href="https://www.upwork.com" style="background:#fff;color:#0B3A34;border-color:#bfdcd4">Open on Upwork</a></div>
+      <div style="background:#fff;border:1px solid #d3e6e0;border-radius:12px;padding:16px;font-size:14px;line-height:1.6;white-space:pre-line">{{job.body}}</div>
+    </section>
+    <section style="flex:1 1 360px;min-width:0;padding:22px;display:flex;flex-direction:column;gap:16px">
+      <div style="background:#fff;border:1px solid #d3e6e0;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:12px;font-weight:800;letter-spacing:1px;color:#0F4D44">AI ANALYSIS</div>
+        <sc-if value="{{noAnalysis}}" hint-placeholder-val="{{ true }}"><div style="font-size:14px;color:#33605a">Claude scores the fit, lists reasons to apply or skip, and flags risks.</div></sc-if>
+        <sc-if value="{{hasAnalysis}}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:12px"><span style="font-size:30px;font-weight:800;color:#0b5e43">8.4</span><span style="font-size:13px;line-height:1.5">Apply. Paid acquisition for a low-ticket SaaS matches our Google Ads cases; budget is low, so pitch a short paid pilot.</span></div></sc-if>
+        <button class="b" onClick="{{analyse}}" style="background:#00E5FF;color:#000c0e;padding:12px"><sc-if value="{{busyAnalyse}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>Analyse this job</button>
+      </div>
+      <div style="background:#fff;border:1px solid #d3e6e0;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;flex:1">
+        <div style="font-size:12px;font-weight:800;letter-spacing:1px;color:#0F4D44">COVER LETTER</div>
+        <sc-if value="{{noLetter}}" hint-placeholder-val="{{ true }}"><div style="font-size:14px;color:#33605a;border:1.5px dashed #cfe3dd;border-radius:10px;padding:28px;text-align:center">Your cover letter will appear here.</div></sc-if>
+        <sc-if value="{{hasLetter}}" hint-placeholder-val="{{ false }}"><div style="font-size:14px;line-height:1.6;border:1px solid #cfe3dd;border-radius:10px;padding:14px">Hi, you need someone who knows how low-ticket SaaS pays back on paid search. We run Google Ads for SaaS and e-commerce clients and can start with a two-week audit of your current account...</div></sc-if>
+        <button class="b" onClick="{{write}}" style="background:#0B3A34;color:#fff;padding:12px"><sc-if value="{{busyWrite}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>Generate cover letter</button>
+      </div>
+    </section>
+  </main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  constructor(p){super(p);this.state={tab:'Jobs',filter:'All',sel:0,busy:'',notice:'',analysed:false,letter:false};}
+  later(id,msg,patch){this.setState({busy:id});setTimeout(()=>this.setState(Object.assign({busy:'',notice:msg},patch||{})),1400);}
+  renderVals(){
+    const s=this.state;
+    const tabs=['Jobs','Outcomes','Knowledge base','Dashboard','Settings'].map(l=>({label:l,bg:s.tab===l?'rgba(255,255,255,.14)':'transparent',bd:s.tab===l?'#2EE6A6':'transparent',go:()=>this.setState({tab:l})}));
+    const filters=['All','Today','>$30/hr','No US-only','Enriched','Analysed','Starred','Hidden'].map(l=>({label:l,bg:s.filter===l?'#0B3A34':'#fff',fg:s.filter===l?'#fff':'#0B3A34',go:()=>this.setState({filter:l})}));
+    const raw=[['#006','Paid Ads Specialist - Low-Ticket SaaS','$5-60/hr','France','<5 applicants','8.4','Social media ad campaigns, Google Ads, pay per click, advertising management','5h ago',"We're looking for an experienced paid advertising specialist to take ownership of customer acquisition for a SaaS platform.\n\nYou understand the economics of low-ticket software and have acquired paying customers profitably through paid advertising."],
+      ['#007','SEO and GEO Specialist for a Singapore showcase','$5-20/hr','Singapore','<5 applicants','6.1','SEO, GEO, content','1h ago','We need on-page SEO and local search work for a product showcase site.'],
+      ['#008','Expert Shopify developer for a high-converting store','$30-50/hr','United Kingdom','<5 applicants','7.2','Shopify, Liquid, CRO','1h ago','Custom Shopify theme work with a focus on conversion.'],
+      ['#009','Website review and link building','$10.6k fixed','Canada','<5 applicants','7.8','SEO audit, link building','1h ago','Review our site and run a link-building campaign for 3 months.']];
+    const jobs=raw.map((r,i)=>({n:r[0],t:r[1],rate:r[2],country:r[3],apps:r[4],score:r[5],sel:s.sel===i?'#eaf7f2':'transparent',mark:s.sel===i?'#2EE6A6':'transparent',pick:()=>this.setState({sel:i,analysed:false,letter:false})}));
+    const j=raw[s.sel];
+    return {tabs,filters,jobs,job:{t:j[1],rate:j[2],country:j[3],ago:j[7],kw:j[6],body:j[8]},
+      hasNotice:!!s.notice,notice:s.notice,dismiss:()=>this.setState({notice:''}),
+      busyFetch:s.busy==='fetch',fetch:()=>this.later('fetch','Fetched 14 new jobs - 3 score 8 or more'),
+      busyEnrich:s.busy==='enrich',enrich:()=>this.later('enrich','Enriched - client history and bids added'),
+      busyAnalyse:s.busy==='an',analyse:()=>this.later('an','Analysis ready - score 8.4, apply',{analysed:true}),
+      busyWrite:s.busy==='wr',write:()=>this.later('wr','Cover letter drafted',{letter:true}),
+      noAnalysis:!s.analysed,hasAnalysis:s.analysed,noLetter:!s.letter,hasLetter:s.letter};
+  }
+}
+</script>
+</body>
+</html>

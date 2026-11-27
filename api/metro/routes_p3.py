@@ -94,6 +94,8 @@ def lead_panel(lead_id: int):
         l = _lead(s, lead_id)
         camp = s.get(MetroCampaign, l.campaign_id) if l.campaign_id else None
         comp = s.get(MetroCompany, l.company_id) if l.company_id else None
+        if chains.ensure_intro(s, l):           # P3b: accepted since the wave was written: the LinkedIn intro joins it
+            s.commit()
         if camp is not None and l.chain_written_at and not l.chain_approved_at:
             chains.recheck(s, l, camp)          # the flags shown are today's checks (a rules change, a colleague's chain)
             s.commit()
@@ -101,7 +103,7 @@ def lead_panel(lead_id: int):
         group = hk.colleagues(s, l)
         seg = hk.segment_of(camp) if camp else "niche"
         scan = json.loads(comp.website_scan_json) if comp is not None and comp.website_scan_json else {}
-        facts = {"domain": comp.domain if comp else None, "industry": comp.industry if comp else None,
+        facts = {"domain": comp.domain if comp else None, "industry": comp.industry if comp else None, "logo": comp.logo_data if comp else None,
                  "sells": (scan.get("services") or [])[:12] if scan.get("ok") else [],
                  "industries": (scan.get("industries") or [])[:10] if scan.get("ok") else [],
                  "niches": list((scan.get("niches") or {}).keys())[:6] if scan.get("ok") else [],
@@ -161,8 +163,12 @@ def campaign_chains_summary(cid: int):
             states[c["chain"]["state"]] = states.get(c["chain"]["state"], 0) + 1
         companies = len({l.company_id or f"l{l.id}" for l in leads})
         approved = s.query(MetroLead).filter(MetroLead.campaign_id == cid, MetroLead.chain_approved_at.isnot(None)).count()
-        return {"shortlisted": len(leads), "companies": companies, "states": states, "approved": approved,
-                "hooks_written": sum(1 for c in cells.values() if c["hooks"] > 0)}
+        drafts = sum(1 for c in cells.values() if c["chain"]["state"] in ("written", "issues"))
+        from . import logos as _logos
+        logos_missing = len(_logos.missing(s, cid))
+        return {"shortlisted": len(leads), "companies": companies, "states": states, "approved": approved, "drafts": drafts,
+                "hooks_written": sum(1 for c in cells.values() if c["hooks"] > 0),
+                "hook_companies": len({l.company_id or f"l{l.id}" for l in leads if cells[l.id]["hooks"] > 0}), "logos_missing": logos_missing}
 
 
 @p3.post("/leads/{lead_id}/chain")
@@ -172,6 +178,41 @@ def lead_chain_write(lead_id: int):
         l = _lead(s, lead_id)
         cid = l.campaign_id
     return chains.start_chains_run(cid, [lead_id])
+
+
+@p3.post("/campaigns/{cid}/logos")
+def campaign_logos(cid: int):
+    """P3b #2: read the logos of the campaign's companies that have a website and no logo yet (their own site only, paced,
+    in the background). New enrich runs read the logo by themselves."""
+    from . import logos
+    return logos.start_logos_run(cid)
+
+
+@p3.get("/leads/{lead_id}/cases")
+def lead_cases(lead_id: int):
+    """"Change case": the IT Force cases matching the agency's client niche AND the service first, then all the others."""
+    with Session(get_engine()) as s:
+        return chains.case_options(s, _lead(s, lead_id))
+
+
+class CaseIn(BaseModel):
+    case_id: int | None = None
+
+
+@p3.post("/leads/{lead_id}/chain/case")
+def lead_chain_case(lead_id: int, body: CaseIn):
+    """Put the chosen case under the approach email (a draft) and keep it for later rewrites; case_id null = the automatic match."""
+    with Session(get_engine()) as s:
+        l = _lead(s, lead_id)
+        try:
+            r = chains.set_case(s, l, body.case_id)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        camp = s.get(MetroCampaign, l.campaign_id)
+        if camp is not None and l.chain_written_at:
+            chains.recheck(s, l, camp)
+            s.commit()
+        return {**r, "chain": chains.chain_view(s, l)}
 
 
 class TouchIn(BaseModel):

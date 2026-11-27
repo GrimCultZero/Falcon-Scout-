@@ -42,7 +42,11 @@ def _first(lead: MetroLead) -> str:
 
 
 def linkedhelper_csv(s: Session, campaign_id: int, lead_ids: list[int] | None = None) -> tuple[str, dict]:
+    from . import chains
     rows, skipped_no_profile, skipped_no_li = [], 0, 0
+    for l in s.query(MetroLead).filter(MetroLead.campaign_id == campaign_id, MetroLead.invite_status == "connected").all():
+        chains.ensure_intro(s, l)                # P3b: accepted since the wave was written: the intro joins it (needs Approve)
+    s.commit()
     for l in _approved_leads(s, campaign_id, lead_ids):
         ts = _touches(s, l, "linkedin")[:LH_MAX_MESSAGES]
         if not ts:
@@ -71,11 +75,15 @@ def email_csv(s: Session, campaign_id: int, lead_ids: list[int] | None = None) -
             no_address += 1
             continue
         leads += 1
+        opened: dict = {}
         for t in ts:
+            if t.subject:
+                opened["last"] = t.subject
+            subject = t.subject or (f"Re: {opened['last']}" if opened.get("last") else "")   # P3b: a reply in the thread
             rows.append({"email": l.email, "email_type": l.email_type or "business", "email_status": l.email_status or "",
                          "first_name": _first(l), "last_name": l.last_name or "", "full_name": l.full_name or "",
                          "company_name": l.company_name or "", "metro_lead_id": l.id, "step": t.step, "day": t.day,
-                         "subject": t.subject or "", "body": t.body or ""})
+                         "subject": subject, "body": t.body or ""})
     return _csv(EMAIL_COLUMNS, rows), {"leads": leads, "emails": len(rows), "no_sendable_address": no_address}
 
 

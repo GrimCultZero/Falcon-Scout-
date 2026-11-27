@@ -13,7 +13,7 @@ import SendersTab from './components/SendersTab.jsx'
 import WeekSwitch from './components/WeekSwitch.jsx'
 import ProgressDock from './components/ProgressDock.jsx'
 import NoticeHost from './components/NoticeHost.jsx'
-import { Badge, Empty } from './components/Marks.jsx'
+import { Empty, MetroMark } from './components/Marks.jsx'
 import { useProgress } from './lib/progressStore.js'
 import './metro.css'
 import { takePending } from './lib/nav.js'
@@ -23,6 +23,7 @@ import { METRO_TABS, readMetroTab, writeMetroTab } from './lib/side.js'
 const loadWeekRef = { current: () => {} }
 const store = typeof window !== 'undefined' ? window.localStorage : null
 
+// P3b #1: the header mark is the approved front-view wagon (brand/metro-mark.png); the Agency line is lime, no red anywhere (#7).
 const COMING = {
   crm:     'A card for every lead who replied. Arrives in Phase 4.',
 }
@@ -76,7 +77,7 @@ export default function MetroApp({ side, onSideChange, activityStrip = null }) {
       <header className="mt-header" style={{ display: 'flex', alignItems: 'center', gap: 14, height: 66, boxSizing: 'border-box', padding: '0 20px 0 22px', flexShrink: 0,
         background: `linear-gradient(90deg, ${METRO.ink} 0%, ${METRO.teal} 55%, ${METRO.ink} 100%)`,
         borderTop: `3px solid ${METRO.cyan}`, borderBottom: '1px solid rgba(55,187,213,0.35)' }}>
-        <Badge running={anyRunning} size={46} />
+        <MetroMark running={anyRunning} height={52} />
         <div style={{ lineHeight: 1.05 }}>
           <div style={{ fontWeight: 800, fontSize: 24, color: METRO.ice, letterSpacing: '0.01em' }}>Metro</div>
           <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(234,246,249,0.6)', letterSpacing: '0.08em', marginTop: 3 }}>
@@ -106,7 +107,7 @@ export default function MetroApp({ side, onSideChange, activityStrip = null }) {
           </Chip>
           <span title="GET /metro/health" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%',
-              background: health == null ? 'rgba(234,246,249,0.4)' : health.ok ? '#3ccf7a' : METRO.agencyLine }} />
+              background: health == null ? 'rgba(234,246,249,0.4)' : health.ok ? '#3ccf7a' : METRO.error }} />
             {health == null ? 'checking' : health.ok ? 'backend ok' : 'backend not reachable'}
           </span>
           <Line color={METRO.agencyLine} label="Agency line" on={line === 'agency'} dim={line === 'niche'} onClick={() => toggleLine('agency')} />

@@ -6,13 +6,14 @@ import App from '../App.jsx'
 import MetroApp from './MetroApp.jsx'
 import SideSwitch from './SideSwitch.jsx'
 import ActivityStrip from './components/ActivityStrip.jsx'
-import { buildActivities, stripTitlePrefix, tabTitle } from './lib/activity.js'
+import { buildActivities, isMetroTitle, stripTitlePrefix, tabTitle } from './lib/activity.js'
 import { applyFavicon } from './lib/favicon.js'
 import { requestGoto } from './lib/nav.js'
 import { useProgress } from './lib/progressStore.js'
 import { readSide, writeSide, hashForcesFalcon, hashOnSwitch, isSwitchKey, otherSide } from './lib/side.js'
 
 const store = typeof window !== 'undefined' ? window.localStorage : null
+const FALCON_TITLE = 'Falcon Scout'
 
 export default function SideShell() {
   const [side, setSide] = useState(() => readSide(store, window.location.hash))
@@ -67,12 +68,16 @@ export default function SideShell() {
   const running = buildActivities(runs, dismissed).running
   const prefix = tabTitle(running, '')
   // On the Metro side the tab is called "Metro" (Falcon Scout's background "new jobs" bell keeps rewriting the title; a
-  // MutationObserver puts ours back). On the Falcon Scout side whatever the app set is kept and only the prefix is added.
+  // MutationObserver puts ours back). On the Falcon Scout side the tab says what Falcon Scout last set ("Falcon Scout", or its
+  // "new jobs" bell), never "Metro" (P3b #8: seen 27 Nov, Falcon Scout > Jobs still read "Metro" after switching sides).
   const applied = useRef('')
+  const falconBase = useRef(isMetroTitle(document.title) ? FALCON_TITLE : (document.title || FALCON_TITLE))
   useEffect(() => {
     const apply = () => {
       const cur = document.title
-      const want = side === 'metro' ? `${prefix}Metro` : prefix + stripTitlePrefix(cur, applied.current)
+      const bare = stripTitlePrefix(cur, applied.current)
+      if (!isMetroTitle(bare) && bare) falconBase.current = bare          // what Falcon Scout itself set (its title, its bell)
+      const want = side === 'metro' ? `${prefix}Metro` : prefix + falconBase.current
       applied.current = prefix
       if (cur !== want) document.title = want
     }

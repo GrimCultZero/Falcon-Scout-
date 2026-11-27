@@ -285,7 +285,7 @@ def lead_dict(l: MetroLead, comp: MetroCompany | None = None, last_run: datetime
     notes = json.loads(l.score_notes_json).get("persona") if l.score_notes_json else None
     extra = {}
     if comp is not None:
-        extra = {"company_id": comp.id, "domain": comp.domain, "domain_source": comp.domain_source,
+        extra = {"company_id": comp.id, "domain": comp.domain, "domain_source": comp.domain_source, "logo": comp.logo_data,
                  "domain_why": en.domain_why(comp), "enrich_tried_at": comp.enrich_tried_at.isoformat() if comp.enrich_tried_at else None,
                  "just_enriched": bool(last_run and comp.enrich_tried_at and comp.enrich_tried_at >= last_run)}
     return {**extra, "id": l.id, "campaign_id": l.campaign_id, "full_name": l.full_name, "title": l.title,
@@ -419,6 +419,26 @@ def leads_ids(campaign_id: int | None = None, status: str | None = None, verdict
         total = qq.count()
         ids = [r[0] for r in qq.with_entities(MetroLead.id).order_by(MetroLead.id).limit(limit).all()]
         return {"total": total, "ids": ids, "truncated": total > len(ids)}
+
+
+@p1.get("/leads/scope")
+def leads_scope(campaign_id: int | None = None, status: str | None = None, verdict: str | None = None,
+                invite: str | None = None, has_email: bool | None = None, q: str | None = None,
+                enriched: str | None = None, domain: str | None = None):
+    """P3b #5: what a button will really process among the rows the filters show: the usable leads, the SHORTLISTED ones (what
+    "Write hooks" and "Write chains" take when nothing is ticked) and how many companies those are."""
+    from .db import get_setting
+    from . import scoring as _sc
+    with Session(get_engine()) as s:
+        _, qq = _lead_filter(s, campaign_id=campaign_id, status=status, verdict=verdict, invite=invite,
+                             has_email=has_email, q=q, enriched=enriched, domain=domain)
+        threshold = float(get_setting(s, "shortlist_min_fit", 50))
+        rows = qq.with_entities(MetroLead.id, MetroLead.company_id, MetroLead.status, MetroLead.persona_verdict, MetroLead.fit_score).all()
+        usable = [r for r in rows if r[2] == "new"]
+        short = [r for r in usable if r[3] != "junk" and r[4] is not None and r[4] >= threshold]
+        key = lambda r: r[1] or f"l{r[0]}"  # noqa: E731
+        return {"shown": len(rows), "usable": len(usable), "shortlisted": len(short), "shortlisted_companies": len({key(r) for r in short}),
+                "usable_companies": len({key(r) for r in usable})}
 
 
 @p1.patch("/leads/{lead_id}")

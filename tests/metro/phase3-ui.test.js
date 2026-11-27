@@ -55,7 +55,7 @@ function memStore() {
   assert(cv.touchHead({ step: 2, channel: 'email', day: 3 }) === 'Step 2 · Email · day 3', 'a touch head: step, channel, day')
   assert(cv.sizeNote('linkedin', 'x'.repeat(301)).over && !cv.sizeNote('linkedin', 'x'.repeat(300)).over, 'LinkedIn: 300 characters at most (the same limit as the checks)')
   assert(cv.sizeNote('email', Array(121).fill('w').join(' ')).over && !cv.sizeNote('email', Array(120).fill('w').join(' ')).over, 'email: 120 words at most')
-  assert(cv.chainStatesLine({ written: 5, issues: 2, held: 5, none: 0 }) === '5 written, 2 with issues, 5 held (same company)', 'the Write card line has no zero')
+  assert(cv.chainStatesLine({ written: 5, issues: 2, held: 5, none: 0 }) === '5 written, 2 do not send as is, 5 held (same company)', 'the Write card line has no zero (P3b: "do not send as is")')
 
   // ── the strip ──
   const run = (o) => act.activityFromRun({ id: o.id || 'r', kind: 'chains', label: 'Writing chains', status: 'running', total: 8, done: 3, started_at: 1, ...o })
@@ -79,7 +79,8 @@ function memStore() {
   // ── the Leads page and the panel ──
   const leads = read('components', 'LeadsTab.jsx')
   assert(/<th>Person and company<\/th><th>Fit<\/th><th>Channels<\/th><th>Hooks<\/th><th>Chain<\/th>/.test(leads), "the table has Oleh's five columns")
-  assert(/data-testid="write-chains"/.test(leads) && /Write chains \(\$\{chainSum\?\.shortlisted/.test(leads), 'Write card: "Write chains (N shortlisted)" is its button')
+  assert(/data-testid="write-chains"/.test(leads) && /scopeLabel\('Write chains', \{ n: chainSum\?\.shortlisted/.test(leads) && /\{chainsLabel\}/.test(leads),
+    'Write card: "Write chains (N shortlisted · M companies)" is its button (P3b #5)')
   assert(/data-testid="export-lh"/.test(leads) && /data-testid="export-email"/.test(leads), 'Send card: the Linked Helper and email exports')
   assert(/setPanel\(l\.id\)/.test(leads) && /<LeadPanel leadId=\{panel\}/.test(leads), 'a click on a row opens the lead panel')
   assert(/readLeadsView\(store, pickedId\)/.test(leads) && /writeLeadsView\(store, pickedId/.test(leads), 'the Leads view is read from and written to the remembered state')

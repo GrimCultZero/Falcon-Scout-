@@ -27,7 +27,8 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
   const leads = read('components', 'LeadsTab.jsx')
   assert(/WHAT YOU SEE RUNS/.test(leads) && /ticked\.size > 0 \? \{ n: ticked\.size, what: 'ticked' \} : \{ n: data\.total, what: 'shown' \}/.test(leads),
     'scope = the ticked rows, else the rows the filters show')
-  assert(/Enrich \$\{eligible\} ticked/.test(leads) && /Enrich all \$\{eligible\} shown/.test(leads), 'the Enrich button carries the number it would process (F2: "Enrich all N shown" / "Enrich N ticked")')
+  assert(/scopeLabel\('Enrich', \{ n: eligible, what: 'ticked'/.test(leads) && /scopeLabel\('Enrich all', \{ n: eligible, what: 'shown', companies: sc\?\.usable_companies/.test(leads),
+    'the Enrich button carries the number it would process, and the companies (F2; P3b #5: "Enrich all 495 shown · 60 companies")')
   assert(/<Btn small kind="ghost" onClick=\{enrich\}[^>]*data-testid="enrich-btn"/.test(leads), 'Enrich is live from Phase 2 and still carries its number')
   // P3: Write is live (Write chains) and Send exports files; Metro itself still sends nothing (Phase 4-5).
   assert(/<Stage n="3" title="Write"/.test(leads) && /data-testid="write-chains"/.test(leads), 'Write is live from Phase 3 (Write chains)')

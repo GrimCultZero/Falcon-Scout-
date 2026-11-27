@@ -204,6 +204,8 @@ def progress_get(campaign_id: int | None = None):
     """Every long action: running ones first, then the recently finished, each with counts, the current item and step,
     elapsed time and an estimate. The page only draws this; a reloaded tab shows a run that is still going."""
     snap = progress.snapshot(campaign_id)
+    from . import runqueue
+    snap["runs"] += runqueue.interrupted(campaign_id)         # P3b #4b: runs a backend restart stopped, with Resume
     ids = {r["campaign_id"] for r in snap["runs"] if r.get("campaign_id")}
     names: dict = {}
     if ids:
@@ -212,6 +214,31 @@ def progress_get(campaign_id: int | None = None):
     for r in snap["runs"]:
         r["campaign_name"] = names.get(r.get("campaign_id"))
     return snap
+
+
+@p2.post("/runs/{queue_id}/resume")
+def run_resume(queue_id: int):
+    """P3b #4b: start an interrupted run again on the items it did not finish (finished ones are never redone)."""
+    from . import runqueue
+    r = runqueue.resume(queue_id)
+    if not r.get("started"):
+        raise HTTPException(409, r.get("reason") or "it could not be resumed")
+    return r
+
+
+@p2.post("/runs/{queue_id}/dismiss")
+def run_dismiss(queue_id: int):
+    from . import runqueue
+    if not runqueue.dismiss(queue_id):
+        raise HTTPException(409, "this run is not waiting to be resumed")
+    return {"dismissed": True}
+
+
+@p2.get("/ping")
+async def ping():
+    """P3b #3: the cheapest answer the backend can give (no database, no thread): the page asks it before it ever says
+    "Cannot reach the backend". It answers while a long run is going."""
+    return {"ok": True}
 
 
 @p2.post("/progress/{run_id}/stop")
@@ -277,7 +304,7 @@ def shortlist_dict(s: Session, l: MetroLead, hook_counts: dict) -> dict:
     notes = json.loads(l.score_notes_json or "{}")
     comp = s.get(MetroCompany, l.company_id) if l.company_id else None
     return {"id": l.id, "full_name": l.full_name, "title": l.title, "company_name": l.company_name,
-            "domain": comp.domain if comp else None, "domain_source": comp.domain_source if comp else None,
+            "domain": comp.domain if comp else None, "domain_source": comp.domain_source if comp else None, "logo": comp.logo_data if comp else None,
             "persona_score": l.persona_score, "fit_score": l.fit_score, "deep_score": l.deep_score,
             "fit_matched": [m["label"] for m in (notes.get("fit") or {}).get("matched", [])],
             "fit_coverage": (notes.get("fit") or {}).get("coverage"), "deep_coverage": (notes.get("deep") or {}).get("coverage"),
