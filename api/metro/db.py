@@ -21,12 +21,12 @@ from threading import Lock
 
 from dotenv import load_dotenv
 from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text,
-                        UniqueConstraint, create_engine, inspect)
+                        UniqueConstraint, create_engine, event, inspect)
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def utcnow() -> datetime:
@@ -78,6 +78,8 @@ class MetroCompany(MetroBase):
     linkedin_page_json = Column(Text, nullable=True)
     linkedin_page_at = Column(DateTime, nullable=True)
     enrich_tried_at = Column(DateTime, nullable=True)            # an enrichment pass was attempted (F1: "not enriched yet")
+    logo_data = Column(Text, nullable=True)                      # P3b: a small logo thumbnail as a data: URL (<= ~20 KB), from the site
+    logo_source = Column(String, nullable=True)                  # apple-touch-icon | og:image | icon | linkedin | linkedhelper
     domain_tried_json = Column(Text, nullable=True)              # F2: the domain finder's trail, {"at", "steps": [{step, result, ...}]}
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -139,6 +141,7 @@ class MetroLead(MetroBase):
     chain_approved_at = Column(DateTime, nullable=True)          # Approve, or "Send anyway" (then send_anyway_at on the touches)
     chain_json = Column(Text, nullable=True)                     # the writer's notes: summary, plan, chain-level check flags
     stopped_reason = Column(String, nullable=True)               # a reply (from this lead or a colleague) stopped every channel
+    case_choice_id = Column(Integer, nullable=True)              # P3b: the case Oleh picked with "Change case" (kept across rewrites)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -378,12 +381,30 @@ _engine: Engine | None = None
 _lock = Lock()
 
 
+def _sqlite_pragmas(dbapi_conn, _rec) -> None:
+    """P3b (#3): the same pragmas the Upwork side sets (db.py): WAL so a reader never waits for a writer, and a busy timeout of
+    15 s instead of pysqlite's 5 s, so a short write from another thread waits instead of failing with "database is locked"."""
+    cur = dbapi_conn.cursor()
+    try:
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=15000")
+    finally:
+        cur.close()
+
+
+def make_engine(url: str) -> Engine:
+    eng = create_engine(url, connect_args={"check_same_thread": False, "timeout": 15})
+    if url.startswith("sqlite"):
+        event.listen(eng, "connect", _sqlite_pragmas)
+    return eng
+
+
 def get_engine() -> Engine:
     """The Metro engine, created (and the schema brought up to date) on first use."""
     global _engine
     with _lock:
         if _engine is None:
-            eng = create_engine(_database_url(), connect_args={"check_same_thread": False})
+            eng = make_engine(_database_url())
             init_db(eng)
             _engine = eng
         return _engine
@@ -478,9 +499,11 @@ def p3_hooks_lead_nullable(eng: Engine) -> bool:
 
 
 def init_db(eng: Engine) -> None:
+    from . import runqueue                       # registers metro_runs (P3b) before create_all; it imports this module
     MetroBase.metadata.create_all(eng)
     migrate(eng)
     p3_hooks_lead_nullable(eng)
+    runqueue.mark_interrupted(eng)               # a run still "running" died with the previous backend process
     classify_suppression(eng)
     f2_retry_domainless(eng)
     with Session(eng) as s:

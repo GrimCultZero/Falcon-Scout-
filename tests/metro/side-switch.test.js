@@ -74,9 +74,10 @@ function memStore(init = {}) {
   assert(/export default function App\(\{ sideSwitch = null, activityStrip = null \} = \{\}\)/.test(app) && /\{activityStrip\}/.test(app) && /\{sideSwitch\}/.test(app), 'App.jsx renders the switch it is given')
   assert(!/import .*metro/i.test(app), 'App.jsx imports nothing from Metro')
   const metro = fs.readFileSync(path.join(SRC, 'metro', 'MetroApp.jsx'), 'utf8') + fs.readFileSync(path.join(SRC, 'metro', 'theme.js'), 'utf8')
-  for (const c of ['#000c0e', '#005669', '#37bbd5', '#eaf6f9', '#e6261f']) assert(metro.includes(c), `Metro uses IT Force colour ${c}`)
+  for (const c of ['#000c0e', '#005669', '#37bbd5', '#eaf6f9', '#B8F82C', '#F2711C']) assert(metro.includes(c), `Metro uses colour ${c} (P3b: lime Agency line, orange errors)`)
+  assert(!/#e6261f/i.test(metro), 'P3b #7: no red (#e6261f) anywhere in Metro')
   assert(/@fontsource\/manrope/.test(metro) && /Manrope/.test(metro), 'Metro uses Manrope, served locally (@fontsource)')
-  assert(/<Badge /.test(metro) && fs.existsSync(path.join(SRC, '..', 'public', 'metro-badge.svg')), 'F5: Metro header shows the badge (the main mark)')
+  assert(/<MetroMark /.test(metro) && fs.existsSync(path.join(SRC, '..', 'public', 'brand', 'metro-mark.png')), 'P3b #1: Metro header shows the approved front-view wagon mark (brand/metro-mark.png)')
   const vite = fs.readFileSync(path.join(SRC, '..', 'vite.config.js'), 'utf8')
   assert(/'\/metro\/': 'http:\/\/localhost:8000'/.test(vite) && !/'\/metro':/.test(vite),
     "Vite proxies '/metro/' only, so the static /metro-wagon.svg is not sent to the backend")

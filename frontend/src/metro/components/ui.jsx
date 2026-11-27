@@ -12,8 +12,10 @@ export const card = { background: '#fff', borderRadius: 12, border: '1px solid r
 //   * What it did is said afterwards, where it cannot be missed (lib/notices.js, shown by NoticeHost): the handler returns a string
 //     (a success line), { text, kind, detail } or nothing (then the thing that started shows in the header strip). A handler that
 //     throws, or a request that is refused, shows its reason and stays until dismissed.
-//   * Looks (metro.css): acid blue for the primary action, teal outline otherwise, a visible hover, a 120 ms press (nothing under
-//     prefers-reduced-motion).
+//   * Looks (metro.css, P3b #6): kind="primary" acid blue (the ONE main action of a stage), kind="secondary" lime (important, not the
+//     main one), kind="ghost" (or "tertiary") outline / text; the approved volume style, a 1 px lift on hover, a 1.5 px press.
+export const btnClass = (kind) => (kind === 'primary' ? 'primary' : kind === 'secondary' ? 'secondary' : 'ghost')
+
 export function Btn({ children, onClick, kind = 'primary', disabled, title, small, busy: busyProp = false, className = '', ...rest }) {
   const [busy, setBusy] = useState(false)
   const alive = useRef(true)
@@ -37,7 +39,7 @@ export function Btn({ children, onClick, kind = 'primary', disabled, title, smal
   const working = busy || busyProp
   return (
     <button type="button" onClick={click} disabled={disabled || working} title={title} aria-busy={working || undefined} {...rest}
-      className={`mt-btn mt-btn--${kind === 'primary' ? 'primary' : 'ghost'}${small ? ' mt-btn--small' : ''}${working ? ' mt-btn--busy' : ''} ${className}`.trim()}
+      className={`mt-btn mt-btn--${btnClass(kind)}${small ? ' mt-btn--small' : ''}${working ? ' mt-btn--busy' : ''} ${className}`.trim()}
       style={{ fontFamily: METRO.font, ...(rest.style || {}) }}>
       {working && <span className="mt-spinner" aria-hidden="true" />}
       {children}
@@ -66,10 +68,25 @@ export function Pill({ children, color = METRO.teal, solid }) {
 }
 
 export function Err({ error }) {
-  return error ? <div role="alert" style={{ color: METRO.agencyLine, fontSize: 13, fontWeight: 600, margin: '8px 0' }}>{error}</div> : null
+  return error ? <div role="alert" style={{ color: METRO.errorText, fontSize: 13, fontWeight: 700, margin: '8px 0' }}>{error}</div> : null
 }
 
 export const lineColor = (type) => (type === 'agency' ? METRO.agencyLine : METRO.nicheLine)
+// The line as a filled pill with dark text: lime (agency) and cyan (niche) are fills, never text on white (P3b #7).
+export function LinePill({ type, children }) {
+  return <span className="mt-line-pill" data-testid="line-pill" style={{ background: lineColor(type) }}>{children}</span>
+}
+
+// P3b #2: the company's logo (a small thumbnail read from its own website), or its initials when there is none.
+export const initialsOf = (name) => String(name || '?').replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?'
+export function Logo({ src, name, size = 28 }) {
+  return (
+    <span className="mt-logo" data-testid="company-logo" data-has-logo={src ? 'true' : 'false'} title={name || ''}
+      style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.36)) }}>
+      {src ? <img src={src} alt="" loading="lazy" /> : initialsOf(name)}
+    </span>
+  )
+}
 
 // F5 (item 7): the buttons that are rare, or that the app now does by itself, wait behind one small "More" button.
 // A plain disclosure: click to open, click outside or Escape to close. The items are ordinary Btn buttons.

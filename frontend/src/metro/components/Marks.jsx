@@ -13,6 +13,20 @@ const sized = (svg) => svg.replace(/\s(width|height)="\d+"/g, '').replace(/\srol
 const BADGE = sized(badgeSvg)
 const WAGON = sized(wagonSvg)
 
+// P3b Minor fixes #1 (27 Nov): the approved FRONT-VIEW wagon mark (lime + cyan arc over a train front, from the brand board) is the
+// Metro header mark, the tab icon and the intro mark: frontend/public/brand/metro-mark.png. Sized to the header, no frame, no clipping.
+// While something runs it breathes (opacity only), like the badge's headlights did.
+export const METRO_MARK = '/brand/metro-mark.png'
+export function MetroMark({ running = false, height = 52, title = 'Metro by IT Force' }) {
+  return (
+    <span className={`mt-mark${running ? ' is-running' : ''}`} style={{ height }} role="img" aria-label={title}
+      data-testid="metro-mark" data-running={running ? 'true' : 'false'}>
+      <img src={METRO_MARK} alt="" draggable="false" />
+    </span>
+  )
+}
+
+// The F5 badge (kept for reference; the header uses MetroMark since P3b).
 export function Badge({ running = false, size = 44, title = 'Metro by IT Force' }) {
   return <span className={`mt-badge${running ? ' is-running' : ''}`} style={{ width: size, height: size }} role="img" aria-label={title}
     data-testid="metro-badge" data-running={running ? 'true' : 'false'} dangerouslySetInnerHTML={{ __html: BADGE }} />

@@ -230,8 +230,9 @@ def _cache_days(s: Session) -> dict:
 def enrich_company(s: Session, company: MetroCompany, *, fetch: webscan.Fetcher, get_json: pagespeed.JsonGetter | None = None,
                    ask: Callable[..., str] | None = None, use_ai: bool = True, campaign: MetroCampaign | None = None,
                    queue_browser_jobs: bool = True, sleep=time.sleep, now: datetime | None = None,
-                   web: bool | None = None, on_step: Callable[[str], None] | None = None) -> dict:
-    """Steps 1-3 for one company; queues the browser-only readings. Returns what it did (for the progress view)."""
+                   web: bool | None = None, on_step: Callable[[str], None] | None = None, logo_fetch=None) -> dict:
+    """Steps 1-3 for one company; queues the browser-only readings. Returns what it did (for the progress view).
+    `logo_fetch` (P3b #2): a bytes fetcher; when given, the company's logo is read from its own site after the scan."""
     now = now or utcnow()
     days = _cache_days(s)
     pace = float((get_setting(s, "pace_seconds", {}) or {}).get("web", 3))
@@ -274,6 +275,15 @@ def enrich_company(s: Session, company: MetroCompany, *, fetch: webscan.Fetcher,
     else:
         out["skipped"].append("website scan is fresh")
     s.commit()
+
+    # step 2b (P3b #2): the company logo, from its own site (never a LinkedIn visit); no session is held across the fetch
+    if logo_fetch is not None and dom and not company.logo_data and snapshot_ok(company.website_scan_json):
+        step("logo")
+        from . import logos
+        found = logos.find_logo(dom, fetch, logo_fetch, sleep=sleep)
+        if logos.store_logo(company, found):
+            out["did"].append("logo")
+        s.commit()
 
     # step 3a: PageSpeed (only for a site that answered, and ONLY for niche campaigns: decision "PageSpeed by segment", 25 Nov.
     # We sell an agency delivery capacity, not fixes to its own site, so an agency run never measures it; the agency's fit does
@@ -350,14 +360,17 @@ def _company_ids(s: Session, campaign_id: int, lead_ids: list[int] | None) -> li
 
 def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: webscan.Fetcher | None = None,
               get_json: pagespeed.JsonGetter | None = None, ask=None, use_ai: bool = True, background: bool = True,
-              limit: int | None = None, sleep=time.sleep, web: bool | None = None) -> dict:
+              limit: int | None = None, sleep=time.sleep, web: bool | None = None, company_ids: list[int] | None = None) -> dict:
     """Start enrichment for a campaign's `new` leads (or only the given ones). Refuses a second run.
-    Progress is the backend's (progress.py); the companies this run touches are marked for the "just enriched" filter."""
+    Progress is the backend's (progress.py); the companies this run touches are marked for the "just enriched" filter.
+    `company_ids`: exactly these companies (a resumed run: runqueue.py). The queue is kept in metro_runs (P3b #4b)."""
+    from . import runqueue
     with Run.lock:
         if Run.state.get("running"):
             return {"started": False, "reason": "a run is already going", **Run.state}
         with Session(get_engine()) as s:
-            ids = _company_ids(s, campaign_id, lead_ids)
+            ids = list(company_ids) if company_ids is not None else _company_ids(s, campaign_id, lead_ids)
+            real_fetch = fetch is None              # a real run also reads the company logos (tests inject a fetcher: no logo step)
             if limit:
                 ids = ids[:limit]
             started = utcnow()
@@ -365,12 +378,16 @@ def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: web
                                                "companies": len(ids)})
             s.commit()
         Run.stop_flag.clear()
-        rid = progress.start("enrich", "Enriching", total=len(ids), campaign_id=campaign_id, stop=stop)
+        rid = progress.start("enrich", "Enriching", total=len(ids), campaign_id=campaign_id, stop=stop, by_click=True)
+        qid = runqueue.begin("enrich", campaign_id, ids, label="Enriching", params={"use_ai": use_ai}, progress_id=rid)
+        progress.update(rid, queue_id=qid)
         Run.state = {"running": True, "campaign_id": campaign_id, "total": len(ids), "done": 0, "failed": 0,
                      "started_at": started.isoformat(), "current": None, "log": [], "progress_id": rid,
                      "domains_found": 0, "domains_had": 0, "domains_missing": 0}
     fetch = fetch or webscan.http_fetcher()
     get_json = get_json or pagespeed.http_json_getter()
+    from . import logos as _logos
+    logo_fetch = _logos.http_bytes_fetcher() if real_fetch else None
 
     def work():
         touched: list[int] = []
@@ -387,7 +404,7 @@ def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: web
                     progress.update(rid, current=comp.name if comp else str(cid), step="starting")
                     try:
                         res = enrich_company(s, comp, fetch=fetch, get_json=get_json, ask=ask, use_ai=use_ai, campaign=camp, sleep=sleep,
-                                             web=web, on_step=lambda st: progress.update(rid, step=st))
+                                             web=web, on_step=lambda st: progress.update(rid, step=st), logo_fetch=logo_fetch)
                         Run.state["log"] = (Run.state["log"] + [res])[-30:]
                         if res.get("domain_new"):
                             Run.state["domains_found"] += 1
@@ -400,6 +417,7 @@ def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: web
                         Run.state["failed"] += 1
                         Run.state["log"] = (Run.state["log"] + [{"company_id": cid, "error": f"{type(e).__name__}: {e}"[:200]}])[-30:]
                 Run.state["done"] += 1
+                runqueue.item_done(qid, cid)
                 progress.update(rid, done=Run.state["done"], failed=Run.state["failed"])
         finally:
             st = Run.state
@@ -418,6 +436,7 @@ def start_run(campaign_id: int, lead_ids: list[int] | None = None, *, fetch: web
             line = lines.enrich_line(done=st["done"], total=st["total"], found=st["domains_found"], had=st["domains_had"],
                                      missing=st["domains_missing"], failed=st["failed"], stopped=bool(st.get("stopped")))
             progress.finish(rid, line, "stopped" if st.get("stopped") else "done")
+            runqueue.end(qid, "stopped" if st.get("stopped") else "done", line)
 
     if background:
         threading.Thread(target=work, name="metro-enrich", daemon=True).start()

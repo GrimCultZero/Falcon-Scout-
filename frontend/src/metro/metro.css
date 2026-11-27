@@ -1,12 +1,23 @@
-/* Metro buttons and the header strip (METRO_TASK.md F4, items 1-3).
-   Acid blue #00E5FF (the colour of Oleh's mouse cursor) is the highlight for the primary action and for active states, next to
-   IT Force teal #005669. Dark ink (#000c0e) on the acid fill is about 12.8 : 1 (WCAG AAA needs 7 : 1).
-   Press: the button moves down 1.5 px and back, transform only, 120 ms. Nothing animates under prefers-reduced-motion. */
+/* Metro buttons and the header strip (METRO_TASK.md F4, items 1-3; P3b Minor fixes #6 and #7, 27 Nov 2026).
+   The button hierarchy (Oleh, 27 Nov):
+     PRIMARY   acid blue #00E5FF: the ONE main action of a stage (Import CSV, Enrich next 20, Write chains, Send);
+     SECONDARY lime #B8F82C: important but not the main one (Write hooks, Emails, Enrich next 50, Rescore, exports);
+     TERTIARY  outline / text (More menus, Brief and settings, Close). `kind="ghost"` is the tertiary button.
+   The approved volume style (docs/brand-refresh/*.dc.html): a gradient sheen, an inner highlight on top, a darker bottom lip, a soft
+   shadow, a 1 px lift on hover and a 1.5 px press. Dark ink on acid is about 12.8 : 1, on lime about 15 : 1.
+   No red anywhere (#7): errors and stop buttons are deep orange #F2711C. Nothing animates under prefers-reduced-motion. */
 :root {
   --mt-acid: #00e5ff;
   --mt-acid-hover: #5df0ff;
   --mt-acid-press: #00c9e0;
   --mt-acid-edge: #00a9c0;
+  --mt-acid-lip: #0091a8;
+  --mt-lime: #b8f82c;
+  --mt-lime-hover: #ccff5c;
+  --mt-lime-press: #a3e31c;
+  --mt-lime-edge: #86b81a;
+  --mt-lime-lip: #6f9c0c;
+  --mt-orange: #f2711c;
   --mt-teal: #005669;
   --mt-ink: #000c0e;
 }
@@ -17,26 +28,37 @@
 
 /* ── the button ─────────────────────────────────────────────── */
 .mt-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  border: 1px solid var(--mt-teal); border-radius: 8px; padding: 8px 14px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; position: relative;
+  border: 1px solid var(--mt-teal); border-radius: 9px; padding: 8px 15px;
   font-size: 13px; font-weight: 700; line-height: 1.2; cursor: pointer;
-  transition: transform 120ms ease, background-color 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  transition: transform 120ms ease, background-color 120ms ease, box-shadow 150ms ease, border-color 120ms ease, filter 120ms ease;
 }
-.mt-btn--small { padding: 4px 10px; font-size: 12px; }
+.mt-btn--small { padding: 5px 11px; font-size: 12px; }
 
-.mt-btn--primary { background: var(--mt-acid); color: var(--mt-ink); border-color: var(--mt-acid-edge); box-shadow: 0 1px 0 rgba(0, 86, 105, 0.5); }
-.mt-btn--primary:hover:not(:disabled) { background: var(--mt-acid-hover); box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.4), 0 1px 0 rgba(0, 86, 105, 0.5); }
-.mt-btn--primary:active:not(:disabled) { background: var(--mt-acid-press); box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.5); }
+.mt-btn--primary { background: var(--mt-acid); color: var(--mt-ink); border-color: var(--mt-acid-edge);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.12) 46%, rgba(0, 86, 105, 0) 54%, rgba(0, 86, 105, 0.14) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), inset 0 -2px 0 rgba(0, 86, 105, 0.22), 0 2px 0 var(--mt-acid-lip), 0 4px 10px rgba(0, 86, 105, 0.22); }
+.mt-btn--primary:hover:not(:disabled) { background-color: var(--mt-acid-hover); transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -2px 0 rgba(0, 86, 105, 0.22), 0 3px 0 var(--mt-acid-lip), 0 8px 18px rgba(0, 86, 105, 0.28), 0 0 0 3px rgba(0, 229, 255, 0.28); }
+.mt-btn--primary:active:not(:disabled) { background-color: var(--mt-acid-press); box-shadow: inset 0 2px 4px rgba(0, 86, 105, 0.35), 0 0 0 var(--mt-acid-lip); }
 
-.mt-btn--ghost { background: #fff; color: var(--mt-teal); border-color: rgba(0, 86, 105, 0.35); }
-.mt-btn--ghost:hover:not(:disabled) { background: rgba(0, 229, 255, 0.16); border-color: var(--mt-acid-edge); box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.35); }
-.mt-btn--ghost:active:not(:disabled) { background: rgba(0, 229, 255, 0.3); }
+.mt-btn--secondary { background: var(--mt-lime); color: var(--mt-ink); border-color: var(--mt-lime-edge);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.12) 46%, rgba(60, 90, 0, 0) 54%, rgba(60, 90, 0, 0.14) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), inset 0 -2px 0 rgba(60, 90, 0, 0.2), 0 2px 0 var(--mt-lime-lip), 0 4px 10px rgba(60, 90, 0, 0.2); }
+.mt-btn--secondary:hover:not(:disabled) { background-color: var(--mt-lime-hover); transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -2px 0 rgba(60, 90, 0, 0.2), 0 3px 0 var(--mt-lime-lip), 0 8px 18px rgba(60, 90, 0, 0.24), 0 0 0 3px rgba(184, 248, 44, 0.35); }
+.mt-btn--secondary:active:not(:disabled) { background-color: var(--mt-lime-press); box-shadow: inset 0 2px 4px rgba(60, 90, 0, 0.32), 0 0 0 var(--mt-lime-lip); }
+
+.mt-btn--ghost { background: transparent; color: var(--mt-teal); border-color: rgba(0, 86, 105, 0.4); box-shadow: none; }
+.mt-btn--ghost:hover:not(:disabled) { background: rgba(0, 229, 255, 0.12); border-color: var(--mt-acid-edge); box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.3); }
+.mt-btn--ghost:active:not(:disabled) { background: rgba(0, 229, 255, 0.24); }
 
 .mt-btn:active:not(:disabled) { transform: translateY(1.5px); }
-.mt-btn:disabled { cursor: not-allowed; background: rgba(0, 12, 14, 0.06); color: rgba(0, 12, 14, 0.4); border-color: rgba(0, 12, 14, 0.12); box-shadow: none; }
+.mt-btn:disabled { cursor: not-allowed; background: rgba(0, 12, 14, 0.06); background-image: none; color: rgba(0, 12, 14, 0.4); border-color: rgba(0, 12, 14, 0.12); box-shadow: none; transform: none; }
 /* a busy button keeps its colours (so it does not look "broken") and says it is working */
 .mt-btn--busy:disabled { cursor: progress; }
 .mt-btn--primary.mt-btn--busy:disabled { background: var(--mt-acid); color: var(--mt-ink); border-color: var(--mt-acid-edge); opacity: 0.85; }
+.mt-btn--secondary.mt-btn--busy:disabled { background: var(--mt-lime); color: var(--mt-ink); border-color: var(--mt-lime-edge); opacity: 0.85; }
 .mt-btn--ghost.mt-btn--busy:disabled { background: rgba(0, 229, 255, 0.12); color: var(--mt-teal); border-color: var(--mt-acid-edge); }
 
 .mt-spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: mt-spin 0.7s linear infinite; flex: none; }
@@ -71,13 +93,14 @@
 .mt-chip-fill { display: block; height: 100%; border-radius: 999px; background: var(--mt-acid); transition: width 0.4s ease; }
 .mt-chip-indet { width: 35%; animation: mt-strip-slide 1.3s ease-in-out infinite; }
 .mt-chip-detail { font-size: 10.5px; color: rgba(234, 246, 249, 0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mt-chip-stop { border: 1px solid rgba(255, 255, 255, 0.45); background: rgba(230, 38, 31, 0.9); color: #fff; border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: 700; cursor: pointer; flex: none; font-family: inherit; }
+.mt-chip-stop { border: 1px solid rgba(255, 255, 255, 0.45); background: rgba(242, 113, 28, 0.92); color: #fff; border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: 700; cursor: pointer; flex: none; font-family: inherit; }
 .mt-chip-x { border: none; background: none; color: inherit; opacity: 0.7; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; flex: none; }
 .mt-chip-x:hover { opacity: 1; }
 /* a finished run: its result line stays until dismissed */
 .mt-chip--done { border-color: rgba(127, 224, 176, 0.65); }
 .mt-chip--stopped { border-color: rgba(240, 184, 102, 0.7); }
-.mt-chip--failed { border-color: #ff8a84; background: rgba(230, 38, 31, 0.28); }
+.mt-chip--failed { border-color: #ffb27a; background: rgba(242, 113, 28, 0.28); }
+.mt-chip-resume { border: 1px solid rgba(255, 255, 255, 0.5); background: var(--mt-acid); color: var(--mt-ink); border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: 800; cursor: pointer; flex: none; font-family: inherit; }
 .mt-chip-result { font-size: 11.5px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
 .mt-menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 60; display: grid; gap: 8px; padding: 10px; width: 330px; max-height: 70vh; overflow: auto;
   background: #04141c; border: 1px solid var(--mt-acid); border-radius: 10px; box-shadow: 0 10px 28px rgba(0, 12, 14, 0.5); }
@@ -90,7 +113,7 @@
   border: 1px solid rgba(0, 86, 105, 0.25); border-left-width: 6px; box-shadow: 0 8px 26px rgba(0, 12, 14, 0.28); font-family: 'Manrope', 'Inter', sans-serif; font-size: 13px; }
 .mt-notice--ok { border-left-color: #1a9d5c; }
 .mt-notice--warn { border-left-color: #e0a100; }
-.mt-notice--error { border-left-color: #e6261f; }
+.mt-notice--error { border-left-color: var(--mt-orange); }
 .mt-notice-text { flex: 1 1 auto; min-width: 0; line-height: 1.4; font-weight: 600; word-break: break-word; }
 .mt-notice-detail { display: block; font-weight: 400; font-size: 12px; color: rgba(0, 12, 14, 0.65); margin-top: 2px; }
 .mt-notice-x { border: none; background: rgba(0, 86, 105, 0.08); color: #005669; width: 24px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 15px; line-height: 1; flex: none; }
@@ -187,7 +210,18 @@
 .mt-hook-kind { font-size: 10px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #005669; }
 .mt-hook-scope { font-size: 10px; margin-left: 6px; padding: 0 5px; border-radius: 6px; background: rgba(0, 86, 105, 0.08); color: rgba(0, 12, 14, 0.65); }
 .mt-touch { border: 1px solid rgba(0, 86, 105, 0.18); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
-.mt-touch--bad { border-color: #c2410c; background: rgba(194, 65, 12, 0.03); }
-.mt-flags { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: #c2410c; }
-.mt-donot { margin: 6px 0; padding: 7px 10px; border-radius: 8px; background: rgba(194, 65, 12, 0.1); color: #9a3412; font-weight: 800; font-size: 12.5px; }
+.mt-touch--bad { border-color: var(--mt-orange); background: rgba(242, 113, 28, 0.04); }
+.mt-flags { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: #a8460a; }
+.mt-donot { margin: 6px 0; padding: 7px 10px; border-radius: 8px; background: rgba(242, 113, 28, 0.12); color: #8a3c08; border: 1.5px solid var(--mt-orange); font-weight: 800; font-size: 12.5px; }
 .mt-warn-line { margin: 4px 0; font-size: 12px; color: #8a6d00; font-weight: 700; }
+
+/* ── P3b: the Metro mark (#1), company logos (#2), the "Do not send as is" banner, the line pill (#7) ── */
+.mt-mark { display: inline-flex; align-items: center; flex: none; height: 52px; }
+.mt-mark img { height: 100%; width: auto; display: block; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35)); }
+.mt-mark.is-running img { animation: mt-strip-pulse 1.6s ease-in-out infinite; }
+.mt-logo { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 7px; overflow: hidden;
+  background: #fff; border: 1px solid rgba(0, 86, 105, 0.18); color: var(--mt-teal); font-weight: 800; letter-spacing: 0.02em; }
+.mt-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mt-dnsa { border: 1.5px solid var(--mt-orange); background: rgba(242, 113, 28, 0.08); color: #8a3c08; border-radius: 9px; padding: 8px 12px; font-size: 12.5px; font-weight: 700; }
+.mt-line-pill { display: inline-block; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 800; color: var(--mt-ink); }
+@media (prefers-reduced-motion: reduce) { .mt-mark.is-running img { animation: none; } .mt-btn:hover:not(:disabled) { transform: none; } }

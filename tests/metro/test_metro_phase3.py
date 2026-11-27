@@ -14,8 +14,8 @@ Pinned:
      partner badges, client logos, founded year; a scan of the older scanner is re-read;
   E. chain checks: a planted price, URL, em dash, placeholder, reused hook, exclamation, banned phrase, over-length text, a number
      that no hook carries, an agency-forbidden hook; a clean chain passes;
-  F. channel order and shape: connected = LinkedIn first (3) then email; sendable email = email first; invited without email =
-     LinkedIn first, waiting; nothing = email, waiting; under 2 hooks = the base chain of 3; cap 6;
+  F. channel order and shape (P3b replaced P3's shape with DevScout's wave; see test_metro_phase3b.py): connected = intro first;
+     a sendable email = emails only; invited = the email wave, the intro on acceptance; 3 or 4 emails;
   G. one primary contact per company: the best persona, then who can be reached; a company page is never primary; a held lead is
      never written; a reply from anyone stops every touch of the company;
   H. the writer end to end (a stand-in model): the case link is attached by code, the hooks are marked used, a failing chain cannot
@@ -331,20 +331,21 @@ chk = cc.check_chain([{"step": 1, "channel": "email", "subject": "a", "body": GO
 check(not chk["ok"] and any(f["rule"] == "hook_reused" for f in chk["flags"]), "the same hook in two steps fails the chain")
 
 # ═════════════ F. channel order and shape ═════════════
+# P3b (27 Nov) replaced "touches = distinct hooks" with DevScout's wave; the full pins are in test_metro_phase3b.py (P). Kept here:
 L = lambda **kw: mdb.MetroLead(status="new", **kw)  # noqa: E731
 p = ch.plan(L(invite_status="connected", email="a@b.example", email_status="domain_ok"), 6)
-check([x["channel"] for x in p["steps"]] == ["linkedin"] * 3 + ["email"] * 3 and p["track"] == "linkedin_first",
-      "connected: LinkedIn first (3 messages), then email")
-check(p["steps"][3]["day"] > p["steps"][2]["day"], "the email track starts after the last LinkedIn message")
+check([x["channel"] for x in p["steps"]][0] == "linkedin" and p["track"] == "linkedin_first" and len(p["steps"]) == 6,
+      "connected: the LinkedIn intro first, then the emails, the pointer (P3b wave)")
+check(p["steps"][1]["day"] == 0 and p["steps"][2]["day"] > p["steps"][1]["day"], "the emails follow on their own days")
 p = ch.plan(L(invite_status="invited", email="a@b.example", email_status="domain_ok"), 4)
-check([x["channel"] for x in p["steps"]] == ["email"] * 4 and p["waiting"] is None, "not connected with a sendable address: email first")
+check(all(x["channel"] == "email" for x in p["steps"]) and p["waiting"] is None, "not connected with a sendable address: email only")
 p = ch.plan(L(invite_status="invited"), 4)
-check(p["track"] == "linkedin_first" and p["waiting"] and "acceptance" in p["waiting"], "invited, no address: LinkedIn first, waiting for the acceptance")
+check(p["track"] == "email_first" and p["waiting"] and "acceptance" in p["waiting"] and p["intro_on_accept"],
+      "invited, no address: the email wave waits for an address, the intro for the acceptance")
 p = ch.plan(L(invite_status="none"), 4)
 check(p["track"] == "email_first" and "email address" in p["waiting"], "neither: the email plan, waiting for an address")
-check(len(ch.plan(L(invite_status="none"), 1)["steps"]) == 3 and ch.plan(L(invite_status="none"), 1)["base"], "under 2 hooks: the base chain of 3")
-check(len(ch.plan(L(invite_status="none"), 9)["steps"]) == 6, "never more than 6 touches")
-check(len(ch.plan(L(invite_status="none"), 4)["steps"]) == 4, "touches = number of distinct hooks")
+check(len(ch.plan(L(invite_status="none"), 2)["steps"]) == 3 and len(ch.plan(L(invite_status="none"), 9)["steps"]) == 4,
+      "3 emails with 2-3 usable facts, 4 with 4 or more (never more)")
 
 # ═════════════ G. one primary per company ═════════════
 with S() as s:
@@ -364,56 +365,73 @@ with S() as s:
 check(not r["written"] and "held" in r["reason"], "a held lead is never written (the model is not even asked)")
 
 # ═════════════ H. the writer, end to end ═════════════
+# P3b: the stand-in speaks the wave protocol (one email per job; the intro and the pointer are built by code).
 
 
 def chain_model(bad=False):
     def m(prompt, **kw):
         import re
-        steps = [(int(a), b) for a, b in re.findall(r"step (\d+): (LinkedIn message|email)", prompt)]
-        keys = re.findall(r"^(H\d+) \(", prompt, re.M)
         first = re.search(r"THE PERSON: (\w+)", prompt).group(1)
+        leadins = re.findall(r'opened with "([^"]+?) \.\.\."', prompt) + ["Noticed", "Saw that"]
+        jobs = re.findall(r"^  (hook|approach|value|close) \(", prompt, re.M)
         out = []
-        for i, (n, kind) in enumerate(steps):
-            hook = [keys[i]] if i < len(keys) else []
-            if kind == "LinkedIn message":
-                body = f"{first}, thanks for connecting. You sell Local SEO and web design for dental practices. Would a white-label PPC partner help?"
-            else:
-                body = f"Hi {first},\n\nYou carry the HubSpot Platinum badge and sell SEO and web design. We run Google Ads for agencies under their brand since 2015.\n\nWould that fill a gap for you?\n\nArtem"
-            if bad and n == 1:
-                body += " It costs $30 an hour — see itforce.ua!"
-            out.append({"step": n, "channel": "linkedin" if kind.startswith("LinkedIn") else "email",
-                        "subject": None if kind.startswith("LinkedIn") else f"white-label ppc, step {n}" if False else "white-label ppc for your clients",
-                        "body": body, "hooks": hook})
-        return json.dumps({"touches": out, "summary": "A dental SEO agency with no paid search."})
+        for j in jobs:
+            if j == "hook":
+                body = (f"Hi {first},\n\n{leadins[0]} your client list, mostly dental practices.\n\nIn my experience, agencies that sell SEO to "
+                        f"clinics get asked about Google Ads sooner or later. We can be your behind-the-scenes Google Ads and SEO team, under "
+                        f"your name.\n\nDo your clinics ever ask you for paid search?\n\nArtem")
+                if bad:
+                    body = body.replace("under your name.", "under your name. It costs $30 an hour — see itforce.ua!")
+                out.append({"job": "hook", "subject": "Google Ads for your dental clients", "body": body})
+            elif j == "approach":
+                out.append({"job": "approach", "subject": None, "body": (
+                    f"Hi {first},\n\n{leadins[1]} your services: local and technical SEO, web design, social. Here's a similar project of ours.\n\n"
+                    f"The work goes out under your name and we never contact your client. We're in a European time zone, so the work is "
+                    f"done overnight. Send us one client you're struggling to deliver for and we'll scope it, or start with a free pilot "
+                    f"audit.\n\nWould one clinic be a good place to start?\n\nArtem")})
+            elif j == "value":
+                out.append({"job": "value", "subject": "a Google Ads tip for dental clinics", "body": (
+                    f"Hi {first},\n\nOne thing that works for dental practices in Google Ads: a separate campaign for emergency searches with "
+                    f"call-only ads in opening hours. Your team can set it up in an afternoon.\n\nHow do you handle emergency searches for your "
+                    f"clients today?\n\nArtem")})
+            elif j == "close":
+                out.append({"job": "close", "subject": None, "body": (
+                    f"Hi {first},\n\nComing back to your HubSpot Platinum badge: if a client ever needs paid search next to it, I'm around. "
+                    f"All the best to the team.\n\nArtem")})
+        return json.dumps({"angle_check": {"verdict": "ok", "note": "none"}, "touches": out})
     return m
 
 
 with S() as s:
     lead_a = s.get(mdb.MetroLead, ann)
+    lead_a.invite_status = "connected"            # P3b: a connected primary gets the LinkedIn intro + the pointer
+    s.commit()
     r = ch.write_chain(s, lead_a, s.get(mdb.MetroCampaign, AG), ask=chain_model())
     view = ch.chain_view(s, lead_a)
-check(r["written"] and r["track"] == "linkedin_first" and r["touches"] == 5, f"ann (invited, no email, 5 hooks): 5 touches, LinkedIn first ({r})")
+check(r["written"] and r["track"] == "linkedin_first" and r["touches"] == 6, f"ann (connected, no email, 5 hooks): intro + 4 emails + pointer ({r})")
 check(view["status"]["state"] in ("written", "issues"), f"the chain cell says written or issues ({view['status']})")
 case_t = [t for t in view["touches"] if t["case"]]
 check(len(case_t) == 1 and case_t[0]["body"].endswith("https://itforce.ua/en/cases/dentistry-ppc/") and "itforce.ua" not in case_t[0]["text"],
       "the case link is attached BY CODE to one touch (under the text); the model's text carries none")
-check(case_t[0]["step"] == 4, "the case goes on the first email after step 1")
+check(case_t[0]["job"] == "approach", "the case goes under the approach email (P3b)")
 with S() as s:
     used = s.query(mdb.MetroHook).filter(mdb.MetroHook.used_touch_id.isnot(None)).count()
-check(used == 5, f"the ledger: every hook a touch uses is marked used by it ({used})")
+check(used == 3, f"the ledger: the wave holds its 3 facts, the other hooks stay for the next wave ({used})")
 print("   flags:", [(t["step"], [f["text"] for f in t["checks"]]) for t in view["touches"] if t["checks"]], view["notes"].get("chain_flags"))
-check(all(t["checks_passed"] for t in view["touches"]) and view["notes"]["ok"], "a clean stand-in chain passes every check")
+check(all(t["checks_passed"] for t in view["touches"]) and view["notes"]["ok"], "a clean stand-in wave passes every check")
 with S() as s:
     lb_ = s.get(mdb.MetroLead, bob)
+    held_ids = {h.id for h in s.query(mdb.MetroHook).filter(mdb.MetroHook.used_touch_id.isnot(None)).all()}
     other = ch.available_hooks(s, lb_, "agency")
-check(all(h.scope == "person" for h in other), "a colleague cannot use the company hooks the primary's chain holds")
+check(not any(h.id in held_ids for h in other), "a colleague cannot use the company hooks the primary's wave holds")
 
-with S() as s:                                   # a failing chain
+with S() as s:                                   # a failing wave
     lead_a = s.get(mdb.MetroLead, ann)
     r = ch.write_chain(s, lead_a, s.get(mdb.MetroCampaign, AG), ask=chain_model(bad=True))
     v = ch.chain_view(s, lead_a)
-    t1 = v["touches"][0]
-check(not r["ok"] and {"price", "url", "dash", "exclamation"} <= {f["rule"] for f in t1["checks"]}, f"a planted price, URL, dash and '!' fail step 1 ({[f['rule'] for f in t1['checks']]})")
+    bad_t = next(t for t in v["touches"] if t["job"] == "hook")
+check(not r["ok"] and {"price", "url"} <= {f["rule"] for f in bad_t["checks"]} and "—" not in bad_t["text"] and "!" not in bad_t["text"],
+      f"a planted price and URL fail the hook email; the dash and '!' are fixed by code ({[f['rule'] for f in bad_t['checks']]})")
 check(v["status"]["state"] == "issues", "the chain cell says issues ('Do not send as is')")
 with S() as s:
     lead_a = s.get(mdb.MetroLead, ann)
@@ -425,21 +443,24 @@ with S() as s:
     check(refused, "a failing chain cannot be approved without Send anyway")
     ch.approve(s, lead_a, send_anyway=True)
     tt = s.query(mdb.MetroTouch).filter_by(lead_id=ann).order_by(mdb.MetroTouch.step).all()
-    check(lead_a.chain_approved_at and tt[0].send_anyway_at and not tt[1].send_anyway_at, "Send anyway stores its date on the failing touch only")
-    res = ch.edit_touch(s, tt[0], body="Ann, thanks for connecting. You sell Local SEO and web design for dental practices. Would a white-label PPC partner help?")
-    check(res["ok"] and s.get(mdb.MetroLead, ann).chain_approved_at is None and tt[0].send_anyway_at is None,
-          "an edit re-runs the checks (now clean) and clears the approval")
+    bad_row = next(t for t in tt if t.step == bad_t["step"])
+    check(lead_a.chain_approved_at and bad_row.send_anyway_at and not tt[0].send_anyway_at, "Send anyway stores its date on the failing touch only")
+    clean = chain_model()("THE PERSON: Ann (x)\n" + "\n".join(f'F{i} (x): y  ->  z, opened with "{l} ..."' for i, l in enumerate(["Noticed"], 1))
+                          + "\n  hook (NEW thread): x")
+    res = ch.edit_touch(s, bad_row, body=json.loads(clean)["touches"][0]["body"].replace("Noticed your client list", "Noticed that your clients are").replace("Do your clinics", "So I wanted to ask: do your clinics"))
+    check(res["ok"] and s.get(mdb.MetroLead, ann).chain_approved_at is None and bad_row.send_anyway_at is None,
+          f"an edit re-runs the checks (now clean) and clears the approval ({res['flags']}, {[(x['step'], x['flags']) for x in res['touches'] if x['flags']]})")
     ch.approve(s, s.get(mdb.MetroLead, ann))
     check(ch.chain_status(s, s.get(mdb.MetroLead, ann))["state"] == "approved", "a clean chain is approved with Approve")
 
-with S() as s:                                   # Cara: one lead at her company, a sendable address -> email first
+with S() as s:                                   # Cara: one lead at her company, a sendable address -> email only
     lc = s.get(mdb.MetroLead, cara)
     hk.write_company_hooks(s, s.get(mdb.MetroCompany, CO2), [lc], s.get(mdb.MetroCampaign, AG), ask=hooks_model)
     r = ch.write_chain(s, lc, s.get(mdb.MetroCampaign, AG), ask=chain_model())
     check(r["track"] == "email_first" and all(t.channel == "email" for t in s.query(mdb.MetroTouch).filter_by(lead_id=cara)), "a sendable email: every touch is an email")
     vv = ch.chain_view(s, lc)
     print("   cara flags:", [(t["step"], [f["text"] for f in t["checks"]]) for t in vv["touches"] if t["checks"]], vv["notes"].get("chain_flags"))
-    ch.approve(s, lc)
+    ch.approve(s, lc, send_anyway=True)
 
 # ═════════════ I. exports ═════════════
 with S() as s:
@@ -448,7 +469,9 @@ with S() as s:
 check(info["leads"] == 1 and rows[0]["metro_lead_id"] == str(ann), f"Linked Helper CSV: the approved lead with LinkedIn messages ({info})")
 check(all(k in rows[0] for k in ("profile_url", "first_name", "metro_message_1", "metro_message_2", "metro_message_3", "metro_day_1")),
       "one custom variable per LinkedIn message (metro_message_1..3) and its day")
-check(rows[0]["metro_message_1"].startswith("Ann, thanks for connecting"), "the message text is the approved one")
+check("network" in rows[0]["metro_message_1"] and "thanks for connecting" not in rows[0]["metro_message_1"].lower()
+      and "buried" in rows[0]["metro_message_2"], "the messages are the approved ones: the built intro, then the pointer")
+
 with S() as s:
     text, info = ex.email_csv(s, AG)
     erows = list(csv.DictReader(io.StringIO(text.lstrip("﻿"))))

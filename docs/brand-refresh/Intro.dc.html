@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>itforce tools - loading</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;800&amp;display=swap">
+<style>
+body{margin:0;font-family:Manrope,system-ui,sans-serif}
+.in{opacity:0;animation:up .8s cubic-bezier(.2,.7,.2,1) forwards}
+@keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.band{animation:kb 2.8s cubic-bezier(.2,.7,.2,1) forwards;opacity:0}
+@keyframes kb{0%{opacity:0;transform:scale(1.04)}35%{opacity:1}100%{opacity:1;transform:scale(1)}}
+.fill{transform-origin:left;transform:scaleX(0);animation:fl 2.4s .5s cubic-bezier(.4,0,.2,1) forwards}
+@keyframes fl{to{transform:scaleX(1)}}
+.track{transform:translateX(-100%);animation:tr 2.4s .5s cubic-bezier(.4,0,.2,1) forwards}
+@keyframes tr{to{transform:translateX(0)}}
+.glow{animation:gl 1.6s ease-in-out infinite}@keyframes gl{50%{opacity:.45}}
+.b{font:inherit;font-weight:800;font-size:15px;border-radius:11px;padding:13px 22px;display:inline-flex;align-items:center;gap:10px;text-decoration:none;transition:transform .12s ease,box-shadow .15s ease}
+.b:hover{box-shadow:0 0 0 5px rgba(0,229,255,.22)}.b:active{transform:translateY(2px)}.b:focus-visible{outline:3px solid #37bbd5;outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;opacity:1!important;transform:none!important}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:linear-gradient(100deg,#07302b 0%,#08333a 40%,#0b2449 62%,#0b1f3b 100%);color:#fff;display:flex;flex-direction:column;justify-content:center;overflow:hidden">
+  <div style="position:relative;width:100%">
+    <img class="band" src="/_blob/707864fef8bc3cbf52592a7c4ff85076" alt="" style="width:100%;height:auto;display:block;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 88%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 88%,transparent 100%)">
+    <div style="position:absolute;left:19%;top:30%;display:flex;flex-direction:column;gap:clamp(6px,.9vw,14px);line-height:1.1">
+      <div class="in" style="animation-delay:.35s;display:flex;align-items:center;gap:10px;font-size:clamp(12px,1.25vw,19px);font-weight:600"><svg width="34" height="20" viewBox="0 0 45 26" aria-hidden="true"><path d="M14.7872 10.8347L5.05022 20.5157L0 15.4957L5.41607 10.1121H24.7537L34.56 19.862L29.1248 25.2647L9.6461 5.90264L15.0837 0.5H34.0842L44.0626 10.4163L38.5438 15.9022L24.1631 1.60763L14.7872 10.8347Z" fill="#37bbd5"/></svg><span style="font-weight:800;font-size:1.35em">itforce</span><span style="width:1.5px;height:1.4em;background:#37bbd5"></span><span>Upwork application engine</span></div>
+      <div class="in" style="animation-delay:.55s;font-weight:800;font-size:clamp(30px,4.6vw,70px);letter-spacing:-1px;line-height:.95">Falcon Scout</div>
+    </div>
+    <div style="position:absolute;right:18.5%;top:30%;display:flex;flex-direction:column;align-items:flex-end;gap:clamp(6px,.9vw,14px);line-height:1.1">
+      <div class="in" style="animation-delay:.75s;display:flex;align-items:center;gap:10px;font-size:clamp(12px,1.25vw,19px);font-weight:600"><svg width="34" height="20" viewBox="0 0 45 26" aria-hidden="true"><path d="M14.7872 10.8347L5.05022 20.5157L0 15.4957L5.41607 10.1121H24.7537L34.56 19.862L29.1248 25.2647L9.6461 5.90264L15.0837 0.5H34.0842L44.0626 10.4163L38.5438 15.9022L24.1631 1.60763L14.7872 10.8347Z" fill="#37bbd5"/></svg><span style="font-weight:800;font-size:1.35em">itforce</span><span style="width:1.5px;height:1.4em;background:#37bbd5"></span><span>Lead-generation engine</span></div>
+      <div class="in" style="animation-delay:.95s;font-weight:800;font-size:clamp(30px,4.6vw,70px);letter-spacing:-1px;line-height:.95">Metro</div>
+    </div>
+  </div>
+  <div style="width:min(520px,80%);margin:28px auto 0;display:flex;flex-direction:column;align-items:center;gap:16px">
+    <div style="position:relative;width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.14)">
+      <div class="fill" style="position:absolute;inset:0;border-radius:3px;background:linear-gradient(90deg,#2EE6A6,#00E5FF)"></div>
+      <div class="track" style="position:absolute;inset:0">
+        <svg width="40" height="20" viewBox="0 0 130 64" aria-hidden="true" style="position:absolute;right:-6px;top:-17px"><path d="M20 10 H98 Q106 10 110 16 L122 40 Q124 46 117 46 H20 Q14 46 14 40 V16 Q14 10 20 10 Z" fill="#005669" stroke="#eaf6f9" stroke-width="5"/><rect x="16" y="33" width="104" height="4" fill="#B8F82C"/><rect x="16" y="37" width="104" height="4" fill="#37bbd5"/><rect x="22" y="16" width="18" height="12" rx="3" fill="#eaf6f9"/><rect x="44" y="16" width="18" height="12" rx="3" fill="#eaf6f9"/><circle class="glow" cx="117" cy="40" r="4" fill="#00E5FF"/><circle cx="34" cy="51" r="6" fill="#eaf6f9"/><circle cx="50" cy="51" r="6" fill="#eaf6f9"/><circle cx="86" cy="51" r="6" fill="#eaf6f9"/><circle cx="102" cy="51" r="6" fill="#eaf6f9"/></svg>
+      </div>
+    </div>
+    <sc-if value="{{loading}}" hint-placeholder-val="{{ true }}"><div style="font-size:14px;opacity:.8">Loading your workspace...</div></sc-if>
+    <sc-if value="{{ready}}" hint-placeholder-val="{{ false }}">
+      <div class="in" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+        <a class="b" href="Falcon.dc.html" style="background:#2EE6A6;color:#000c0e">Open Falcon Scout</a>
+        <a class="b" href="Metro.dc.html" style="background:#00E5FF;color:#000c0e">Open Metro</a>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(p){super(p);this.state={ready:false};}
+  componentDidMount(){this.t=setTimeout(()=>this.setState({ready:true}),3000);}
+  componentWillUnmount(){clearTimeout(this.t);}
+  renderVals(){return {ready:this.state.ready,loading:!this.state.ready};}
+}
+</script>
+</body>
+</html>

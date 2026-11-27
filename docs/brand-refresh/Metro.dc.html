@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Metro - Leads</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;font-family:Manrope,system-ui,sans-serif;color:#0b1f3b}
+a{color:#005669}a:hover{color:#004150}
+.b{font:inherit;font-weight:700;font-size:13px;border-radius:9px;padding:8px 14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1.5px solid transparent;text-decoration:none;transition:transform .12s ease,box-shadow .15s ease,background-color .15s ease}
+.b:hover{box-shadow:0 0 0 4px rgba(0,229,255,.25)}
+.b:active{transform:translateY(2px)}
+.b:focus-visible{outline:3px solid #37bbd5;outline-offset:2px}
+.spin{width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.row:hover{background:#f3f8fd}
+.panel{animation:sl .22s ease-out}@keyframes sl{from{transform:translateX(24px);opacity:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#eef4fb;display:flex;flex-direction:column">
+<header style="background:#0B1F3B;color:#fff;display:flex;flex-wrap:wrap;align-items:center;gap:18px;padding:10px 22px">
+  <div style="display:flex;align-items:center;gap:10px"><img src="/_blob/55348d5c8d976fffe8936d73f6296836" alt="" style="height:42px"><div style="line-height:1"><div style="font-weight:800;font-size:22px">Metro</div><div style="display:flex;align-items:center;gap:5px;font-size:11px;opacity:.85;margin-top:3px">by <svg width="17" height="10" viewBox="0 0 45 26" aria-hidden="true"><path d="M14.7872 10.8347L5.05022 20.5157L0 15.4957L5.41607 10.1121H24.7537L34.56 19.862L29.1248 25.2647L9.6461 5.90264L15.0837 0.5H34.0842L44.0626 10.4163L38.5438 15.9022L24.1631 1.60763L14.7872 10.8347Z" fill="#37bbd5"/></svg><b>itforce</b></div></div></div>
+  <div style="display:flex;padding:3px;border-radius:999px;border:1.5px solid rgba(255,255,255,.4)">
+    <a class="b" href="Falcon.dc.html" style="border-radius:999px;background:transparent;color:#fff">Falcon Scout</a>
+    <span class="b" style="border-radius:999px;background:#00E5FF;color:#000c0e">Metro</span>
+  </div>
+  <nav style="display:flex;gap:6px;flex-wrap:wrap"><sc-for list="{{tabs}}" as="t" hint-placeholder-count="5"><button class="b" onClick="{{t.go}}" style="background:{{t.bg}};color:#fff;border-color:{{t.bd}}">{{t.label}}</button></sc-for></nav>
+  <div style="flex:1"></div>
+  <span style="font-size:12px;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:5px 9px">Metro week</span>
+  <span style="font-size:12px;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:5px 9px">Visits 6 of 60</span>
+  <span style="font-size:12px;display:flex;align-items:center;gap:6px"><span style="width:16px;height:4px;border-radius:2px;background:#B8F82C"></span>Agency line</span>
+  <span style="font-size:12px;display:flex;align-items:center;gap:6px"><span style="width:16px;height:4px;border-radius:2px;background:#37bbd5"></span>Niche line</span>
+</header>
+<div style="background:#081830;color:#eaf6f9;display:flex;align-items:center;gap:14px;padding:8px 22px;font-size:13px;min-height:22px">
+  <sc-if value="{{running}}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:8px;font-weight:700;white-space:nowrap"><span class="spin"></span>Enriching · USA CAN Agency · {{n}}/20 · {{current}}</span></sc-if>
+  <sc-if value="{{idle}}" hint-placeholder-val="{{ true }}"><span style="white-space:nowrap">{{stripText}}</span></sc-if>
+  <div style="flex:1;position:relative;height:5px;border-radius:3px;background:rgba(255,255,255,.14);margin:10px 0">
+    <div style="position:absolute;left:0;top:0;bottom:0;width:{{pct}};border-radius:3px;background:#00E5FF;transition:width .3s linear"></div>
+    <svg width="38" height="19" viewBox="0 0 130 64" aria-hidden="true" style="position:absolute;top:-15px;left:{{pct}};margin-left:-34px;transition:left .3s linear"><path d="M20 10 H98 Q106 10 110 16 L122 40 Q124 46 117 46 H20 Q14 46 14 40 V16 Q14 10 20 10 Z" fill="#005669" stroke="#eaf6f9" stroke-width="5"/><rect x="16" y="33" width="104" height="4" fill="#B8F82C"/><rect x="16" y="37" width="104" height="4" fill="#37bbd5"/><rect x="22" y="16" width="18" height="12" rx="3" fill="#eaf6f9"/><rect x="44" y="16" width="18" height="12" rx="3" fill="#eaf6f9"/><circle cx="34" cy="51" r="6" fill="#eaf6f9"/><circle cx="50" cy="51" r="6" fill="#eaf6f9"/><circle cx="86" cy="51" r="6" fill="#eaf6f9"/><circle cx="102" cy="51" r="6" fill="#eaf6f9"/></svg>
+  </div>
+  <sc-if value="{{hasNotice}}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:8px;border:1.5px solid #2BB673;border-radius:9px;padding:4px 10px;font-weight:600">✓ {{notice}}<button class="b" onClick="{{dismiss}}" aria-label="Dismiss" style="padding:0 7px;background:transparent;color:#fff;border-color:rgba(255,255,255,.3)">×</button></span></sc-if>
+</div>
+<main style="padding:20px 22px;display:flex;flex-direction:column;gap:16px">
+  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+    <label style="font-size:0">Campaign<select style="font:inherit;font-size:15px;font-weight:700;padding:8px 12px;border-radius:9px;border:1.5px solid #b9cbe0;background:#fff"><option>USA CAN Agency Claude 1 (495)</option></select></label>
+    <span style="background:#B8F82C;color:#1d2a00;font-weight:800;font-size:12px;border-radius:999px;padding:4px 12px">Agency line · draft</span>
+    <button class="b" style="background:#fff;color:#0B1F3B;border-color:#b9cbe0">Brief and settings</button>
+  </div>
+  <div style="position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px">
+    <div style="position:absolute;left:3%;right:3%;top:25px;height:5px;border-radius:3px;background:#B8F82C"></div>
+    <sc-for list="{{stations}}" as="s" hint-placeholder-count="4">
+      <div style="position:relative;background:#fff;border:1px solid #d3e0ee;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:50%;background:#fff;border:4px solid #B8F82C"></span><span style="font-size:12px;font-weight:800;letter-spacing:1px">{{s.n}}</span></div>
+        <div style="font-size:20px;font-weight:800">{{s.big}}</div><div style="font-size:12px;color:#33507a;min-height:30px">{{s.small}}</div>
+        <sc-if value="{{s.hasBtn}}" hint-placeholder-val="{{ true }}"><button class="b" onClick="{{s.go}}" style="background:#00E5FF;color:#000c0e;align-self:flex-start"><sc-if value="{{s.busy}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>{{s.btn}}</button></sc-if>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+    <div style="flex:3 1 640px;min-width:0;background:#fff;border:1px solid #d3e0ee;border-radius:12px">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #e3ecf6">
+        <span style="font-weight:800;font-size:16px">Shortlist</span><span style="font-size:13px;color:#33507a">13 of 493 usable leads · fit 50 or more</span><span style="flex:1"></span>
+        <button class="b" onClick="{{hooks}}" style="background:#fff;color:#0B1F3B;border-color:#b9cbe0"><sc-if value="{{busyHooks}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>Write hooks</button>
+        <button class="b" style="background:#fff;color:#0B1F3B;border-color:#b9cbe0">Emails (Linked Helper)</button>
+      </div>
+      <div style="overflow-x:auto"><div style="min-width:680px">
+        <div style="display:grid;grid-template-columns:2.2fr 2fr .6fr 1.6fr .7fr 1fr;gap:10px;padding:9px 16px;font-size:12px;font-weight:800;color:#33507a;border-bottom:1px solid #e3ecf6"><span>Person</span><span>Company</span><span>Fit</span><span>Channels</span><span>Hooks</span><span>Chain</span></div>
+        <sc-for list="{{leads}}" as="l" hint-placeholder-count="6">
+          <div class="row" style="display:grid;grid-template-columns:2.2fr 2fr .6fr 1.6fr .7fr 1fr;gap:10px;align-items:center;padding:11px 16px;border-bottom:1px solid #eef3f9;background:{{l.sel}}">
+            <span><button onClick="{{l.pick}}" style="font:inherit;font-weight:800;background:none;border:0;padding:0;color:#12305A;cursor:pointer;text-align:left">{{l.name}}</button><span style="display:block;font-size:12px;color:#5b6f8c">{{l.title}}</span></span>
+            <span style="font-size:13px">{{l.co}}<span style="display:block;font-size:12px;color:#5b6f8c">{{l.site}}</span></span>
+            <span style="font-weight:800">{{l.fit}}</span>
+            <span style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px;font-weight:700"><span style="background:#e6f1fb;border-radius:6px;padding:2px 6px">{{l.mail}}</span><span style="background:#e6f1fb;border-radius:6px;padding:2px 6px">{{l.li}}</span></span>
+            <span style="font-weight:700">{{l.hooks}}</span>
+            <span style="font-size:12px;font-weight:700;border-radius:6px;padding:3px 8px;background:{{l.cBg}};color:{{l.cFg}};justify-self:start">{{l.chain}}</span>
+          </div>
+        </sc-for>
+      </div></div>
+    </div>
+    <sc-if value="{{hasOpen}}" hint-placeholder-val="{{ false }}">
+      <aside class="panel" style="flex:2 1 360px;background:#fff;border:1px solid #d3e0ee;border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center"><div style="flex:1"><div style="font-weight:800;font-size:18px">{{open.name}}</div><div style="font-size:13px;color:#33507a">{{open.co}} · fit {{open.fit}}</div></div><button class="b" onClick="{{close}}" style="background:#fff;color:#0B1F3B;border-color:#b9cbe0">Close</button></div>
+        <div style="font-size:12px;font-weight:800;letter-spacing:1px">HOOKS</div>
+        <sc-for list="{{open.hooks}}" as="h" hint-placeholder-count="3"><div style="font-size:13px;background:#eef4fb;border-radius:8px;padding:8px 10px">{{h}}</div></sc-for>
+        <div style="font-size:12px;font-weight:800;letter-spacing:1px">CHAIN</div>
+        <sc-for list="{{chain}}" as="c" hint-placeholder-count="4"><div style="display:flex;gap:10px"><div style="display:flex;flex-direction:column;align-items:center"><span style="width:12px;height:12px;border-radius:50%;border:3px solid {{c.col}};background:#fff"></span><span style="flex:1;width:2px;background:#d3e0ee"></span></div><div style="padding-bottom:10px"><div style="font-size:12px;font-weight:800;color:#12305A">{{c.head}}</div><div style="font-size:13px;line-height:1.45">{{c.text}}</div></div></div></sc-for>
+        <div style="display:flex;gap:8px"><button class="b" onClick="{{approve}}" style="background:#00E5FF;color:#000c0e">Approve chain</button><button class="b" style="background:#fff;color:#0B1F3B;border-color:#b9cbe0">Edit</button></div>
+      </aside>
+    </sc-if>
+  </div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p){super(p);this.state={tab:'Leads',run:false,n:0,busy:'',notice:'',open:-1,approved:{}};}
+  componentWillUnmount(){clearInterval(this.t);}
+  later(id,msg){this.setState({busy:id});setTimeout(()=>this.setState({busy:'',notice:msg}),1400);}
+  enrich(){if(this.state.run)return;this.setState({run:true,n:0,notice:''});this.t=setInterval(()=>{const n=this.state.n+1;if(n>=20){clearInterval(this.t);this.setState({run:false,n:20,notice:'Enriched 20 - 3 new websites found, 17 already had one'});}else this.setState({n});},300);}
+  renderVals(){
+    const s=this.state;
+    const tabs=['Campaigns','Leads','CRM','Senders','Settings'].map(l=>({label:l,bg:s.tab===l?'rgba(255,255,255,.14)':'transparent',bd:s.tab===l?'#00E5FF':'transparent',go:()=>this.setState({tab:l})}));
+    const ppl=[['Dana Whitfield','President','Northgate Interactive','northgate.io',70,'business email','connected',['HubSpot Platinum partner; B2B marketing and RevOps','Sells SEO and paid search to B2B SaaS clients','Founded 2009, team of about 25']],
+      ['Marcus Lee','Founder','Ember Lane Media','emberlane.co',65,'no email','connected',['Runs 25 Google ads for its own brand','Business Profile: 4.8 from 20 reviews','Indianapolis agency, local service clients']],
+      ['Priya Raman','Co-founder','Copperline Social','copperline.com',60,'business email','invited',['Sells social, SEO and web, no Google Ads page','Positions itself as a Los Angeles agency']],
+      ['Owen Hart','Managing Partner','Granary Group','granary.group',60,'no email','connected',['"We grow brands people buy again": e-commerce focus','Lists Shopify and email marketing services']],
+      ['Leila Haddad','Founder','Tessaro','tessaro.ca',60,'personal email','connected',['Sells SEO, web and social, no PPC','Montreal, Quebec']],
+      ['Sam Ortiz','CEO','Brightwave Studio','brightwave.studio',50,'no email','invited',['Web design studio, WordPress builds']]];
+    const leads=ppl.map((p,i)=>{const ok=!!s.approved[i];return {name:p[0],title:p[1],co:p[2],site:p[3],fit:p[4],mail:p[5],li:p[6],hooks:p[7].length,chain:ok?'approved':(i<4?'written':'not written'),cBg:ok?'#dff8ee':(i<4?'#e2f3fb':'#eef1f5'),cFg:ok?'#0b5e43':(i<4?'#0b4f6c':'#4a5560'),sel:s.open===i?'#eef7ff':'transparent',pick:()=>this.setState({open:i})};});
+    const o=s.open>=0?ppl[s.open]:null;
+    const first=o?o[0].split(' ')[0]:'';
+    const chain=o?[[o[6]==='connected'?'LinkedIn · day 0':'Email · day 0','Hi '+first+', saw that '+o[2]+' '+(o[7][0].charAt(0).toLowerCase()+o[7][0].slice(1))+'. We do the Google Ads and SEO delivery behind agencies like yours, under your brand.','#00E5FF'],['Email · day 3','A short note on how we run overflow accounts: your name on the reports, our specialists on the work.','#B8F82C'],['LinkedIn · day 7','One example: a local services account we scaled for a partner agency in eight weeks.','#00E5FF'],['Email · day 14','If one client is stretching your team, send it over and we will scope it, or start with a free pilot audit under your brand.','#B8F82C']].map(c=>({head:c[0],text:c[1],col:c[2]})):[];
+    const pct=Math.round(s.n/20*100)+'%';
+    const stations=[{n:'1. IMPORT',big:'495 leads',small:'493 ready · 2 junk',btn:'Import CSV',hasBtn:true,busy:s.busy==='imp',go:()=>this.later('imp','Imported 495 rows - 146 leads updated')},
+      {n:'2. ENRICH',big:s.run?s.n+' of 20':'293 waiting',small:'31 companies with a website, 232 not tried yet',btn:'Enrich next 20',hasBtn:true,busy:s.run,go:()=>this.enrich()},
+      {n:'3. WRITE',big:'4 chains',small:'For the shortlisted leads',btn:'Write chains',hasBtn:true,busy:s.busy==='wr',go:()=>this.later('wr','Wrote 4 chains - 1 needs a look')},
+      {n:'4. SEND',big:'0 sent',small:'Phase 4 · nothing is sent without a confirm',btn:'',hasBtn:false,busy:false,go:()=>{}}];
+    return {tabs,stations,leads,chain,running:s.run,idle:!s.run,n:s.n,current:s.run?'Copperline Social - website scan':'',pct:s.run?pct:(s.n===20?'100%':'0%'),stripText:'Nothing running',
+      hasNotice:!!s.notice,notice:s.notice,dismiss:()=>this.setState({notice:''}),
+      busyHooks:s.busy==='hk',hooks:()=>this.later('hk','Hooks for 13 leads - 41 kept, 6 thrown away by the checks'),
+      hasOpen:!!o,open:o?{name:o[0],co:o[2],fit:o[4],hooks:o[7]}:{name:'',co:'',fit:'',hooks:[]},close:()=>this.setState({open:-1}),
+      approve:()=>{const a=Object.assign({},s.approved);a[s.open]=true;this.setState({approved:a,notice:'Chain approved'});}};
+  }
+}
+</script>
+</body>
+</html>

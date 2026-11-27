@@ -72,13 +72,13 @@ function Run({ run, nowS, collapsed, onStop, onDismiss }) {
   const live = run.status === 'running'
   const elapsed = run.finished_at ? run.finished_at - run.started_at : nowS - run.started_at
   const eta = live && total && done >= 2 && done < total ? (elapsed / done) * (total - done) : null
-  const color = run.status === 'failed' ? METRO.agencyLine : (FILL[run.kind] || METRO.cyan)
+  const color = run.status === 'failed' ? METRO.error : (FILL[run.kind] || METRO.cyan)
   const indet = live && !total
 
   if (!live) {
     return (
       <div data-testid="progress-result" style={{ display: 'flex', alignItems: 'center', gap: 9, paddingRight: 30 }}>
-        <span aria-hidden="true" style={{ color: run.status === 'failed' ? '#ff8a84' : '#7fe0b0', fontWeight: 800 }}>{run.status === 'failed' ? '!' : run.status === 'stopped' ? '■' : '✓'}</span>
+        <span aria-hidden="true" style={{ color: run.status === 'failed' ? '#ffb27a' : '#7fe0b0', fontWeight: 800 }}>{run.status === 'failed' ? '!' : run.status === 'stopped' ? '■' : '✓'}</span>
         <span style={{ fontSize: 13, fontWeight: 700 }}>{run.result || run.label}</span>
         <span style={{ fontSize: 11, opacity: 0.6 }}>{fmtDuration(elapsed)}</span>
         <button type="button" onClick={onDismiss} title="Close" style={{ marginLeft: 'auto', border: 'none', background: 'none', color: METRO.ice, cursor: 'pointer', opacity: 0.7 }}>×</button>
@@ -94,7 +94,7 @@ function Run({ run, nowS, collapsed, onStop, onDismiss }) {
         <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700 }}>{total ? `${done} / ${total}` : done ? `${done}` : 'working'}</span>
         {run.can_stop && !run.stopping && (
           <button type="button" onClick={onStop} data-testid="progress-stop"
-            style={{ border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(230,38,31,0.85)', color: '#fff', borderRadius: 7, padding: '3px 10px', cursor: 'pointer', fontFamily: METRO.font, fontSize: 12, fontWeight: 700 }}>
+            style={{ border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(242,113,28,0.9)', color: '#fff', borderRadius: 7, padding: '3px 10px', cursor: 'pointer', fontFamily: METRO.font, fontSize: 12, fontWeight: 700 }}>
             Stop
           </button>
         )}

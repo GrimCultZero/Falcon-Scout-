@@ -138,3 +138,121 @@ def best_case(s: Session, tag: str | None, *, segment: str = "agency", fallback_
                                      (r["country"] or "").lower() == "ukraine", -r["id"]))
             return hits[0]
     return None
+
+
+# ───────────────────────── P3b: the case matched on the agency's client NICHE and the SERVICE we pitch ─────────────────────────
+# Oleh, 27 Nov: "matched on the company's client niche AND the service (PPC/SEO), not on one industry tag", plus a "Change case"
+# picker in the lead panel. The site files "SEO search promotion" as a category next to the industries, so a case's services are
+# read from its service tags, that category and its title.
+
+# The agency's client niche (webscan.NICHE_WORDS keys, or words in a hook) -> the IT Force case industry tags that prove it.
+NICHE_TAGS = {
+    "dental": ["Dentistry", "Medicine / Health / Aesthetics"], "medical": ["Medicine / Health / Aesthetics", "Dentistry"],
+    "med spa / aesthetics": ["Medicine / Health / Aesthetics", "Cosmetics / Perfumery / Beauty"], "wellness": ["Medicine / Health / Aesthetics", "Cosmetics / Perfumery / Beauty", "Sports Nutrition & Supplements"],
+    "legal": ["Legal services"], "home services": ["Household services", "Local business"], "real estate": ["Real estate"],
+    "restaurants / hospitality": ["Coffee accessories / Establishments", "Events / Holiday services", "Alcohol-related topics"],
+    "e-commerce": ["Online stores", "Shopify"], "saas / tech": ["Online services", "Technology and gadgets"], "b2b": ["B2B", "Industry / Equipment"],
+    "beauty": ["Cosmetics / Perfumery / Beauty"], "fashion": ["Clothing", "shoes", "accessories", "Watches"], "fitness": ["Sports Nutrition & Supplements"],
+    "automotive": ["Auto", "Tires"], "manufacturing": ["Industry / Equipment", "B2B"], "education": ["Education"],
+    "food & beverage": ["Alcohol-related topics", "Coffee accessories / Establishments", "Sports Nutrition & Supplements"],
+    # franchise / multi-location: no tag of its own ("Local business" alone matched an Irish pub to a real-estate agency, P3b run)
+    "construction": ["Industry / Equipment", "Household services"],
+    "entertainment": ["Events / Holiday services", "Online services"], "professional services": ["B2B", "Legal services"],
+    "travel": ["Events / Holiday services"], "finance": ["Household services"], "furniture": ["Furniture"], "gifts": ["Flowers / Gifts"],
+    "hr / staffing": ["HR agencies"],
+}
+NICHE_TEXT = {                       # the same niches found in free text (a clients_niche hook, a company industry line)
+    "dental": r"dental|dentist", "medical": r"medical|health ?care|clinic|physician|hospital", "med spa / aesthetics": r"med ?spa|aesthetic|plastic surg",
+    "wellness": r"wellness", "legal": r"\blegal\b|law firm|lawyer|attorney", "home services": r"home services|hvac|plumb|roofing|landscap|contractor",
+    "real estate": r"real estate|realtor|property", "restaurants / hospitality": r"restaurant|hospitality|hotel|cafe|coffee",
+    "e-commerce": r"e-?commerce|online stores?|\bdtc\b|\bd2c\b|shopify|retail", "saas / tech": r"\bsaas\b|software|tech compan|startup",
+    "b2b": r"\bb2b\b", "beauty": r"beauty|cosmetic|skincare|perfume", "fashion": r"fashion|apparel|clothing|jewel", "fitness": r"fitness|\bgyms?\b|sport",
+    "automotive": r"automotive|car dealer|dealership|\bauto\b", "manufacturing": r"manufactur|industrial|equipment",
+    "education": r"education|school|universit", "food & beverage": r"food|beverage|\bcpg\b|spirits|brewer|drink|snack",
+    "franchise / multi-location": r"franchis|multi-location", "construction": r"construction", "entertainment": r"entertainment|gaming|events?\b",
+    "professional services": r"professional services|consult", "travel": r"travel|tourism", "finance": r"financ|fintech|insurance|accounting",
+    "furniture": r"furniture|home decor|interior", "gifts": r"flowers?|gifts?", "hr / staffing": r"recruit|staffing|\bhr\b",
+}
+_NICHE_TEXT_RX = {k: re.compile(v, re.I) for k, v in NICHE_TEXT.items()}
+SERVICE_LABEL = {"ppc": "Google Ads / PPC", "seo": "SEO"}
+
+
+def niches_in_text(*texts: str) -> list[str]:
+    """Niche keys named in free text, most mentioned first."""
+    hay = " | ".join(str(t or "") for t in texts)
+    hits = [(k, len(rx.findall(hay))) for k, rx in _NICHE_TEXT_RX.items()]
+    return [k for k, n in sorted(hits, key=lambda kv: -kv[1]) if n]
+
+
+def case_services(c: dict) -> set[str]:
+    """What a case proves: ppc / seo / social / email / web / aso, from its service tags, the "SEO search promotion" category and its title."""
+    tags = " | ".join([*(c.get("service_tags") or []), *(c.get("industry_tags") or [])]).lower()
+    title = str(c.get("title") or "").lower()
+    out = set()
+    if "ppc" in tags or "contextual" in tags or re.search(r"google ads|\bppc\b|performance max|\bpmax\b|google shopping|contextual advertising|search engine marketing|paid advertising", title):
+        out.add("ppc")
+    if "seo" in tags or re.search(r"\bseo\b|search engine (?:optimi|promotion)|search engines? promotion", title):
+        out.add("seo")
+    if "targeted advertising" in tags or re.search(r"meta ads|facebook|instagram|targeted|\bsmm\b|tiktok", title):
+        out.add("social")
+    if "email" in tags or "email" in title:
+        out.add("email")
+    if "web development" in tags or re.search(r"development", title):
+        out.add("web")
+    if "aso" in tags:
+        out.add("aso")
+    return out
+
+
+# Niches whose clients are local businesses: a "Local business" case fits them; for the others (brands, online stores, SaaS, B2B)
+# a local case (a pub, a repair shop) is a weak proof (P3b run on the copy: an Irish pub for a food-brand agency, again).
+LOCAL_NICHES = {"dental", "medical", "med spa / aesthetics", "legal", "home services", "real estate", "restaurants / hospitality",
+                "franchise / multi-location", "construction", "fitness", "veterinary", "senior living"}
+NICHES_COUNTED = 2            # only the agency's two most named client niches count for an automatic match
+NORTH_AMERICA = {"usa", "united states", "us", "canada"}
+
+
+def match_cases(s: Session, niches: list[str], services: set[str] | None = None) -> list[dict]:
+    """Every case, ranked for this agency. Score: their client niche (the two named most; the first counts most; a case with the
+    niche's main tag counts more; a case that also fits their other niche counts more), the service we pitch (PPC and / or SEO,
+    both when both are wanted), a North American client (the readers are US / Canadian agencies), then other non-Ukrainian ones;
+    a "Local business" case loses points for a niche that is not local. Each item carries `niche_match`, `service_match`, `why`."""
+    want = set(services or {"ppc", "seo"})
+    top = [n for n in (niches or []) if n in NICHE_TAGS][:NICHES_COUNTED]
+    rows = [case_dict(c) for c in s.query(MetroCaseLink).order_by(MetroCaseLink.id.desc()).all()]
+    out = []
+    for r in rows:
+        tags = {t.lower() for t in r["industry_tags"]}
+        hit_niche, score = None, 0
+        for rank, n in enumerate(top):
+            mapped = [t.lower() for t in NICHE_TAGS.get(n, [])]
+            if any(t in tags for t in mapped):
+                hit_niche = n
+                score = (6 - rank) * 10 + (3 if mapped and mapped[0] in tags else 0)
+                if any(any(t.lower() in tags for t in NICHE_TAGS.get(o, [])) for o in top if o != n):
+                    score += 2
+                if "local business" in tags and n not in LOCAL_NICHES:
+                    score -= 3
+                break
+        svc = case_services(r) & want
+        if svc:
+            score += 5 + (2 if svc == want and len(want) > 1 else 0)
+        country = (r["country"] or "").lower()
+        score += 3 if country in NORTH_AMERICA else 0 if country == "ukraine" else 1
+        why = []
+        if hit_niche:
+            why.append(f"their clients: {hit_niche}")
+        if svc:
+            why.append(" and ".join(SERVICE_LABEL.get(x, x) for x in sorted(svc)))
+        out.append({**r, "niche_match": hit_niche, "service_match": sorted(svc), "why": ", ".join(why) or "no match", "_score": score})
+    out.sort(key=lambda r: (-r["_score"], -r["id"]))
+    for r in out:
+        r.pop("_score", None)
+    return out
+
+
+def best_match(s: Session, niches: list[str], services: set[str] | None = None) -> dict | None:
+    """The case a wave attaches automatically: it must match BOTH a client niche and the service; otherwise none (a weak case
+    is worse than no case; Oleh picks one with "Change case")."""
+    ranked = [r for r in match_cases(s, niches, services) if r["niche_match"] and r["service_match"]]
+    return ranked[0] if ranked else None

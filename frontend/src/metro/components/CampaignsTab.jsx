@@ -229,7 +229,7 @@ function CampaignDetail({ id, meta, onChanged, onOpenLeads, onDeleted }) {
         <Err error={error} />
         {del && (
           <div role="dialog" aria-label="Delete campaign" data-testid="delete-dialog"
-            style={{ marginTop: 10, border: `1px solid ${METRO.agencyLine}`, borderRadius: 10, padding: '12px 14px', background: '#fff6f5' }}>
+            style={{ marginTop: 10, border: `1px solid ${METRO.error}`, borderRadius: 10, padding: '12px 14px', background: '#fff6ef' }}>
             <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>Delete "{del.campaign}"?</div>
             <div style={{ fontSize: 13, lineHeight: 1.5 }}>
               This removes <b>{del.leads}</b> lead{del.leads === 1 ? '' : 's'}, <b>{del.imports}</b> import record{del.imports === 1 ? '' : 's'}

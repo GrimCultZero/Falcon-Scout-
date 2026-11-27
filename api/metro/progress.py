@@ -33,12 +33,15 @@ def _now() -> float:
 
 
 def start(kind: str, label: str, *, total: int = 0, campaign_id: int | None = None, stop: Callable[[], None] | None = None,
-          poll: Callable[[], dict] | None = None, detail: str = "") -> str:
+          poll: Callable[[], dict] | None = None, detail: str = "", by_click: bool = False, queue_id: int | None = None) -> str:
+    """`by_click`: a run Oleh started with a button (P3b #9: its "done" shows on the Falcon Scout side too); `queue_id`: its
+    durable queue in metro_runs (runqueue.py), when it can be resumed after a restart."""
     rid = uuid.uuid4().hex[:12]
     with _lock:
         _runs[rid] = {"id": rid, "kind": kind, "label": label, "campaign_id": campaign_id, "status": "running",
                       "total": max(0, int(total or 0)), "done": 0, "failed": 0, "current": None, "step": None, "detail": detail,
-                      "started_at": _now(), "finished_at": None, "result": None, "can_stop": stop is not None, "stopping": False}
+                      "started_at": _now(), "finished_at": None, "result": None, "can_stop": stop is not None, "stopping": False,
+                      "by_click": bool(by_click), "queue_id": queue_id}
         if stop is not None:
             _stops[rid] = stop
         if poll is not None:
@@ -52,7 +55,7 @@ def update(rid: str, **kw) -> None:
         r = _runs.get(rid)
         if r is None or r["status"] != "running":
             return
-        for k in ("total", "done", "failed", "current", "step", "detail", "label"):
+        for k in ("total", "done", "failed", "current", "step", "detail", "label", "queue_id"):
             if k in kw:
                 r[k] = kw[k]
 
@@ -91,9 +94,9 @@ def request_stop(rid: str) -> bool:
 
 
 @contextmanager
-def track(kind: str, label: str, *, total: int = 0, campaign_id: int | None = None, detail: str = ""):
+def track(kind: str, label: str, *, total: int = 0, campaign_id: int | None = None, detail: str = "", by_click: bool = True):
     """A run for a synchronous action. The body sets `t["result"]` for the one-line result; an exception ends it as failed."""
-    rid = start(kind, label, total=total, campaign_id=campaign_id, detail=detail)
+    rid = start(kind, label, total=total, campaign_id=campaign_id, detail=detail, by_click=by_click)
     box = {"id": rid, "result": ""}
     try:
         yield box

@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import '../metro.css'
 import { attentionOnly, buildActivities, chipCount, chipDetail, chipEta, chipPct, chipTitle, summarize } from '../lib/activity.js'
-import { dismiss, dismissMany, stopRun, useProgress } from '../lib/progressStore.js'
+import { dismiss, dismissInterrupted, dismissMany, resumeRun, stopRun, useProgress } from '../lib/progressStore.js'
 import { notify } from '../lib/notices.js'
 import { Wagon } from './Marks.jsx'
 
@@ -19,14 +19,17 @@ function Chip({ a, onGo, onStop, compact = false }) {
   const key = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go() } }
   if (a.status !== 'running') {
     const icon = a.status === 'failed' ? '!' : a.status === 'stopped' ? '■' : '✓'
+    const resume = async (e) => { e.stopPropagation(); try { await resumeRun(a.queueId) } catch (err) { if (!err.notified) notify.error(`Could not resume: ${err.message}`) } }
     return (
       <div className={`mt-chip mt-chip--${a.status}`} role="button" tabIndex={0} onClick={go} onKeyDown={key} data-testid="strip-result" data-status={a.status}
         title={`${a.result || a.label}${a.campaignName ? ` (${a.campaignName})` : ''}. Click to open it.`}>
         <div className="mt-chip-row">
-          <span aria-hidden="true" style={{ fontWeight: 800, color: a.status === 'failed' ? '#ff8a84' : a.status === 'stopped' ? '#f0b866' : '#7fe0b0' }}>{icon}</span>
-          <span className="mt-chip-result">{a.result || a.label}</span>
+          <span aria-hidden="true" style={{ fontWeight: 800, color: a.status === 'failed' ? '#ffb27a' : a.status === 'stopped' ? '#f0b866' : '#7fe0b0' }}>{icon}</span>
+          <span className="mt-chip-result">{a.interrupted ? `${a.label}: ${a.result || 'stopped by a restart'}` : (a.result || a.label)}</span>
+          {a.canResume && <button type="button" className="mt-chip-resume" data-testid="strip-resume" onClick={resume}
+            title="Start this run again on the items it did not finish. Finished items are never redone.">Resume</button>}
           <button type="button" className="mt-chip-x" aria-label="Dismiss this result" title="Dismiss"
-            onClick={(e) => { e.stopPropagation(); dismiss(a.key) }}>×</button>
+            onClick={(e) => { e.stopPropagation(); if (a.interrupted && a.queueId) dismissInterrupted(a.queueId, a.key); else dismiss(a.key) }}>×</button>
         </div>
       </div>
     )

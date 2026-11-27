@@ -21,7 +21,9 @@ const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
 
 export function activityFromRun(run) {
   if (!run) return null
-  const status = ['running', 'done', 'stopped', 'failed'].includes(run.status) ? run.status : 'done'
+  // P3b #4b: a run a backend restart stopped comes back as "interrupted": it is drawn as stopped, with Resume
+  const interrupted = run.status === 'interrupted'
+  const status = interrupted ? 'stopped' : ['running', 'done', 'stopped', 'failed'].includes(run.status) ? run.status : 'done'
   return {
     key: String(run.id), kind: run.kind || 'other', label: String(run.label || 'Working'), short: SHORT[run.kind] || 'Working', status,
     done: num(run.done), total: num(run.total), failed: num(run.failed),
@@ -30,6 +32,7 @@ export function activityFromRun(run) {
     canStop: !!run.can_stop && status === 'running', stopping: !!run.stopping, result: run.result || null,
     startedAt: num(run.started_at), finishedAt: run.finished_at ? num(run.finished_at) : null, where: whereOf(run), local: run.kind === 'local',
     eta: run.eta_s == null ? null : num(run.eta_s), attention: !!run.attention,
+    byClick: !!run.by_click, interrupted, canResume: interrupted && !!run.can_resume, queueId: run.queue_id || null,
   }
 }
 
@@ -104,6 +107,11 @@ export function chipEta(a) {
 
 // Oleh, 26 Nov: on the Falcon Scout side the Metro strip shows ONLY a running chip and what needs attention (a failed or stopped
 // run; later a new reply or a send that needs confirming). Ordinary finished results stay on the Metro side.
+// P3b #9 (27 Nov): a run Oleh STARTED (a button) also shows its "done" chip there, so he sees it finished while he was on the
+// Falcon Scout side; a click opens Metro Leads, the x dismisses it. Background results (polls, automatic scoring) stay on Metro.
 export function attentionOnly({ running, finished }) {
-  return { running, finished: finished.filter((a) => a.status === 'failed' || a.status === 'stopped' || a.attention) }
+  return { running, finished: finished.filter((a) => a.status === 'failed' || a.status === 'stopped' || a.attention || (a.byClick && a.status === 'done')) }
 }
+
+// P3b #8: "Metro" or "(Enriching 7/20) Metro" is a title the shell wrote for the Metro side; the Falcon Scout side never shows it
+export const isMetroTitle = (t) => /^(\([^)]*\) )?Metro$/.test(String(t || ''))

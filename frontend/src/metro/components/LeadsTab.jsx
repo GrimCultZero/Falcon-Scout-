@@ -9,21 +9,22 @@
 // (summary, hooks with evidence, the chain, editable, Approve / Send anyway). Write and Send are live: "Write chains" and the two
 // exports. The filters, the sort and the open panel are remembered per campaign (lib/metroState.js): Metro opens where Oleh left it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api.js'
+import { api, fetchOrExplain } from '../api.js'
 import { METRO } from '../theme.js'
 import ImportDialog from './ImportDialog.jsx'
 import EnrichPanel from './EnrichPanel.jsx'
 import LeadPanel from './LeadPanel.jsx'
-import { Btn, Err, MoreMenu, Pill, card, input, lineColor } from './ui.jsx'
+import { Btn, Err, LinePill, Logo, MoreMenu, Pill, card, input } from './ui.jsx'
 import { Empty } from './Marks.jsx'
 import { enrichNextLabel, join, part, plural } from '../lib/resultLines.js'
 import { campaignToShow, readLeadsView, writeLeadsView } from '../lib/metroState.js'
 import { chainPill, chainStatesLine, channelsText } from '../lib/chainView.js'
+import { companiesOf, scopeLabel } from '../lib/scopeLabels.js'
 
 const store = typeof window !== 'undefined' ? window.localStorage : null
 
 const PAGE = 100
-const STATUS_COLOR = { new: METRO.teal, junk: '#b36b00', suppressed: METRO.agencyLine, previously_contacted: '#7a5af8' }
+const STATUS_COLOR = { new: METRO.teal, junk: '#b36b00', suppressed: METRO.errorText, previously_contacted: '#7a5af8' }
 
 export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null, active = true, rev = 0, onCreateCampaign, onOpenBrief }) {
   const [campaigns, setCampaigns] = useState(null)       // null while loading: the remembered campaign is kept, the picker never flashes
@@ -45,6 +46,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
   const [plans, setPlans] = useState(null)           // what "Enrich next N" would take: companies with a domain first
   const [confirmAll, setConfirmAll] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [sc, setSc] = useState(null)               // P3b #5: what the buttons will really process among the rows shown
 
   // The campaign list is read again every time this tab is shown and after any campaign change (create, delete, edit).
   const loadCampaigns = useCallback(() => api('/campaigns').then((j) => setCampaigns(j.campaigns)).catch((e) => setError(e.message)), [])
@@ -93,11 +95,12 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
     const r = new URLSearchParams(u); r.set('enriched', 'no')
     const nd = new URLSearchParams(u); nd.set('domain', 'no'); nd.set('enriched', 'yes')
     try {
-      const [d, pl, uu, rr, nn, pn, cs, ca] = await Promise.all([api(`/leads?${p}`), api(`/campaigns/${campaignId}/pipeline`),
+      const [d, pl, uu, rr, nn, pn, cs, ca, scp] = await Promise.all([api(`/leads?${p}`), api(`/campaigns/${campaignId}/pipeline`),
         noStatus ? { total: 0 } : api(`/leads?${u}`), noStatus ? { total: 0 } : api(`/leads?${r}`), noStatus ? { total: 0 } : api(`/leads?${nd}`),
-        api(`/campaigns/${campaignId}/enrich-next?${nextParams()}&ns=20,50`), api(`/campaigns/${campaignId}/chains/summary`), api('/cases')])
+        api(`/campaigns/${campaignId}/enrich-next?${nextParams()}&ns=20,50`), api(`/campaigns/${campaignId}/chains/summary`), api('/cases'),
+        api(`/leads/scope?${filterParams()}`).catch(() => null)])    // optional: a backend from before P3b has no such route
       setData(d); setPipe(pl); setUsable(uu.total); setRemaining(rr.total); setNoDomain(nn.total); setLastRun(d.last_run); setPlans(pn)
-      setChainSum(cs); setCases(ca.total); setError('')
+      setChainSum(cs); setCases(ca.total); setSc(scp); setError('')
     } catch (e) { setError(e.message) }
   }, [campaignId, f, limit, filterParams, nextParams])
   useEffect(() => { const t = setTimeout(load, f.q ? 250 : 0); return () => clearTimeout(t) }, [load])
@@ -175,9 +178,23 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
     return r.started ? undefined : { kind: 'warn', text: `Chains were not started: ${r.reason || 'the backend refused'}` }
   }
   const importCases = async () => { await api('/cases/import', { method: 'POST' }); load(); return undefined }
+  const readLogos = async () => {
+    const r = await api(`/campaigns/${campaignId}/logos`, { method: 'POST' })
+    window.dispatchEvent(new Event('metro-progress'))
+    return r.started ? undefined : { kind: 'warn', text: r.reason || 'Nothing to read' }
+  }
+  // P3b #5: a label says what the button will really process: "Write hooks (13 shortlisted · 8 companies)", never the rows merely shown
+  const tickedRows = shown.filter((l) => ticked.has(l.id))
+  const tickedCompanies = companiesOf(tickedRows)
+  const hooksLabel = ticked.size ? scopeLabel('Write hooks', { n: ticked.size, what: 'ticked', companies: tickedCompanies })
+    : scopeLabel('Write hooks', { n: sc?.shortlisted ?? 0, what: 'shortlisted', companies: sc?.shortlisted_companies ?? 0 })
+  const deepLabel = ticked.size ? scopeLabel('Queue deep readings', { n: ticked.size, what: 'ticked', companies: tickedCompanies })
+    : scopeLabel('Queue deep readings', { n: sc?.shortlisted ?? 0, what: 'shortlisted', companies: sc?.shortlisted_companies ?? 0 })
+  const chainsLabel = ticked.size ? scopeLabel('Write chains', { n: ticked.size, what: 'ticked', companies: tickedCompanies })
+    : scopeLabel('Write chains', { n: chainSum?.shortlisted ?? pipe?.write?.ready ?? 0, what: 'shortlisted', companies: chainSum?.companies ?? 0 })
   const download = async (what) => {
     let r
-    try { r = await fetch(`/metro/campaigns/${campaignId}/export/${what}`) } catch { throw new Error('Cannot reach the backend (is falconscout.bat running?)') }
+    r = await fetchOrExplain(`/metro/campaigns/${campaignId}/export/${what}`)
     if (!r.ok) { let d = ''; try { d = (await r.json()).detail } catch { /* no body */ } throw new Error(d || `${r.status} ${r.statusText}`) }
     const name = r.headers.get('X-Metro-Filename') || /filename="?([^";]+)"?/i.exec(r.headers.get('Content-Disposition') || '')?.[1] || `metro_${what}.csv`
     let info = {}
@@ -205,7 +222,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
           <option value="">Choose a campaign...</option>
           {listed.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.leads})</option>)}
         </select>
-        {campaign && <Pill color={lineColor(campaign.type)}>{campaign.type} · {campaign.status}</Pill>}
+        {campaign && <LinePill type={campaign.type}>{campaign.type} · {campaign.status}</LinePill>}
         {campaign && <Btn kind="ghost" small onClick={() => onOpenBrief?.(campaign.id)} data-testid="open-brief"
           title="The campaign page: brief, offer, launch checklist, import records">Brief and settings</Btn>}
         <Err error={error} />
@@ -230,15 +247,15 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <Btn small kind={remaining === 0 ? 'ghost' : 'primary'} onClick={() => enrichNext(20)} disabled={remaining === 0} data-testid="enrich-next-20"
                 title="The next 20 companies of the current filter and sort that are not enriched yet. Companies with a website come first; the ones without a website only after them.">{nextLabel(20)}</Btn>
-              <Btn key={50} small kind="ghost" onClick={() => enrichNext(50)} disabled={remaining === 0} data-testid="enrich-next-50"
+              <Btn key={50} small kind="secondary" onClick={() => enrichNext(50)} disabled={remaining === 0} data-testid="enrich-next-50"
                 title="The next 50 companies, companies with a website first">{nextLabel(50)}</Btn>
               <MoreMenu testid="enrich-more">
-                <Btn small kind="ghost" onClick={enrich} disabled={eligible === 0} title="Runs on the ticked rows, or on every row the filters show; above 50 it asks first." data-testid="enrich-btn">{ticked.size ? `Enrich ${eligible} ticked` : `Enrich all ${eligible} shown`}</Btn>
+                <Btn small kind="ghost" onClick={enrich} disabled={eligible === 0} title="Runs on the ticked rows, or on every row the filters show; above 50 it asks first." data-testid="enrich-btn">{ticked.size ? scopeLabel('Enrich', { n: eligible, what: 'ticked', companies: tickedCompanies }) : scopeLabel('Enrich all', { n: eligible, what: 'shown', companies: sc?.usable_companies ?? 0 })}</Btn>
                 {noDomain > 0 && <Btn small kind="ghost" onClick={retryShown} data-testid="retry-domains" title="Run the website finder again (name patterns, then an AI lookup with web search) for the companies in this view that were tried and still have no website">{`Retry domain (${ticked.size ? 'ticked' : `${noDomain} tried, not found`})`}</Btn>}
               </MoreMenu>
             </div>
             {confirmAll && (
-              <div role="dialog" aria-label="Enrich all shown" data-testid="enrich-all-confirm" style={{ marginTop: 6, fontSize: 12, border: `1px solid ${METRO.agencyLine}`, borderRadius: 8, padding: '5px 8px' }}>
+              <div role="dialog" aria-label="Enrich all shown" data-testid="enrich-all-confirm" style={{ marginTop: 6, fontSize: 12, border: `1px solid ${METRO.error}`, borderRadius: 8, padding: '5px 8px' }}>
                 Enrich all {confirmAll} companies in this view? It runs paced, about a minute per company at worst.
                 <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}><Btn small onClick={enrich} data-testid="enrich-all-yes">Enrich {confirmAll}</Btn><Btn small kind="ghost" onClick={() => setConfirmAll(false)}>Cancel</Btn></span>
               </div>
@@ -252,20 +269,20 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
             sub={(chainSum && chainStatesLine(chainSum.states)) || 'One chain per company: its best contact; colleagues are held'}>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <Btn small onClick={writeChains} disabled={!(ticked.size || chainSum?.shortlisted)} data-testid="write-chains"
-                title="One call through /claude per lead: touches from its unused hooks, LinkedIn first when connected, email first otherwise. The checks run in code; nothing is sent.">
-                {ticked.size ? `Write chains (${ticked.size} ticked)` : `Write chains (${chainSum?.shortlisted ?? pipe.write.ready} shortlisted)`}</Btn>
+                title="One wave per company (its best contact), one call through /claude: ONE angle, 2-3 facts, 3-4 emails; the LinkedIn intro and the pointer are built by code for connected leads. Rewrites the draft waves (never an approved one). The checks run in code; nothing is sent.">
+                {chainsLabel}</Btn>
               <MoreMenu testid="write-more">
                 <Btn small kind="ghost" onClick={importCases} data-testid="import-cases" title="Read itforce.ua/en/cases and store every English case with its industry tags. The chain attaches one, chosen by code.">
                   {cases ? `Read the case pages again (${cases} stored)` : 'Import IT Force case pages'}</Btn>
               </MoreMenu>
             </div>
-            {cases === 0 && <div style={{ fontSize: 11, color: '#c2410c', marginTop: 4 }} data-testid="no-cases">No case pages yet: import them first (More), or chains go out without a case link.</div>}
+            {cases === 0 && <div style={{ fontSize: 11, color: METRO.errorText, marginTop: 4 }} data-testid="no-cases">No case pages yet: import them first (More), or chains go out without a case link.</div>}
           </Stage>
           <Stage n="4" title="Send" line={`${pipe.send.ready} approved`} sub="Export for Linked Helper and email. Metro itself sends nothing yet (Phase 4-5).">
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <Btn small kind={pipe.send.ready ? 'primary' : 'ghost'} onClick={() => download('linkedhelper')} disabled={!pipe.send.ready} data-testid="export-lh"
+              <Btn small kind="secondary" onClick={() => download('linkedhelper')} disabled={!pipe.send.ready} data-testid="export-lh"
                 title="One row per approved lead with LinkedIn messages; one custom variable per message (metro_message_1 ...)">Linked Helper CSV</Btn>
-              <Btn small kind="ghost" onClick={() => download('email')} disabled={!pipe.send.ready} data-testid="export-email"
+              <Btn small kind="secondary" onClick={() => download('email')} disabled={!pipe.send.ready} data-testid="export-email"
                 title="One row per approved email, in send order, for leads with a sendable address">Email CSV</Btn>
             </div>
           </Stage>
@@ -273,7 +290,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
       )}
 
       {campaignId && campaign && <EnrichPanel campaign={campaign} refreshKey={tick} onChanged={load} targetIds={targetIds}
-        scope={scope} ticked={ticked.size > 0} />}
+        scope={scope} ticked={ticked.size > 0} hooksLabel={hooksLabel} deepLabel={deepLabel} logosMissing={chainSum?.logos_missing || 0} onReadLogos={readLogos} />}
 
       {campaignId && (
         <div style={card}>
@@ -302,12 +319,12 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
               {scope.n} {scope.what}{ticked.size ? ' (ticked)' : ''}
             </span>
             <MoreMenu testid="toolbar-more" align="right">
-              <Btn kind="ghost" small onClick={rescore} data-testid="rescore-btn" title="Persona score (layer 0, from the CSV): run it again with the current persona rules, on the ticked rows or the rows shown. The fit score is worked out by itself after every enrich run and every browser reading.">{`Rescore persona (${scope.n} ${scope.what})`}</Btn>
+              <Btn kind="secondary" small onClick={rescore} data-testid="rescore-btn" title="Persona score (layer 0, from the CSV): run it again with the current persona rules, on the ticked rows or the rows shown. The fit score is worked out by itself after every enrich run and every browser reading.">{`Rescore persona (${scope.n} ${scope.what})`}</Btn>
             </MoreMenu>
             {lastRun && f.enriched !== 'recent' && <Btn kind="ghost" small onClick={() => setF({ ...f, enriched: 'recent', sort: 'just_enriched' })} data-testid="show-just-enriched" title="Only the companies the last enrich run touched">Show just enriched</Btn>}
             {ticked.size > 0 && !confirmRemove && <Btn kind="ghost" small onClick={() => setConfirmRemove(true)} data-testid="remove-ticked">{`Remove ${ticked.size} ticked`}</Btn>}
             {confirmRemove && (
-              <span role="dialog" aria-label="Remove leads" data-testid="remove-dialog" style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12, border: `1px solid ${METRO.agencyLine}`, borderRadius: 8, padding: '3px 8px' }}>
+              <span role="dialog" aria-label="Remove leads" data-testid="remove-dialog" style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12, border: `1px solid ${METRO.error}`, borderRadius: 8, padding: '3px 8px' }}>
                 Remove {ticked.size} lead{ticked.size === 1 ? '' : 's'} from this campaign? Not undoable.
                 <Btn small onClick={removeTicked} data-testid="confirm-remove">Remove</Btn><Btn small kind="ghost" onClick={() => setConfirmRemove(false)}>Keep</Btn>
               </span>
@@ -332,7 +349,8 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                       title="Click to open the lead: summary, hooks with their evidence, the chain">
                       <td><input type="checkbox" aria-label={`Tick ${l.full_name}`} checked={ticked.has(l.id)}
                         onChange={() => { const n = new Set(ticked); n.has(l.id) ? n.delete(l.id) : n.add(l.id); setTicked(n) }} /></td>
-                      <td style={{ maxWidth: 340 }}>
+                      <td style={{ maxWidth: 380 }}><div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                        <Logo src={l.logo} name={l.company_name} size={30} /><div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 700 }}>{l.profile_url
                           ? <a href={l.profile_url} target="_blank" rel="noreferrer" style={{ color: METRO.ink }}>{l.full_name || '(no name)'}</a> : (l.full_name || '(no name)')}
                           {l.account_role === 'held' && <span className="mt-tag" title="Same company as the primary contact: held until that chain ends">held</span>}
@@ -349,7 +367,7 @@ export default function LeadsTab({ campaignId: pickedId, onCampaign, line = null
                         </div>
                         {(l.suppressed_reason || l.prior_contact_reason) && <div style={{ fontSize: 10, color: 'rgba(0,12,14,0.55)' }}>
                           {l.suppressed_reason || `previously contacted, kept: ${l.prior_contact_reason}`}</div>}
-                      </td>
+                      </div></div></td>
                       <td title={`persona ${l.persona_score ?? '-'} ${l.persona_verdict || ''}${l.deep_score != null ? ` · deep ${l.deep_score}` : ''}`}>
                         <b>{l.fit_score ?? '-'}</b>
                         <div style={{ fontSize: 10.5, color: l.persona_verdict === 'keep' ? '#1a9d5c' : l.persona_verdict === 'junk' ? '#b36b00' : 'rgba(0,12,14,0.55)' }}>

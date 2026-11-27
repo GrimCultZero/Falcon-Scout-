@@ -11392,3 +11392,32 @@ Found in passing: a scratch backend's Metro model calls went to the LIVE backend
 now points them at itself.
 Tests: node tests/run_all.mjs --python: 74 JS suites, 49 Python suites, 0 failing (new: tests/metro/test_metro_phase3.py,
 tests/metro/phase3-ui.test.js; updated for the new design: activity-strip, fix1-ui, fix5-ui, metro-ui, test_metro_phase1/2).
+
+## 2026-11-27 - Metro P3b: agency chains rebuilt in DevScout's wave shape + the Minor fixes list 1-10 (branch metro/phase-3b)
+Why: Oleh found P3's chains "AI-ish": every email recited a new fact about the agency ("touches = distinct hooks"). Monday 30 Nov he
+shows his superiors a generic message next to Metro's. Decision row "Chain shape" (27 Nov): ONE angle per agency, 2-3 facts per wave,
+fixed message jobs, the human voice made true by code.
+Built (details: DESIGN.md section 25, "How Phase 3b built it"): `api/metro/writing.py` (DevScout's writing rules ported to Python for
+IT Force's agency line: jobs, lead-ins, soft question lead-ins, built LinkedIn intro and pointer, bans, checks); the chain writer
+rewritten (`chains.py`: plan by DevScout wave-3e / wave-4e, angle and facts by code, one model call for the emails only, voice enforced
+after the reply, intro on acceptance, "Change case"); the case matched on client niche AND service (`cases.py`); P3b checks on top of
+P3's (`chaincheck.py` + `writing.lint_wave`). Part B: the Metro mark, company logos (`logos.py`), the false "backend down" (open SQLite
+transaction across model calls + a page that called one failed request "not running"), `falconscout.bat` that restarts nothing that
+runs, resumable runs (`runqueue.py`, Resume in the strip), labels with real counts, three button kinds with the volume style, no red,
+the tab title and icon per side, the "done" chip for runs Oleh started.
+Real run on a COPY (tools/scratch_check.py, copy C:\Users\syzov\AppData\Local\Temp\falcon-scratch\20261127-194511\upwork_jobs_copy.db),
+real model calls through the CLI bridge, "Write chains" three times plus one single rewrite (about 28 calls). Run 1: 3 clean / 5 flagged
+/ Media Two skipped. What the real output taught, each fixed in code and pinned by a test: positioning lines recited back (now never a
+fact), "no paid search" claimed while a hook says they sell SEM (the angle reads the services hooks), the niche word "B2B" flagged as a
+reused fact, "cost per lead" in a PPC tip flagged as a price, "operatic's" lowercased in a subject, the generic "franchise -> Local
+business" mapping and the pub case for a food-brand agency, "than it's." contractions, "Here's" read as a fact. Run 3: 7 of 8 written
+waves pass every check (GRAIN: "similar questions", a fair flag); Operatic's rewrite failed twice with a CLI-bridge 502 ("claude.ai
+connectors are disabled because ANTHROPIC_API_KEY ... takes precedence"), and after that EVERY call failed, even a two-word one: the
+bridge stopped answering (most likely the subscription limit), so Operatic keeps its run-2 wave. Media Two has no hooks at all, so it
+gets no wave and its old P3 draft was removed. During the run the scratch backend answered reads and writes in under 10 ms.
+Browser check on the scratch frontend (:5190 -> :8001, copy only): Leads labels ("Write hooks (15 shortlisted · 9 companies)"), button
+kinds, lime line pill, the lead panel (facts used, case + Change case picker, jobs per message), tab title and icon per side.
+Tests: node tests/run_all.mjs --python: 75 JS suites, 50 Python suites, 0 failing (new: tests/metro/test_metro_phase3b.py,
+tests/metro/p3b-ui.test.js; updated: test_metro_phase3.py sections F/H/I, launcher.test.js, fix5-ui, metro-ui, phase3-ui, side-switch).
+Not done: the Metro intro loading screen (it does not exist yet), CRM cards (no CRM yet), logos from LinkedIn pages / Linked Helper
+columns (the hook is there: `logos.store_from_url`), Operatic's rewrite (bridge down).

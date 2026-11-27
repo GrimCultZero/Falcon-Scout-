@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>IT Force internal tools brand board</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;font-family:Manrope,system-ui,sans-serif;color:#0b1f3b}
+a{color:#005669}a:hover{color:#004150}
+.b{font:inherit;font-weight:700;font-size:14px;border-radius:9px;padding:9px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;border:1.5px solid transparent;transition:transform .12s ease,box-shadow .15s ease,background-color .15s ease}
+.b:hover{box-shadow:0 0 0 4px rgba(0,229,255,.22)}
+.b:active{transform:translateY(2px)}
+.b:focus-visible{outline:3px solid #37bbd5;outline-offset:2px}
+.spin{width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.half{transition:opacity .25s ease,transform .25s ease}
+.row:hover{background:#f4f9fb}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div style="max-width:1536px;margin:0 auto;background:#f4f8fb">
+
+<section style="position:relative;background:#0b2a3f;line-height:0;color:#fff"><img src="/_blob/707864fef8bc3cbf52592a7c4ff85076" alt="" style="width:100%;height:auto;display:block"><div style="position:absolute;left:19%;top:30%;line-height:1.1;display:flex;flex-direction:column;gap:clamp(6px,.9vw,14px)"><div style="display:flex;align-items:center;gap:10px;justify-content:flex-start;font-size:clamp(12px,1.25vw,19px);font-weight:600;opacity:.95"><svg width="34" height="20" viewBox="0 0 45 26" aria-hidden="true"><path d="M14.7872 10.8347L5.05022 20.5157L0 15.4957L5.41607 10.1121H24.7537L34.56 19.862L29.1248 25.2647L9.6461 5.90264L15.0837 0.5H34.0842L44.0626 10.4163L38.5438 15.9022L24.1631 1.60763L14.7872 10.8347Z" fill="#37bbd5"/></svg><span style="font-weight:800;font-size:1.35em;letter-spacing:-.3px">itforce</span><span style="width:1.5px;height:1.4em;background:#37bbd5"></span><span>Upwork application engine</span></div><div style="font-weight:800;font-size:clamp(30px,4.6vw,70px);letter-spacing:-1px;line-height:.95">Falcon Scout</div></div><div style="position:absolute;right:18.5%;top:30%;line-height:1.1;display:flex;flex-direction:column;align-items:flex-end;gap:clamp(6px,.9vw,14px)"><div style="display:flex;align-items:center;gap:10px;justify-content:flex-end;font-size:clamp(12px,1.25vw,19px);font-weight:600;opacity:.95"><svg width="34" height="20" viewBox="0 0 45 26" aria-hidden="true"><path d="M14.7872 10.8347L5.05022 20.5157L0 15.4957L5.41607 10.1121H24.7537L34.56 19.862L29.1248 25.2647L9.6461 5.90264L15.0837 0.5H34.0842L44.0626 10.4163L38.5438 15.9022L24.1631 1.60763L14.7872 10.8347Z" fill="#37bbd5"/></svg><span style="font-weight:800;font-size:1.35em;letter-spacing:-.3px">itforce</span><span style="width:1.5px;height:1.4em;background:#37bbd5"></span><span>Lead-generation engine</span></div><div style="font-weight:800;font-size:clamp(30px,4.6vw,70px);letter-spacing:-1px;line-height:.95">Metro</div></div></section>
+
+<section style="margin:-6px 20px 0;position:relative;border-radius:14px;overflow:hidden;box-shadow:0 10px 30px rgba(11,31,59,.18)">
+  <div style="background:#0b2a3f;color:#fff;display:flex;align-items:center;gap:20px;padding:12px 24px">
+    <span style="display:flex;align-items:center;gap:8px"><svg width="34" height="20" viewBox="0 0 45 26" aria-hidden="true"><path d="M14.7872 10.8347L5.05022 20.5157L0 15.4957L5.41607 10.1121H24.7537L34.56 19.862L29.1248 25.2647L9.6461 5.90264L15.0837 0.5H34.0842L44.0626 10.4163L38.5438 15.9022L24.1631 1.60763L14.7872 10.8347Z" fill="#37bbd5"/></svg><span style="font-weight:800;font-size:24px">itforce</span></span>
+    <div style="flex:1;display:flex;justify-content:center">
+      <div style="display:flex;padding:4px;border-radius:999px;border:1.5px solid rgba(255,255,255,.55)">
+        <button class="b" onClick="{{toF}}" aria-pressed="{{isF}}" style="border-radius:999px;background:{{fBg}};color:{{fFg}}"><img src="/_blob/8fc0b9b269163445dbd533f745f6e766" alt="" style="height:24px">Falcon Scout</button>
+        <button class="b" onClick="{{toM}}" aria-pressed="{{isM}}" style="border-radius:999px;background:{{mBg}};color:{{mFg}}"><img src="/_blob/55348d5c8d976fffe8936d73f6296836" alt="" style="height:22px">Metro</button>
+      </div>
+    </div>
+    <span style="width:34px;height:34px;border-radius:50%;background:#fff;color:#0b1f3b;display:grid;place-items:center;font-weight:800">A</span>
+  </div>
+  <sc-if value="{{hasNotice}}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="background:#0b2a3f;color:#fff;padding:0 24px 12px;display:flex"><span style="display:flex;align-items:center;gap:10px;border:1.5px solid #2BB673;border-radius:9px;padding:8px 12px;font-size:13px;font-weight:600"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L19 7" fill="none" stroke="#2BB673" stroke-width="3" stroke-linecap="round"/></svg>{{notice}}<button class="b" onClick="{{dismiss}}" aria-label="Dismiss" style="padding:2px 8px;background:transparent;color:#fff;border-color:rgba(255,255,255,.3)">×</button></span></div>
+  </sc-if>
+  <div style="display:flex;flex-wrap:wrap">
+    <div class="half" style="flex:1 1 640px;display:flex;background:#eef6f4;box-shadow:inset 0 4px 0 {{fLine}}">
+      <nav style="width:170px;background:#0B3A34;color:#fff;padding:20px 14px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px;line-height:1.05;margin-bottom:14px"><img src="/_blob/8fc0b9b269163445dbd533f745f6e766" alt="" style="height:42px">Falcon<br>Scout</div>
+        <button class="b" style="justify-content:flex-start;background:rgba(255,255,255,.14);color:#fff">Jobs</button>
+        <button class="b" style="justify-content:flex-start;background:transparent;color:#fff">Proposals</button>
+        <button class="b" style="justify-content:flex-start;background:transparent;color:#fff">Settings</button>
+      </nav>
+      <div style="flex:1;min-width:0;padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:flex-start;gap:12px"><div style="flex:1"><div style="font-weight:800;font-size:24px">Upwork Jobs</div><div style="font-size:13px;color:#33605a">Discover relevant jobs, score them with AI and draft winning proposals.</div></div>
+          <button class="b" onClick="{{find}}" style="background:#00E5FF;color:#000c0e"><sc-if value="{{busyFind}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>+ Find Jobs</button></div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+          <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #d7e8e4"><div style="font-weight:800;font-size:22px">128</div><div style="font-size:12px">New jobs</div></div>
+          <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #d7e8e4"><div style="font-weight:800;font-size:22px">24</div><div style="font-size:12px">High fit (8+)</div></div>
+          <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #d7e8e4"><div style="font-weight:800;font-size:22px">18</div><div style="font-size:12px">Drafts ready</div></div>
+          <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #d7e8e4"><div style="font-weight:800;font-size:22px">6</div><div style="font-size:12px">Sent</div></div>
+        </div>
+        <div style="background:#fff;border-radius:10px;border:1px solid #d7e8e4">
+          <sc-for list="{{jobs}}" as="j" hint-placeholder-count="3">
+            <div class="row" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #edf3f2"><span style="flex:1;font-weight:700;font-size:14px">{{j.t}}</span><span style="background:#dff8ee;color:#0b5e43;font-weight:800;border-radius:7px;padding:3px 9px;font-size:13px">{{j.s}}</span><span style="background:{{j.bg}};color:{{j.fg}};font-weight:700;border-radius:7px;padding:3px 9px;font-size:12px;width:76px;text-align:center">{{j.st}}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div class="half" style="flex:1 1 640px;display:flex;background:#eef4fb;box-shadow:inset 0 4px 0 {{mLine}}">
+      <nav style="width:170px;background:#0B1F3B;color:#fff;padding:20px 14px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:20px;margin-bottom:14px"><img src="/_blob/55348d5c8d976fffe8936d73f6296836" alt="" style="height:34px">Metro</div>
+        <button class="b" style="justify-content:flex-start;background:rgba(255,255,255,.14);color:#fff">Campaigns</button>
+        <button class="b" style="justify-content:flex-start;background:transparent;color:#fff">Leads</button>
+        <button class="b" style="justify-content:flex-start;background:transparent;color:#fff">Templates</button>
+        <button class="b" style="justify-content:flex-start;background:transparent;color:#fff">Settings</button>
+      </nav>
+      <div style="flex:1;min-width:0;padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:flex-start;gap:12px"><div style="flex:1"><div style="font-weight:800;font-size:24px">Campaigns</div><div style="font-size:13px;color:#33507a">Run lead generation as a metro system: import, research, write and send.</div></div>
+          <button class="b" onClick="{{newCamp}}" style="background:#00E5FF;color:#000c0e"><sc-if value="{{busyCamp}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>+ New Campaign</button></div>
+        <div style="background:#fff;border-radius:10px;border:1px solid #d6e2ef">
+          <div class="row" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-left:4px solid #B8F82C;border-bottom:1px solid #edf2f8"><div style="flex:1"><div style="font-weight:800">Agency line</div><div style="font-size:12px">Partner agencies</div></div><div><b>2,481</b><div style="font-size:11px">Leads</div></div><div><b>412</b><div style="font-size:11px">Contacted</div></div></div>
+          <div class="row" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-left:4px solid #37bbd5"><div style="flex:1"><div style="font-weight:800">Niche line</div><div style="font-size:12px">Direct clients (one industry)</div></div><div><b>1,236</b><div style="font-size:11px">Leads</div></div><div><b>258</b><div style="font-size:11px">Contacted</div></div></div>
+        </div>
+        <div style="background:#fff;border-radius:10px;border:1px solid #d6e2ef;padding:14px 18px">
+          <div style="font-weight:700;font-size:14px;margin-bottom:12px">Line flow (click a station)</div>
+          <div style="position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))">
+            <div style="position:absolute;left:12%;right:12%;top:11px;height:4px;background:#37bbd5;border-radius:2px"></div>
+            <sc-for list="{{stations}}" as="s" hint-placeholder-count="4">
+              <div style="position:relative;text-align:center"><button class="b" onClick="{{s.go}}" aria-label="{{s.a}}" style="width:26px;height:26px;padding:0;border-radius:50%;justify-content:center;background:{{s.fill}};border:4px solid #37bbd5"></button><div style="font-weight:800;font-size:13px;margin-top:6px">{{s.a}}</div><div style="font-size:11px">{{s.b}}</div></div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;padding:32px 40px 40px">
+  <div><div style="font-weight:800;font-size:18px;margin-bottom:14px">Brand system</div><div style="display:flex;flex-direction:column;gap:12px;font-weight:800;font-size:22px"><span style="display:flex;align-items:center;gap:10px"><span style="width:64px;height:52px;border-radius:12px;background:#0B3A34;display:grid;place-items:center"><img src="/_blob/8fc0b9b269163445dbd533f745f6e766" alt="" style="height:44px"></span>Falcon Scout</span><span style="display:flex;align-items:center;gap:10px"><span style="width:52px;height:52px;border-radius:12px;background:#0B1F3B;display:grid;place-items:center"><img src="/_blob/55348d5c8d976fffe8936d73f6296836" alt="" style="height:40px"></span>Metro</span></div></div>
+  <div><div style="font-weight:800;font-size:18px;margin-bottom:14px">Colour palette</div><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-size:10px">
+    <div><div style="height:38px;border-radius:7px;background:#0B3A34"></div>#0B3A34</div><div><div style="height:38px;border-radius:7px;background:#0B1F3B"></div>#0B1F3B</div><div><div style="height:38px;border-radius:7px;background:#005669"></div>#005669</div><div><div style="height:38px;border-radius:7px;background:#37bbd5"></div>#37BBD5</div>
+    <div><div style="height:38px;border-radius:7px;background:#00E5FF"></div>#00E5FF</div><div><div style="height:38px;border-radius:7px;background:#B8F82C"></div>#B8F82C</div><div><div style="height:38px;border-radius:7px;background:#D8E3EF"></div>#D8E3EF</div><div><div style="height:38px;border-radius:7px;background:#F2F6FB;border:1px solid #d8e3ef"></div>#F2F6FB</div></div></div>
+  <div><div style="font-weight:800;font-size:18px;margin-bottom:14px">Shared UI components</div><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <button class="b" onClick="{{demo}}" style="background:#00E5FF;color:#000c0e"><sc-if value="{{busyDemo}}" hint-placeholder-val="{{ false }}"><span class="spin"></span></sc-if>+ Primary</button>
+    <button class="b" style="background:#fff;color:#0b1f3b;border-color:#9fb3c8">Secondary</button>
+    <span style="font-size:12px;font-weight:700;border-radius:6px;padding:3px 8px;background:#dff8ee;color:#0b5e43">High fit</span><span style="font-size:12px;font-weight:700;border-radius:6px;padding:3px 8px;background:#ece6fb;color:#4b2a9a">Draft ready</span><span style="font-size:12px;font-weight:700;border-radius:6px;padding:3px 8px;background:#e2f3fb;color:#0b4f6c">In progress</span></div></div>
+  <div><div style="font-weight:800;font-size:18px;margin-bottom:14px">Metro metaphor: campaign as a line</div><div style="display:flex;flex-direction:column;gap:12px;font-size:14px"><span style="display:flex;align-items:center;gap:10px"><svg width="44" height="14" aria-hidden="true"><line x1="0" y1="7" x2="44" y2="7" stroke="#B8F82C" stroke-width="4"/><circle cx="22" cy="7" r="5" fill="#fff" stroke="#B8F82C" stroke-width="3"/></svg><b>Agency line</b> partner agencies</span><span style="display:flex;align-items:center;gap:10px"><svg width="44" height="14" aria-hidden="true"><line x1="0" y1="7" x2="44" y2="7" stroke="#37bbd5" stroke-width="4"/><circle cx="22" cy="7" r="5" fill="#fff" stroke="#37bbd5" stroke-width="3"/></svg><b>Niche line</b> direct clients</span></div></div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1536,"height":1120}}'>
+class Component extends DCLogic {
+  constructor(p){super(p);this.state={side:'F',busy:'',notice:'',st:1};}
+  later(id,msg){this.setState({busy:id});setTimeout(()=>this.setState({busy:'',notice:msg}),1400);}
+  renderVals(){
+    const s=this.state,F=s.side==='F';
+    const jobs=[['Google Ads setup and optimisation','9.2','Draft ready','#ece6fb','#4b2a9a'],['SEO audit and growth strategy','8.7','Draft ready','#ece6fb','#4b2a9a'],['PPC for eCommerce (ongoing)','8.4','New','#e2f3fb','#0b4f6c']].map(j=>({t:j[0],s:j[1],st:j[2],bg:j[3],fg:j[4]}));
+    const names=[['Import','Add leads'],['Research','Enrich and qualify'],['Write','Personalise outreach'],['Send','LinkedIn and email']];
+    const stations=names.map((n,i)=>({a:n[0],b:n[1],fill:i<=s.st?'#37bbd5':'#fff',go:()=>this.setState({st:i})}));
+    return {isF:F,isM:!F,fBg:F?'#2EE6A6':'transparent',fFg:F?'#000c0e':'#fff',mBg:F?'transparent':'#00E5FF',mFg:F?'#fff':'#000c0e',
+      fLine:F?'#2EE6A6':'transparent',mLine:F?'transparent':'#00E5FF',toF:()=>this.setState({side:'F'}),toM:()=>this.setState({side:'M'}),
+      jobs,stations,hasNotice:!!s.notice,notice:s.notice,dismiss:()=>this.setState({notice:''}),
+      busyFind:s.busy==='find',find:()=>this.later('find','Found 12 new jobs - 3 score 8 or more'),
+      busyCamp:s.busy==='camp',newCamp:()=>this.later('camp','Campaign created - import a list to start'),
+      busyDemo:s.busy==='demo',demo:()=>this.later('demo','Primary action done')};
+  }
+}
+</script>
+</body>
+</html>

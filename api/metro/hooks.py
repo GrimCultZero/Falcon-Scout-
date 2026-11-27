@@ -361,6 +361,7 @@ def write_company_hooks(s: Session, company: MetroCompany | None, leads: list[Me
                            company=(company.name if company else (leads[0].company_name or "unknown")),
                            evidence=_lines(comp_items) or "(none)", people=people_txt, max_hooks=MAX_HOOKS,
                            max_person=MAX_PERSON_HOOKS, kinds=kinds, tags=", ".join(tags) if tags else "none (use null)")
+    s.commit()                                   # P3b #3: no transaction stays open across the model call
     data = aiclient.parse_json(ask(prompt, model=aiclient.SONNET, max_tokens=8000, kind="metro_hooks"))
     if not isinstance(data, dict):
         raise aiclient.AIError("unexpected answer shape")
@@ -512,7 +513,11 @@ def start_hooks_run(campaign_id: int, lead_ids: list[int], *, ask=None, backgrou
         if HooksRun.state.get("running"):
             return {"started": False, "reason": "a run is already going", **HooksRun.state}
         HooksRun.stop_flag.clear()
-        rid = progress.start("hooks", "Writing hooks", total=len(groups), campaign_id=campaign_id, stop=stop_hooks)
+        rid = progress.start("hooks", "Writing hooks", total=len(groups), campaign_id=campaign_id, stop=stop_hooks, by_click=True)
+        from . import runqueue
+        qid = runqueue.begin("hooks", campaign_id, [[str(cid if cid else f"lead-{ids[0]}"), ids] for cid, ids in groups],
+                             label="Writing hooks", progress_id=rid)
+        progress.update(rid, queue_id=qid)
         HooksRun.state = {"running": True, "campaign_id": campaign_id, "total": len(groups), "leads": len(lead_ids), "done": 0,
                           "failed": 0, "hooks": 0, "rejected": 0, "log": [], "progress_id": rid, "leads_done": 0}
 
@@ -545,6 +550,7 @@ def start_hooks_run(campaign_id: int, lead_ids: list[int], *, ask=None, backgrou
                         HooksRun.state["failed"] += 1
                         HooksRun.state["log"] = (HooksRun.state["log"] + [{"company_id": cid, "error": f"{type(e).__name__}: {e}"[:200]}])[-20:]
                 HooksRun.state["done"] += 1
+                runqueue.item_done(qid, str(cid if cid else f"lead-{ids[0]}"))
                 progress.update(rid, done=HooksRun.state["done"], failed=HooksRun.state["failed"])
         finally:
             st = HooksRun.state
@@ -559,6 +565,7 @@ def start_hooks_run(campaign_id: int, lead_ids: list[int], *, ask=None, backgrou
                                              _lines.part(st.get("rescanned"), "site", "sites", "re-read"),
                                              _lines.part(st["failed"], "company", "companies", "failed")),
                             "stopped" if st.get("stopped") else "done")
+            runqueue.end(qid, "stopped" if st.get("stopped") else "done")
 
     if background:
         threading.Thread(target=work, name="metro-hooks", daemon=True).start()

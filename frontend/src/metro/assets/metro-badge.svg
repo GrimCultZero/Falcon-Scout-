@@ -4,7 +4,7 @@
 <rect x="14" y="9" width="36" height="41" rx="9" fill="#eaf6f9" stroke="#000c0e" stroke-width="3.5"/>
 <rect x="18" y="14" width="28" height="17" rx="4" fill="#000c0e"/>
 <g transform="translate(21 17.5) scale(0.5)"><path d="M14.7872 10.8347L5.05022 20.5157L0 15.4957L5.41607 10.1121H24.7537L34.56 19.862L29.1248 25.2647L9.6461 5.90264L15.0837 0.5H34.0842L44.0626 10.4163L38.5438 15.9022L24.1631 1.60763L14.7872 10.8347Z" fill="#37bbd5"/></g>
-<rect x="16" y="34" width="32" height="3.2" fill="#e6261f"/><rect x="16" y="37.2" width="32" height="3.2" fill="#37bbd5"/>
+<rect x="16" y="34" width="32" height="3.2" fill="#B8F82C"/><rect x="16" y="37.2" width="32" height="3.2" fill="#37bbd5"/>
 <circle class="lamp" cx="22" cy="45" r="2.6" fill="#00E5FF" stroke="#000c0e" stroke-width="1.5"/><circle class="lamp" cx="42" cy="45" r="2.6" fill="#00E5FF" stroke="#000c0e" stroke-width="1.5"/>
 <rect x="20" y="50" width="24" height="4.5" rx="2" fill="#000c0e"/>
 </svg>

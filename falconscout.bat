@@ -32,8 +32,16 @@ REM
 REM  If the provider is switched to CLI later, the backend starts
 REM  the bridge itself on the first CLI call.
 REM
+REM  P3b (27 Nov 2026, Minor fixes #4a): starting this file while the app
+REM  already runs must NEVER restart anything (on 27 Nov a second start
+REM  restarted the backend and killed a hooks run at 3 of 8). It first asks
+REM  :8000/health (or sees :8000 listening) and :5180; a part that is up is
+REM  left alone, and when both are up it only opens the browser tab. Long
+REM  runs also survive a restart now (Metro offers Resume in its strip).
+REM
 REM  Test hooks:  FALCON_DRYRUN=1     print the launch lines, start nothing
 REM               FALCON_NO_BROWSER=1  do not open the browser
+REM               FALCON_ASSUME_DOWN=1 / FALCON_ASSUME_UP=1  skip the probe
 REM ============================================================
 setlocal
 title Falcon Scout - Launcher
@@ -64,14 +72,43 @@ if exist "ai_provider.json" (
   if not errorlevel 1 set "START_BRIDGE=1"
 )
 
-if defined START_BRIDGE call :launch "Falcon Scout - CLI Bridge" "%~dp0." "node cli-bridge.js"
-call :launch "Falcon Scout - Backend%RELOAD%" "%~dp0." ".\.venv\Scripts\python.exe tools\launcher\backend_watchdog.py --port 8000%RELOAD_FLAG%"
-call :launch "%FRONTEND_TITLE%" "%FRONTEND_DIR%" "%FRONTEND_CMD%"
+REM Is the app already running? (P3b #4a) A part that is up is never started again.
+set "BACKEND_UP="
+set "FRONTEND_UP="
+if defined FALCON_ASSUME_UP set "BACKEND_UP=1"
+if defined FALCON_ASSUME_UP set "FRONTEND_UP=1"
+if not defined FALCON_ASSUME_UP if not defined FALCON_ASSUME_DOWN call :probe
+
+if defined BACKEND_UP if defined FRONTEND_UP goto :already_running
+
+if defined BACKEND_UP echo The backend is already running on :8000 - left alone, not restarted.
+if defined FRONTEND_UP echo The frontend is already running on :5180 - left alone, not restarted.
+if defined START_BRIDGE if not defined BACKEND_UP call :launch "Falcon Scout - CLI Bridge" "%~dp0." "node cli-bridge.js"
+if not defined BACKEND_UP call :launch "Falcon Scout - Backend%RELOAD%" "%~dp0." ".\.venv\Scripts\python.exe tools\launcher\backend_watchdog.py --port 8000%RELOAD_FLAG%"
+if not defined FRONTEND_UP call :launch "%FRONTEND_TITLE%" "%FRONTEND_DIR%" "%FRONTEND_CMD%"
 
 if defined FALCON_DRYRUN exit /b 0
 timeout /t 3 /nobreak >nul
 if not defined FALCON_NO_BROWSER start http://localhost:5180
 exit /b 0
+
+REM  Already running: open the browser tab only, restart nothing.
+:already_running
+echo Falcon Scout is already running (:8000 and :5180): opening the browser tab only, nothing is restarted.
+if defined FALCON_DRYRUN exit /b 0
+if not defined FALCON_NO_BROWSER start http://localhost:5180
+exit /b 0
+
+REM  :probe - BACKEND_UP when :8000/health answers or :8000 is listening (a busy
+REM  backend is still a running one); FRONTEND_UP when :5180 answers.
+:probe
+curl.exe -s -f -o nul -m 4 http://127.0.0.1:8000/health >nul 2>&1
+if not errorlevel 1 set "BACKEND_UP=1"
+if not defined BACKEND_UP netstat -ano -p tcp | findstr /r /c:":8000 .*LISTENING" >nul 2>&1
+if not defined BACKEND_UP if not errorlevel 1 set "BACKEND_UP=1"
+curl.exe -s -f -o nul -m 4 http://localhost:5180/ >nul 2>&1
+if not errorlevel 1 set "FRONTEND_UP=1"
+goto :eof
 
 REM  :launch "<window title>" "<start folder>" "<command>"
 :launch

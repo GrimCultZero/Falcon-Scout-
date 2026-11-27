@@ -61,6 +61,17 @@ function saveDismissed() { try { window.localStorage.setItem(DISMISS_KEY, JSON.s
 export function dismiss(id) { dismissed = new Set(dismissed).add(String(id)); saveDismissed(); emit() }
 export function dismissMany(ids) { dismissed = new Set([...dismissed, ...ids.map(String)]); saveDismissed(); emit() }
 
+// P3b #4b: an interrupted run (a backend restart stopped it) starts again on the items it did not finish
+export async function resumeRun(queueId) {
+  const r = await api(`/runs/${queueId}/resume`, { method: 'POST' })
+  announce()
+  return r
+}
+export async function dismissInterrupted(queueId, key) {
+  try { await api(`/runs/${queueId}/dismiss`, { method: 'POST', quiet: true }) } catch { /* the local dismiss below still hides it */ }
+  dismiss(key)
+}
+
 export async function stopRun(id) {
   await api(`/progress/${id}/stop`, { method: 'POST' })
   announce()

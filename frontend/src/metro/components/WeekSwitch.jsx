@@ -36,7 +36,7 @@ export default function WeekSwitch({ week, onChanged }) {
       <button type="button" onClick={show} data-testid="week-chip" aria-haspopup="dialog"
         title="Click to switch the week. Linked Helper weeks: no LinkedIn visits. Metro weeks: Metro may visit LinkedIn. Messages and reply checks are always allowed."
         style={{ cursor: 'pointer', border: '1px solid rgba(55,187,213,0.45)', borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 700,
-          fontFamily: METRO.font, color: METRO.ice, background: mode === 'linked_helper' ? 'rgba(230,38,31,0.35)' : 'rgba(55,187,213,0.12)' }}>
+          fontFamily: METRO.font, color: METRO.ice, background: mode === 'linked_helper' ? 'rgba(242,113,28,0.35)' : 'rgba(55,187,213,0.12)' }}>
         {WEEK_LABEL[mode]} ▾
       </button>
       {open && (
@@ -56,8 +56,8 @@ export default function WeekSwitch({ week, onChanged }) {
                   Metro may scrape again, within each account's daily cap. <b>Linked Helper must be closed first</b>: LinkedIn must not be visited by two tools at once.
                 </p>
                 <div data-testid="week-check" style={{ margin: '0 0 10px', padding: '8px 10px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                  background: !check ? 'rgba(0,12,14,0.05)' : (!check.readable || check.linked_helper_running.length) ? 'rgba(230,38,31,0.1)' : 'rgba(26,157,92,0.12)',
-                  color: !check ? METRO.ink : (!check.readable || check.linked_helper_running.length) ? METRO.agencyLine : '#1a7a4a' }}>
+                  background: !check ? 'rgba(0,12,14,0.05)' : (!check.readable || check.linked_helper_running.length) ? 'rgba(242,113,28,0.12)' : 'rgba(26,157,92,0.12)',
+                  color: !check ? METRO.ink : (!check.readable || check.linked_helper_running.length) ? METRO.errorText : '#1a7a4a' }}>
                   {!check ? 'Checking the Windows process list ...'
                     : !check.readable ? `Could not read the process list (${check.error || 'unknown'}). The switch stays refused.`
                     : check.linked_helper_running.length ? `Linked Helper is running (${check.linked_helper_running.join(', ')}). Close it, then try again.`

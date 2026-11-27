@@ -2017,3 +2017,66 @@ clients are. Monday 30 Nov Oleh shows Metro's chains next to a generic message, 
   running chip and failed / stopped runs (`activity.attentionOnly`); the ETA ("~3 min left") is on the chip; the badge has header
   padding; the wagon on the dark chip has a light outline by CSS (the SVGs are untouched). The scratch launcher now sets
   `METRO_SELF_URL` to itself: before, a scratch backend's Metro model calls went to the LIVE backend's `/claude`.
+
+### How Phase 3b built it (2026-11-27): agency chains in DevScout's wave shape, the Minor fixes list 1-10
+Why: Oleh did not like P3's chains ("AI-ish": every email recited a new fact about them, "touches = distinct hooks"); Monday 30 Nov
+he shows a generic outreach message next to Metro's. The decision row "Chain shape" (27 Nov) supersedes "touches = distinct hooks".
+- **Writing rules (`writing.py`, new).** A Python port of DevScout's `writingRules.js` + `applyWritingRules.js` (baba-leada), rewritten
+  for IT Force's agency line: `WAVE_JOBS` (intro, hook, approach, value / value4, pointer, close), `ONE_ANGLE_RULE`, lead-ins by the
+  KIND of fact (`LEADINS`, keyed by Metro's hook kinds), `SOFT_LEADINS` (never one twice in a wave; the first email uses the bridge "So
+  I wanted to ask:"), the intro and pointer builders, `BANNED` (DevScout's + "thanks for connecting", "good to meet you", "following
+  up", "from Ukraine", labels for the reader), `CALL_ASKS`, `DELIVERY_TERMS` (approach only), DevScout's blockers (meeting lengths,
+  apologies, sales hints such as "extra hands"), `lint_message` / `lint_wave` and `style_rules_text` for the prompt. Pure.
+- **The wave (`writing.wave_steps`, `chains.plan`).** DevScout wave-3e-v1 / wave-4e-v1 without its LinkedIn "thought" touch: hook (A,
+  day 0), approach (A reply, day 5), value (B, day 14), close (B reply, day 21, 4-email waves only). Connected on LinkedIn: the built
+  intro first (day 0) and the built pointer 2 WORKING days after the value email (`after_step`, `working_days_after`; Phase 4/5 date it
+  with `add_working_days`). Not connected: the same wave by email only. Invited: the email wave now; `ensure_intro` adds the intro as
+  step 0 "on acceptance" when the lead is connected later (checked when the panel opens and before the Linked Helper export; a chain that
+  was approved needs a new Approve). 3 emails when the angle has 2-3 usable facts, 4 when 4+. A lead with NO usable fact gets no wave
+  (and an old P3 draft of it is removed): write hooks first. `chain_track` keeps P3's values (`linkedin_first` = the connected wave).
+- **One angle, 2-3 facts (`chains.angle_of`, `pick_facts`).** Code picks the facts by kind (service_gap, clients_niche, case_study,
+  services, partner_badge, geography, agency_age ...; company before person): F1 for the hook email, F2 (another kind) for the approach,
+  F3 as the close's anchor (4-email waves). Never a fact: the bare role (the intro says it), a vanity number (followers / connections),
+  their positioning line in their own words (the run's closes read it back to them). The angle text is code's: what they sell (scan
+  families), the gap we fill (no paid search / no SEO) or "extra capacity" when a services / case hook names SEM, PPC or Google Ads (a
+  scan without those words is not proof of a gap: Baal & Spots), whom they serve (scan niches + clients_niche hooks). The prompt gives
+  the model ONLY those facts, each with its planned lead-in; the ledger marks exactly them used, so the next wave needs NEW facts.
+- **After the model (`writing.apply_rules`).** Contractions (never at the end of a clause or in a comparison: "than it is."), no em /
+  en dash, no "!", "quietly" / "genuinely" dropped, the hook email's observation gets a lead-in when the model left it out and the
+  sentence starts on them, soft question lead-ins, the greeting "Hi <first>," and the sign-off "Artem" (setting `sender_name`), subjects
+  in sentence case with proper nouns kept (company tokens, facts' proper nouns, a fixed list: Google Ads, SEO, PPC, HubSpot ...).
+  Replies carry no subject (the export writes "Re: <thread subject>").
+- **Checks.** `chaincheck.py` as in P3 (price, URL, placeholders, numbers, hooks ...) with: a reply needs no subject, the tip email may
+  carry advice numbers and PPC words like "cost per lead" (a currency or a fee is still a price), the hook email must carry its ledger
+  fact. On top `writing.lint_wave`: banned phrases, call asks, blockers, delivery details outside the approach, a question or more than
+  50 words in the intro, a close over 60 words, a final question without a soft lead-in, greeting / sign-off, sentence-case subjects,
+  "white-label" AND "behind-the-scenes" in one message, agency proof that is not vague (a number, country, duration or "including"
+  near "we work behind ... agencies"), more than two names in a list, a vanity number, their tagline read back (5 words in a row from the
+  site's title / description / H1), generalisations about their clients' money ("cases like those usually come with ad budgets"), a
+  follow-up that does not open on THIS company; per wave: the same wording twice, similar questions, the hook / approach fact coming back
+  later (their niche word and trade words such as B2B or CRM are not "their fact"), a lead-in twice, the pointer on its email's day, the
+  model's own `angle_check` flag. A failing wave shows "Do not send as is" (the Chain cell label too).
+- **The case (`cases.match_cases`, `best_match`).** Matched on the agency's client NICHE (their two most named; `NICHE_TAGS` maps the
+  scanner's niche words to IT Force's case tags) AND the SERVICE we pitch (a case's services come from its service tags, the "SEO search
+  promotion" category and its title). Scored: niche rank, the niche's main tag, a second niche, the service (both when both are wanted),
+  a North American client, then other non-Ukrainian ones; a "Local business" case loses points for a niche that is not local (an Irish
+  pub is not proof for a food-brand agency). No case matches both = no automatic case (a weak case is worse than none). "Change case" in
+  the lead panel lists the matching cases first, then all; the pick is kept on the lead (`metro_leads.case_choice_id`) across rewrites.
+- **Minor fixes list.** #1 the approved front-view mark (`brand/metro-mark.png`, `Marks.MetroMark`) in the header and as the Metro tab
+  icon (the intro loading screen does not exist yet; it should use `METRO_MARK`). #2 company logos from the company's OWN site
+  (`logos.py`: apple-touch-icon, og:image, icon, /favicon.ico; shrunk to 64 px, kept when 20 KB or less, as `metro_companies.logo_data`);
+  new enrich runs read it, "Read company logos (N without one)" backfills; rows, the panel and the shortlist show it or the initials;
+  never a LinkedIn visit. #3 the false "Cannot reach the backend": the chain writer held a SQLite write transaction across its model
+  call (now committed before every model call, in the hooks writer too), Metro's engine gets WAL + a 15 s busy timeout, the page tries a
+  GET twice and then asks `/metro/ping` twice before it ever says "not running" ("busy" otherwise); measured on the copy during a run:
+  reads and writes answered in under 10 ms. #4 `falconscout.bat` probes :8000/health (or :8000 listening) and :5180 and starts only what
+  is down, opening the tab only when both are up; long runs (enrich and Retry domain, hooks, chains) keep their queue in `metro_runs`
+  (`runqueue.py`), a restart marks a running one `interrupted`, the strip offers Resume on the items left (a finished one is never
+  redone) or dismiss. Nothing resumes by itself. #5 labels count what will be processed (`/metro/leads/scope`, `scopeLabels.js`):
+  "Write hooks (13 shortlisted · 8 companies)". #6 three button kinds (primary acid, secondary lime, tertiary outline) with the volume
+  style. #7 no red: Agency line lime #B8F82C (filled pills with dark text), errors deep orange #F2711C (`METRO.error` / `errorText`).
+  #8 the tab title follows the side (the Falcon side keeps what Falcon Scout set, never "Metro"); a Falcon bell cannot repaint the Metro
+  tab icon. #9 a run started by a button carries `by_click`; its "done" chip shows on the Falcon Scout side too.
+- **Found in passing (fixed):** after a rewrite the ledger could lose a fact silently: `_clear_drafts` frees hooks with a bulk UPDATE the
+  session does not see, and SQLite reuses the deleted touch ids, so a hook whose old and new touch share an id looked unchanged and
+  stayed NULL (P3's writer had the same exposure). The writer now expires the session after clearing.
