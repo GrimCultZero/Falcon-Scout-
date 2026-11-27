@@ -461,3 +461,165 @@ which reads the newest entry, checks it against METRO_PLAN.md and writes the nex
   4. Write card: "Write chains (13 shortlisted)" (8 chains, the 5 colleagues are held; about 2-3 minutes).
   5. Click each row: read, edit, Approve (or Send anyway). Send card: the two exports.
 - Suggested next task: Oleh's review of the live chains (a small fix task for what he wants changed before Monday: tone, case choice, sign-off), then Phase 4 (email sending and replies, with `stop_company` on a reply).
+
+### 2026-11-27 20:11 Kyiv - P3b, agency chains rebuilt in DevScout's wave shape + the Minor fixes list 1-10 - DONE (code, tests and a real run on a COPY; NOT pushed: the push was blocked in this session, see the end; nothing run on the live app or in Oleh's Chrome)
+- Model and effort used: Claude Opus 5.5 (claude-opus-5-5) in Claude Code; the task asked for xhigh, the effort setting itself is not visible to me.
+- Branch / commits: metro/phase-3b (from main), merged into main LOCALLY; frontend/dist rebuilt (git-ignored; the live :5180 serves it now, see "What Oleh must do").
+  - 78b13e4 feat(metro): P3b - agency chains in DevScout's wave shape, Minor fixes list 1-10
+  - da2a807 Merge metro/phase-3b into main
+  - (this entry: docs(metro): P3b handoff entry)
+  - NOT PUSHED: `git push` (branch and main) was refused by this session's permission classifier ("Sensitive Information Leakage"); the
+    staged content has no secrets or lead data (checked: font URLs, an upwork.com link, the word "token" in prose). Oleh: run
+    `git push origin metro/phase-3b main` yourself (or allow the push), so GitHub has it.
+- Done, Part A (the agency chain writer, decision row "Chain shape"):
+  1. ONE angle per agency, chosen by CODE (`chains.angle_of`): what they sell (scan families), the gap we fill (no paid search / no
+     SEO) or "extra capacity" when a services / case hook names SEM, PPC or Google Ads, whom they serve (scan niches + clients_niche hooks).
+     Only 2-3 facts in the WHOLE wave (`pick_facts`): F1 hook email, F2 approach (another kind), F3 the close's anchor (4-email waves).
+     The prompt gets ONLY those facts; the ledger marks exactly them used; the other hooks stay for the next wave. P3's "touches =
+     distinct hooks" logic is gone. Never a fact: the bare role, a vanity number, their positioning line in their own words.
+  2. Waves (`writing.wave_steps`): connected = built intro (day 0) + hook (0) + approach (5) + value (14) + built pointer 2 working days
+     after the value email + close (21, 4-email waves); not connected = the same emails, no LinkedIn; invited = the email wave now, the
+     intro joins as step 0 "on acceptance" (`ensure_intro`, run when the panel opens and before the Linked Helper export). 3 emails with
+     2-3 usable facts, 4 with 4+. DevScout's LinkedIn "thought" touch is left out (the task's list has intro + emails + pointer).
+  3. Message jobs (`writing.WAVE_JOBS`): hook (observation with a planned lead-in, one "I" sentence, what we do, a soft question),
+     approach (the ONLY place for delivery details; the case link attached by code under it), value (a Google Ads / SEO tip for THEIR
+     clients, usable without us), close (under 60 words, one soft way back, anchored on F3). Intro and pointer are BUILT by code.
+  4. The LinkedIn intro (`writing.build_intro`): a rotated "glad / good to be in your network" line, their role, our line tied to what they
+     sell, a rotated neutral close; no question, no pitch, 50 words at most, 300 characters; never "thanks for connecting".
+  5. Role wording: "the behind-the-scenes Google Ads and SEO team for agencies, under your name"; "white-label" may be used, never both
+     in one message (checked). IT Force facts: Google Ads, SEO and web development since 2015, behind-the-scenes / white-label, under the
+     agency's name, never contacts their client, European time zone. "From Ukraine" is refused (prompt and checks). Agency proof only
+     vague ("we already work behind a few agencies"; a number, country, duration or "including" next to it is flagged). No prices.
+  6. Voice made true by code after the reply (`writing.apply_rules`): contractions (not at a clause end or in a comparison), lead-ins,
+     soft question lead-ins never twice in a wave (the first email uses "So I wanted to ask:"), no em dash / "!", "quietly" /
+     "genuinely" dropped, greeting "Hi <first>," and sign-off "Artem", subjects in sentence case with proper nouns ("Google Ads for
+     TISKON clients"). The checks flag: their tagline read back, more than two names, vanity numbers, labels for the reader, call asks.
+  7. Case match by client niche AND service (`cases.match_cases` / `best_match`); no match = no automatic case; "Change case" in the lead
+     panel (matching cases first, then all; the pick is kept across rewrites, `metro_leads.case_choice_id`).
+  8. Checks: DevScout's lintChain / lintBlockers ported (`writing.lint_message` / `lint_wave`) on top of P3's `chaincheck.py`; a failing
+     wave shows "Do not send as is" (banner and Chain cell).
+  9. The 9 draft chains on the COPY were rewritten with real model calls (below). None was approved or sent (checked).
+  10. Three sample waves below.
+- Done, Part B (Minor fixes list):
+  1. Header mark = `brand/metro-mark.png` (front-view wagon), sized to the header, no frame; the Metro tab icon is the same mark. The
+     Metro intro screen does not exist yet (not built here): when it is built it should use `Marks.METRO_MARK`.
+  2. Company logos from the company's OWN site (`api/metro/logos.py`: apple-touch-icon, og:image, icon, /favicon.ico; 64 px, 20 KB at
+     most, `metro_companies.logo_data`); new enrich runs read it; "Read company logos (N without one)" (Enrichment card, More) backfills;
+     shown in the Leads rows, the lead panel and the shortlist, initials when none. Never a LinkedIn visit. CRM cards: no CRM yet.
+     LinkedIn page / Linked Helper logo URLs: `logos.store_from_url` exists, nothing calls it yet.
+  3. The false "Cannot reach the backend": the chain writer held a SQLite WRITE transaction across its model call (`clear_chain` +
+     flush, then a 30-60 s call); any other write waited up to 5 s and failed. Now every Metro run commits before a model call (chains
+     and hooks), Metro's engine has WAL + a 15 s busy timeout, and the page tries a GET twice, then asks `/metro/ping` (no DB, no thread)
+     twice before it ever says "not running"; otherwise it says the backend is busy. Measured on the copy during a chains run: reads and
+     writes answered in 6-10 ms. I could not reproduce the exact 27 Nov symptom (it may also have been the watchdog restarting a stalled
+     backend); this closes every cause I found.
+  4. (a) `falconscout.bat` probes :8000/health (or :8000 listening) and :5180 and launches only what is down; both up = it opens the
+     browser tab only ("nothing is restarted"). (b) enrich (and Retry domain), hooks and chains runs keep their queue in `metro_runs`
+     (`api/metro/runqueue.py`); a backend restart marks a running one "interrupted"; the strip shows it with Resume (the items left,
+     a finished one never redone) and a dismiss. Nothing resumes by itself (model calls and site visits cost; Oleh decides).
+  5. Labels say what they process: "Write hooks (13 shortlisted · 8 companies)", "Write chains (15 shortlisted · 9 companies)", "Queue deep
+     readings (...)", "Enrich all N shown · M companies", ticked rows "(3 ticked · 2 companies)" (`/metro/leads/scope`, `scopeLabels.js`).
+  6. Buttons: primary acid (Import CSV, Enrich next 20, Write chains, Approve), secondary lime (Write hooks, Emails, Enrich next 50,
+     Rescore, deep readings, exports, Send anyway), tertiary outline (More, Brief and settings, Close, Rewrite); gradient sheen, inner
+     highlight, bottom lip, shadow, 1 px lift on hover, 1.5 px press.
+  7. No red: Agency line lime #B8F82C (header legend, campaign cards, the wagon stripe, the "agency · draft" pill as a lime fill with dark
+     text), errors / stop / "Do not send as is" deep orange #F2711C; no #e6261f left (test-pinned).
+  8. The tab title and icon follow the side (checked in the scratch browser: Metro = "Metro" + the mark; Falcon Scout = its own title,
+     bell included, + its icons; both directions). A Falcon bell can no longer repaint the Metro tab icon.
+  9. Runs started by a button carry `by_click`; their "done" chip shows on the Falcon Scout side too (click = Metro Leads, x = dismiss).
+  10. Covered by Part A.
+- Found in passing and fixed: after a rewrite the ledger could silently lose a fact (`_clear_drafts` frees hooks with a bulk UPDATE the
+  session does not see, and SQLite reuses the deleted touch ids). Found by the new tests; P3's writer had the same exposure.
+- **The run on a copy** (`tools/scratch_check.py --copy-live`, copy `C:\Users\syzov\AppData\Local\Temp\falcon-scratch\20261127-194511\upwork_jobs_copy.db`,
+  kept for the planning chat; delete when done). Real model calls through the CLI bridge: "Write chains" three times (9 + 9 + 9 calls)
+  and one single rewrite. Run 1: 3 clean / 5 flagged / 1 skipped. What the real output taught (each fixed in code and test-pinned):
+  closes reading their positioning line back; "no paid search" claimed while a hook lists SEM and a 4x ROAS case (Baal & Spots); the
+  niche word "B2B" flagged as a reused fact; "cost per lead" in a tip flagged as a price; "operatic's" lowercased; "than it's.";
+  an Irish pub case for a food-brand agency and for a real-estate agency (now: a drinks store / no automatic case). Final state of the
+  9: 7 of the 8 written pass every check; GRAIN Group has one fair flag ("steps 1 and 3 ask similar questions"); Operatic keeps its
+  run-2 wave (written with the near-final code, passes its checks, but its case is still the Irish pub: use Change case or Rewrite),
+  because its run-3 rewrite failed twice with a CLI-bridge 502 and after that EVERY call failed, even a two-word one ("claude.ai
+  connectors are disabled because ANTHROPIC_API_KEY or another auth source is set ..."): most likely the subscription limit. Media Two
+  has NO hooks at all: no wave, and its old P3 draft ("thanks for connecting", "from Ukraine") was removed; write its hooks first.
+  All 9 leads are invited or not invited (none connected), so no LinkedIn touch was written in the run; the intros and pointers below
+  are what code builds for them.
+- **Three sample waves** (the final run on the copy; first names as <First>; text exactly as stored, case line added by code under the approach):
+  - **TISKON** (written 4 touches; track email_first; waiting: None)
+    - Angle (code): TISKON sells SEO and social media but no paid search and serves clients in e-commerce; we can add Google Ads for those clients as their behind-the-scenes team, under their name.
+    - Facts the wave uses (code): ['clients_niche: Their clients are most often e-commerce businesses, followed by medical and B2B companies.', 'case_study: They publish case studies including Atos medical center, Sansstress, Bardawil, Bakery le four, Smcc and Bsx logistics.', 'services: Their ecommerce SEO offering is the most developed part of their services, with several dedicated pages and an FAQ.']
+    - Case (code, niche + service): Comprehensive marketing for a cosmetics store. CHAIN FLAGS: []  ISSUES: []
+    - step 1 email hook day 0 | subject: Google Ads for TISKON clients: "Hi <First>, / Was looking at TISKON's client mix, and it seems most of your clients are e-commerce businesses, with medical and B2B companies after that. / I've noticed that when an agency's clients are mostly online shops, paid search is usually the service they get asked about next, and it's the one that's hardest to staff in-house. / We can be the behind-the-scenes Google Ads and SEO team for TISKON, under your name. / Just curious, how are you handling Google Ads for those clients today? / Artem"
+    - step 2 email approach day 5 | subject: None: "Hi <First>, / Was reading about the case studies you publish, like Atos medical center and Sansstress, and they show how much TISKON already does with SEO and social. / Here's a similar project of ours. As a white-label team, we'd run Google Ads for your e-commerce clients: the work goes out under your name, and we never contact your client. We're in a European time zone, so the work gets done overnight for you. / Send us one client you're struggling to deliver for and we'll scope it, or start with a free pilot audit, delivered under your brand. / Out of curiosity, which e-commerce client asks you most about Google Ads? / Artem / Comprehensive marketing for a cosmetics store: https://itforce.ua/en/cases/comprehensive-marketing-for-a-cosmetics-store/"
+    - step 3 email value4 day 14 | subject: Shopping campaign tip for online shops: "Hi <First>, / Here's one tip for TISKON's e-commerce clients that takes about an hour. Split the best sellers into their own Shopping campaign and keep the long tail in a separate one, so the top products don't swallow the whole budget. / Then check the search terms report weekly and add negatives like "free", "used" and "jobs". / By the way, how do you structure product groups for your clients today? / Artem"
+    - step 4 email close day 21 | subject: None: "Hi <First>, / Since my last note, I've kept thinking about how developed TISKON's ecommerce SEO pages are. / I'll leave it here for now. If Google Ads ever comes up for one of your clients, you know where to find me. / Artem"
+  - **GRAIN Group** (Do not send as is (4 touches); track email_first; waiting: needs an email address (none found yet) or a LinkedIn connection)
+    - Angle (code): GRAIN Group sells paid social and social media but no SEO and serves clients in food & beverage; we can add SEO for those clients as their behind-the-scenes team, under their name.
+    - Facts the wave uses (code): ['clients_niche: Their clients are mostly food and beverage brands, with wellness, travel, e-commerce, fitness and finance also named.', 'services: They sell Amazon Ads, retail media on Walmart, Target, Kroger and Instacart, and Google Ads covering Search, PMax and YouTube, alongside Shopify websites.', 'partner_badge: They carry Google Partner, Meta Business Partner, Salesforce Partner and TikTok Partner badges.']
+    - Case (code, niche + service): SEO for a coffee shop chain in Australia. CHAIN FLAGS: ['steps 1 and 3 ask similar questions']  ISSUES: []
+    - step 1 email hook day 0 | subject: SEO for GRAIN Group food clients: "Hi <First>, / Came across GRAIN Group working mostly with food and beverage brands, a category that's as busy on Google as it's on social. / I've noticed that agencies built around paid social often get asked by food clients where SEO fits, and it's an awkward gap when the client wants one team for everything. / We can be the behind-the-scenes Google Ads and SEO team for GRAIN Group, with the work going out under your name. / Just curious, when a food client asks about SEO today, how do you handle it? / Artem"
+    - step 2 email approach day 5 | subject: None: "Hi <First>, / Was looking at how GRAIN Group covers Amazon Ads, retail media and Google Ads, and SEO would sit right next to that. / As your white-label team, we'd deliver under your name and never contact your client. We're in a European time zone, so the work gets done overnight. / Send us one client you're struggling to deliver for and we'll scope it, or start with a free pilot audit, delivered under your brand. Here's a similar project of ours: "SEO for a coffee shop chain in Australia". / I was wondering, which food client would be the easiest place to start? / Artem / SEO for a coffee shop chain in Australia: https://itforce.ua/en/cases/seo-for-a-coffee-shop-chain-in-australia/"
+    - step 3 email value4 day 14 | subject: Google Ads tip for food brands: "Hi <First>, / Here's a tip your food and beverage clients can use today: open the search terms report in Google Ads and look for words like "recipe", "how to make" and "free". Add them as negative keywords on product campaigns. Those searchers want to cook, not buy, so they add clicks without orders. Give recipe queries their own content page instead. / I'm curious, how do you handle recipe-type searches for your food clients today? / Artem"
+    - step 4 email close day 21 | subject: None: "Hi <First>, / Coming back to the partner badges GRAIN Group carries, it's clear you hold delivery to a high standard, so I'll leave it there for now. / If SEO for a food client ever comes up, you can reply to this thread whenever it suits you. / Artem"
+  - **FIREBELLY Marketing** (written 4 touches; track email_first; waiting: needs an email address (none found yet); the LinkedIn intro goes after the acceptance)
+    - Angle (code): FIREBELLY Marketing sells paid social and social media but no paid search and serves clients in food & beverage; we can add Google Ads for those clients as their behind-the-scenes team, under their name.
+    - Facts the wave uses (code): ['clients_niche: Their clients are mostly food and beverage brands, with e-commerce, medical and finance also named on their site.', 'case_study: They publish case studies for food and beverage brands including Paleonola, Filmland Spirits, RC Ranch, Bake Believe and Envy Apples.', 'services: Their service list also includes retail media, email and SMS marketing, UGC, and brand films alongside social.']
+    - Case (code, niche + service): Contextual advertising from scratch for an alcoholic beverages store. CHAIN FLAGS: []  ISSUES: []
+    - step 1 email hook day 0 | subject: Google Ads for FIREBELLY clients: "Hi <First>, / Came across FIREBELLY Marketing and noticed that most of your clients are food and beverage brands, with some e-commerce, medical and finance work too. / I've noticed that when an agency runs paid social for food brands, clients tend to ask about Google Ads sooner or later, since people search for what they've just seen on social. / We can be your behind-the-scenes Google Ads and SEO team, under your name, so you can say yes to that without hiring. / Out of curiosity, how do you handle search requests from clients today? / Artem"
+    - step 2 email approach day 5 | subject: None: "Hi <First>, / Was reading about your case studies for food and beverage brands like Paleonola and Filmland Spirits. / We can run Google Ads for your clients as a white-label team: the work goes out under your name and we never contact your client. We're in a European time zone, so the work is done overnight. / Send us one client you're struggling to deliver for and we'll scope it, or start with a free pilot audit, delivered under your brand. Here's a similar project of ours. / I was wondering, is there a client where search keeps coming up? / Artem / Contextual advertising from scratch for an alcoholic beverages store: https://itforce.ua/en/cases/kontekstnaja-reklama-s-nulja-dlja-magazina-alkogolya/"
+    - step 3 email value4 day 14 | subject: Search terms tip for food brands: "Hi <First>, / Here's one tip for your food and beverage clients running Google Ads: check the search terms report weekly and add negatives like "recipe", "free", "calories" and "homemade". Those searches come from people who want to cook or learn, not buy, and they use up spend on broad keywords. Then move the queries that convert into their own tightly matched ad group. / By the way, how do you handle search term clean-up for your clients today? / Artem"
+    - step 4 email close day 21 | subject: None: "Hi <First>, / Since my last note, I noticed retail media, email and SMS, UGC and brand films sit alongside your social work. / If Google Ads ever lands on a FIREBELLY client's plate, we're a message away, under your name. / I'm curious, is search on your roadmap at all? / Artem"
+  - Built by code for these three (no model): FIREBELLY (invited; on acceptance): "Hi <First>, glad to be in your network. / I see you're the founder of FIREBELLY Marketing. We're IT Force, the behind-the-scenes Google Ads and SEO team for agencies, so FIREBELLY Marketing's social media and branding work is close to ours. / Who knows where our paths cross next." (47 words). TISKON (if connected): "Hi <First>, good to be in your network. / I see you're the founder of TISKON. We're IT Force, the behind-the-scenes Google Ads and SEO team for agencies, so TISKON's SEO and social media work is close to ours. / Good luck with the rest of the year." Pointer for TISKON (if connected): "<First>, I wrote to you by email about a shopping campaign tip for online shops and didn't want it to get buried in a busy inbox. / If it's not your area, a pointer to the right person would be great."
+  - My own read: one angle per agency, the facts are reasons, not recitals; the tips are real and usable; delivery details only in the
+    approach; vague agency proof. Weak spots left: GRAIN's hook says "as busy on Google as it's on social" (written before the
+    contraction fix; new writes cannot produce it); the closes sometimes compliment ("it's clear you hold delivery to a high standard");
+    the approach runs 100-115 words (the job asks 80-100); "Here's a similar project of ours" is the same phrase in most approaches.
+- Not done / deferred, and why:
+  - Push to GitHub: refused by this session's permission classifier (see Branch / commits). Everything is committed and merged locally.
+  - The Metro intro loading screen (brand refresh): it does not exist; #1 only names it. A separate task.
+  - Operatic's rewrite (the CLI bridge stopped answering); Media Two (no hooks).
+  - Logos on CRM cards (no CRM yet) and from LinkedIn pages / Linked Helper columns (the function exists, nothing feeds it yet).
+  - Niche campaigns: the writer handles them (direct-client wording, mini-audit offer) but only with synthetic data; no niche campaign exists.
+- Acceptance checks (METRO_TASK.md "Tests and checks"):
+  - Unit tests for one angle and 2-3 facts, the built intro (no "thanks for connecting"), the pointer, delivery details only in the
+    approach, softened questions without repeats, subject case, "from Ukraine" refused, vague agency proof, case match by niche + service,
+    resume after restart, label counts, colour tokens (no #e6261f): PASSED (tests/metro/test_metro_phase3b.py, tests/metro/p3b-ui.test.js).
+  - DevScout's writing-rules tests ported where they apply (roles, possessives, soft lead-ins, intro, pointer, working days, contractions,
+    the planted repeat / reused fact / same-day pointer): PASSED (section W of test_metro_phase3b.py).
+  - Rewrite the 9 waves on the scratch copy with real model calls: PARTIAL, 7 rewritten in the final run, Operatic rewritten in run 2
+    (run 3 failed on the bridge), Media Two has no hooks (old draft removed). Details above.
+  - Whole suite `node tests/run_all.mjs --python`: PASSED, 75 JS suites, 50 Python suites, 0 failing.
+- Tests: new tests/metro/test_metro_phase3b.py (W writing rules, P plan, F facts, C case, E writer end to end, R what the real run taught,
+  Q resumable runs, M minor fixes logic), tests/metro/p3b-ui.test.js; updated test_metro_phase3.py (sections F, H, I for the wave shape),
+  launcher.test.js (FALCON_ASSUME_DOWN / UP hooks and the "already running" path), fix5-ui, metro-ui, phase3-ui, side-switch.
+- Files changed: api/metro/{writing, runqueue, logos}.py (new); api/metro/{chains, chaincheck, cases, db, enrich, exports, hooks,
+  progress, routes_p1, routes_p2, routes_p3}.py; falconscout.bat; frontend/src/metro/lib/scopeLabels.js (new); frontend/src/metro/{MetroApp,
+  SideShell}.jsx, api.js, metro.css, theme.js, components/{ActivityStrip, CampaignsTab, EnrichPanel, LeadPanel, LeadsTab, Marks,
+  ProgressDock, WeekSwitch, ui}.jsx, lib/{activity, chainView, favicon, progressStore}.js, assets + public metro-badge.svg / metro-wagon.svg
+  (red stripe -> lime); frontend/public/brand/*.png and docs/brand-refresh/*.dc.html (the planning chat's files, committed by name);
+  DESIGN.md (Phase 3b), WORKLOG.md, METRO_PLAN.md (done marks), METRO_TASK.md. Schema 7: new table metro_runs, new columns
+  metro_leads.case_choice_id, metro_companies.logo_data / logo_source (added at start, nothing else changes).
+- Decisions made on my own (need Oleh's OK):
+  1. The agency wave leaves out DevScout's LinkedIn "thought" touch (the task listed intro + 3-4 emails + pointer).
+  2. A connected lead with no sendable email still gets the full wave (the intro can go now, the emails wait for an address).
+  3. A lead with no usable hook gets no wave at all (no "base chain"); its old P3 draft is removed.
+  4. No automatic case when nothing matches BOTH niche and service (Change case picks one); only their two most named niches count;
+     "Local business" cases are penalised for non-local niches; North American clients are preferred.
+  5. Late intro on acceptance = step 0 "on acceptance"; an approved chain then needs a new Approve.
+  6. Interrupted runs are offered for Resume; nothing resumes by itself.
+  7. The tip email may carry advice numbers and PPC words ("cost per lead") without the number / price flags; a currency or fee still fails.
+  8. Positioning lines ("They position themselves as ...") are never recited facts (they still inform the angle).
+- Questions for Oleh:
+  1. Read the three samples: is this the tone for Monday? What would you change first (the hook's "I've noticed ..." sentence, the
+     approach's length, the close)?
+  2. The cases: OK to send no case rather than a weak one? Should a hand pick per company be the norm for the first campaign?
+  3. Leave out DevScout's LinkedIn "thought" touch for agencies (decision 1), or add it back for connected leads?
+- What Oleh must do by hand before the next task:
+  1. Push: `git push origin metro/phase-3b main` (this session could not).
+  2. Restart falconscout.bat (new backend code; schema 7 adds metro_runs and two columns at start). From now on a second start opens the
+     tab only. Then Ctrl+F5. (Until the restart the rebuilt page talks to the old backend: the new counts and Change case stay empty.)
+  3. Make sure the CLI bridge answers again (it refused every call at the end of this session; likely the subscription limit).
+  4. Write card > "Write chains (15 shortlisted · 9 companies)" (it rewrites the draft waves; never an approved one). Media Two needs
+     "Write hooks" first. Then click each row: read, edit, Change case if the case is weak, Approve or Send anyway.
+  5. Optional: Enrichment card > More > "Read company logos (N without one)".
+- Suggested next task: Oleh's read of the waves on the live app (a small fix task for wording), then Phase 4 (email sending and replies,
+  with `stop_company` on a reply and `add_working_days` for the pointer's date); the Metro intro screen of the brand refresh can ride along.
